@@ -1,1 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Apply | TalentBuzz</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+  <style>
+    body {
+      font-family: 'Manrope', sans-serif;
+      padding: 40px;
+      max-width: 500px;
+      margin: auto;
+    }
+
+    h2 {
+      color: #1e3a8a;
+    }
+
+    input, button {
+      width: 100%;
+      padding: 12px;
+      margin-top: 12px;
+      border-radius: 8px;
+      border: 1px solid #e2e8f0;
+    }
+
+    button {
+      background: #1e3a8a;
+      color: white;
+      border: none;
+      cursor: pointer;
+    }
+
+    #message {
+      margin-top: 20px;
+    }
+  </style>
+</head>
+
+<body>
+
+<h2>Apply for <span id="jobTitle"></span></h2>
+
+<form id="applyForm">
+  <input type="email" id="email" placeholder="Enter your email" required>
+  <button type="submit">Continue Application</button>
+</form>
+
+<p id="message"></p>
+
+<script>
+const SUPABASE_URL = 'https://dilalntcxmvdcmwxjcct.supabase.co';
+const SUPABASE_ANON_KEY = 'sb_publishable_HrLVIUwnaRo54yijtrbWBQ_1aeb4ezs';
+
+const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+const params = new URLSearchParams(window.location.search);
+const job = params.get('job');
+
+document.getElementById('jobTitle').innerText = job;
+
+// Handle submit
+document.getElementById('applyForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+
+  const email = document.getElementById('email').value;
+
+  // Check if profile exists
+  const { data: profile } = await supabaseClient
+    .from('applicant_profiles')
+    .select('*')
+    .eq('email', email)
+    .single();
+
+  if (!profile) {
+    // Redirect to create profile
+    window.location.href = `create-profile.html?job=${encodeURIComponent(job)}&email=${email}`;
+    return;
+  }
+
+  // Save application
+  const { error } = await supabaseClient
+    .from('applications')
+    .insert([{
+      email,
+      job_title: job,
+      job_id: job.toLowerCase().replace(/\s/g, '-')
+    }]);
+
+  if (error) {
+    document.getElementById('message').innerText = error.message;
+  } else {
+    // Redirect to success page
+    window.location.href = "apply-success.html";
+  }
+});
+</script>
+
+</body>
+</html>
