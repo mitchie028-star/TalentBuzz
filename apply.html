@@ -17,6 +17,12 @@
 
     h2 {
       color: #1e3a8a;
+      margin-bottom: 10px;
+    }
+
+    p {
+      color: #64748b;
+      font-size: 14px;
     }
 
     input, button {
@@ -32,10 +38,26 @@
       color: white;
       border: none;
       cursor: pointer;
+      font-weight: 700;
+    }
+
+    .google-btn {
+      background: white;
+      color: #1e3a8a;
+      border: 1px solid #e2e8f0;
+      margin-top: 10px;
     }
 
     #message {
       margin-top: 20px;
+      font-size: 14px;
+    }
+
+    .divider {
+      text-align: center;
+      margin: 20px 0;
+      color: #94a3b8;
+      font-size: 12px;
     }
   </style>
 </head>
@@ -43,11 +65,18 @@
 <body>
 
 <h2>Apply for <span id="jobTitle"></span></h2>
+<p>Please log in or create an account to continue your application.</p>
 
-<form id="applyForm">
+<!-- EMAIL LOGIN -->
+<form id="loginForm">
   <input type="email" id="email" placeholder="Enter your email" required>
-  <button type="submit">Continue Application</button>
+  <input type="password" id="password" placeholder="Password" required>
+  <button type="submit">Login / Sign Up</button>
 </form>
+
+<div class="divider">or</div>
+
+<button class="google-btn" id="googleLogin">Continue with Google</button>
 
 <p id="message"></p>
 
@@ -57,29 +86,66 @@ const SUPABASE_ANON_KEY = 'sb_publishable_HrLVIUwnaRo54yijtrbWBQ_1aeb4ezs';
 
 const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
+// Get job from URL
 const params = new URLSearchParams(window.location.search);
-const job = params.get('job');
-
+const job = params.get('job') || "this role";
 document.getElementById('jobTitle').innerText = job;
 
-// Handle submit
-document.getElementById('applyForm').addEventListener('submit', async (e) => {
+// ✅ CHECK IF USER ALREADY LOGGED IN
+async function checkSession() {
+  const { data: { session } } = await supabaseClient.auth.getSession();
+
+  if (session) {
+    applyNow(session.user.email);
+  }
+}
+
+checkSession();
+
+// ✅ LOGIN OR SIGNUP
+document.getElementById('loginForm').addEventListener('submit', async (e) => {
   e.preventDefault();
 
   const email = document.getElementById('email').value;
+  const password = document.getElementById('password').value;
 
-  // Check if profile exists
-  const { data: profile } = await supabaseClient
-    .from('applicant_profiles')
-    .select('*')
-    .eq('email', email)
-    .single();
+  // Try login
+  const { data, error } = await supabaseClient.auth.signInWithPassword({
+    email,
+    password
+  });
 
-  if (!profile) {
-    // Redirect to create profile
-    window.location.href = `create-profile.html?job=${encodeURIComponent(job)}&email=${email}`;
+  if (error) {
+    // If login fails → auto signup
+    const { data: signUpData, error: signUpError } = await supabaseClient.auth.signUp({
+      email,
+      password
+    });
+
+    if (signUpError) {
+      document.getElementById('message').innerText = signUpError.message;
+      return;
+    }
+
+    document.getElementById('message').innerText = "Account created. Please check your email to confirm.";
     return;
   }
+
+  applyNow(email);
+});
+
+// ✅ GOOGLE LOGIN
+document.getElementById('googleLogin').addEventListener('click', async () => {
+  await supabaseClient.auth.signInWithOAuth({
+    provider: 'google',
+    options: {
+      redirectTo: window.location.href
+    }
+  });
+});
+
+// ✅ APPLY FUNCTION
+async function applyNow(email) {
 
   // Save application
   const { error } = await supabaseClient
@@ -93,10 +159,9 @@ document.getElementById('applyForm').addEventListener('submit', async (e) => {
   if (error) {
     document.getElementById('message').innerText = error.message;
   } else {
-    // Redirect to success page
     window.location.href = "apply-success.html";
   }
-});
+}
 </script>
 
 </body>
