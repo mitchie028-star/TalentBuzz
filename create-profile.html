@@ -6,6 +6,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="description" content="Create your TalentBuzz profile and apply to top jobs faster. Upload your resume and get matched with opportunities.">
 
+  <!-- Supabase -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+  <!-- Fonts -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 
@@ -16,6 +20,8 @@
       --muted:#64748b;
       --line:#e2e8f0;
       --bg:#f8fbff;
+      --success:#166534;
+      --error:#b91c1c;
     }
 
     body {
@@ -71,6 +77,7 @@
       border: 1px solid var(--line);
       font-family: inherit;
       font-size: 14px;
+      box-sizing: border-box;
     }
 
     textarea {
@@ -90,6 +97,33 @@
       cursor: pointer;
     }
 
+    .btn:disabled {
+      opacity: 0.7;
+      cursor: not-allowed;
+    }
+
+    .message {
+      margin-top: 16px;
+      padding: 12px;
+      border-radius: 10px;
+      display: none;
+      font-size: 14px;
+    }
+
+    .message.success {
+      display: block;
+      background: #ecfdf5;
+      color: var(--success);
+      border: 1px solid #bbf7d0;
+    }
+
+    .message.error {
+      display: block;
+      background: #fef2f2;
+      color: var(--error);
+      border: 1px solid #fecaca;
+    }
+
     .note {
       margin-top: 14px;
       font-size: 12px;
@@ -98,9 +132,7 @@
     }
 
     @media (max-width: 768px) {
-      h1 {
-        font-size: 1.8rem;
-      }
+      h1 { font-size: 1.8rem; }
     }
   </style>
 </head>
@@ -118,29 +150,31 @@
 
     <div class="card">
 
-      <form>
+      <form id="profileForm">
 
         <label>Full Name</label>
-        <input type="text" placeholder="e.g. Juan Dela Cruz" required>
+        <input id="full_name" type="text" required>
 
         <label>Email Address</label>
-        <input type="email" placeholder="you@email.com" required>
+        <input id="email" type="email" required>
 
         <label>Phone Number</label>
-        <input type="text" placeholder="09XXXXXXXXX">
+        <input id="phone" type="text">
 
         <label>Location</label>
-        <input type="text" placeholder="City, Province">
+        <input id="location" type="text">
 
         <label>Work Experience Summary</label>
-        <textarea rows="4" placeholder="Brief summary of your experience..."></textarea>
+        <textarea id="experience" rows="4"></textarea>
 
         <label>Upload Resume</label>
-        <input type="file" accept=".pdf,.doc,.docx">
+        <input id="resume" type="file" accept=".pdf,.doc,.docx" required>
 
-        <button class="btn">Save Profile</button>
+        <button id="submitBtn" class="btn">Save Profile</button>
 
       </form>
+
+      <div id="message" class="message"></div>
 
       <div class="note">
         Your information is kept secure and will only be used for job applications.
@@ -149,6 +183,73 @@
     </div>
 
   </div>
+
+<script>
+  const SUPABASE_URL = 'https://dilalntcxmvdcmwxjcct.supabase.co';
+  const SUPABASE_ANON_KEY = 'sb_publishable_HrLVIUwnaRo54yijtrbWBQ_1aeb4ezs';
+
+  const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+  const form = document.getElementById('profileForm');
+  const message = document.getElementById('message');
+  const btn = document.getElementById('submitBtn');
+
+  function showMessage(text, type) {
+    message.textContent = text;
+    message.className = 'message ' + type;
+  }
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+
+    btn.disabled = true;
+    btn.textContent = 'Saving...';
+
+    try {
+      const full_name = document.getElementById('full_name').value;
+      const email = document.getElementById('email').value;
+      const phone = document.getElementById('phone').value;
+      const location = document.getElementById('location').value;
+      const experience = document.getElementById('experience').value;
+      const file = document.getElementById('resume').files[0];
+
+      if (!file) throw new Error('Please upload a resume');
+
+      const fileName = Date.now() + '-' + file.name;
+
+      // Upload resume
+      const { error: uploadError } = await supabaseClient
+        .storage
+        .from('resumes')
+        .upload(fileName, file);
+
+      if (uploadError) throw uploadError;
+
+      // Save profile
+      const { error: insertError } = await supabaseClient
+        .from('applicant_profiles')
+        .insert([{
+          full_name,
+          email,
+          phone,
+          location,
+          experience_summary: experience,
+          resume_path: fileName
+        }]);
+
+      if (insertError) throw insertError;
+
+      showMessage('✅ Profile saved successfully!', 'success');
+      form.reset();
+
+    } catch (err) {
+      showMessage(err.message, 'error');
+    }
+
+    btn.disabled = false;
+    btn.textContent = 'Save Profile';
+  });
+</script>
 
 </body>
 </html>
