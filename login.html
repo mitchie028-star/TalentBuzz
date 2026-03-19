@@ -4,151 +4,87 @@
   <meta charset="UTF-8" />
   <title>Login | TalentBuzz</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="description" content="Login to TalentBuzz and apply to top job opportunities faster.">
 
-  <!-- Supabase -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
-  <!-- Font -->
-  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-
   <style>
-    :root {
-      --blue:#1e3a8a;
-      --blue-light:#2563eb;
-      --muted:#64748b;
-      --line:#e2e8f0;
-      --bg:#f8fbff;
-    }
-
     body {
-      margin: 0;
       font-family: 'Manrope', sans-serif;
-      background: #fff;
-      color: #0f172a;
-    }
-
-    .container {
-      max-width: 420px;
+      padding: 40px;
+      max-width: 480px;
       margin: auto;
-      padding: 50px 20px;
     }
 
-    h1 {
-      text-align: center;
-      color: var(--blue);
-      margin-bottom: 10px;
+    h2 {
+      color: #1e3a8a;
+      margin-bottom: 8px;
     }
 
-    .subtitle {
-      text-align: center;
-      color: var(--muted);
-      margin-bottom: 30px;
-    }
-
-    .card {
-      background: var(--bg);
-      border: 1px solid var(--line);
-      border-radius: 16px;
-      padding: 24px;
-    }
-
-    input {
-      width: 100%;
-      padding: 12px;
-      margin-top: 10px;
-      border-radius: 10px;
-      border: 1px solid var(--line);
+    p {
+      color: #64748b;
       font-size: 14px;
     }
 
-    .btn {
+    input, button {
       width: 100%;
-      margin-top: 14px;
-      padding: 14px;
-      border-radius: 12px;
+      padding: 12px;
+      margin-top: 12px;
+      border-radius: 10px;
+      border: 1px solid #e2e8f0;
+    }
+
+    .btn-primary {
+      background: #1e3a8a;
+      color: white;
       border: none;
       font-weight: 700;
       cursor: pointer;
     }
 
-    .primary {
-      background: linear-gradient(135deg,#1e3a8a,#2563eb);
-      color: white;
+    .btn-google {
+      background: white;
+      border: 1px solid #e2e8f0;
+      color: #1e3a8a;
     }
 
-    .google {
-      background: #fff;
-      border: 1px solid var(--line);
-    }
-
-    .linkedin {
-      background: #0077b5;
-      color: white;
+    .btn-linkedin {
+      background: white;
+      border: 1px solid #0a66c2;
+      color: #0a66c2;
     }
 
     .divider {
       text-align: center;
-      margin: 18px 0;
-      color: var(--muted);
+      margin: 20px 0;
+      color: #94a3b8;
+      font-size: 12px;
+    }
+
+    #message {
+      margin-top: 15px;
       font-size: 13px;
-    }
-
-    .toggle {
-      margin-top: 16px;
-      text-align: center;
-      color: var(--blue-light);
-      cursor: pointer;
-      font-weight: 600;
-    }
-
-    .message {
-      margin-top: 14px;
-      font-size: 14px;
-      text-align: center;
-      color: #b91c1c;
+      color: red;
     }
   </style>
 </head>
 
 <body>
 
-<div class="container">
+<h2>Login to TalentBuzz</h2>
+<p>Access your profile and applications.</p>
 
-  <h1 id="title">Login</h1>
-  <p class="subtitle">Access your TalentBuzz account</p>
+<form id="loginForm">
+  <input type="email" id="email" placeholder="Enter your email" required>
+  <input type="password" id="password" placeholder="Password" required>
+  <button class="btn-primary" type="submit">Login / Sign Up</button>
+</form>
 
-  <div class="card">
+<div class="divider">or continue with</div>
 
-    <!-- GOOGLE -->
-    <button id="googleBtn" class="btn google">
-      Continue with Google
-    </button>
+<button class="btn-google" id="googleLogin">Continue with Google</button>
+<button class="btn-linkedin" id="linkedinLogin">Continue with LinkedIn</button>
 
-    <!-- LINKEDIN -->
-    <button id="linkedinBtn" class="btn linkedin">
-      Continue with LinkedIn
-    </button>
-
-    <div class="divider">or</div>
-
-    <!-- EMAIL -->
-    <input type="email" id="email" placeholder="Email">
-    <input type="password" id="password" placeholder="Password">
-
-    <button id="actionBtn" class="btn primary">
-      Login
-    </button>
-
-    <div class="toggle" onclick="toggleMode()">
-      Don't have an account? Sign up
-    </div>
-
-    <div id="message" class="message"></div>
-
-  </div>
-
-</div>
+<p id="message"></p>
 
 <script>
 const SUPABASE_URL = 'https://dilalntcxmvdcmwxjcct.supabase.co';
@@ -156,81 +92,71 @@ const SUPABASE_ANON_KEY = 'sb_publishable_HrLVIUwnaRo54yijtrbWBQ_1aeb4ezs';
 
 const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-// Detect job redirect
-const params = new URLSearchParams(window.location.search);
-const job = params.get('job');
-
-let isLogin = true;
-
-// Toggle login/signup
-function toggleMode() {
-  isLogin = !isLogin;
-
-  document.getElementById('title').innerText = isLogin ? "Login" : "Sign Up";
-  document.getElementById('actionBtn').innerText = isLogin ? "Login" : "Create Account";
+// redirect after login
+function getRedirect() {
+  return 'https://talentbuzz.pro/dashboard.html';
 }
 
+// CHECK SESSION
+async function checkSession() {
+  const { data: { session } } = await supabaseClient.auth.getSession();
+
+  if (session) {
+    window.location.href = "dashboard.html";
+  }
+}
+
+checkSession();
+
 // EMAIL LOGIN / SIGNUP
-document.getElementById('actionBtn').addEventListener('click', async () => {
+document.getElementById('loginForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+
   const email = document.getElementById('email').value;
   const password = document.getElementById('password').value;
 
-  let result;
+  const { error } = await supabaseClient.auth.signInWithPassword({
+    email,
+    password
+  });
 
-  if (isLogin) {
-    result = await supabaseClient.auth.signInWithPassword({
+  if (error) {
+    const { error: signUpError } = await supabaseClient.auth.signUp({
       email,
       password
     });
-  } else {
-    result = await supabaseClient.auth.signUp({
-      email,
-      password
-    });
+
+    if (signUpError) {
+      document.getElementById('message').innerText = signUpError.message;
+      return;
+    }
+
+    document.getElementById('message').innerText = "Account created. Check your email.";
+    return;
   }
 
-  if (result.error) {
-    document.getElementById('message').innerText = result.error.message;
-  } else {
-    redirectAfterLogin();
-  }
+  window.location.href = "dashboard.html";
 });
 
 // GOOGLE LOGIN
-document.getElementById('googleBtn').addEventListener('click', async () => {
+document.getElementById('googleLogin').addEventListener('click', async () => {
   await supabaseClient.auth.signInWithOAuth({
     provider: 'google',
     options: {
-      redirectTo: getRedirectURL()
+      redirectTo: getRedirect()
     }
   });
 });
 
 // LINKEDIN LOGIN
-document.getElementById('linkedinBtn').addEventListener('click', async () => {
+document.getElementById('linkedinLogin').addEventListener('click', async () => {
   await supabaseClient.auth.signInWithOAuth({
     provider: 'linkedin_oidc',
     options: {
-      redirectTo: getRedirectURL()
+      redirectTo: getRedirect()
     }
   });
 });
-
-// Redirect logic
-function getRedirectURL() {
-  if (job) {
-    return window.location.origin + '/apply.html?job=' + encodeURIComponent(job);
-  }
-  return window.location.origin + '/applicants.html';
-}
-
-function redirectAfterLogin() {
-  if (job) {
-    window.location.href = `apply.html?job=${encodeURIComponent(job)}`;
-  } else {
-    window.location.href = "applicants.html";
-  }
-}
 </script>
 
 </body>
