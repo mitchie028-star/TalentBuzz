@@ -90,7 +90,6 @@
       margin-top: 14px;
       margin-bottom: 6px;
       font-weight: 600;
-      color: var(--text);
     }
 
     input {
@@ -237,7 +236,7 @@
       <div id="message" class="message"></div>
 
       <div class="helper">
-        If you do not have an account yet, entering your email and password will create one for you.
+        If you don’t have an account yet, entering your email and password will create one for you.
       </div>
     </div>
   </div>
@@ -276,6 +275,50 @@
       return `https://talentbuzz.pro/apply.html?job=${encodeURIComponent(job)}`;
     }
 
+    async function ensureApplicantProfile(user) {
+      if (!user || !user.email) return false;
+
+      const { data: existingProfile } = await supabaseClient
+        .from('applicant_profiles')
+        .select('*')
+        .eq('email', user.email)
+        .maybeSingle();
+
+      if (existingProfile) return true;
+
+      const metadata = user.user_metadata || {};
+      const fullName =
+        metadata.full_name ||
+        metadata.name ||
+        `${metadata.given_name || ''} ${metadata.family_name || ''}`.trim() ||
+        user.email.split('@')[0];
+
+      const phone =
+        metadata.phone ||
+        metadata.phone_number ||
+        '';
+
+      const { error } = await supabaseClient
+        .from('applicant_profiles')
+        .insert([{
+          full_name: fullName,
+          email: user.email,
+          phone: phone,
+          location: '',
+          experience_summary: '',
+          resume_path: null
+        }]);
+
+      if (error) {
+        if (error.message && error.message.toLowerCase().includes('duplicate')) {
+          return true;
+        }
+        return false;
+      }
+
+      return true;
+    }
+
     async function checkSessionAndApply() {
       const { data: { session }, error } = await supabaseClient.auth.getSession();
 
@@ -286,31 +329,20 @@
 
       if (session && session.user) {
         statusTextEl.textContent = 'Signed in. Preparing your application...';
+
+        const profileReady = await ensureApplicantProfile(session.user);
+        if (!profileReady) {
+          window.location.href = `create-profile.html?job=${encodeURIComponent(job)}`;
+          return;
+        }
+
         await applyNow(session.user.email);
       }
-    }
-
-    async function ensureProfileExists(email) {
-      const { data, error } = await supabaseClient
-        .from('applicant_profiles')
-        .select('*')
-        .eq('email', email)
-        .single();
-
-      if (error || !data) {
-        window.location.href = `create-profile.html?job=${encodeURIComponent(job)}`;
-        return false;
-      }
-
-      return true;
     }
 
     async function applyNow(email) {
       clearMessage();
       statusTextEl.textContent = 'Submitting your application...';
-
-      const hasProfile = await ensureProfileExists(email);
-      if (!hasProfile) return;
 
       const { error } = await supabaseClient
         .from('applications')
@@ -344,27 +376,36 @@
       const password = document.getElementById('password').value;
 
       try {
-        const { error: signInError } = await supabaseClient.auth.signInWithPassword({
+        const { data: signInData, error: signInError } = await supabaseClient.auth.signInWithPassword({
           email,
           password
         });
 
         if (signInError) {
-          const { error: signUpError } = await supabaseClient.auth.signUp({
+          const { data: signUpData, error: signUpError } = await supabaseClient.auth.signUp({
             email,
             password
           });
 
-          if (signUpError) {
-            throw signUpError;
+          if (signUpError) throw signUpError;
+
+          if (!signUpData.session) {
+            showMessage('Account created. Please check your email to confirm your account before signing in.', 'success');
+            statusTextEl.textContent = 'Account created.';
+            return;
           }
 
-          showMessage('Account created. Please check your email to confirm your account before signing in.', 'success');
-          statusTextEl.textContent = 'Account created.';
-          return;
+          const user = signUpData.user;
+          if (user) {
+            window.location.href = `create-profile.html?job=${encodeURIComponent(job)}`;
+            return;
+          }
         }
 
-        await applyNow(email);
+        const signedInUser = signInData.user;
+        if (!signedInUser) throw new Error('Unable to retrieve account.');
+
+        await applyNow(signedInUser.email);
       } catch (error) {
         showMessage(error.message || 'Something went wrong.');
         statusTextEl.textContent = 'Login failed.';
@@ -376,6 +417,7 @@
 
     document.getElementById('googleLogin').addEventListener('click', async () => {
       clearMessage();
+
       const { error } = await supabaseClient.auth.signInWithOAuth({
         provider: 'google',
         options: {
@@ -390,6 +432,7 @@
 
     document.getElementById('linkedinLogin').addEventListener('click', async () => {
       clearMessage();
+
       const { error } = await supabaseClient.auth.signInWithOAuth({
         provider: 'linkedin_oidc',
         options: {
