@@ -72,6 +72,7 @@
       cursor: pointer;
       font-family: inherit;
       transition: .2s ease;
+      background: white;
     }
 
     .btn:hover { transform: translateY(-1px); }
@@ -190,12 +191,6 @@
       font-weight: 800;
       text-transform: uppercase;
       letter-spacing: .06em;
-    }
-
-    .small {
-      color: var(--muted);
-      font-size: .82rem;
-      line-height: 1.5;
     }
 
     @media (max-width: 760px) {
@@ -392,20 +387,7 @@ document.addEventListener('DOMContentLoaded', () => {
       clients.map(client => `<option value="${client}">${client}</option>`).join('');
   }
 
-  async function loadJobs() {
-    const { data, error } = await supabaseClient
-      .from('jobs')
-      .select('id, client_name, title, location, industry, work_setup, featured, job_description, employment_type, keywords')
-      .order('title', { ascending: true });
-
-    if (error) {
-      jobsTable.innerHTML = `<tr><td colspan="8">${error.message}</td></tr>`;
-      return;
-    }
-
-    allJobs = data || [];
-    populateClientDropdown();
-
+  function renderJobsTable() {
     if (!allJobs.length) {
       jobsTable.innerHTML = `<tr><td colspan="8">No open roles yet.</td></tr>`;
       return;
@@ -428,6 +410,22 @@ document.addEventListener('DOMContentLoaded', () => {
         </td>
       </tr>
     `).join('');
+  }
+
+  async function loadJobs() {
+    const { data, error } = await supabaseClient
+      .from('jobs')
+      .select('id, client_name, title, location, industry, work_setup, featured, job_description, employment_type, keywords')
+      .order('title', { ascending: true });
+
+    if (error) {
+      jobsTable.innerHTML = `<tr><td colspan="8">${error.message}</td></tr>`;
+      return;
+    }
+
+    allJobs = data || [];
+    populateClientDropdown();
+    renderJobsTable();
   }
 
   form.addEventListener('submit', async (e) => {
@@ -487,7 +485,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   resetBtn.addEventListener('click', resetForm);
 
-  window.editJob = async function (id) {
+  window.editJob = function (id) {
     const job = allJobs.find(j => j.id === id);
     if (!job) return;
 
@@ -522,9 +520,15 @@ document.addEventListener('DOMContentLoaded', () => {
       return;
     }
 
+    allJobs = allJobs.filter(job => job.id !== id);
+
+    if (editingJobId === id) {
+      resetForm();
+    }
+
     showNotice('Role deleted successfully.', 'success');
-    if (editingJobId === id) resetForm();
-    await loadJobs();
+    renderJobsTable();
+    populateClientDropdown();
   };
 
   (async () => {
