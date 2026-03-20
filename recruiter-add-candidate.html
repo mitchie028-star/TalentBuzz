@@ -72,6 +72,7 @@
       cursor: pointer;
       font-family: inherit;
       transition: .2s ease;
+      background: white;
     }
 
     .btn:hover { transform: translateY(-1px); }
@@ -159,6 +160,25 @@
       margin-top: 18px;
     }
 
+    .helper {
+      margin-top: 6px;
+      color: var(--muted);
+      font-size: .84rem;
+    }
+
+    .checkbox-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-top: 8px;
+    }
+
+    .checkbox-row input[type="checkbox"] {
+      width: auto;
+      padding: 0;
+      margin: 0;
+    }
+
     @media (max-width: 760px) {
       .grid { grid-template-columns: 1fr; }
       .container { padding: 18px 14px 30px; }
@@ -206,14 +226,19 @@
 
         <div class="full">
           <label for="experience_summary">Experience Summary</label>
-          <textarea id="experience_summary"></textarea>
+          <textarea id="experience_summary" placeholder="Write manually, or upload a resume first and use Generate Summary when backend parsing is connected."></textarea>
+          <div class="actions" style="margin-top:10px;">
+            <button type="button" class="btn btn-outline" id="generateSummaryBtn">Generate Summary from Resume</button>
+          </div>
+          <div class="helper">This needs AI/backend wiring to actually parse and optimize the resume summary.</div>
         </div>
 
         <div>
           <label for="job_id_select">Job</label>
-          <select id="job_id_select">
-            <option value="">Select a role</option>
+          <select id="job_id_select" required>
+            <option value="">Loading roles...</option>
           </select>
+          <div class="helper" id="jobHelper">Roles are pulled from your jobs table.</div>
         </div>
 
         <div>
@@ -247,6 +272,15 @@
         <div>
           <label for="resume">Resume</label>
           <input id="resume" type="file" accept=".pdf,.doc,.docx">
+          <div class="helper">Uploads to the <strong>resumes</strong> bucket.</div>
+        </div>
+
+        <div class="full">
+          <div class="checkbox-row">
+            <input id="send_confirmation" type="checkbox">
+            <label for="send_confirmation" style="margin:0;font-weight:700;">Send application confirmation to candidate</label>
+          </div>
+          <div class="helper">This needs email sending wired through a backend or email provider.</div>
         </div>
       </div>
 
@@ -278,6 +312,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const noticeEl = document.getElementById('notice');
   const saveBtn = document.getElementById('saveBtn');
   const jobSelect = document.getElementById('job_id_select');
+  const jobHelper = document.getElementById('jobHelper');
 
   function showNotice(text, type = 'success') {
     noticeEl.textContent = text;
@@ -311,18 +346,32 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   async function loadJobs() {
+    jobSelect.innerHTML = `<option value="">Loading roles...</option>`;
+
     const { data, error } = await supabaseClient
       .from('jobs')
       .select('id, title, client_name, location')
       .order('title', { ascending: true });
 
-    if (error || !data) return;
+    if (error) {
+      jobSelect.innerHTML = `<option value="">Unable to load roles</option>`;
+      jobHelper.textContent = error.message;
+      return;
+    }
+
+    if (!data || !data.length) {
+      jobSelect.innerHTML = `<option value="">No roles found</option>`;
+      jobHelper.textContent = 'Your jobs table is empty or not readable yet.';
+      return;
+    }
 
     jobSelect.innerHTML = `<option value="">Select a role</option>` + data.map(job => `
       <option value="${job.id}" data-title="${job.title}">
         ${job.title}${job.client_name ? ' — ' + job.client_name : ''}${job.location ? ' (' + job.location + ')' : ''}
       </option>
     `).join('');
+
+    jobHelper.textContent = `${data.length} role(s) available.`;
   }
 
   async function uploadResume(file, email) {
@@ -345,6 +394,10 @@ document.addEventListener('DOMContentLoaded', () => {
     };
   }
 
+  document.getElementById('generateSummaryBtn').addEventListener('click', () => {
+    showNotice('Resume summary generation needs backend or AI API integration. The UI is ready, but the parsing logic is not connected yet.', 'error');
+  });
+
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
     clearNotice();
@@ -360,9 +413,14 @@ document.addEventListener('DOMContentLoaded', () => {
       const status = document.getElementById('status').value;
       const recruiter_email = document.getElementById('recruiter_email').value;
       const resumeFile = document.getElementById('resume').files[0];
+      const sendConfirmation = document.getElementById('send_confirmation').checked;
       const selectedJobOption = jobSelect.options[jobSelect.selectedIndex];
       const selectedJobTitle = selectedJobOption?.dataset?.title || '';
       const selectedJobId = selectedJobTitle ? getSafeJobId(selectedJobTitle) : '';
+
+      if (!selectedJobTitle) {
+        throw new Error('Please select a job role.');
+      }
 
       let profile = null;
 
@@ -417,47 +475,52 @@ document.addEventListener('DOMContentLoaded', () => {
         profile = insertedProfile;
       }
 
-      if (selectedJobTitle) {
-        const { data: existingApplication } = await supabaseClient
+      const { data: existingApplication } = await supabaseClient
+        .from('applications')
+        .select('*')
+        .eq('applicant_profile_id', profile.id)
+        .eq('job_id', selectedJobId)
+        .maybeSingle();
+
+      if (existingApplication) {
+        const { error: updateAppError } = await supabaseClient
           .from('applications')
-          .select('*')
-          .eq('applicant_profile_id', profile.id)
-          .eq('job_id', selectedJobId)
-          .maybeSingle();
+          .update({
+            status,
+            recruiter_email,
+            job_title: selectedJobTitle,
+            email
+          })
+          .eq('id', existingApplication.id);
 
-        if (existingApplication) {
-          const { error: updateAppError } = await supabaseClient
-            .from('applications')
-            .update({
-              status,
-              recruiter_email,
-              job_title: selectedJobTitle,
-              email
-            })
-            .eq('id', existingApplication.id);
+        if (updateAppError) throw updateAppError;
+      } else {
+        const { error: insertAppError } = await supabaseClient
+          .from('applications')
+          .insert([{
+            applicant_profile_id: profile.id,
+            email,
+            job_title: selectedJobTitle,
+            job_id: selectedJobId,
+            recruiter_email,
+            status
+          }]);
 
-          if (updateAppError) throw updateAppError;
-        } else {
-          const { error: insertAppError } = await supabaseClient
-            .from('applications')
-            .insert([{
-              applicant_profile_id: profile.id,
-              email,
-              job_title: selectedJobTitle,
-              job_id: selectedJobId,
-              recruiter_email,
-              status
-            }]);
-
-          if (insertAppError) throw insertAppError;
-        }
+        if (insertAppError) throw insertAppError;
       }
 
-      showNotice('Candidate saved successfully.', 'success');
+      if (sendConfirmation) {
+        showNotice('Candidate saved. Confirmation email feature still needs backend/email provider wiring.', 'success');
+      } else {
+        showNotice('Candidate saved successfully.', 'success');
+      }
+
       form.reset();
+      await loadJobs();
+
       setTimeout(() => {
         window.location.href = 'recruiter-dashboard.html';
-      }, 700);
+      }, 900);
 
     } catch (error) {
       showNotice(error.message || 'Error saving candidate.', 'error');
