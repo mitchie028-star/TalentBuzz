@@ -326,7 +326,7 @@
         <div class="profile-row"><strong>Resume:</strong> <span id="resumeStatus">Not uploaded</span></div>
 
         <div class="section-gap">
-          <a href="create-profile.html" class="btn btn-primary btn-full">Edit Profile</a>
+          <a href="create-profile.html?redirect=dashboard.html" class="btn btn-primary btn-full">Edit Profile</a>
         </div>
       </div>
 
@@ -335,7 +335,7 @@
         <p class="muted">
           Have questions about your application or next steps? Reach out to our team directly through Messenger.
         </p>
-        <a href="https://m.me/profile.php?id=61577879912383" target="_blank" class="messenger-btn">
+        <a href="https://m.me/YOUR_FB_PAGE" target="_blank" class="messenger-btn">
           Message us on Messenger
         </a>
       </div>
@@ -405,8 +405,7 @@
     const { data: { session } } = await supabaseClient.auth.getSession();
 
     if (!session || !session.user) {
-      const currentPage = window.location.href;
-      window.location.href = `login.html?redirect=${encodeURIComponent(currentPage)}`;
+      window.location.href = `login.html?redirect=${encodeURIComponent('dashboard.html')}`;
       return null;
     }
 
@@ -447,13 +446,18 @@
   }
 
   async function loadApplications(email) {
-    const { data } = await supabaseClient
+    const { data, error } = await supabaseClient
       .from('applications')
       .select('*')
       .eq('email', email)
       .order('created_at', { ascending: false });
 
     const table = document.getElementById('applicationsTable');
+
+    if (error) {
+      table.innerHTML = `<tr><td colspan="4" class="empty">${error.message}</td></tr>`;
+      return;
+    }
 
     if (!data || data.length === 0) {
       table.innerHTML = `<tr><td colspan="4" class="empty">No applications yet</td></tr>`;
@@ -483,12 +487,12 @@
     const confirmed = window.confirm('Are you sure you want to withdraw this application?');
     if (!confirmed) return;
 
-    await supabaseClient
+    const { error } = await supabaseClient
       .from('applications')
       .update({ status: 'withdrawn' })
       .eq('id', id);
 
-    if (currentUser) {
+    if (!error && currentUser) {
       await loadApplications(currentUser.email);
       await loadJobs(currentUser.email);
     }
@@ -510,9 +514,14 @@
 
     const appliedTitles = new Set((applications || []).map(app => (app.job_title || '').toLowerCase()));
 
-    const { data: jobs } = await supabaseClient
+    const { data: jobs, error } = await supabaseClient
       .from('jobs')
       .select('*');
+
+    if (error) {
+      jobsContainer.innerHTML = `<div class="empty">${error.message}</div>`;
+      return;
+    }
 
     if (!jobs || jobs.length === 0) {
       jobsContainer.innerHTML = `<div class="empty">No recommended jobs available yet.</div>`;
@@ -537,13 +546,8 @@
         const jobIndustry = (job.industry || '').toLowerCase();
         const jobKeywords = (job.keywords || '').toLowerCase();
 
-        if (candidateLocation && jobLocation.includes(candidateLocation)) {
-          score += 4;
-        }
-
-        if (candidateLocation && candidateLocation.split(/[,\s]+/).some(part => part && jobLocation.includes(part))) {
-          score += 2;
-        }
+        if (candidateLocation && jobLocation.includes(candidateLocation)) score += 4;
+        if (candidateLocation && candidateLocation.split(/[,\s]+/).some(part => part && jobLocation.includes(part))) score += 2;
 
         candidateWords.forEach(word => {
           if (jobKeywords.includes(word)) score += 2;
