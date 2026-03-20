@@ -17,16 +17,13 @@
       --text: #0f172a;
       --muted: #64748b;
       --line: #e2e8f0;
-      --bg-soft: #f8fbff;
       --white: #ffffff;
       --success: #166534;
       --error: #b91c1c;
       --shadow-soft: 0 10px 30px rgba(30, 58, 138, 0.06), 0 2px 10px rgba(15, 23, 42, 0.03);
     }
 
-    * {
-      box-sizing: border-box;
-    }
+    * { box-sizing: border-box; }
 
     body {
       margin: 0;
@@ -119,9 +116,7 @@
       transition: 0.2s ease;
     }
 
-    .btn:hover {
-      transform: translateY(-1px);
-    }
+    .btn:hover { transform: translateY(-1px); }
 
     .btn-primary {
       margin-top: 18px;
@@ -190,17 +185,9 @@
     }
 
     @media (max-width: 640px) {
-      .page {
-        padding: 24px 14px 40px;
-      }
-
-      .card {
-        padding: 22px;
-      }
-
-      h1 {
-        font-size: 1.7rem;
-      }
+      .page { padding: 24px 14px 40px; }
+      .card { padding: 22px; }
+      h1 { font-size: 1.7rem; }
     }
   </style>
 </head>
@@ -244,7 +231,6 @@
   <script>
     const SUPABASE_URL = 'https://dilalntcxmvdcmwxjcct.supabase.co';
     const SUPABASE_ANON_KEY = 'sb_publishable_HrLVIUwnaRo54yijtrbWBQ_1aeb4ezs';
-
     const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
     const params = new URLSearchParams(window.location.search);
@@ -284,39 +270,79 @@
         .eq('email', user.email)
         .maybeSingle();
 
-      if (existingProfile) return true;
+      if (existingProfile) {
+        const hasUsefulProfile =
+          existingProfile.full_name ||
+          existingProfile.phone ||
+          existingProfile.location ||
+          existingProfile.experience_summary ||
+          existingProfile.resume_path;
 
-      const metadata = user.user_metadata || {};
-      const fullName =
-        metadata.full_name ||
-        metadata.name ||
-        `${metadata.given_name || ''} ${metadata.family_name || ''}`.trim() ||
-        user.email.split('@')[0];
-
-      const phone =
-        metadata.phone ||
-        metadata.phone_number ||
-        '';
-
-      const { error } = await supabaseClient
-        .from('applicant_profiles')
-        .insert([{
-          full_name: fullName,
-          email: user.email,
-          phone: phone,
-          location: '',
-          experience_summary: '',
-          resume_path: null
-        }]);
-
-      if (error) {
-        if (error.message && error.message.toLowerCase().includes('duplicate')) {
-          return true;
-        }
-        return false;
+        return !!hasUsefulProfile;
       }
 
-      return true;
+      return false;
+    }
+
+    async function applyNow(email) {
+      clearMessage();
+      statusTextEl.textContent = 'Submitting your application...';
+
+      const safeJobId = getSafeJobId(job);
+
+      const { data: existingApplication } = await supabaseClient
+        .from('applications')
+        .select('*')
+        .eq('email', email)
+        .eq('job_id', safeJobId)
+        .maybeSingle();
+
+      if (existingApplication && String(existingApplication.status || '').toLowerCase() !== 'withdrawn') {
+        showMessage('You already applied to this role.', 'success');
+        statusTextEl.textContent = 'Application already found.';
+        setTimeout(() => {
+          window.location.href = 'dashboard.html';
+        }, 800);
+        return;
+      }
+
+      if (existingApplication && String(existingApplication.status || '').toLowerCase() === 'withdrawn') {
+        const { error: reviveError } = await supabaseClient
+          .from('applications')
+          .update({
+            status: 'submitted',
+            created_at: new Date().toISOString()
+          })
+          .eq('id', existingApplication.id);
+
+        if (reviveError) {
+          showMessage(reviveError.message);
+          statusTextEl.textContent = 'There was a problem with your application.';
+          return;
+        }
+      } else {
+        const { error } = await supabaseClient
+          .from('applications')
+          .insert([{
+            email: email,
+            job_title: job,
+            job_id: safeJobId,
+            status: 'submitted'
+          }]);
+
+        if (error) {
+          showMessage(error.message);
+          statusTextEl.textContent = 'There was a problem with your application.';
+          return;
+        }
+      }
+
+      showMessage('✅ Your application has been submitted successfully.', 'success');
+      statusTextEl.textContent = 'Application submitted successfully.';
+
+      setTimeout(() => {
+        window.location.href = 'apply-success.html';
+      }, 900);
     }
 
     async function checkSessionAndApply() {
@@ -332,38 +358,12 @@
 
         const profileReady = await ensureApplicantProfile(session.user);
         if (!profileReady) {
-          window.location.href = `create-profile.html?job=${encodeURIComponent(job)}`;
+          window.location.href = `create-profile.html?job=${encodeURIComponent(job)}&fromApply=1`;
           return;
         }
 
         await applyNow(session.user.email);
       }
-    }
-
-    async function applyNow(email) {
-      clearMessage();
-      statusTextEl.textContent = 'Submitting your application...';
-
-      const { error } = await supabaseClient
-        .from('applications')
-        .insert([{
-          email: email,
-          job_title: job,
-          job_id: getSafeJobId(job)
-        }]);
-
-      if (error) {
-        statusTextEl.textContent = 'There was a problem with your application.';
-        showMessage(error.message);
-        return;
-      }
-
-      statusTextEl.textContent = 'Application submitted successfully.';
-      showMessage('✅ Your application has been submitted successfully.', 'success');
-
-      setTimeout(() => {
-        window.location.href = 'apply-success.html';
-      }, 900);
     }
 
     document.getElementById('loginForm').addEventListener('submit', async (e) => {
@@ -395,15 +395,18 @@
             return;
           }
 
-          const user = signUpData.user;
-          if (user) {
-            window.location.href = `create-profile.html?job=${encodeURIComponent(job)}`;
-            return;
-          }
+          window.location.href = `create-profile.html?job=${encodeURIComponent(job)}&fromApply=1`;
+          return;
         }
 
         const signedInUser = signInData.user;
         if (!signedInUser) throw new Error('Unable to retrieve account.');
+
+        const profileReady = await ensureApplicantProfile(signedInUser);
+        if (!profileReady) {
+          window.location.href = `create-profile.html?job=${encodeURIComponent(job)}&fromApply=1`;
+          return;
+        }
 
         await applyNow(signedInUser.email);
       } catch (error) {
@@ -417,32 +420,20 @@
 
     document.getElementById('googleLogin').addEventListener('click', async () => {
       clearMessage();
-
       const { error } = await supabaseClient.auth.signInWithOAuth({
         provider: 'google',
-        options: {
-          redirectTo: getOAuthRedirectURL()
-        }
+        options: { redirectTo: getOAuthRedirectURL() }
       });
-
-      if (error) {
-        showMessage(error.message);
-      }
+      if (error) showMessage(error.message);
     });
 
     document.getElementById('linkedinLogin').addEventListener('click', async () => {
       clearMessage();
-
       const { error } = await supabaseClient.auth.signInWithOAuth({
         provider: 'linkedin_oidc',
-        options: {
-          redirectTo: getOAuthRedirectURL()
-        }
+        options: { redirectTo: getOAuthRedirectURL() }
       });
-
-      if (error) {
-        showMessage(error.message);
-      }
+      if (error) showMessage(error.message);
     });
 
     checkSessionAndApply();
