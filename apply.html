@@ -261,27 +261,27 @@
       return `https://talentbuzz.pro/apply.html?job=${encodeURIComponent(job)}`;
     }
 
-    async function ensureApplicantProfile(user) {
+    async function hasCompletedProfile(user) {
       if (!user || !user.email) return false;
 
-      const { data: existingProfile } = await supabaseClient
+      const { data, error } = await supabaseClient
         .from('applicant_profiles')
         .select('*')
         .eq('email', user.email)
         .maybeSingle();
 
-      if (existingProfile) {
-        const hasUsefulProfile =
-          existingProfile.full_name ||
-          existingProfile.phone ||
-          existingProfile.location ||
-          existingProfile.experience_summary ||
-          existingProfile.resume_path;
+      if (error || !data) return false;
 
-        return !!hasUsefulProfile;
-      }
-
-      return false;
+      return Boolean(
+        data.full_name &&
+        (
+          data.phone ||
+          data.location ||
+          data.experience_summary ||
+          data.resume_path ||
+          data.resume_url
+        )
+      );
     }
 
     async function applyNow(email) {
@@ -290,12 +290,18 @@
 
       const safeJobId = getSafeJobId(job);
 
-      const { data: existingApplication } = await supabaseClient
+      const { data: existingApplication, error: existingError } = await supabaseClient
         .from('applications')
         .select('*')
         .eq('email', email)
         .eq('job_id', safeJobId)
         .maybeSingle();
+
+      if (existingError) {
+        statusTextEl.textContent = 'Could not check existing application.';
+        showMessage(existingError.message);
+        return;
+      }
 
       if (existingApplication && String(existingApplication.status || '').toLowerCase() !== 'withdrawn') {
         showMessage('You already applied to this role.', 'success');
@@ -316,12 +322,12 @@
           .eq('id', existingApplication.id);
 
         if (reviveError) {
+          statusTextEl.textContent = 'Could not restore your application.';
           showMessage(reviveError.message);
-          statusTextEl.textContent = 'There was a problem with your application.';
           return;
         }
       } else {
-        const { error } = await supabaseClient
+        const { error: insertError } = await supabaseClient
           .from('applications')
           .insert([{
             email: email,
@@ -330,9 +336,9 @@
             status: 'submitted'
           }]);
 
-        if (error) {
-          showMessage(error.message);
+        if (insertError) {
           statusTextEl.textContent = 'There was a problem with your application.';
+          showMessage(insertError.message);
           return;
         }
       }
@@ -356,7 +362,7 @@
       if (session && session.user) {
         statusTextEl.textContent = 'Signed in. Preparing your application...';
 
-        const profileReady = await ensureApplicantProfile(session.user);
+        const profileReady = await hasCompletedProfile(session.user);
         if (!profileReady) {
           window.location.href = `create-profile.html?job=${encodeURIComponent(job)}&fromApply=1`;
           return;
@@ -402,7 +408,7 @@
         const signedInUser = signInData.user;
         if (!signedInUser) throw new Error('Unable to retrieve account.');
 
-        const profileReady = await ensureApplicantProfile(signedInUser);
+        const profileReady = await hasCompletedProfile(signedInUser);
         if (!profileReady) {
           window.location.href = `create-profile.html?job=${encodeURIComponent(job)}&fromApply=1`;
           return;
