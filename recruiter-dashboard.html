@@ -1,192 +1,247 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Recruiter Pipeline | TalentBuzz</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;800&display=swap" rel="stylesheet">
+
+  <style>
+    body {
+      margin: 0;
+      font-family: 'Manrope', sans-serif;
+      background: #f5f7fb;
+    }
+
+    .header {
+      padding: 20px;
+      background: white;
+      border-bottom: 1px solid #e2e8f0;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .header h1 {
+      margin: 0;
+      color: #1e3a8a;
+    }
+
+    .btn {
+      padding: 10px 14px;
+      border-radius: 8px;
+      border: none;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    .logout {
+      background: #ef4444;
+      color: white;
+    }
+
+    .stats {
+      display: flex;
+      gap: 20px;
+      padding: 20px;
+    }
+
+    .stat {
+      background: white;
+      padding: 16px;
+      border-radius: 12px;
+      flex: 1;
+    }
+
+    .pipeline {
+      display: flex;
+      gap: 16px;
+      padding: 20px;
+      overflow-x: auto;
+    }
+
+    .column {
+      background: #fff;
+      border-radius: 12px;
+      padding: 12px;
+      min-width: 260px;
+      flex-shrink: 0;
+    }
+
+    .column h3 {
+      margin: 0 0 10px;
+      color: #1e3a8a;
+    }
+
+    .card {
+      background: #f8fafc;
+      padding: 10px;
+      border-radius: 8px;
+      margin-bottom: 10px;
+      cursor: grab;
+    }
+
+    .card strong {
+      display: block;
+    }
+
+    .card small {
+      color: #64748b;
+    }
+
+    .resume {
+      display: block;
+      margin-top: 6px;
+      font-size: 12px;
+      color: #2563eb;
+      text-decoration: none;
+    }
+
+    .dropzone {
+      min-height: 100px;
+    }
+  </style>
+</head>
+<body>
+
+<div class="header">
+  <h1>Recruiter Pipeline</h1>
+  <button class="btn logout" id="logoutBtn">Logout</button>
+</div>
+
+<div class="stats">
+  <div class="stat">Total: <span id="total">0</span></div>
+  <div class="stat">Submitted: <span id="submitted">0</span></div>
+  <div class="stat">Hired: <span id="hired">0</span></div>
+</div>
+
+<div class="pipeline" id="pipeline"></div>
+
 <script>
-const SUPABASE_URL = 'https://dilalntcxmvdcmwxjcct.supabase.co';
-const SUPABASE_ANON_KEY = 'sb_publishable_HrLVIUwnaRo54yijtrbWBQ_1aeb4ezs';
-const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+document.addEventListener("DOMContentLoaded", () => {
 
-const ALLOWED_RECRUITER_EMAILS = [
-  'mitchie028@gmail.com',
-  'michelle.giray@talentbuzz.pro'
-];
+const supabase = window.supabase.createClient(
+  'https://dilalntcxmvdcmwxjcct.supabase.co',
+  'sb_publishable_HrLVIUwnaRo54yijtrbWBQ_1aeb4ezs'
+);
 
-let allApplications = [];
+const allowed = ['mitchie028@gmail.com','michelle.giray@talentbuzz.pro'];
 
-const applicationsTable = document.getElementById('applicationsTable');
-const jobFilter = document.getElementById('jobFilter');
-const statusFilter = document.getElementById('statusFilter');
-const searchInput = document.getElementById('searchInput');
+const statuses = ['submitted','shortlisted','interviewed','hired','rejected'];
 
-// 🔐 PROTECTION
-async function protectRecruiterPage() {
-  const { data: { session } } = await supabaseClient.auth.getSession();
+let applications = [];
 
-  if (!session) {
-    window.location.href = 'login.html';
-    return null;
+async function protect() {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) location.href = 'login.html';
+
+  if (!allowed.includes(session.user.email.toLowerCase())) {
+    alert("Access denied");
+    location.href = 'dashboard.html';
   }
-
-  const email = session.user.email.toLowerCase();
-
-  if (!ALLOWED_RECRUITER_EMAILS.map(e => e.toLowerCase()).includes(email)) {
-    alert('Access denied.');
-    window.location.href = 'dashboard.html';
-    return null;
-  }
-
-  return session.user;
 }
 
-// 🚀 LOAD APPLICATIONS (NOW USING RELATIONSHIP)
-async function loadApplications() {
-
-  const { data, error } = await supabaseClient
+async function loadData() {
+  const { data, error } = await supabase
     .from('applications')
     .select(`
-      id,
-      email,
-      job_id,
-      job_title,
-      status,
-      created_at,
+      *,
       applicant_profiles (
-        id,
         full_name,
         phone,
         location,
         resume_url
       )
-    `)
-    .order('created_at', { ascending: false });
+    `);
 
   if (error) {
-    applicationsTable.innerHTML = `<tr><td colspan="8">${error.message}</td></tr>`;
+    console.error(error);
     return;
   }
 
-  allApplications = data || [];
-
-  populateJobFilter();
-  renderStats();
-  renderTable();
+  applications = data;
+  render();
 }
 
-// 📊 STATS
-function renderStats() {
-  document.getElementById('statTotal').textContent = allApplications.length;
-  document.getElementById('statSubmitted').textContent =
-    allApplications.filter(a => a.status === 'submitted').length;
-  document.getElementById('statShortlisted').textContent =
-    allApplications.filter(a => a.status === 'shortlisted').length;
-  document.getElementById('statHired').textContent =
-    allApplications.filter(a => a.status === 'hired').length;
-}
+function render() {
+  document.getElementById('total').textContent = applications.length;
+  document.getElementById('submitted').textContent =
+    applications.filter(a=>a.status==='submitted').length;
+  document.getElementById('hired').textContent =
+    applications.filter(a=>a.status==='hired').length;
 
-// 🔍 FILTER
-function getFilteredApplications() {
-  const search = searchInput.value.toLowerCase();
-  const job = jobFilter.value.toLowerCase();
-  const status = statusFilter.value.toLowerCase();
+  const pipeline = document.getElementById('pipeline');
+  pipeline.innerHTML = '';
 
-  return allApplications.filter(app => {
-    const profile = app.applicant_profiles;
+  statuses.forEach(status => {
+    const col = document.createElement('div');
+    col.className = 'column';
 
-    return (
-      (!search ||
-        profile?.full_name?.toLowerCase().includes(search) ||
-        app.email.toLowerCase().includes(search)) &&
-      (!job || app.job_title.toLowerCase() === job) &&
-      (!status || app.status === status)
-    );
+    col.innerHTML = `<h3>${status.toUpperCase()}</h3>
+      <div class="dropzone" data-status="${status}"></div>`;
+
+    pipeline.appendChild(col);
+
+    const zone = col.querySelector('.dropzone');
+
+    zone.ondragover = e => e.preventDefault();
+    zone.ondrop = async e => {
+      e.preventDefault();
+      const id = e.dataTransfer.getData("id");
+      await updateStatus(id, status);
+    };
+
+    applications
+      .filter(a => (a.status || 'submitted') === status)
+      .forEach(app => {
+        const card = document.createElement('div');
+        card.className = 'card';
+        card.draggable = true;
+
+        const p = app.applicant_profiles || {};
+
+        card.innerHTML = `
+          <strong>${p.full_name || 'Unknown'}</strong>
+          <small>${app.email}</small><br>
+          <small>${app.job_title}</small>
+          ${p.resume_url ? `<a href="${p.resume_url}" target="_blank" class="resume">Resume</a>` : ''}
+        `;
+
+        card.ondragstart = e => {
+          e.dataTransfer.setData("id", app.id);
+        };
+
+        zone.appendChild(card);
+      });
   });
 }
 
-// 🧠 TABLE
-function renderTable() {
-  const data = getFilteredApplications();
-
-  if (!data.length) {
-    applicationsTable.innerHTML = `<tr><td colspan="8">No applications found</td></tr>`;
-    return;
-  }
-
-  applicationsTable.innerHTML = data.map(app => {
-    const p = app.applicant_profiles;
-
-    return `
-      <tr>
-        <td>
-          <strong>${p?.full_name || 'Unknown'}</strong><br>
-          ${app.email}
-        </td>
-        <td>${app.job_title}</td>
-        <td>${app.status}</td>
-        <td>${new Date(app.created_at).toLocaleDateString()}</td>
-        <td>${p?.phone || '-'}</td>
-        <td>${p?.location || '-'}</td>
-        <td>
-          ${p?.resume_url
-            ? `<a href="${p.resume_url}" target="_blank">View</a>`
-            : 'None'}
-        </td>
-        <td>
-          <select onchange="updateStatus('${app.id}', this.value)">
-            ${renderStatusOptions(app.status)}
-          </select>
-        </td>
-      </tr>
-    `;
-  }).join('');
-}
-
-// 🎯 STATUS OPTIONS
-function renderStatusOptions(current) {
-  const statuses = ['submitted','shortlisted','interviewed','hired','rejected'];
-
-  return statuses.map(s =>
-    `<option value="${s}" ${s === current ? 'selected' : ''}>
-      ${s}
-    </option>`
-  ).join('');
-}
-
-// 🔄 UPDATE STATUS
 async function updateStatus(id, status) {
-  await supabaseClient
+  await supabase
     .from('applications')
     .update({ status })
     .eq('id', id);
 
-  const target = allApplications.find(a => a.id === id);
+  const target = applications.find(a => a.id === id);
   if (target) target.status = status;
 
-  renderStats();
-  renderTable();
+  render();
 }
-
-// 🧩 JOB FILTER
-function populateJobFilter() {
-  const jobs = [...new Set(allApplications.map(a => a.job_title))];
-
-  jobFilter.innerHTML =
-    `<option value="">All jobs</option>` +
-    jobs.map(j => `<option value="${j}">${j}</option>`).join('');
-}
-
-// 🎯 EVENTS
-document.getElementById('refreshBtn').onclick = loadApplications;
-searchInput.oninput = renderTable;
-jobFilter.onchange = renderTable;
-statusFilter.onchange = renderTable;
 
 document.getElementById('logoutBtn').onclick = async () => {
-  await supabaseClient.auth.signOut();
-  window.location.href = 'index.html';
+  await supabase.auth.signOut();
+  location.href = 'index.html';
 };
 
-// 🚀 INIT
 (async () => {
-  const user = await protectRecruiterPage();
-  if (!user) return;
-
-  await loadApplications();
+  await protect();
+  await loadData();
 })();
+
+});
 </script>
+
+</body>
+</html>
