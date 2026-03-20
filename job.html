@@ -7,7 +7,6 @@
   <meta name="description" content="View full job details and apply through TalentBuzz.">
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 
@@ -18,16 +17,13 @@
       --text: #0f172a;
       --muted: #64748b;
       --line: #e2e8f0;
-      --bg-soft: #f8fbff;
       --white: #ffffff;
       --shadow-soft: 0 10px 30px rgba(30, 58, 138, 0.06), 0 2px 10px rgba(15, 23, 42, 0.03);
       --max: 1080px;
       --radius: 20px;
     }
 
-    * {
-      box-sizing: border-box;
-    }
+    * { box-sizing: border-box; }
 
     body {
       margin: 0;
@@ -89,10 +85,6 @@
       font-size: 0.95rem;
     }
 
-    .nav-links a:hover {
-      color: var(--blue-light);
-    }
-
     .section {
       padding: 44px 0 60px;
     }
@@ -106,7 +98,8 @@
     }
 
     .hero-card,
-    .detail-card {
+    .detail-card,
+    .related-card {
       background: linear-gradient(180deg, #fbfdff 0%, #f8fbff 100%);
       border: 1px solid var(--line);
       border-radius: var(--radius);
@@ -159,9 +152,7 @@
       transition: 0.2s ease;
     }
 
-    .btn:hover {
-      transform: translateY(-2px);
-    }
+    .btn:hover { transform: translateY(-2px); }
 
     .btn-primary {
       background: linear-gradient(135deg, #1e3a8a, #2563eb);
@@ -179,13 +170,15 @@
       grid-template-columns: minmax(0, 1fr) 300px;
       gap: 20px;
       align-items: start;
+      margin-bottom: 24px;
     }
 
     .detail-card {
       padding: 24px;
     }
 
-    .detail-card h2 {
+    .detail-card h2,
+    .related-section h2 {
       margin: 0 0 12px;
       color: var(--blue);
       font-size: 1.3rem;
@@ -242,6 +235,40 @@
       font-size: 0.95rem;
     }
 
+    .related-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 18px;
+    }
+
+    .related-card {
+      padding: 18px;
+    }
+
+    .related-card h3 {
+      margin: 0 0 8px;
+      color: var(--blue);
+      font-size: 1.02rem;
+    }
+
+    .related-meta {
+      color: var(--muted);
+      font-size: 0.88rem;
+      margin-bottom: 10px;
+    }
+
+    .related-card p {
+      color: var(--muted);
+      font-size: 0.92rem;
+      margin: 0 0 14px;
+    }
+
+    .card-link {
+      color: var(--blue-light);
+      font-weight: 700;
+      text-decoration: none;
+    }
+
     .loading,
     .empty-state {
       color: var(--muted);
@@ -259,19 +286,15 @@
     }
 
     @media (max-width: 900px) {
-      .layout {
+      .layout,
+      .related-grid {
         grid-template-columns: 1fr;
       }
     }
 
     @media (max-width: 768px) {
-      h1 {
-        font-size: 1.8rem;
-      }
-
-      .nav {
-        align-items: flex-start;
-      }
+      h1 { font-size: 1.8rem; }
+      .nav { align-items: flex-start; }
     }
   </style>
 </head>
@@ -297,7 +320,6 @@
 <section class="section">
   <div class="container">
     <a href="applicants.html" class="back-link">← Back to Careers</a>
-
     <div id="jobContent">
       <div class="loading">Loading job details...</div>
     </div>
@@ -326,34 +348,27 @@
       .replaceAll("'", '&#039;');
   }
 
+  function shorten(text, max = 120) {
+    const value = String(text || '');
+    if (value.length <= max) return value;
+    return value.slice(0, max) + '...';
+  }
+
   function formatJobDescription(text) {
     const raw = String(text || '').trim();
     if (!raw) return '<p>No description available.</p>';
 
-    const paragraphs = raw
-      .split(/\n\s*\n/)
-      .map(p => p.trim())
-      .filter(Boolean);
-
+    const paragraphs = raw.split(/\n\s*\n/).map(p => p.trim()).filter(Boolean);
     if (paragraphs.length > 1) {
       return paragraphs.map(p => `<p>${escapeHtml(p)}</p>`).join('');
     }
 
-    const lines = raw
-      .split('\n')
-      .map(line => line.trim())
-      .filter(Boolean);
-
-    const bulletLike = lines.length >= 4;
-    if (bulletLike) {
+    const lines = raw.split('\n').map(line => line.trim()).filter(Boolean);
+    if (lines.length >= 4) {
       return `<ul>${lines.map(line => `<li>${escapeHtml(line.replace(/^[-•*]\s*/, ''))}</li>`).join('')}</ul>`;
     }
 
-    const sentences = raw
-      .split(/(?<=[.!?])\s+/)
-      .map(s => s.trim())
-      .filter(Boolean);
-
+    const sentences = raw.split(/(?<=[.!?])\s+/).map(s => s.trim()).filter(Boolean);
     if (sentences.length >= 3) {
       return sentences.map(s => `<p>${escapeHtml(s)}</p>`).join('');
     }
@@ -373,19 +388,23 @@
       .eq('id', jobId)
       .single();
 
-    if (error) {
-      jobContent.innerHTML = `<div class="empty-state">${escapeHtml(error.message)}</div>`;
-      return;
-    }
-
-    if (!data) {
-      jobContent.innerHTML = `<div class="empty-state">This job could not be found.</div>`;
+    if (error || !data) {
+      jobContent.innerHTML = `<div class="empty-state">${escapeHtml(error?.message || 'This job could not be found.')}</div>`;
       return;
     }
 
     const descriptionHtml = formatJobDescription(
       data.job_description || 'Full job description will be provided during the application process.'
     );
+
+    const { data: relatedJobs } = await supabaseClient
+      .from('jobs')
+      .select('id, title, location, work_setup, job_description, industry')
+      .eq('industry', data.industry)
+      .neq('id', data.id)
+      .order('featured', { ascending: false })
+      .order('title', { ascending: true })
+      .limit(3);
 
     document.title = `${data.title} | TalentBuzz`;
 
@@ -394,6 +413,7 @@
         <div class="eyebrow">Open Role</div>
         <h1>${escapeHtml(data.title || 'Untitled Role')}</h1>
         <div class="meta">
+          ${data.client_name ? escapeHtml(data.client_name) + ' • ' : ''}
           ${data.location ? escapeHtml(data.location) + ' • ' : ''}
           ${data.work_setup ? escapeHtml(data.work_setup) + ' • ' : ''}
           ${data.employment_type ? escapeHtml(data.employment_type) : ''}
@@ -439,6 +459,27 @@
             <span class="sidebar-value">${escapeHtml(data.employment_type || 'Not specified')}</span>
           </div>
         </div>
+      </div>
+
+      <div class="related-section">
+        <h2>Related Jobs</h2>
+        ${
+          relatedJobs && relatedJobs.length
+            ? `<div class="related-grid">
+                ${relatedJobs.map(job => `
+                  <div class="related-card">
+                    <h3>${escapeHtml(job.title || 'Untitled Role')}</h3>
+                    <div class="related-meta">
+                      ${job.location ? escapeHtml(job.location) + ' • ' : ''}
+                      ${job.work_setup ? escapeHtml(job.work_setup) : ''}
+                    </div>
+                    <p>${escapeHtml(shorten(job.job_description || 'No description available yet.', 110))}</p>
+                    <a href="job.html?id=${encodeURIComponent(job.id)}" class="card-link">View Job →</a>
+                  </div>
+                `).join('')}
+              </div>`
+            : `<div class="empty-state" style="padding:16px 0;">No related jobs available right now.</div>`
+        }
       </div>
     `;
   }
