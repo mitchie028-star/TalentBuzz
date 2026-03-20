@@ -21,13 +21,10 @@
       --white: #ffffff;
       --danger: #dc2626;
       --danger-dark: #b91c1c;
-      --success: #166534;
       --shadow-soft: 0 10px 30px rgba(30, 58, 138, 0.06), 0 2px 10px rgba(15, 23, 42, 0.03);
     }
 
-    * {
-      box-sizing: border-box;
-    }
+    * { box-sizing: border-box; }
 
     body {
       margin: 0;
@@ -126,9 +123,7 @@
       font-family: inherit;
     }
 
-    .btn:hover {
-      transform: translateY(-1px);
-    }
+    .btn:hover { transform: translateY(-1px); }
 
     .btn-primary {
       background: linear-gradient(135deg, var(--blue), var(--blue-light));
@@ -164,11 +159,6 @@
       padding: 12px 14px;
       border-radius: 12px;
       font-weight: 800;
-      transition: 0.2s ease;
-    }
-
-    .messenger-btn:hover {
-      transform: translateY(-1px);
     }
 
     .section-gap {
@@ -279,16 +269,10 @@
       border-radius: 999px;
     }
 
-    .loading-note {
-      color: var(--muted);
-      font-size: 0.92rem;
-    }
-
     @media (max-width: 980px) {
       .layout {
         grid-template-columns: 1fr;
       }
-
       .jobs-grid {
         grid-template-columns: 1fr;
       }
@@ -298,19 +282,15 @@
       .container {
         padding: 20px 14px 36px;
       }
-
       .topbar h1 {
         font-size: 1.8rem;
       }
-
       .card {
         padding: 18px;
       }
-
       .topbar-actions {
         width: 100%;
       }
-
       .topbar-actions .btn {
         flex: 1 1 auto;
       }
@@ -377,7 +357,7 @@
             </thead>
             <tbody id="applicationsTable">
               <tr>
-                <td colspan="4" class="loading-note">Loading applications...</td>
+                <td colspan="4" class="empty">Loading applications...</td>
               </tr>
             </tbody>
           </table>
@@ -388,7 +368,7 @@
         <h2>Recommended Roles</h2>
         <p class="muted">Suggested opportunities based on your profile, experience summary, location, and application history.</p>
         <div id="jobsList" class="jobs-grid">
-          <div class="loading-note">Loading recommended jobs...</div>
+          <div class="empty">Loading recommended jobs...</div>
         </div>
       </div>
     </div>
@@ -399,7 +379,6 @@
 <script>
   const SUPABASE_URL = 'https://dilalntcxmvdcmwxjcct.supabase.co';
   const SUPABASE_ANON_KEY = 'sb_publishable_HrLVIUwnaRo54yijtrbWBQ_1aeb4ezs';
-
   const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
   let currentUser = null;
@@ -447,13 +426,13 @@
   }
 
   async function loadProfile(email) {
-    const { data, error } = await supabaseClient
+    const { data } = await supabaseClient
       .from('applicant_profiles')
       .select('*')
       .eq('email', email)
       .maybeSingle();
 
-    if (error || !data) {
+    if (!data) {
       document.getElementById('name').textContent = '-';
       document.getElementById('phone').textContent = '-';
       document.getElementById('location').textContent = '-';
@@ -464,11 +443,11 @@
     document.getElementById('name').textContent = data.full_name || '-';
     document.getElementById('phone').textContent = data.phone || '-';
     document.getElementById('location').textContent = data.location || '-';
-    document.getElementById('resumeStatus').textContent = data.resume_path ? 'Resume uploaded' : 'Not uploaded';
+    document.getElementById('resumeStatus').textContent = data.resume_url ? 'Resume uploaded' : 'Not uploaded';
   }
 
   async function loadApplications(email) {
-    const { data, error } = await supabaseClient
+    const { data } = await supabaseClient
       .from('applications')
       .select('*')
       .eq('email', email)
@@ -476,7 +455,7 @@
 
     const table = document.getElementById('applicationsTable');
 
-    if (error || !data || data.length === 0) {
+    if (!data || data.length === 0) {
       table.innerHTML = `<tr><td colspan="4" class="empty">No applications yet</td></tr>`;
       return;
     }
@@ -504,13 +483,14 @@
     const confirmed = window.confirm('Are you sure you want to withdraw this application?');
     if (!confirmed) return;
 
-    const { error } = await supabaseClient
+    await supabaseClient
       .from('applications')
       .update({ status: 'withdrawn' })
       .eq('id', id);
 
-    if (!error && currentUser) {
+    if (currentUser) {
       await loadApplications(currentUser.email);
+      await loadJobs(currentUser.email);
     }
   }
 
@@ -530,11 +510,11 @@
 
     const appliedTitles = new Set((applications || []).map(app => (app.job_title || '').toLowerCase()));
 
-    const { data: jobs, error } = await supabaseClient
+    const { data: jobs } = await supabaseClient
       .from('jobs')
       .select('*');
 
-    if (error || !jobs || jobs.length === 0) {
+    if (!jobs || jobs.length === 0) {
       jobsContainer.innerHTML = `<div class="empty">No recommended jobs available yet.</div>`;
       return;
     }
@@ -581,7 +561,7 @@
       .slice(0, 6);
 
     if (!scoredJobs.length) {
-      jobsContainer.innerHTML = `<div class="empty">No recommended jobs yet.</div>`;
+      jobsContainer.innerHTML = `<div class="empty">No recommended jobs available yet.</div>`;
       return;
     }
 
