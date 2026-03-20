@@ -626,11 +626,13 @@ document.addEventListener("DOMContentLoaded", () => {
     const currentRecruiter = recruiterFilter.value;
 
     const jobs = [...new Set(allApplications.map(a => a.job_title).filter(Boolean))].sort();
-    jobFilter.innerHTML = `<option value="">All jobs</option>` +
+    jobFilter.innerHTML =
+      `<option value="">All jobs</option>` +
       jobs.map(job => `<option value="${escapeHtml(job)}">${escapeHtml(job)}</option>`).join('');
     jobFilter.value = currentJob;
 
-    recruiterFilter.innerHTML = `<option value="">All recruiters</option>` +
+    recruiterFilter.innerHTML =
+      `<option value="">All recruiters</option>` +
       Object.entries(RECRUITERS).map(([email, name]) =>
         `<option value="${escapeHtml(email)}">${escapeHtml(name)}</option>`
       ).join('');
@@ -798,6 +800,8 @@ document.addEventListener("DOMContentLoaded", () => {
     const confirmed = window.confirm('Remove this applicant record?');
     if (!confirmed) return;
 
+    clearNotice();
+
     const { error: deleteAppError } = await supabaseClient
       .from('applications')
       .delete()
@@ -808,22 +812,50 @@ document.addEventListener("DOMContentLoaded", () => {
       return;
     }
 
-    const remaining = allApplications.filter(a =>
-      a.id !== applicationId &&
-      String((Array.isArray(a.applicant_profiles) ? a.applicant_profiles[0]?.id : a.applicant_profiles?.id) || '') === applicantProfileId
-    );
+    const { data: verifyApplication, error: verifyAppError } = await supabaseClient
+      .from('applications')
+      .select('id')
+      .eq('id', applicationId)
+      .maybeSingle();
 
-    if (!remaining.length && applicantProfileId) {
-      await supabaseClient
-        .from('applicant_profiles')
-        .delete()
-        .eq('id', applicantProfileId);
+    if (verifyAppError) {
+      showNotice(verifyAppError.message, 'error');
+      return;
     }
 
-    allApplications = allApplications.filter(a => a.id !== applicationId);
-    renderStats();
-    renderTable();
-    showNotice('Applicant removed.', 'success');
+    if (verifyApplication) {
+      showNotice('Application was not deleted from the database. Please check your Supabase delete policy.', 'error');
+      return;
+    }
+
+    if (applicantProfileId) {
+      const { data: remainingApps, error: remainingError } = await supabaseClient
+        .from('applications')
+        .select('id')
+        .eq('applicant_profile_id', applicantProfileId)
+        .limit(1);
+
+      if (remainingError) {
+        showNotice(remainingError.message, 'error');
+        return;
+      }
+
+      if (!remainingApps || remainingApps.length === 0) {
+        const { error: deleteProfileError } = await supabaseClient
+          .from('applicant_profiles')
+          .delete()
+          .eq('id', applicantProfileId);
+
+        if (deleteProfileError) {
+          showNotice('Application deleted, but applicant profile could not be removed: ' + deleteProfileError.message, 'error');
+          await loadApplications();
+          return;
+        }
+      }
+    }
+
+    await loadApplications();
+    showNotice('Applicant deleted successfully.', 'success');
   }
 
   document.getElementById('refreshBtn').addEventListener('click', loadApplications);
