@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Dashboard | TalentBuzz</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700;800&display=swap" rel="stylesheet">
+
+  <style>
+    :root {
+      --blue:#1e3a8a;
+      --light:#2563eb;
+      --muted:#64748b;
+      --line:#e2e8f0;
+      --bg:#f8fbff;
+      --white:#fff;
+    }
+
+    body {
+      margin:0;
+      font-family:'Manrope',sans-serif;
+      background:var(--bg);
+    }
+
+    .container {
+      max-width:1100px;
+      margin:auto;
+      padding:30px 20px;
+    }
+
+    h1 {
+      color:var(--blue);
+      margin-bottom:6px;
+    }
+
+    .subtitle {
+      color:var(--muted);
+      margin-bottom:30px;
+    }
+
+    .grid {
+      display:grid;
+      grid-template-columns: 1fr 2fr;
+      gap:20px;
+    }
+
+    .card {
+      background:white;
+      border:1px solid var(--line);
+      border-radius:16px;
+      padding:20px;
+    }
+
+    .card h3 {
+      margin-top:0;
+      color:var(--blue);
+    }
+
+    .info {
+      font-size:14px;
+      margin-bottom:8px;
+    }
+
+    .btn {
+      display:inline-block;
+      margin-top:12px;
+      padding:10px 14px;
+      border-radius:10px;
+      text-decoration:none;
+      font-weight:700;
+      font-size:14px;
+      cursor:pointer;
+    }
+
+    .btn-primary {
+      background:linear-gradient(135deg,var(--blue),var(--light));
+      color:white;
+    }
+
+    .btn-outline {
+      border:1px solid var(--line);
+      color:var(--blue);
+    }
+
+    table {
+      width:100%;
+      border-collapse:collapse;
+      font-size:14px;
+    }
+
+    th, td {
+      padding:10px;
+      border-bottom:1px solid var(--line);
+      text-align:left;
+    }
+
+    th {
+      color:var(--muted);
+      font-weight:600;
+      font-size:12px;
+      text-transform:uppercase;
+    }
+
+    .empty {
+      text-align:center;
+      color:var(--muted);
+      padding:20px;
+    }
+
+    .topbar {
+      display:flex;
+      justify-content:space-between;
+      align-items:center;
+      margin-bottom:20px;
+    }
+
+    @media(max-width:800px){
+      .grid {
+        grid-template-columns:1fr;
+      }
+    }
+  </style>
+</head>
+
+<body>
+
+<div class="container">
+
+  <div class="topbar">
+    <div>
+      <h1>Applicant Dashboard</h1>
+      <div class="subtitle">Manage your profile and applications</div>
+    </div>
+    <button id="logoutBtn" class="btn btn-outline">Logout</button>
+  </div>
+
+  <div class="grid">
+
+    <!-- PROFILE -->
+    <div class="card">
+      <h3>Your Profile</h3>
+
+      <div class="info"><strong>Name:</strong> <span id="name">-</span></div>
+      <div class="info"><strong>Email:</strong> <span id="email">-</span></div>
+      <div class="info"><strong>Phone:</strong> <span id="phone">-</span></div>
+      <div class="info"><strong>Location:</strong> <span id="location">-</span></div>
+
+      <a href="create-profile.html" class="btn btn-primary">Edit Profile</a>
+    </div>
+
+    <!-- APPLICATIONS -->
+    <div class="card">
+      <h3>Your Applications</h3>
+
+      <table>
+        <thead>
+          <tr>
+            <th>Job</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody id="applicationsTable"></tbody>
+      </table>
+
+    </div>
+
+  </div>
+
+</div>
+
+<script>
+const SUPABASE_URL = 'https://dilalntcxmvdcmwxjcct.supabase.co';
+const SUPABASE_ANON_KEY = 'sb_publishable_HrLVIUwnaRo54yijtrbWBQ_1aeb4ezs';
+
+const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+// CHECK USER
+async function init() {
+  const { data: { user } } = await supabaseClient.auth.getUser();
+
+  if (!user) {
+    window.location.href = "login.html";
+    return;
+  }
+
+  document.getElementById('email').innerText = user.email;
+
+  await loadProfile(user.email);
+  await loadApplications(user.email);
+}
+
+// LOAD PROFILE
+async function loadProfile(email) {
+  const { data } = await supabaseClient
+    .from('applicant_profiles')
+    .select('*')
+    .eq('email', email)
+    .single();
+
+  if (!data) return;
+
+  document.getElementById('name').innerText = data.full_name || "-";
+  document.getElementById('phone').innerText = data.phone || "-";
+  document.getElementById('location').innerText = data.location || "-";
+}
+
+// LOAD APPLICATIONS
+async function loadApplications(email) {
+  const { data } = await supabaseClient
+    .from('applications')
+    .select('*')
+    .eq('email', email);
+
+  const table = document.getElementById('applicationsTable');
+
+  if (!data || data.length === 0) {
+    table.innerHTML = `<tr><td colspan="2" class="empty">No applications yet</td></tr>`;
+    return;
+  }
+
+  table.innerHTML = data.map(app => `
+    <tr>
+      <td>${app.job_title}</td>
+      <td>Submitted</td>
+    </tr>
+  `).join('');
+}
+
+// LOGOUT
+document.getElementById('logoutBtn').addEventListener('click', async () => {
+  await supabaseClient.auth.signOut();
+  window.location.href = "index.html";
+});
+
+init();
+</script>
+
+</body>
+</html>
