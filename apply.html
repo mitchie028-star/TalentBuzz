@@ -89,7 +89,7 @@
       font-weight: 600;
     }
 
-    input {
+    input, select {
       width: 100%;
       padding: 12px 14px;
       border: 1px solid var(--line);
@@ -97,9 +97,10 @@
       font-family: inherit;
       font-size: 14px;
       outline: none;
+      background: white;
     }
 
-    input:focus {
+    input:focus, select:focus {
       border-color: #93c5fd;
       box-shadow: 0 0 0 3px rgba(147, 197, 253, 0.25);
     }
@@ -212,6 +213,17 @@
         <label for="password">Password</label>
         <input type="password" id="password" placeholder="Enter your password" required>
 
+        <label for="application_source">Application Source</label>
+        <select id="application_source" required>
+          <option value="">Select source</option>
+          <option value="Facebook">Facebook</option>
+          <option value="LinkedIn">LinkedIn</option>
+          <option value="Website">Website</option>
+          <option value="Indeed">Indeed</option>
+          <option value="Referral">Referral</option>
+          <option value="Other">Other</option>
+        </select>
+
         <button type="submit" class="btn btn-primary" id="emailBtn">Login / Sign Up</button>
       </form>
 
@@ -295,8 +307,14 @@
       statusTextEl.textContent = 'Submitting your application...';
 
       const safeJobId = getSafeJobId(job);
+      const application_source = document.getElementById('application_source').value;
 
-      // ✅ STEP 2 INCLUDED: get profile ID first
+      if (!application_source) {
+        statusTextEl.textContent = 'Please select an application source.';
+        showMessage('Please select an application source.');
+        return;
+      }
+
       const { data: profile, error: profileError } = await supabaseClient
         .from('applicant_profiles')
         .select('id, email')
@@ -336,7 +354,9 @@
           .from('applications')
           .update({
             status: 'submitted',
-            created_at: new Date().toISOString()
+            created_at: new Date().toISOString(),
+            application_source,
+            confirmation_email_status: 'pending'
           })
           .eq('id', existingApplication.id);
 
@@ -352,8 +372,10 @@
             email: email,
             job_title: job,
             job_id: safeJobId,
-            applicant_profile_id: profile.id,   // ✅ NEW
-            status: 'submitted'
+            applicant_profile_id: profile.id,
+            status: 'submitted',
+            application_source,
+            confirmation_email_status: 'pending'
           }]);
 
         if (insertError) {
@@ -387,8 +409,6 @@
           window.location.href = `create-profile.html?job=${encodeURIComponent(job)}&fromApply=1`;
           return;
         }
-
-        await applyNow(session.user.email);
       }
     }
 
