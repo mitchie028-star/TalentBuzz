@@ -261,8 +261,8 @@
       return `https://talentbuzz.pro/apply.html?job=${encodeURIComponent(job)}`;
     }
 
-    async function hasCompletedProfile(user) {
-      if (!user || !user.email) return false;
+    async function getApplicantProfile(user) {
+      if (!user || !user.email) return null;
 
       const { data, error } = await supabaseClient
         .from('applicant_profiles')
@@ -270,16 +270,22 @@
         .eq('email', user.email)
         .maybeSingle();
 
-      if (error || !data) return false;
+      if (error || !data) return null;
+      return data;
+    }
+
+    async function hasCompletedProfile(user) {
+      const profile = await getApplicantProfile(user);
+      if (!profile) return false;
 
       return Boolean(
-        data.full_name &&
+        profile.full_name &&
         (
-          data.phone ||
-          data.location ||
-          data.experience_summary ||
-          data.resume_path ||
-          data.resume_url
+          profile.phone ||
+          profile.location ||
+          profile.experience_summary ||
+          profile.resume_path ||
+          profile.resume_url
         )
       );
     }
@@ -290,10 +296,23 @@
 
       const safeJobId = getSafeJobId(job);
 
+      // ✅ STEP 2 INCLUDED: get profile ID first
+      const { data: profile, error: profileError } = await supabaseClient
+        .from('applicant_profiles')
+        .select('id, email')
+        .eq('email', email)
+        .single();
+
+      if (profileError || !profile) {
+        statusTextEl.textContent = 'Could not find your applicant profile.';
+        showMessage(profileError?.message || 'Applicant profile not found.');
+        return;
+      }
+
       const { data: existingApplication, error: existingError } = await supabaseClient
         .from('applications')
         .select('*')
-        .eq('email', email)
+        .eq('applicant_profile_id', profile.id)
         .eq('job_id', safeJobId)
         .maybeSingle();
 
@@ -333,6 +352,7 @@
             email: email,
             job_title: job,
             job_id: safeJobId,
+            applicant_profile_id: profile.id,   // ✅ NEW
             status: 'submitted'
           }]);
 
