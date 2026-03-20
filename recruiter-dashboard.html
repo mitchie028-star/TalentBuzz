@@ -21,6 +21,7 @@
       --white: #ffffff;
       --success: #166534;
       --danger: #b91c1c;
+      --warning: #b45309;
       --shadow-soft: 0 10px 30px rgba(30, 58, 138, 0.06), 0 2px 10px rgba(15, 23, 42, 0.03);
     }
 
@@ -35,7 +36,7 @@
     }
 
     .container {
-      max-width: 1320px;
+      max-width: 1340px;
       margin: 0 auto;
       padding: 24px 20px 44px;
     }
@@ -92,6 +93,7 @@
       cursor: pointer;
       font-family: inherit;
       transition: 0.2s ease;
+      background: white;
     }
 
     .btn:hover { transform: translateY(-1px); }
@@ -157,9 +159,16 @@
       letter-spacing: -0.02em;
     }
 
+    .action-row {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-bottom: 20px;
+    }
+
     .filters-grid {
       display: grid;
-      grid-template-columns: 1.5fr 1fr 1fr 1fr auto;
+      grid-template-columns: 1.5fr 1fr 1fr 1fr 1fr auto;
       gap: 14px;
       align-items: end;
     }
@@ -188,13 +197,6 @@
       box-shadow: 0 0 0 3px rgba(147,197,253,0.25);
     }
 
-    .action-row {
-      display: flex;
-      gap: 10px;
-      flex-wrap: wrap;
-      margin-bottom: 20px;
-    }
-
     .table-wrap {
       overflow-x: auto;
     }
@@ -202,7 +204,7 @@
     table {
       width: 100%;
       border-collapse: collapse;
-      min-width: 1300px;
+      min-width: 1500px;
     }
 
     th, td {
@@ -233,17 +235,6 @@
       line-height: 1.5;
     }
 
-    .status-pill {
-      display: inline-block;
-      padding: 6px 10px;
-      border-radius: 999px;
-      font-size: 0.76rem;
-      font-weight: 800;
-      white-space: nowrap;
-      background: #eef4ff;
-      color: var(--blue);
-    }
-
     .resume-link {
       color: var(--blue-light);
       font-weight: 800;
@@ -252,18 +243,12 @@
 
     .table-select {
       width: 100%;
-      min-width: 170px;
+      min-width: 180px;
       padding: 9px 10px;
       border-radius: 10px;
       border: 1px solid var(--line);
       font: inherit;
       background: white;
-    }
-
-    .empty {
-      color: var(--muted);
-      font-size: 0.95rem;
-      padding: 10px 0 4px;
     }
 
     .notice {
@@ -285,6 +270,33 @@
       color: var(--danger);
       border: 1px solid #fecaca;
     }
+
+    .empty {
+      color: var(--muted);
+      font-size: 0.95rem;
+      padding: 10px 0 4px;
+    }
+
+    .status-pill {
+      display: inline-block;
+      padding: 6px 10px;
+      border-radius: 999px;
+      font-size: 0.76rem;
+      font-weight: 800;
+      white-space: nowrap;
+    }
+
+    .status-submitted { background: #dbeafe; color: #1d4ed8; }
+    .status-failed-paper-screening { background: #fee2e2; color: #b91c1c; }
+    .status-endorsed { background: #fef3c7; color: #b45309; }
+    .status-assessment { background: #fef3c7; color: #b45309; }
+    .status-initial { background: #fef3c7; color: #b45309; }
+    .status-final { background: #fef3c7; color: #b45309; }
+    .status-hired { background: #dcfce7; color: #166534; }
+    .status-onboarded { background: #dcfce7; color: #166534; }
+    .status-no-show-onboarding { background: #fee2e2; color: #b91c1c; }
+    .status-withdrawn { background: #fee2e2; color: #b91c1c; }
+    .status-rejected { background: #fee2e2; color: #b91c1c; }
 
     @media (max-width: 1200px) {
       .stats-grid {
@@ -319,7 +331,7 @@
   <div class="topbar">
     <div>
       <h1>Recruiter Dashboard</h1>
-      <p class="subtitle">Manage candidates, update statuses, assign recruiters, and monitor hiring flow.</p>
+      <p class="subtitle">Manage candidates, update statuses, assign recruiters, and track application sources.</p>
     </div>
 
     <div class="top-right">
@@ -400,6 +412,19 @@
         </select>
       </div>
 
+      <div class="field">
+        <label for="sourceFilter">Application Source</label>
+        <select id="sourceFilter">
+          <option value="">All sources</option>
+          <option value="Facebook">Facebook</option>
+          <option value="LinkedIn">LinkedIn</option>
+          <option value="Website">Website</option>
+          <option value="Indeed">Indeed</option>
+          <option value="Referral">Referral</option>
+          <option value="Other">Other</option>
+        </select>
+      </div>
+
       <button id="refreshBtn" class="btn btn-outline">Refresh</button>
     </div>
   </div>
@@ -414,17 +439,19 @@
             <th>Job</th>
             <th>Status</th>
             <th>Recruiter</th>
+            <th>Source</th>
             <th>Applied</th>
             <th>Phone</th>
             <th>Location</th>
             <th>Resume</th>
             <th>Update Status</th>
             <th>Assign Recruiter</th>
+            <th>Remove</th>
           </tr>
         </thead>
         <tbody id="applicationsTable">
           <tr>
-            <td colspan="10" class="empty">Loading candidates...</td>
+            <td colspan="12" class="empty">Loading candidates...</td>
           </tr>
         </tbody>
       </table>
@@ -463,13 +490,20 @@ document.addEventListener("DOMContentLoaded", () => {
     'rejected'
   ];
 
+  const rejectedStatuses = [
+    'failed paper screening',
+    'withdrawn',
+    'rejected',
+    'no-show (onboarding)'
+  ];
+
   let allApplications = [];
-  let currentRecruiterEmail = '';
 
   const applicationsTable = document.getElementById('applicationsTable');
   const jobFilter = document.getElementById('jobFilter');
   const statusFilter = document.getElementById('statusFilter');
   const recruiterFilter = document.getElementById('recruiterFilter');
+  const sourceFilter = document.getElementById('sourceFilter');
   const searchInput = document.getElementById('searchInput');
   const noticeEl = document.getElementById('notice');
   const helloRecruiter = document.getElementById('helloRecruiter');
@@ -506,11 +540,12 @@ document.addEventListener("DOMContentLoaded", () => {
     return RECRUITERS[email] || email || 'Unassigned';
   }
 
-  function getStatusClass(status) {
-    const clean = String(status || 'submitted').toLowerCase();
-    if (clean === 'hired' || clean === 'onboarded') return 'status-pill';
-    if (clean === 'rejected' || clean === 'withdrawn' || clean === 'failed paper screening' || clean === 'no-show (onboarding)') return 'status-pill';
-    return 'status-pill';
+  function statusClass(status) {
+    return 'status-' + String(status || 'submitted')
+      .toLowerCase()
+      .replaceAll(' ', '-')
+      .replaceAll('(', '')
+      .replaceAll(')', '');
   }
 
   function buildResumeUrl(app) {
@@ -544,7 +579,6 @@ document.addEventListener("DOMContentLoaded", () => {
       return null;
     }
 
-    currentRecruiterEmail = email;
     helloRecruiter.textContent = `Hello! ${getRecruiterName(email)}`;
     return session.user;
   }
@@ -556,12 +590,15 @@ document.addEventListener("DOMContentLoaded", () => {
       .from('applications')
       .select(`
         id,
+        applicant_profile_id,
         email,
         job_id,
         job_title,
         status,
-        created_at,
         recruiter_email,
+        application_source,
+        confirmation_email_status,
+        created_at,
         applicant_profiles (
           id,
           full_name,
@@ -574,7 +611,7 @@ document.addEventListener("DOMContentLoaded", () => {
       .order('created_at', { ascending: false });
 
     if (error) {
-      applicationsTable.innerHTML = `<tr><td colspan="10" class="empty">${escapeHtml(error.message)}</td></tr>`;
+      applicationsTable.innerHTML = `<tr><td colspan="12" class="empty">${escapeHtml(error.message)}</td></tr>`;
       return;
     }
 
@@ -605,6 +642,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const selectedJob = jobFilter.value.trim().toLowerCase();
     const selectedStatus = statusFilter.value.trim().toLowerCase();
     const selectedRecruiter = recruiterFilter.value.trim().toLowerCase();
+    const selectedSource = sourceFilter.value.trim().toLowerCase();
 
     return allApplications.filter(app => {
       const profile = Array.isArray(app.applicant_profiles) ? app.applicant_profiles[0] : app.applicant_profiles;
@@ -613,6 +651,7 @@ document.addEventListener("DOMContentLoaded", () => {
       const jobTitle = String(app.job_title || '').toLowerCase();
       const status = String(app.status || 'submitted').toLowerCase();
       const recruiter = String(app.recruiter_email || '').toLowerCase();
+      const source = String(app.application_source || '').toLowerCase();
 
       const matchesSearch =
         !search ||
@@ -622,8 +661,9 @@ document.addEventListener("DOMContentLoaded", () => {
       const matchesJob = !selectedJob || jobTitle === selectedJob;
       const matchesStatus = !selectedStatus || status === selectedStatus;
       const matchesRecruiter = !selectedRecruiter || recruiter === selectedRecruiter;
+      const matchesSource = !selectedSource || source === selectedSource;
 
-      return matchesSearch && matchesJob && matchesStatus && matchesRecruiter;
+      return matchesSearch && matchesJob && matchesStatus && matchesRecruiter && matchesSource;
     });
   }
 
@@ -634,9 +674,9 @@ document.addEventListener("DOMContentLoaded", () => {
     document.getElementById('statEndorsed').textContent =
       filtered.filter(a => String(a.status || '').toLowerCase() === 'endorsed').length;
     document.getElementById('statRejected').textContent =
-      filtered.filter(a => ['rejected', 'failed paper screening', 'withdrawn', 'no-show (onboarding)'].includes(String(a.status || '').toLowerCase())).length;
+      filtered.filter(a => rejectedStatuses.includes(String(a.status || '').toLowerCase())).length;
     document.getElementById('statInterviewed').textContent =
-      filtered.filter(a => ['initial', 'final', 'interviewed', 'assessment'].includes(String(a.status || '').toLowerCase())).length;
+      filtered.filter(a => ['assessment', 'initial', 'final'].includes(String(a.status || '').toLowerCase())).length;
     document.getElementById('statHired').textContent =
       filtered.filter(a => ['hired', 'onboarded'].includes(String(a.status || '').toLowerCase())).length;
   }
@@ -661,7 +701,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const filtered = getFilteredApplications();
 
     if (!filtered.length) {
-      applicationsTable.innerHTML = `<tr><td colspan="10" class="empty">No candidates found for the selected filters.</td></tr>`;
+      applicationsTable.innerHTML = `<tr><td colspan="12" class="empty">No candidates found for the selected filters.</td></tr>`;
       return;
     }
 
@@ -677,11 +717,12 @@ document.addEventListener("DOMContentLoaded", () => {
           </td>
           <td>${escapeHtml(app.job_title || '-')}</td>
           <td>
-            <span class="${getStatusClass(app.status)}">
+            <span class="status-pill ${statusClass(app.status)}">
               ${escapeHtml(app.status || 'submitted')}
             </span>
           </td>
           <td>${escapeHtml(getRecruiterName(app.recruiter_email))}</td>
+          <td>${escapeHtml(app.application_source || '-')}</td>
           <td>${escapeHtml(formatDate(app.created_at))}</td>
           <td>${escapeHtml(profile?.phone || '-')}</td>
           <td>${escapeHtml(profile?.location || '-')}</td>
@@ -700,6 +741,11 @@ document.addEventListener("DOMContentLoaded", () => {
             <select class="table-select" onchange="assignRecruiter('${app.id}', this.value)">
               ${renderRecruiterOptions(app.recruiter_email || '')}
             </select>
+          </td>
+          <td>
+            <button class="btn btn-danger" onclick="removeApplicant('${app.id}', '${profile?.id || ''}')">
+              Remove
+            </button>
           </td>
         </tr>
       `;
@@ -748,6 +794,38 @@ document.addEventListener("DOMContentLoaded", () => {
     showNotice('Recruiter assignment updated.', 'success');
   }
 
+  async function removeApplicant(applicationId, applicantProfileId) {
+    const confirmed = window.confirm('Remove this applicant record?');
+    if (!confirmed) return;
+
+    const { error: deleteAppError } = await supabaseClient
+      .from('applications')
+      .delete()
+      .eq('id', applicationId);
+
+    if (deleteAppError) {
+      showNotice(deleteAppError.message, 'error');
+      return;
+    }
+
+    const remaining = allApplications.filter(a =>
+      a.id !== applicationId &&
+      String((Array.isArray(a.applicant_profiles) ? a.applicant_profiles[0]?.id : a.applicant_profiles?.id) || '') === applicantProfileId
+    );
+
+    if (!remaining.length && applicantProfileId) {
+      await supabaseClient
+        .from('applicant_profiles')
+        .delete()
+        .eq('id', applicantProfileId);
+    }
+
+    allApplications = allApplications.filter(a => a.id !== applicationId);
+    renderStats();
+    renderTable();
+    showNotice('Applicant removed.', 'success');
+  }
+
   document.getElementById('refreshBtn').addEventListener('click', loadApplications);
   document.getElementById('logoutBtn').addEventListener('click', async () => {
     await supabaseClient.auth.signOut();
@@ -774,8 +852,14 @@ document.addEventListener("DOMContentLoaded", () => {
     renderTable();
   });
 
+  sourceFilter.addEventListener('change', () => {
+    renderStats();
+    renderTable();
+  });
+
   window.updateStatus = updateStatus;
   window.assignRecruiter = assignRecruiter;
+  window.removeApplicant = removeApplicant;
 
   (async () => {
     const user = await protectRecruiterPage();
