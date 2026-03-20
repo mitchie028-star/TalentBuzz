@@ -243,6 +243,7 @@
 
     const params = new URLSearchParams(window.location.search);
     const job = params.get('job');
+    const redirect = params.get('redirect');
 
     const statusTextEl = document.getElementById('statusText');
     const messageEl = document.getElementById('message');
@@ -258,11 +259,30 @@
       messageEl.className = 'message';
     }
 
-    function getRedirectURL() {
-      if (job) {
-        return `https://talentbuzz.pro/apply.html?job=${encodeURIComponent(job)}`;
+    function getFullNameFromMetadata(user) {
+      const metadata = user.user_metadata || {};
+      return (
+        metadata.full_name ||
+        metadata.name ||
+        `${metadata.given_name || ''} ${metadata.family_name || ''}`.trim() ||
+        user.email.split('@')[0]
+      );
+    }
+
+    function getPostLoginURL() {
+      if (redirect) return redirect;
+      if (job) return `apply.html?job=${encodeURIComponent(job)}`;
+      return 'dashboard.html';
+    }
+
+    function getOAuthRedirectURL() {
+      if (redirect) {
+        return `https://talentbuzz.pro/login.html?redirect=${encodeURIComponent(redirect)}`;
       }
-      return 'https://talentbuzz.pro/dashboard.html';
+      if (job) {
+        return `https://talentbuzz.pro/login.html?job=${encodeURIComponent(job)}`;
+      }
+      return 'https://talentbuzz.pro/login.html';
     }
 
     async function ensureApplicantProfile(user) {
@@ -277,12 +297,7 @@
       if (existingProfile) return true;
 
       const metadata = user.user_metadata || {};
-      const fullName =
-        metadata.full_name ||
-        metadata.name ||
-        `${metadata.given_name || ''} ${metadata.family_name || ''}`.trim() ||
-        user.email.split('@')[0];
-
+      const fullName = getFullNameFromMetadata(user);
       const phone =
         metadata.phone ||
         metadata.phone_number ||
@@ -296,7 +311,8 @@
           phone: phone,
           location: '',
           experience_summary: '',
-          resume_path: null
+          resume_path: null,
+          resume_url: null
         }]);
 
       if (error) {
@@ -309,23 +325,32 @@
       return true;
     }
 
+    async function routeAfterAuth(user) {
+      const profileReady = await ensureApplicantProfile(user);
+
+      if (!profileReady) {
+        let target = 'create-profile.html';
+        const query = new URLSearchParams();
+
+        if (job) query.set('job', job);
+        if (redirect) query.set('redirect', redirect);
+
+        const queryString = query.toString();
+        if (queryString) target += `?${queryString}`;
+
+        window.location.href = target;
+        return;
+      }
+
+      window.location.href = getPostLoginURL();
+    }
+
     async function checkSession() {
       const { data: { session } } = await supabaseClient.auth.getSession();
 
       if (session && session.user) {
         statusTextEl.textContent = 'Signed in. Preparing your account...';
-
-        const profileReady = await ensureApplicantProfile(session.user);
-        if (!profileReady) {
-          window.location.href = 'create-profile.html';
-          return;
-        }
-
-        if (job) {
-          window.location.href = `apply.html?job=${encodeURIComponent(job)}`;
-        } else {
-          window.location.href = 'dashboard.html';
-        }
+        await routeAfterAuth(session.user);
       }
     }
 
@@ -358,21 +383,17 @@
             return;
           }
 
-          const user = signUpData.user;
-          if (user) {
-            window.location.href = 'create-profile.html';
-            return;
-          }
+          const newUser = signUpData.user;
+          if (!newUser) throw new Error('Unable to create account.');
+
+          await routeAfterAuth(newUser);
+          return;
         }
 
         const signedInUser = signInData.user;
         if (!signedInUser) throw new Error('Unable to retrieve account.');
 
-        if (job) {
-          window.location.href = `apply.html?job=${encodeURIComponent(job)}`;
-        } else {
-          window.location.href = 'dashboard.html';
-        }
+        await routeAfterAuth(signedInUser);
       } catch (error) {
         showMessage(error.message || 'Something went wrong.');
         statusTextEl.textContent = 'Login failed.';
@@ -388,7 +409,7 @@
       const { error } = await supabaseClient.auth.signInWithOAuth({
         provider: 'google',
         options: {
-          redirectTo: getRedirectURL()
+          redirectTo: getOAuthRedirectURL()
         }
       });
 
@@ -403,7 +424,7 @@
       const { error } = await supabaseClient.auth.signInWithOAuth({
         provider: 'linkedin_oidc',
         options: {
-          redirectTo: getRedirectURL()
+          redirectTo: getOAuthRedirectURL()
         }
       });
 
