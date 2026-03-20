@@ -33,7 +33,7 @@
     }
 
     .container {
-      max-width: 1020px;
+      max-width: 1120px;
       margin: 0 auto;
       padding: 24px 20px 40px;
     }
@@ -85,6 +85,12 @@
       background: white;
       color: var(--blue);
       border-color: var(--line);
+    }
+
+    .btn-danger {
+      background: white;
+      color: var(--error);
+      border-color: #fecaca;
     }
 
     .panel {
@@ -153,6 +159,13 @@
       border: 1px solid #fecaca;
     }
 
+    .actions {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-top: 18px;
+    }
+
     .table-wrap {
       overflow-x: auto;
     }
@@ -160,7 +173,7 @@
     table {
       width: 100%;
       border-collapse: collapse;
-      min-width: 1000px;
+      min-width: 1100px;
     }
 
     th, td {
@@ -179,6 +192,12 @@
       letter-spacing: .06em;
     }
 
+    .small {
+      color: var(--muted);
+      font-size: .82rem;
+      line-height: 1.5;
+    }
+
     @media (max-width: 760px) {
       .grid { grid-template-columns: 1fr; }
       .container { padding: 18px 14px 30px; }
@@ -192,7 +211,7 @@
   <div class="topbar">
     <div>
       <h1>Client Status / Open Roles</h1>
-      <p class="subtitle">Add and manage client openings that feed directly into your jobs table.</p>
+      <p class="subtitle">Add, edit, and manage client openings that feed directly into your jobs table.</p>
     </div>
     <div>
       <a href="recruiter-dashboard.html" class="btn btn-outline">Back to Recruiter Dashboard</a>
@@ -205,8 +224,15 @@
     <form id="roleForm">
       <div class="grid">
         <div>
-          <label for="client_name">Client Name</label>
-          <input id="client_name" required>
+          <label for="existing_client">Existing Client</label>
+          <select id="existing_client">
+            <option value="">Select existing client</option>
+          </select>
+        </div>
+
+        <div>
+          <label for="new_client_name">Or Add New Client</label>
+          <input id="new_client_name" placeholder="Enter new client name">
         </div>
 
         <div>
@@ -215,13 +241,20 @@
         </div>
 
         <div>
-          <label for="location">Location</label>
-          <input id="location">
+          <label for="industry">Industry</label>
+          <select id="industry" required>
+            <option value="">Select industry</option>
+            <option value="BPO & Customer Support">BPO & Customer Support</option>
+            <option value="Healthcare">Healthcare</option>
+            <option value="Manufacturing & Operations">Manufacturing & Operations</option>
+            <option value="Retail & Lifestyle">Retail & Lifestyle</option>
+            <option value="Information Technology">Information Technology</option>
+          </select>
         </div>
 
         <div>
-          <label for="industry">Industry</label>
-          <input id="industry" placeholder="BPO & Customer Support">
+          <label for="location">Location</label>
+          <input id="location">
         </div>
 
         <div>
@@ -234,16 +267,6 @@
           <input id="work_setup" placeholder="Onsite / Hybrid / Remote">
         </div>
 
-        <div class="full">
-          <label for="job_description">Job Description</label>
-          <textarea id="job_description" placeholder="Enter the full job description, responsibilities, qualifications, salary, benefits, and any other important details."></textarea>
-        </div>
-
-        <div class="full">
-          <label for="keywords">Keywords</label>
-          <textarea id="keywords" placeholder="customer service, voice, csr, support"></textarea>
-        </div>
-
         <div>
           <label for="featured">Featured</label>
           <select id="featured">
@@ -251,32 +274,44 @@
             <option value="true">Yes</option>
           </select>
         </div>
+
+        <div class="full">
+          <label for="job_description">Job Description</label>
+          <textarea id="job_description" placeholder="Enter the full job description, responsibilities, qualifications, salary, benefits, and important details."></textarea>
+        </div>
+
+        <div class="full">
+          <label for="keywords">Keywords</label>
+          <textarea id="keywords" placeholder="customer service, voice, csr, support"></textarea>
+        </div>
       </div>
 
-      <div style="margin-top:18px; display:flex; gap:10px; flex-wrap:wrap;">
-        <button type="submit" class="btn btn-primary" id="saveBtn">Save Open Role</button>
+      <div class="actions">
+        <button type="submit" class="btn btn-primary" id="saveBtn">Save Role</button>
+        <button type="button" class="btn btn-outline" id="resetBtn">Clear Form</button>
       </div>
     </form>
   </div>
 
   <div class="panel">
-    <h2 style="margin-top:0; color:#1e3a8a;">Recent Open Roles</h2>
+    <h2 style="margin-top:0; color:#1e3a8a;">Existing Roles</h2>
     <div class="table-wrap">
       <table>
         <thead>
           <tr>
             <th>Client</th>
             <th>Role</th>
-            <th>Location</th>
             <th>Industry</th>
+            <th>Location</th>
             <th>Work Setup</th>
             <th>Featured</th>
             <th>Description</th>
+            <th>Actions</th>
           </tr>
         </thead>
         <tbody id="jobsTable">
           <tr>
-            <td colspan="7">Loading roles...</td>
+            <td colspan="8">Loading roles...</td>
           </tr>
         </tbody>
       </table>
@@ -303,7 +338,12 @@ document.addEventListener('DOMContentLoaded', () => {
   const form = document.getElementById('roleForm');
   const noticeEl = document.getElementById('notice');
   const saveBtn = document.getElementById('saveBtn');
+  const resetBtn = document.getElementById('resetBtn');
   const jobsTable = document.getElementById('jobsTable');
+  const existingClientSelect = document.getElementById('existing_client');
+
+  let editingJobId = null;
+  let allJobs = [];
 
   function showNotice(text, type = 'success') {
     noticeEl.textContent = text;
@@ -338,31 +378,54 @@ document.addEventListener('DOMContentLoaded', () => {
     return true;
   }
 
+  function resetForm() {
+    editingJobId = null;
+    form.reset();
+    saveBtn.textContent = 'Save Role';
+  }
+
+  function populateClientDropdown() {
+    const clients = [...new Set(allJobs.map(job => job.client_name).filter(Boolean))].sort();
+
+    existingClientSelect.innerHTML =
+      `<option value="">Select existing client</option>` +
+      clients.map(client => `<option value="${client}">${client}</option>`).join('');
+  }
+
   async function loadJobs() {
     const { data, error } = await supabaseClient
       .from('jobs')
-      .select('client_name, title, location, industry, work_setup, featured, job_description')
+      .select('id, client_name, title, location, industry, work_setup, featured, job_description, employment_type, keywords')
       .order('title', { ascending: true });
 
     if (error) {
-      jobsTable.innerHTML = `<tr><td colspan="7">${error.message}</td></tr>`;
+      jobsTable.innerHTML = `<tr><td colspan="8">${error.message}</td></tr>`;
       return;
     }
 
-    if (!data || !data.length) {
-      jobsTable.innerHTML = `<tr><td colspan="7">No open roles yet.</td></tr>`;
+    allJobs = data || [];
+    populateClientDropdown();
+
+    if (!allJobs.length) {
+      jobsTable.innerHTML = `<tr><td colspan="8">No open roles yet.</td></tr>`;
       return;
     }
 
-    jobsTable.innerHTML = data.map(job => `
+    jobsTable.innerHTML = allJobs.map(job => `
       <tr>
         <td>${job.client_name || '-'}</td>
         <td>${job.title || '-'}</td>
-        <td>${job.location || '-'}</td>
         <td>${job.industry || '-'}</td>
+        <td>${job.location || '-'}</td>
         <td>${job.work_setup || '-'}</td>
         <td>${job.featured ? 'Yes' : 'No'}</td>
         <td>${shorten(job.job_description, 140) || '-'}</td>
+        <td>
+          <div style="display:flex; gap:8px; flex-wrap:wrap;">
+            <button class="btn btn-outline" onclick="editJob('${job.id}')">Edit</button>
+            <button class="btn btn-danger" onclick="deleteJob('${job.id}')">Delete</button>
+          </div>
+        </td>
       </tr>
     `).join('');
   }
@@ -371,46 +434,98 @@ document.addEventListener('DOMContentLoaded', () => {
     e.preventDefault();
     clearNotice();
     saveBtn.disabled = true;
-    saveBtn.textContent = 'Saving...';
+    saveBtn.textContent = editingJobId ? 'Updating...' : 'Saving...';
 
     try {
-      const client_name = document.getElementById('client_name').value.trim();
-      const title = document.getElementById('title').value.trim();
-      const location = document.getElementById('location').value.trim();
-      const industry = document.getElementById('industry').value.trim();
-      const employment_type = document.getElementById('employment_type').value.trim();
-      const work_setup = document.getElementById('work_setup').value.trim();
-      const job_description = document.getElementById('job_description').value.trim();
-      const keywords = document.getElementById('keywords').value.trim().toLowerCase();
-      const featured = document.getElementById('featured').value === 'true';
+      const existingClient = document.getElementById('existing_client').value.trim();
+      const newClient = document.getElementById('new_client_name').value.trim();
+      const client_name = newClient || existingClient;
 
-      const { error } = await supabaseClient
-        .from('jobs')
-        .insert([{
-          client_name,
-          title,
-          location,
-          industry,
-          employment_type,
-          work_setup,
-          job_description,
-          keywords,
-          featured
-        }]);
+      if (!client_name) {
+        throw new Error('Please select an existing client or enter a new client name.');
+      }
+
+      const payload = {
+        client_name,
+        title: document.getElementById('title').value.trim(),
+        location: document.getElementById('location').value.trim(),
+        industry: document.getElementById('industry').value,
+        employment_type: document.getElementById('employment_type').value.trim(),
+        work_setup: document.getElementById('work_setup').value.trim(),
+        job_description: document.getElementById('job_description').value.trim(),
+        keywords: document.getElementById('keywords').value.trim().toLowerCase(),
+        featured: document.getElementById('featured').value === 'true'
+      };
+
+      let error;
+
+      if (editingJobId) {
+        ({ error } = await supabaseClient
+          .from('jobs')
+          .update(payload)
+          .eq('id', editingJobId));
+      } else {
+        ({ error } = await supabaseClient
+          .from('jobs')
+          .insert([payload]));
+      }
 
       if (error) throw error;
 
-      showNotice('Open role saved successfully.', 'success');
-      form.reset();
+      showNotice(editingJobId ? 'Role updated successfully.' : 'Open role saved successfully.', 'success');
+      resetForm();
       await loadJobs();
 
     } catch (error) {
       showNotice(error.message || 'Error saving role.', 'error');
     } finally {
       saveBtn.disabled = false;
-      saveBtn.textContent = 'Save Open Role';
+      saveBtn.textContent = editingJobId ? 'Update Role' : 'Save Role';
+      if (!editingJobId) saveBtn.textContent = 'Save Role';
     }
   });
+
+  resetBtn.addEventListener('click', resetForm);
+
+  window.editJob = async function (id) {
+    const job = allJobs.find(j => j.id === id);
+    if (!job) return;
+
+    editingJobId = id;
+
+    document.getElementById('existing_client').value = '';
+    document.getElementById('new_client_name').value = job.client_name || '';
+    document.getElementById('title').value = job.title || '';
+    document.getElementById('industry').value = job.industry || '';
+    document.getElementById('location').value = job.location || '';
+    document.getElementById('employment_type').value = job.employment_type || '';
+    document.getElementById('work_setup').value = job.work_setup || '';
+    document.getElementById('job_description').value = job.job_description || '';
+    document.getElementById('keywords').value = job.keywords || '';
+    document.getElementById('featured').value = job.featured ? 'true' : 'false';
+
+    saveBtn.textContent = 'Update Role';
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  window.deleteJob = async function (id) {
+    const confirmed = window.confirm('Are you sure you want to delete this role?');
+    if (!confirmed) return;
+
+    const { error } = await supabaseClient
+      .from('jobs')
+      .delete()
+      .eq('id', id);
+
+    if (error) {
+      showNotice(error.message, 'error');
+      return;
+    }
+
+    showNotice('Role deleted successfully.', 'success');
+    if (editingJobId === id) resetForm();
+    await loadJobs();
+  };
 
   (async () => {
     const allowed = await protectPage();
