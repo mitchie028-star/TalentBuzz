@@ -166,19 +166,6 @@
       font-size: .84rem;
     }
 
-    .checkbox-row {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      margin-top: 8px;
-    }
-
-    .checkbox-row input[type="checkbox"] {
-      width: auto;
-      padding: 0;
-      margin: 0;
-    }
-
     @media (max-width: 760px) {
       .grid { grid-template-columns: 1fr; }
       .container { padding: 18px 14px 30px; }
@@ -226,11 +213,7 @@
 
         <div class="full">
           <label for="experience_summary">Experience Summary</label>
-          <textarea id="experience_summary" placeholder="Write manually, or upload a resume first and use Generate Summary when backend parsing is connected."></textarea>
-          <div class="actions" style="margin-top:10px;">
-            <button type="button" class="btn btn-outline" id="generateSummaryBtn">Generate Summary from Resume</button>
-          </div>
-          <div class="helper">This needs AI/backend wiring to actually parse and optimize the resume summary.</div>
+          <textarea id="experience_summary" placeholder="Write manually for now. Resume parsing can be connected later."></textarea>
         </div>
 
         <div>
@@ -270,17 +253,22 @@
         </div>
 
         <div>
+          <label for="application_source">Application Source</label>
+          <select id="application_source" required>
+            <option value="">Select source</option>
+            <option value="Facebook">Facebook</option>
+            <option value="LinkedIn">LinkedIn</option>
+            <option value="Website">Website</option>
+            <option value="Indeed">Indeed</option>
+            <option value="Referral">Referral</option>
+            <option value="Other">Other</option>
+          </select>
+        </div>
+
+        <div>
           <label for="resume">Resume</label>
           <input id="resume" type="file" accept=".pdf,.doc,.docx">
           <div class="helper">Uploads to the <strong>resumes</strong> bucket.</div>
-        </div>
-
-        <div class="full">
-          <div class="checkbox-row">
-            <input id="send_confirmation" type="checkbox">
-            <label for="send_confirmation" style="margin:0;font-weight:700;">Send application confirmation to candidate</label>
-          </div>
-          <div class="helper">This needs email sending wired through a backend or email provider.</div>
         </div>
       </div>
 
@@ -394,10 +382,6 @@ document.addEventListener('DOMContentLoaded', () => {
     };
   }
 
-  document.getElementById('generateSummaryBtn').addEventListener('click', () => {
-    showNotice('Resume summary generation needs backend or AI API integration. The UI is ready, but the parsing logic is not connected yet.', 'error');
-  });
-
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
     clearNotice();
@@ -412,14 +396,18 @@ document.addEventListener('DOMContentLoaded', () => {
       const experience_summary = document.getElementById('experience_summary').value.trim();
       const status = document.getElementById('status').value;
       const recruiter_email = document.getElementById('recruiter_email').value;
+      const application_source = document.getElementById('application_source').value;
       const resumeFile = document.getElementById('resume').files[0];
-      const sendConfirmation = document.getElementById('send_confirmation').checked;
       const selectedJobOption = jobSelect.options[jobSelect.selectedIndex];
       const selectedJobTitle = selectedJobOption?.dataset?.title || '';
       const selectedJobId = selectedJobTitle ? getSafeJobId(selectedJobTitle) : '';
 
       if (!selectedJobTitle) {
         throw new Error('Please select a job role.');
+      }
+
+      if (!application_source) {
+        throw new Error('Please select an application source.');
       }
 
       let profile = null;
@@ -489,7 +477,9 @@ document.addEventListener('DOMContentLoaded', () => {
             status,
             recruiter_email,
             job_title: selectedJobTitle,
-            email
+            email,
+            application_source,
+            confirmation_email_status: 'pending'
           })
           .eq('id', existingApplication.id);
 
@@ -503,24 +493,21 @@ document.addEventListener('DOMContentLoaded', () => {
             job_title: selectedJobTitle,
             job_id: selectedJobId,
             recruiter_email,
-            status
+            status,
+            application_source,
+            confirmation_email_status: 'pending'
           }]);
 
         if (insertAppError) throw insertAppError;
       }
 
-      if (sendConfirmation) {
-        showNotice('Candidate saved. Confirmation email feature still needs backend/email provider wiring.', 'success');
-      } else {
-        showNotice('Candidate saved successfully.', 'success');
-      }
-
+      showNotice('Candidate saved successfully.', 'success');
       form.reset();
       await loadJobs();
 
       setTimeout(() => {
         window.location.href = 'recruiter-dashboard.html';
-      }, 900);
+      }, 800);
 
     } catch (error) {
       showNotice(error.message || 'Error saving candidate.', 'error');
