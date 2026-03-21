@@ -1,1 +1,303 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Sourcing Workspace | TalentBuzz</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --blue:#1e3a8a; --blue-light:#2563eb; --text:#0f172a; --muted:#64748b;
+      --line:#e2e8f0; --bg:#f8fbff; --white:#ffffff; --success:#166534; --error:#b91c1c;
+      --shadow-soft:0 10px 30px rgba(30,58,138,.06),0 2px 10px rgba(15,23,42,.03);
+    }
+    * { box-sizing: border-box; }
+    body { margin:0; font-family:'Manrope',sans-serif; background:var(--bg); color:var(--text); }
+    .container { max-width:1280px; margin:0 auto; padding:24px 20px 40px; }
+    .topbar { display:flex; justify-content:space-between; align-items:flex-start; gap:12px; flex-wrap:wrap; margin-bottom:20px; }
+    h1 { margin:0 0 6px; color:var(--blue); font-size:2rem; letter-spacing:-.03em; }
+    .subtitle { margin:0; color:var(--muted); }
+    .panel { background:var(--white); border:1px solid var(--line); border-radius:18px; box-shadow:var(--shadow-soft); padding:22px; margin-bottom:20px; }
+    .grid { display:grid; grid-template-columns:1fr 1fr 1fr; gap:16px; }
+    .full { grid-column:1 / -1; }
+    label { display:block; margin-bottom:6px; font-size:.9rem; font-weight:700; }
+    input, textarea { width:100%; padding:12px; border-radius:12px; border:1px solid var(--line); font:inherit; background:white; outline:none; }
+    input:focus, textarea:focus { border-color:#93c5fd; box-shadow:0 0 0 3px rgba(147,197,253,.25); }
+    .btn { display:inline-flex; align-items:center; justify-content:center; padding:11px 14px; border-radius:12px; border:1px solid transparent; text-decoration:none; font-weight:800; font-size:.92rem; cursor:pointer; font-family:inherit; transition:.2s ease; background:white; }
+    .btn:hover { transform:translateY(-1px); }
+    .btn-primary { background:linear-gradient(135deg,var(--blue),var(--blue-light)); color:white; }
+    .btn-outline { background:white; color:var(--blue); border-color:var(--line); }
+    .btn[disabled] { opacity:.65; cursor:not-allowed; transform:none; }
+    .notice { display:none; margin-bottom:16px; padding:12px 14px; border-radius:12px; font-size:.92rem; }
+    .notice.show { display:block; }
+    .notice.success { background:#ecfdf5; color:var(--success); border:1px solid #bbf7d0; }
+    .notice.error { background:#fef2f2; color:var(--error); border:1px solid #fecaca; }
+    .actions { display:flex; gap:10px; flex-wrap:wrap; margin-top:18px; }
+    .meta-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:12px; }
+    .meta-card { border:1px solid var(--line); border-radius:14px; padding:12px; background:#fafcff; }
+    .meta-label { font-size:.78rem; font-weight:800; text-transform:uppercase; letter-spacing:.05em; color:var(--muted); margin-bottom:4px; }
+    .meta-value { font-size:.94rem; line-height:1.5; }
+    .table-wrap { overflow-x:auto; }
+    table { width:100%; border-collapse:collapse; min-width:1400px; }
+    th, td { padding:12px 10px; border-bottom:1px solid var(--line); text-align:left; vertical-align:top; font-size:.92rem; }
+    th { color:var(--muted); font-size:.78rem; font-weight:800; text-transform:uppercase; letter-spacing:.06em; }
+    .chip { display:inline-block; padding:6px 10px; border-radius:999px; background:#eff6ff; color:var(--blue); font-size:.78rem; font-weight:700; }
+    .inline-link { color:var(--blue-light); font-weight:700; text-decoration:none; }
+    .inline-link:hover { text-decoration:underline; }
+    @media (max-width:980px) {
+      .grid, .meta-grid { grid-template-columns:1fr; }
+      .container { padding:18px 14px 30px; }
+      h1 { font-size:1.7rem; }
+    }
+  </style>
+</head>
+<body>
+<div class="container">
+  <div class="topbar">
+    <div>
+      <h1>Sourcing Workspace</h1>
+      <p class="subtitle">Find and review prospects for a specific role.</p>
+    </div>
+    <div>
+      <a href="client-roles-input.html" class="btn btn-outline">Back to Roles</a>
+    </div>
+  </div>
 
+  <div id="notice" class="notice"></div>
+
+  <div class="panel">
+    <h2 style="margin-top:0; color:#1e3a8a;">Role Summary</h2>
+    <div class="meta-grid">
+      <div class="meta-card"><div class="meta-label">Title</div><div class="meta-value" id="jobTitle">-</div></div>
+      <div class="meta-card"><div class="meta-label">Client</div><div class="meta-value" id="jobClient">-</div></div>
+      <div class="meta-card"><div class="meta-label">Location</div><div class="meta-value" id="jobLocation">-</div></div>
+      <div class="meta-card"><div class="meta-label">Work Setup</div><div class="meta-value" id="jobWorkSetup">-</div></div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2 style="margin-top:0; color:#1e3a8a;">Search Filters</h2>
+    <div class="grid">
+      <div>
+        <label for="title">Target Title</label>
+        <input id="title" />
+      </div>
+      <div>
+        <label for="location">Target Location</label>
+        <input id="location" />
+      </div>
+      <div>
+        <label for="minYears">Minimum Years Experience</label>
+        <input id="minYears" type="number" min="0" />
+      </div>
+      <div class="full">
+        <label for="keywords">Keywords</label>
+        <textarea id="keywords" placeholder="customer service, email support, chat support"></textarea>
+      </div>
+      <div class="full">
+        <label for="companies">Target Companies</label>
+        <textarea id="companies" placeholder="Concentrix, Foundever, TaskUs"></textarea>
+      </div>
+    </div>
+    <div class="actions">
+      <button id="searchBtn" class="btn btn-primary">Search Prospects</button>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2 style="margin-top:0; color:#1e3a8a;">Prospects</h2>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Title</th>
+            <th>Company</th>
+            <th>Location</th>
+            <th>Match</th>
+            <th>Email</th>
+            <th>Phone</th>
+            <th>Education</th>
+            <th>Skills</th>
+            <th>LinkedIn</th>
+          </tr>
+        </thead>
+        <tbody id="prospectsTable">
+          <tr><td colspan="10">No prospects loaded yet.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', async () => {
+  const SUPABASE_URL = 'https://dilalntcxmvdcmwxjcct.supabase.co';
+  const SUPABASE_ANON_KEY = 'sb_publishable_HrLVIUwnaRo54yijtrbWBQ_1aeb4ezs';
+  const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+  const ALLOWED_RECRUITER_EMAILS = [
+    'mitchie028@gmail.com',
+    'michelle.giray@talentbuzz.pro',
+    'angel.n@talentbuzz.pro',
+    'jercey.cayetano@talentbuzz.pro',
+    'jayson.c@talentbuzz.pro',
+    'xyrene.e@talentbuzz.pro'
+  ];
+
+  const noticeEl = document.getElementById('notice');
+  const searchBtn = document.getElementById('searchBtn');
+  const prospectsTable = document.getElementById('prospectsTable');
+
+  const params = new URLSearchParams(window.location.search);
+  const jobId = params.get('job_id');
+
+  let currentJob = null;
+
+  function showNotice(text, type = 'success') {
+    noticeEl.textContent = text;
+    noticeEl.className = `notice show ${type}`;
+  }
+
+  function escapeHtml(value) {
+    return String(value ?? '')
+      .replaceAll('&', '&amp;')
+      .replaceAll('<', '&lt;')
+      .replaceAll('>', '&gt;')
+      .replaceAll('"', '&quot;')
+      .replaceAll("'", '&#039;');
+  }
+
+  async function protectPage() {
+    const { data: { session } } = await supabaseClient.auth.getSession();
+    if (!session || !session.user) {
+      window.location.href = 'login.html?redirect=' + encodeURIComponent(window.location.pathname + window.location.search);
+      return false;
+    }
+
+    const email = String(session.user.email || '').toLowerCase();
+    if (!ALLOWED_RECRUITER_EMAILS.includes(email)) {
+      alert('Access denied.');
+      window.location.href = 'dashboard.html';
+      return false;
+    }
+    return true;
+  }
+
+  async function loadJob() {
+    if (!jobId) {
+      showNotice('Missing job_id in URL.', 'error');
+      return;
+    }
+
+    const { data, error } = await supabaseClient
+      .from('jobs')
+      .select('id, title, client_name, location, work_setup, keywords')
+      .eq('id', jobId)
+      .single();
+
+    if (error || !data) {
+      showNotice(error?.message || 'Job not found.', 'error');
+      return;
+    }
+
+    currentJob = data;
+
+    document.getElementById('jobTitle').textContent = data.title || '-';
+    document.getElementById('jobClient').textContent = data.client_name || '-';
+    document.getElementById('jobLocation').textContent = data.location || '-';
+    document.getElementById('jobWorkSetup').textContent = data.work_setup || '-';
+
+    document.getElementById('title').value = data.title || '';
+    document.getElementById('location').value = data.location || '';
+    document.getElementById('keywords').value = data.keywords || '';
+  }
+
+  async function searchProspects() {
+    if (!currentJob) {
+      showNotice('Job not loaded yet.', 'error');
+      return;
+    }
+
+    searchBtn.disabled = true;
+    searchBtn.textContent = 'Searching...';
+
+    try {
+      const body = {
+        job_id: currentJob.id,
+        title: document.getElementById('title').value.trim(),
+        location: document.getElementById('location').value.trim(),
+        keywords: document.getElementById('keywords').value.trim(),
+        current_companies: document.getElementById('companies').value
+          .split(',')
+          .map(v => v.trim())
+          .filter(Boolean),
+        min_years_experience: document.getElementById('minYears').value
+          ? Number(document.getElementById('minYears').value)
+          : null
+      };
+
+      const { data, error } = await supabaseClient.functions.invoke('source-prospects', {
+        body
+      });
+
+      if (error) {
+        throw new Error(error.message || 'Search failed.');
+      }
+
+      if (!data?.success) {
+        throw new Error(data?.error || 'Search failed.');
+      }
+
+      renderProspects(data.data || []);
+      showNotice(`Loaded ${data.count || 0} prospect(s).`, 'success');
+    } catch (error) {
+      showNotice(error.message || 'Search failed.', 'error');
+      prospectsTable.innerHTML = '<tr><td colspan="10">Unable to load prospects.</td></tr>';
+    } finally {
+      searchBtn.disabled = false;
+      searchBtn.textContent = 'Search Prospects';
+    }
+  }
+
+  function renderProspects(rows) {
+    if (!Array.isArray(rows) || !rows.length) {
+      prospectsTable.innerHTML = '<tr><td colspan="10">No prospects found.</td></tr>';
+      return;
+    }
+
+    prospectsTable.innerHTML = rows.map(row => {
+      const p = row.prospects || {};
+      const email = p.personal_email || p.work_email || '-';
+      const linkedin = p.linkedin_url
+        ? `<a class="inline-link" href="${escapeHtml(p.linkedin_url)}" target="_blank" rel="noopener noreferrer">Open</a>`
+        : '-';
+
+      return `
+        <tr>
+          <td>${escapeHtml(p.full_name || '-')}</td>
+          <td>${escapeHtml(p.current_title || '-')}</td>
+          <td>${escapeHtml(p.current_company || '-')}</td>
+          <td>${escapeHtml(p.location || '-')}</td>
+          <td><span class="chip">${escapeHtml(String(row.match_score ?? 0))}</span></td>
+          <td>${escapeHtml(email)}</td>
+          <td>${escapeHtml(p.phone || '-')}</td>
+          <td>${escapeHtml(p.education || '-')}</td>
+          <td>${escapeHtml(p.skills || '-')}</td>
+          <td>${linkedin}</td>
+        </tr>
+      `;
+    }).join('');
+  }
+
+  searchBtn.addEventListener('click', searchProspects);
+
+  const allowed = await protectPage();
+  if (!allowed) return;
+  await loadJob();
+});
+</script>
+</body>
+</html>
