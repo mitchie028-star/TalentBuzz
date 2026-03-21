@@ -33,7 +33,7 @@
     }
 
     .container {
-      max-width: 1200px;
+      max-width: 1240px;
       margin: 0 auto;
       padding: 24px 20px 40px;
     }
@@ -201,7 +201,7 @@
     table {
       width: 100%;
       border-collapse: collapse;
-      min-width: 1400px;
+      min-width: 1450px;
     }
 
     th, td {
@@ -420,7 +420,7 @@
         <div class="full">
           <label for="keywords">Keywords</label>
           <textarea id="keywords" placeholder="customer service, voice, csr, support"></textarea>
-          <div class="helper">Comma-separated keywords used later for matching and sourcing.</div>
+          <div class="helper">Comma-separated keywords used for matching and sourcing.</div>
         </div>
 
         <div class="full">
@@ -710,9 +710,9 @@ document.addEventListener('DOMContentLoaded', () => {
         <td>${escapeHtml(shorten(job.job_description, 140) || '-')}</td>
         <td>
           <div style="display:flex; gap:8px; flex-wrap:wrap;">
-            <button class="btn btn-outline" onclick="editJob('${job.id}')">Edit</button>
-            <button class="btn btn-outline" onclick="viewProspectsForJob('${job.id}')">View Prospects</button>
-            <button class="btn btn-danger" onclick="deleteJob('${job.id}')">Delete</button>
+            <button type="button" class="btn btn-outline" onclick="editJob('${job.id}')">Edit</button>
+            <button type="button" class="btn btn-outline" onclick="viewProspectsForJob('${job.id}')">View Prospects</button>
+            <button type="button" class="btn btn-danger" onclick="deleteJob('${job.id}')">Delete</button>
           </div>
         </td>
       </tr>
@@ -844,18 +844,31 @@ document.addEventListener('DOMContentLoaded', () => {
     try {
       const response = await fetch(PROSPECT_BACKEND_URL, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json'
+        },
         body: JSON.stringify(payload)
       });
 
-      const data = await response.json();
+      let data;
+      try {
+        data = await response.json();
+      } catch {
+        throw new Error('Backend returned invalid JSON.');
+      }
 
       if (!response.ok || !data.success) {
-        throw new Error(
-          typeof data.error === 'string'
-            ? data.error
-            : (data.error?.message || 'Failed to fetch prospects.')
-        );
+        let errorMessage = 'Failed to fetch prospects.';
+
+        if (typeof data?.error === 'string') {
+          errorMessage = data.error;
+        } else if (data?.error?.message) {
+          errorMessage = Array.isArray(data.error.message)
+            ? data.error.message.join(', ')
+            : data.error.message;
+        }
+
+        throw new Error(errorMessage);
       }
 
       renderProspects(data.matches || [], data);
@@ -874,7 +887,7 @@ document.addEventListener('DOMContentLoaded', () => {
       `;
       prospectRawResponse.style.display = 'none';
       prospectRawResponse.textContent = '';
-      showNotice(`${error.message || 'Error fetching prospects.'} Make sure your local backend is running on port 3000.`, 'error');
+      showNotice(error.message || 'Error fetching prospects.', 'error');
     } finally {
       findProspectsBtn.disabled = false;
       findProspectsBtn.textContent = 'Find Prospects';
@@ -983,7 +996,6 @@ document.addEventListener('DOMContentLoaded', () => {
       return;
     }
 
-    prospectMeta.textContent = `Searching prospects for ${job.title || 'selected role'}...`;
     await fetchProspectsWithPayload(getProspectPayloadFromJob(job), 'saved role');
   };
 
