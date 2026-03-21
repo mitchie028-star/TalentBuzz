@@ -129,6 +129,12 @@
       gap: 16px;
     }
 
+    .grid-3 {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 16px;
+    }
+
     .full {
       grid-column: 1 / -1;
     }
@@ -200,7 +206,7 @@
     table {
       width: 100%;
       border-collapse: collapse;
-      min-width: 1200px;
+      min-width: 1350px;
     }
 
     th, td {
@@ -411,7 +417,7 @@
     }
 
     @media (max-width: 980px) {
-      .grid {
+      .grid, .grid-3 {
         grid-template-columns: 1fr;
       }
 
@@ -476,9 +482,35 @@
           </select>
         </div>
 
+        <div class="full">
+          <div class="grid-3">
+            <div>
+              <label for="country">Country</label>
+              <select id="country">
+                <option value="">Select country</option>
+              </select>
+            </div>
+
+            <div>
+              <label for="state_region">State / Region</label>
+              <select id="state_region">
+                <option value="">Select state / region</option>
+              </select>
+            </div>
+
+            <div>
+              <label for="city">City</label>
+              <select id="city">
+                <option value="">Select city</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
         <div>
-          <label for="location">Location</label>
-          <input id="location" placeholder="City, region, or country">
+          <label for="location">Location Display</label>
+          <input id="location" placeholder="Auto-built from country / region / city" readonly>
+          <div class="helper">This is the display location used across your ATS.</div>
         </div>
 
         <div>
@@ -545,7 +577,9 @@
             <th>Client</th>
             <th>Role</th>
             <th>Industry</th>
-            <th>Location</th>
+            <th>Country</th>
+            <th>State / Region</th>
+            <th>City</th>
             <th>Work Setup</th>
             <th>Featured</th>
             <th>Description</th>
@@ -554,7 +588,7 @@
         </thead>
         <tbody id="jobsTable">
           <tr>
-            <td colspan="8">Loading roles...</td>
+            <td colspan="10">Loading roles...</td>
           </tr>
         </tbody>
       </table>
@@ -579,8 +613,16 @@
           <div class="meta-value" id="modalIndustry">-</div>
         </div>
         <div class="meta-card">
-          <div class="meta-label">Location</div>
-          <div class="meta-value" id="modalLocation">-</div>
+          <div class="meta-label">Country</div>
+          <div class="meta-value" id="modalCountry">-</div>
+        </div>
+        <div class="meta-card">
+          <div class="meta-label">State / Region</div>
+          <div class="meta-value" id="modalRegion">-</div>
+        </div>
+        <div class="meta-card">
+          <div class="meta-label">City</div>
+          <div class="meta-value" id="modalCity">-</div>
         </div>
         <div class="meta-card">
           <div class="meta-label">Work Setup</div>
@@ -614,7 +656,6 @@
 document.addEventListener('DOMContentLoaded', () => {
   const SUPABASE_URL = 'https://dilalntcxmvdcmwxjcct.supabase.co';
   const SUPABASE_ANON_KEY = 'sb_publishable_HrLVIUwnaRo54yijtrbWBQ_1aeb4ezs';
-
   const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
   const ALLOWED_RECRUITER_EMAILS = [
@@ -625,6 +666,58 @@ document.addEventListener('DOMContentLoaded', () => {
     'jayson.c@talentbuzz.pro',
     'xyrene.e@talentbuzz.pro'
   ];
+
+  const LOCATION_DATA = {
+    "Philippines": {
+      "Metro Manila": [
+        "Manila",
+        "Makati",
+        "Quezon City",
+        "Taguig",
+        "Pasig",
+        "Mandaluyong",
+        "Pasay",
+        "Parañaque",
+        "Las Piñas",
+        "Muntinlupa",
+        "Marikina",
+        "San Juan",
+        "Caloocan",
+        "Malabon",
+        "Navotas",
+        "Valenzuela",
+        "Pateros"
+      ],
+      "Cebu": [
+        "Cebu City",
+        "Mandaue",
+        "Lapu-Lapu",
+        "Talisay"
+      ],
+      "Davao del Sur": [
+        "Davao City"
+      ]
+    },
+    "United States": {
+      "California": [
+        "Los Angeles",
+        "San Francisco",
+        "San Diego",
+        "San Jose"
+      ],
+      "Texas": [
+        "Houston",
+        "Dallas",
+        "Austin",
+        "San Antonio"
+      ],
+      "New York": [
+        "New York City",
+        "Buffalo",
+        "Albany"
+      ]
+    }
+  };
 
   const form = document.getElementById('roleForm');
   const noticeEl = document.getElementById('notice');
@@ -637,6 +730,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
   const roleModal = document.getElementById('roleModal');
   const closeRoleModal = document.getElementById('closeRoleModal');
+
+  const countrySelect = document.getElementById('country');
+  const regionSelect = document.getElementById('state_region');
+  const citySelect = document.getElementById('city');
+  const locationInput = document.getElementById('location');
 
   let editingJobId = null;
   let allJobs = [];
@@ -669,6 +767,45 @@ document.addEventListener('DOMContentLoaded', () => {
       .replaceAll('>', '&gt;')
       .replaceAll('"', '&quot;')
       .replaceAll("'", '&#039;');
+  }
+
+  function populateCountryDropdown() {
+    const countries = Object.keys(LOCATION_DATA).sort();
+    countrySelect.innerHTML =
+      `<option value="">Select country</option>` +
+      countries.map(country => `<option value="${escapeHtml(country)}">${escapeHtml(country)}</option>`).join('');
+  }
+
+  function populateRegionDropdown(country) {
+    regionSelect.innerHTML = `<option value="">Select state / region</option>`;
+    citySelect.innerHTML = `<option value="">Select city</option>`;
+
+    if (!country || !LOCATION_DATA[country]) return;
+
+    const regions = Object.keys(LOCATION_DATA[country]).sort();
+    regionSelect.innerHTML += regions
+      .map(region => `<option value="${escapeHtml(region)}">${escapeHtml(region)}</option>`)
+      .join('');
+  }
+
+  function populateCityDropdown(country, region) {
+    citySelect.innerHTML = `<option value="">Select city</option>`;
+
+    if (!country || !region || !LOCATION_DATA[country] || !LOCATION_DATA[country][region]) return;
+
+    citySelect.innerHTML += LOCATION_DATA[country][region]
+      .map(city => `<option value="${escapeHtml(city)}">${escapeHtml(city)}</option>`)
+      .join('');
+  }
+
+  function buildLocationDisplay() {
+    const parts = [
+      citySelect.value.trim(),
+      regionSelect.value.trim(),
+      countrySelect.value.trim()
+    ].filter(Boolean);
+
+    locationInput.value = parts.join(', ');
   }
 
   async function protectPage() {
@@ -806,7 +943,9 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('modalRoleTitle').textContent = job.title || '-';
     document.getElementById('modalClientName').textContent = job.client_name || '-';
     document.getElementById('modalIndustry').textContent = job.industry || '-';
-    document.getElementById('modalLocation').textContent = job.location || '-';
+    document.getElementById('modalCountry').textContent = job.country || '-';
+    document.getElementById('modalRegion').textContent = job.state_region || '-';
+    document.getElementById('modalCity').textContent = job.city || '-';
     document.getElementById('modalWorkSetup').textContent = parsed.work_setup || job.work_setup || '-';
     document.getElementById('modalEmploymentType').textContent = job.employment_type || '-';
     document.getElementById('modalLookingFor').textContent = parsed.what_we_are_looking_for || '-';
@@ -825,6 +964,10 @@ document.addEventListener('DOMContentLoaded', () => {
   function resetForm() {
     editingJobId = null;
     form.reset();
+    countrySelect.value = '';
+    populateRegionDropdown('');
+    populateCityDropdown('', '');
+    locationInput.value = '';
     saveBtn.textContent = 'Save Role';
     buildJobDescription();
   }
@@ -839,7 +982,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function renderJobsTable() {
     if (!allJobs.length) {
-      jobsTable.innerHTML = `<tr><td colspan="8">No open roles yet.</td></tr>`;
+      jobsTable.innerHTML = `<tr><td colspan="10">No open roles yet.</td></tr>`;
       return;
     }
 
@@ -848,7 +991,9 @@ document.addEventListener('DOMContentLoaded', () => {
         <td>${escapeHtml(job.client_name || '-')}</td>
         <td>${escapeHtml(job.title || '-')}</td>
         <td>${escapeHtml(job.industry || '-')}</td>
-        <td>${escapeHtml(job.location || '-')}</td>
+        <td>${escapeHtml(job.country || '-')}</td>
+        <td>${escapeHtml(job.state_region || '-')}</td>
+        <td>${escapeHtml(job.city || '-')}</td>
         <td>${escapeHtml(job.work_setup || '-')}</td>
         <td>${job.featured ? '<span class="small-chip">Yes</span>' : 'No'}</td>
         <td>${escapeHtml(shorten(job.job_description, 140) || '-')}</td>
@@ -867,11 +1012,11 @@ document.addEventListener('DOMContentLoaded', () => {
   async function loadJobs() {
     const { data, error } = await supabaseClient
       .from('jobs')
-      .select('id, client_name, title, location, industry, work_setup, featured, job_description, employment_type, keywords')
+      .select('id, client_name, title, industry, country, state_region, city, location, work_setup, featured, job_description, employment_type, keywords')
       .order('title', { ascending: true });
 
     if (error) {
-      jobsTable.innerHTML = `<tr><td colspan="8">${escapeHtml(error.message)}</td></tr>`;
+      jobsTable.innerHTML = `<tr><td colspan="10">${escapeHtml(error.message)}</td></tr>`;
       return;
     }
 
@@ -883,6 +1028,7 @@ document.addEventListener('DOMContentLoaded', () => {
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
     clearNotice();
+    buildLocationDisplay();
     buildJobDescription();
 
     saveBtn.disabled = true;
@@ -900,14 +1046,21 @@ document.addEventListener('DOMContentLoaded', () => {
       const payload = {
         client_name,
         title: document.getElementById('title').value.trim(),
-        location: document.getElementById('location').value.trim(),
         industry: document.getElementById('industry').value,
+        country: countrySelect.value.trim(),
+        state_region: regionSelect.value.trim(),
+        city: citySelect.value.trim(),
+        location: locationInput.value.trim(),
         employment_type: document.getElementById('employment_type').value.trim(),
         work_setup: document.getElementById('work_setup').value.trim(),
         job_description: document.getElementById('job_description').value.trim(),
         keywords: document.getElementById('keywords').value.trim().toLowerCase(),
         featured: document.getElementById('featured').value === 'true'
       };
+
+      if (!payload.country) {
+        throw new Error('Please select a country.');
+      }
 
       let error;
 
@@ -936,6 +1089,18 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   resetBtn.addEventListener('click', resetForm);
+
+  countrySelect.addEventListener('change', () => {
+    populateRegionDropdown(countrySelect.value);
+    buildLocationDisplay();
+  });
+
+  regionSelect.addEventListener('change', () => {
+    populateCityDropdown(countrySelect.value, regionSelect.value);
+    buildLocationDisplay();
+  });
+
+  citySelect.addEventListener('change', buildLocationDisplay);
 
   fieldsToWatch.forEach(id => {
     document.getElementById(id).addEventListener('input', buildJobDescription);
@@ -971,7 +1136,14 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('new_client_name').value = job.client_name || '';
     document.getElementById('title').value = job.title || '';
     document.getElementById('industry').value = job.industry || '';
-    document.getElementById('location').value = job.location || '';
+
+    countrySelect.value = job.country || '';
+    populateRegionDropdown(job.country || '');
+    regionSelect.value = job.state_region || '';
+    populateCityDropdown(job.country || '', job.state_region || '');
+    citySelect.value = job.city || '';
+    buildLocationDisplay();
+
     document.getElementById('employment_type').value = job.employment_type || '';
     document.getElementById('work_setup').value = parsed.work_setup || job.work_setup || '';
     document.getElementById('what_we_are_looking_for').value = parsed.what_we_are_looking_for || '';
@@ -1009,6 +1181,8 @@ document.addEventListener('DOMContentLoaded', () => {
     renderJobsTable();
     populateClientDropdown();
   };
+
+  populateCountryDropdown();
 
   (async () => {
     const allowed = await protectPage();
