@@ -62,6 +62,12 @@
       letter-spacing: -0.02em;
     }
 
+    h3 {
+      margin: 0 0 12px;
+      color: var(--blue);
+      font-size: 1rem;
+    }
+
     .subtitle {
       margin: 0;
       color: var(--muted);
@@ -163,11 +169,13 @@
     }
 
     .notice.show { display: block; }
+
     .notice.success {
       background: #ecfdf5;
       color: var(--success);
       border: 1px solid #bbf7d0;
     }
+
     .notice.error {
       background: #fef2f2;
       color: var(--error);
@@ -222,12 +230,6 @@
       margin-top: 10px;
     }
 
-    .preview-box h3 {
-      margin: 0 0 12px;
-      color: var(--blue);
-      font-size: 1rem;
-    }
-
     .preview-section {
       margin-bottom: 14px;
     }
@@ -266,6 +268,39 @@
       color: var(--blue);
       font-size: .78rem;
       font-weight: 700;
+    }
+
+    .prospect-panel {
+      margin-top: 22px;
+      padding: 16px;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: #fbfdff;
+    }
+
+    .prospect-empty {
+      color: var(--muted);
+      font-size: .92rem;
+    }
+
+    .prospect-meta {
+      margin-bottom: 10px;
+      color: var(--muted);
+      font-size: .88rem;
+    }
+
+    .json-box {
+      margin-top: 12px;
+      padding: 12px;
+      border-radius: 12px;
+      border: 1px solid var(--line);
+      background: #0f172a;
+      color: #e2e8f0;
+      overflow: auto;
+      font-size: .82rem;
+      line-height: 1.45;
+      white-space: pre-wrap;
+      word-break: break-word;
     }
 
     @media (max-width: 760px) {
@@ -360,6 +395,7 @@
         <div class="full">
           <label for="keywords">Keywords</label>
           <textarea id="keywords" placeholder="customer service, voice, csr, support"></textarea>
+          <div class="helper">Comma-separated keywords used later for matching and sourcing.</div>
         </div>
 
         <div class="full">
@@ -378,9 +414,38 @@
 
       <div class="actions">
         <button type="submit" class="btn btn-primary" id="saveBtn">Save Role</button>
+        <button type="button" class="btn btn-outline" id="findProspectsBtn">Find Prospects</button>
         <button type="button" class="btn btn-outline" id="resetBtn">Clear Form</button>
       </div>
     </form>
+
+    <div class="prospect-panel">
+      <h3>Suggested Prospects</h3>
+      <div id="prospectMeta" class="prospect-meta">Use the form values above, then click “Find Prospects”.</div>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Title</th>
+              <th>Company</th>
+              <th>Location</th>
+              <th>Email Status</th>
+              <th>Skills</th>
+              <th>Seniority</th>
+            </tr>
+          </thead>
+          <tbody id="prospectsTable">
+            <tr>
+              <td colspan="7" class="prospect-empty">No prospects yet.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div id="prospectRawResponse" class="json-box" style="display:none;"></div>
+    </div>
   </div>
 
   <div class="panel">
@@ -414,6 +479,8 @@
 document.addEventListener('DOMContentLoaded', () => {
   const SUPABASE_URL = 'https://dilalntcxmvdcmwxjcct.supabase.co';
   const SUPABASE_ANON_KEY = 'sb_publishable_HrLVIUwnaRo54yijtrbWBQ_1aeb4ezs';
+  const APOLLO_BACKEND_URL = 'http://localhost:3000/api/apollo/search-prospects';
+
   const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
   const ALLOWED_RECRUITER_EMAILS = [
@@ -429,10 +496,14 @@ document.addEventListener('DOMContentLoaded', () => {
   const noticeEl = document.getElementById('notice');
   const saveBtn = document.getElementById('saveBtn');
   const resetBtn = document.getElementById('resetBtn');
+  const findProspectsBtn = document.getElementById('findProspectsBtn');
   const jobsTable = document.getElementById('jobsTable');
   const existingClientSelect = document.getElementById('existing_client');
   const jdPreview = document.getElementById('jdPreview');
   const jdPreviewContent = document.getElementById('jdPreviewContent');
+  const prospectsTable = document.getElementById('prospectsTable');
+  const prospectMeta = document.getElementById('prospectMeta');
+  const prospectRawResponse = document.getElementById('prospectRawResponse');
 
   let editingJobId = null;
   let allJobs = [];
@@ -470,12 +541,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
   async function protectPage() {
     const { data: { session } } = await supabaseClient.auth.getSession();
+
     if (!session || !session.user) {
       window.location.href = 'login.html?redirect=client-roles-input.html';
       return false;
     }
 
     const email = String(session.user.email || '').toLowerCase();
+
     if (!ALLOWED_RECRUITER_EMAILS.includes(email)) {
       alert('Access denied.');
       window.location.href = 'dashboard.html';
@@ -491,6 +564,13 @@ document.addEventListener('DOMContentLoaded', () => {
       .map(line => line.trim())
       .filter(Boolean)
       .map(line => line.startsWith('-') ? line : `- ${line}`);
+  }
+
+  function keywordsToArray(text) {
+    return String(text || '')
+      .split(',')
+      .map(item => item.trim())
+      .filter(Boolean);
   }
 
   function buildJobDescription() {
@@ -520,9 +600,9 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function renderPreview(lookingFor, requirementsRaw, workSetup) {
-    const requirementLines = normalizeBulletLines(requirementsRaw).map(line =>
-      `<li>${escapeHtml(line.replace(/^-+\s*/, ''))}</li>`
-    ).join('');
+    const requirementLines = normalizeBulletLines(requirementsRaw)
+      .map(line => `<li>${escapeHtml(line.replace(/^-+\s*/, ''))}</li>`)
+      .join('');
 
     const parts = [];
 
@@ -564,6 +644,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function parseStoredJobDescription(jobDescription) {
     const text = String(jobDescription || '').trim();
+
     if (!text) {
       return {
         what_we_are_looking_for: '',
@@ -587,6 +668,7 @@ document.addEventListener('DOMContentLoaded', () => {
     editingJobId = null;
     form.reset();
     saveBtn.textContent = 'Save Role';
+    clearProspects();
     buildJobDescription();
   }
 
@@ -623,6 +705,47 @@ document.addEventListener('DOMContentLoaded', () => {
     `).join('');
   }
 
+  function clearProspects() {
+    prospectMeta.textContent = 'Use the form values above, then click “Find Prospects”.';
+    prospectsTable.innerHTML = `
+      <tr>
+        <td colspan="7" class="prospect-empty">No prospects yet.</td>
+      </tr>
+    `;
+    prospectRawResponse.style.display = 'none';
+    prospectRawResponse.textContent = '';
+  }
+
+  function renderProspects(matches = [], rawData = null) {
+    if (!Array.isArray(matches) || !matches.length) {
+      prospectsTable.innerHTML = `
+        <tr>
+          <td colspan="7" class="prospect-empty">No matching prospects returned yet.</td>
+        </tr>
+      `;
+      prospectMeta.textContent = 'Search completed, but there were no matches.';
+    } else {
+      prospectMeta.textContent = `${matches.length} prospect${matches.length === 1 ? '' : 's'} returned from backend.`;
+
+      prospectsTable.innerHTML = matches.map(match => `
+        <tr>
+          <td>${escapeHtml(match.name || '-')}</td>
+          <td>${escapeHtml(match.title || '-')}</td>
+          <td>${escapeHtml(match.company || '-')}</td>
+          <td>${escapeHtml(match.location || '-')}</td>
+          <td>${escapeHtml(match.email_status || '-')}</td>
+          <td>${escapeHtml(Array.isArray(match.skills) ? match.skills.join(', ') : (match.skills || '-'))}</td>
+          <td>${escapeHtml(Array.isArray(match.seniority) ? match.seniority.join(', ') : (match.seniority || '-'))}</td>
+        </tr>
+      `).join('');
+    }
+
+    if (rawData) {
+      prospectRawResponse.style.display = 'block';
+      prospectRawResponse.textContent = JSON.stringify(rawData, null, 2);
+    }
+  }
+
   async function loadJobs() {
     const { data, error } = await supabaseClient
       .from('jobs')
@@ -639,10 +762,85 @@ document.addEventListener('DOMContentLoaded', () => {
     renderJobsTable();
   }
 
+  function getFormPayload() {
+    const title = document.getElementById('title').value.trim();
+    const location = document.getElementById('location').value.trim();
+    const keywords = document.getElementById('keywords').value.trim();
+
+    return {
+      title,
+      location,
+      skills: keywordsToArray(keywords),
+      seniority: []
+    };
+  }
+
+  async function findProspects() {
+    clearNotice();
+    buildJobDescription();
+
+    const payload = getFormPayload();
+
+    if (!payload.title) {
+      showNotice('Please enter a role title before searching prospects.', 'error');
+      return;
+    }
+
+    if (!payload.location) {
+      showNotice('Please enter a location before searching prospects.', 'error');
+      return;
+    }
+
+    findProspectsBtn.disabled = true;
+    findProspectsBtn.textContent = 'Searching...';
+    prospectMeta.textContent = 'Searching backend for matching prospects...';
+    prospectsTable.innerHTML = `
+      <tr>
+        <td colspan="7" class="prospect-empty">Searching...</td>
+      </tr>
+    `;
+
+    try {
+      const response = await fetch(APOLLO_BACKEND_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(payload)
+      });
+
+      const data = await response.json();
+
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || 'Failed to fetch prospects.');
+      }
+
+      renderProspects(data.matches || [], data);
+      showNotice('Prospect search completed.', 'success');
+    } catch (error) {
+      prospectsTable.innerHTML = `
+        <tr>
+          <td colspan="7" class="prospect-empty">Unable to load prospects.</td>
+        </tr>
+      `;
+      prospectMeta.textContent = 'Prospect search failed.';
+      prospectRawResponse.style.display = 'none';
+      prospectRawResponse.textContent = '';
+      showNotice(
+        `${error.message || 'Error fetching prospects.'} Make sure your local backend is running on port 3000.`,
+        'error'
+      );
+    } finally {
+      findProspectsBtn.disabled = false;
+      findProspectsBtn.textContent = 'Find Prospects';
+    }
+  }
+
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
     clearNotice();
     buildJobDescription();
+
     saveBtn.disabled = true;
     saveBtn.textContent = editingJobId ? 'Updating...' : 'Saving...';
 
@@ -685,7 +883,6 @@ document.addEventListener('DOMContentLoaded', () => {
       showNotice(editingJobId ? 'Role updated successfully.' : 'Open role saved successfully.', 'success');
       resetForm();
       await loadJobs();
-
     } catch (error) {
       showNotice(error.message || 'Error saving role.', 'error');
     } finally {
@@ -695,6 +892,7 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   resetBtn.addEventListener('click', resetForm);
+  findProspectsBtn.addEventListener('click', findProspects);
 
   fieldsToWatch.forEach(id => {
     document.getElementById(id).addEventListener('input', buildJobDescription);
@@ -720,6 +918,7 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('keywords').value = job.keywords || '';
     document.getElementById('featured').value = job.featured ? 'true' : 'false';
 
+    clearProspects();
     buildJobDescription();
 
     saveBtn.textContent = 'Update Role';
@@ -754,8 +953,10 @@ document.addEventListener('DOMContentLoaded', () => {
   (async () => {
     const allowed = await protectPage();
     if (!allowed) return;
+
     await loadJobs();
     buildJobDescription();
+    clearProspects();
   })();
 });
 </script>
