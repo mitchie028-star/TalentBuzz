@@ -421,7 +421,7 @@
 
     <div class="prospect-panel">
       <h3>Suggested Prospects</h3>
-      <div id="prospectMeta" class="prospect-meta">Use the form values above, then click “Find Prospects”.</div>
+      <div id="prospectMeta" class="prospect-meta">Use the form values above, then click “Find Prospects”, or click “View Prospects” on any saved role below.</div>
 
       <div class="table-wrap">
         <table>
@@ -698,6 +698,7 @@ document.addEventListener('DOMContentLoaded', () => {
         <td>
           <div style="display:flex; gap:8px; flex-wrap:wrap;">
             <button class="btn btn-outline" onclick="editJob('${job.id}')">Edit</button>
+            <button class="btn btn-outline" onclick="viewProspectsForJob('${job.id}')">View Prospects</button>
             <button class="btn btn-danger" onclick="deleteJob('${job.id}')">Delete</button>
           </div>
         </td>
@@ -706,7 +707,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function clearProspects() {
-    prospectMeta.textContent = 'Use the form values above, then click “Find Prospects”.';
+    prospectMeta.textContent = 'Use the form values above, then click “Find Prospects”, or click “View Prospects” on any saved role below.';
     prospectsTable.innerHTML = `
       <tr>
         <td colspan="7" class="prospect-empty">No prospects yet.</td>
@@ -775,19 +776,25 @@ document.addEventListener('DOMContentLoaded', () => {
     };
   }
 
-  async function findProspects() {
-    clearNotice();
-    buildJobDescription();
+  function getProspectPayloadFromJob(job) {
+    return {
+      title: String(job.title || '').trim(),
+      location: String(job.location || '').trim(),
+      skills: keywordsToArray(job.keywords || ''),
+      seniority: []
+    };
+  }
 
-    const payload = getFormPayload();
+  async function fetchProspectsWithPayload(payload, label = 'role') {
+    clearNotice();
 
     if (!payload.title) {
-      showNotice('Please enter a role title before searching prospects.', 'error');
+      showNotice(`This ${label} has no role title.`, 'error');
       return;
     }
 
     if (!payload.location) {
-      showNotice('Please enter a location before searching prospects.', 'error');
+      showNotice(`This ${label} has no location.`, 'error');
       return;
     }
 
@@ -817,6 +824,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
       renderProspects(data.matches || [], data);
       showNotice('Prospect search completed.', 'success');
+
+      const prospectPanel = document.querySelector('.prospect-panel');
+      if (prospectPanel) {
+        prospectPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
     } catch (error) {
       prospectsTable.innerHTML = `
         <tr>
@@ -834,6 +846,12 @@ document.addEventListener('DOMContentLoaded', () => {
       findProspectsBtn.disabled = false;
       findProspectsBtn.textContent = 'Find Prospects';
     }
+  }
+
+  async function findProspects() {
+    buildJobDescription();
+    const payload = getFormPayload();
+    await fetchProspectsWithPayload(payload, 'form');
   }
 
   form.addEventListener('submit', async (e) => {
@@ -923,6 +941,19 @@ document.addEventListener('DOMContentLoaded', () => {
 
     saveBtn.textContent = 'Update Role';
     window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  window.viewProspectsForJob = async function (id) {
+    const job = allJobs.find(j => j.id === id);
+
+    if (!job) {
+      showNotice('Role not found.', 'error');
+      return;
+    }
+
+    const payload = getProspectPayloadFromJob(job);
+    prospectMeta.textContent = `Searching prospects for ${job.title || 'selected role'}...`;
+    await fetchProspectsWithPayload(payload, 'saved role');
   };
 
   window.deleteJob = async function (id) {
