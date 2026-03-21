@@ -20,6 +20,7 @@
       --white:#ffffff;
       --success:#166534;
       --error:#b91c1c;
+      --warning:#b45309;
       --shadow-soft:0 10px 30px rgba(30,58,138,.06),0 2px 10px rgba(15,23,42,.03);
     }
 
@@ -86,6 +87,12 @@
       background: white;
       color: var(--blue);
       border-color: var(--line);
+    }
+
+    .btn-warning {
+      background: #fff7ed;
+      color: var(--warning);
+      border-color: #fed7aa;
     }
 
     .btn[disabled] {
@@ -171,19 +178,31 @@
 
     .resume-preview {
       margin-top: 10px;
-      color: var(--text);
+      padding: 12px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: #f8fafc;
       font-size: .9rem;
+      display: none;
+    }
+
+    .resume-preview-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
     }
 
     .mini-btn {
-      margin-left: 10px;
-      padding: 4px 8px;
+      padding: 6px 10px;
       font-size: .8rem;
       border: none;
       border-radius: 6px;
       background: var(--error);
       color: white;
       cursor: pointer;
+      font-family: inherit;
     }
 
     .notice {
@@ -204,6 +223,11 @@
       background: #fef2f2;
       color: var(--error);
       border: 1px solid #fecaca;
+    }
+    .notice.warning {
+      background: #fff7ed;
+      color: var(--warning);
+      border: 1px solid #fed7aa;
     }
 
     @media (max-width: 760px) {
@@ -253,7 +277,7 @@
 
         <div class="full">
           <label for="experience_summary">Experience Summary</label>
-          <textarea id="experience_summary" placeholder="Write manually for now. Resume parsing can be connected later."></textarea>
+          <textarea id="experience_summary" placeholder="Resume parsing can auto-fill this, or you can write it manually."></textarea>
         </div>
 
         <div>
@@ -310,13 +334,14 @@
           <div id="resumeDropZone" class="dropzone">
             Drag & drop your resume here, or click to select
           </div>
-          <input id="resume" type="file" accept=".pdf,.doc,.docx" style="display:none;">
-          <div class="helper">Uploads to the <strong>resumes</strong> bucket. You can remove or replace the file before saving.</div>
+          <input id="resume" type="file" accept=".pdf,.doc,.docx,.txt" style="display:none;">
+          <div class="helper">Uploads to the <strong>resumes</strong> bucket. Resume parsing currently works best once your <strong>parse-resume</strong> Edge Function is deployed.</div>
           <div id="resumePreview" class="resume-preview"></div>
         </div>
       </div>
 
       <div class="actions">
+        <button type="button" class="btn btn-warning" id="parseResumeBtn">Parse Resume</button>
         <button type="submit" class="btn btn-primary" id="saveBtn">Save Candidate</button>
         <button type="button" class="btn btn-outline" id="saveAddAnotherBtn">Save & Add Another</button>
         <a href="recruiter-dashboard.html" class="btn btn-outline">Cancel</a>
@@ -345,6 +370,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const noticeEl = document.getElementById('notice');
   const saveBtn = document.getElementById('saveBtn');
   const saveAddAnotherBtn = document.getElementById('saveAddAnotherBtn');
+  const parseResumeBtn = document.getElementById('parseResumeBtn');
   const jobSelect = document.getElementById('job_id_select');
   const jobHelper = document.getElementById('jobHelper');
   const recruiterSelect = document.getElementById('recruiter_email');
@@ -354,6 +380,13 @@ document.addEventListener('DOMContentLoaded', () => {
   const resumePreview = document.getElementById('resumePreview');
 
   let currentUserEmail = '';
+  let parsedResumeState = {
+    raw_resume_text: null,
+    parsed_resume_json: null,
+    current_title: null,
+    years_experience: null,
+    skills: null
+  };
 
   function showNotice(text, type = 'success') {
     noticeEl.textContent = text;
@@ -365,18 +398,14 @@ document.addEventListener('DOMContentLoaded', () => {
     noticeEl.className = 'notice';
   }
 
-  function setSavingState(isSaving, mode = 'save') {
-    saveBtn.disabled = isSaving;
-    saveAddAnotherBtn.disabled = isSaving;
+  function setBusyState({ saving = false, addAnother = false, parsing = false } = {}) {
+    saveBtn.disabled = saving || parsing;
+    saveAddAnotherBtn.disabled = saving || parsing;
+    parseResumeBtn.disabled = saving || parsing;
 
-    if (!isSaving) {
-      saveBtn.textContent = 'Save Candidate';
-      saveAddAnotherBtn.textContent = 'Save & Add Another';
-      return;
-    }
-
-    saveBtn.textContent = mode === 'addAnother' ? 'Saving...' : 'Saving...';
-    saveAddAnotherBtn.textContent = mode === 'addAnother' ? 'Saving...' : 'Save & Add Another';
+    saveBtn.textContent = saving ? 'Saving...' : 'Save Candidate';
+    saveAddAnotherBtn.textContent = addAnother ? 'Saving...' : 'Save & Add Another';
+    parseResumeBtn.textContent = parsing ? 'Parsing...' : 'Parse Resume';
   }
 
   function makeSlug(value) {
@@ -396,11 +425,23 @@ document.addEventListener('DOMContentLoaded', () => {
     };
   }
 
+  function resetParsedState() {
+    parsedResumeState = {
+      raw_resume_text: null,
+      parsed_resume_json: null,
+      current_title: null,
+      years_experience: null,
+      skills: null
+    };
+  }
+
   function resetFormForNextEntry() {
     form.reset();
     resumeInput.value = '';
     resumePreview.innerHTML = '';
+    resumePreview.style.display = 'none';
     resumeDropZone.classList.remove('dragover');
+    resetParsedState();
 
     if (currentUserEmail) {
       const recruiterOptionExists = Array.from(recruiterSelect.options).some(
@@ -473,9 +514,43 @@ document.addEventListener('DOMContentLoaded', () => {
     jobHelper.textContent = `${data.length} role(s) available.`;
   }
 
-  async function uploadResume(file, email) {
+  function validateResumeFile(file) {
+    if (!file) return true;
+
+    const allowedExtensions = ['.pdf', '.doc', '.docx', '.txt'];
+    const lowerName = file.name.toLowerCase();
+    const isValid = allowedExtensions.some(ext => lowerName.endsWith(ext));
+
+    if (!isValid) {
+      throw new Error('Please upload a PDF, DOC, DOCX, or TXT file only.');
+    }
+
+    return true;
+  }
+
+  function showResumePreview(file) {
+    resumePreview.style.display = 'block';
+    resumePreview.innerHTML = `
+      <div class="resume-preview-row">
+        <div>
+          <strong>${file.name}</strong><br>
+          <span style="color: var(--muted);">${(file.size / 1024).toFixed(1)} KB</span>
+        </div>
+        <button type="button" id="removeResumeBtn" class="mini-btn">Remove</button>
+      </div>
+    `;
+
+    document.getElementById('removeResumeBtn').addEventListener('click', () => {
+      resumeInput.value = '';
+      resumePreview.innerHTML = '';
+      resumePreview.style.display = 'none';
+      resetParsedState();
+    });
+  }
+
+  async function uploadResume(file, emailOrFallback = 'unknown') {
     const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
-    const safeEmail = email.replace(/[^a-zA-Z0-9._-]/g, '_');
+    const safeEmail = String(emailOrFallback).replace(/[^a-zA-Z0-9._-]/g, '_');
     const path = `manual/${safeEmail}/${Date.now()}-${safeName}`;
 
     const { error } = await supabaseClient
@@ -493,78 +568,63 @@ document.addEventListener('DOMContentLoaded', () => {
     };
   }
 
-  function showResumePreview(file) {
-    resumePreview.innerHTML = `
-      Selected file: <strong>${file.name}</strong> (${(file.size / 1024).toFixed(1)} KB)
-      <button type="button" id="removeResumeBtn" class="mini-btn">Remove</button>
-    `;
+  function fillParsedFields(parsed) {
+    if (parsed.full_name) document.getElementById('full_name').value = parsed.full_name;
+    if (parsed.email) document.getElementById('email').value = parsed.email;
+    if (parsed.phone) document.getElementById('phone').value = parsed.phone;
+    if (parsed.location) document.getElementById('location').value = parsed.location;
+    if (parsed.experience_summary) document.getElementById('experience_summary').value = parsed.experience_summary;
 
-    document.getElementById('removeResumeBtn').addEventListener('click', () => {
-      resumeInput.value = '';
-      resumePreview.innerHTML = '';
-    });
+    parsedResumeState = {
+      raw_resume_text: parsed.raw_resume_text || null,
+      parsed_resume_json: parsed.parsed_resume_json || parsed || null,
+      current_title: parsed.current_title || null,
+      years_experience: parsed.years_experience ?? null,
+      skills: parsed.skills || null
+    };
   }
 
-  function validateResumeFile(file) {
-    if (!file) return true;
+  async function parseResume() {
+    clearNotice();
 
-    const allowedExtensions = ['.pdf', '.doc', '.docx'];
-    const lowerName = file.name.toLowerCase();
-    const isValid = allowedExtensions.some(ext => lowerName.endsWith(ext));
-
-    if (!isValid) {
-      throw new Error('Please upload a PDF, DOC, or DOCX file only.');
+    const resumeFile = resumeInput.files[0];
+    if (!resumeFile) {
+      showNotice('Please upload a resume first.', 'warning');
+      return;
     }
-
-    return true;
-  }
-
-  resumeDropZone.addEventListener('click', () => resumeInput.click());
-
-  resumeInput.addEventListener('change', () => {
-    if (resumeInput.files.length > 0) {
-      try {
-        validateResumeFile(resumeInput.files[0]);
-        showResumePreview(resumeInput.files[0]);
-      } catch (error) {
-        resumeInput.value = '';
-        resumePreview.innerHTML = '';
-        showNotice(error.message, 'error');
-      }
-    }
-  });
-
-  resumeDropZone.addEventListener('dragover', (e) => {
-    e.preventDefault();
-    resumeDropZone.classList.add('dragover');
-  });
-
-  resumeDropZone.addEventListener('dragleave', (e) => {
-    e.preventDefault();
-    resumeDropZone.classList.remove('dragover');
-  });
-
-  resumeDropZone.addEventListener('drop', (e) => {
-    e.preventDefault();
-    resumeDropZone.classList.remove('dragover');
-
-    const files = e.dataTransfer.files;
-    if (!files || !files.length) return;
 
     try {
-      validateResumeFile(files[0]);
-      resumeInput.files = files;
-      showResumePreview(files[0]);
+      validateResumeFile(resumeFile);
+      setBusyState({ parsing: true });
+
+      const emailValue = document.getElementById('email').value.trim().toLowerCase() || 'unknown';
+      const uploaded = await uploadResume(resumeFile, emailValue);
+
+      const { data, error } = await supabaseClient.functions.invoke('parse-resume', {
+        body: { resume_path: uploaded.path }
+      });
+
+      if (error) {
+        throw new Error(error.message || 'Resume parsing function is not available.');
+      }
+
+      if (!data?.success) {
+        throw new Error(data?.error || 'Resume parsing failed.');
+      }
+
+      fillParsedFields(data.data);
+      showNotice('Resume parsed successfully. Please review the auto-filled fields.', 'success');
+
     } catch (error) {
-      resumeInput.value = '';
-      resumePreview.innerHTML = '';
-      showNotice(error.message, 'error');
+      showNotice(error.message || 'Resume parsing failed.', 'warning');
+    } finally {
+      setBusyState();
     }
-  });
+  }
 
   async function saveCandidate({ stayOnPage = false } = {}) {
     clearNotice();
-    setSavingState(true, stayOnPage ? 'addAnother' : 'save');
+    setBusyState({ saving: true, addAnother: stayOnPage });
 
     try {
       const full_name = document.getElementById('full_name').value.trim();
@@ -605,19 +665,27 @@ document.addEventListener('DOMContentLoaded', () => {
         resume_url = uploaded.url;
       }
 
+      const profilePayload = {
+        full_name,
+        email,
+        phone,
+        location,
+        experience_summary,
+        resume_path,
+        resume_url,
+        raw_resume_text: parsedResumeState.raw_resume_text,
+        parsed_resume_json: parsedResumeState.parsed_resume_json,
+        current_title: parsedResumeState.current_title,
+        years_experience: parsedResumeState.years_experience,
+        skills: parsedResumeState.skills
+      };
+
       let profile = null;
 
       if (existingProfile) {
         const { data: updatedProfile, error: updateProfileError } = await supabaseClient
           .from('applicant_profiles')
-          .update({
-            full_name,
-            phone,
-            location,
-            experience_summary,
-            resume_path,
-            resume_url
-          })
+          .update(profilePayload)
           .eq('id', existingProfile.id)
           .select()
           .single();
@@ -627,15 +695,7 @@ document.addEventListener('DOMContentLoaded', () => {
       } else {
         const { data: insertedProfile, error: insertProfileError } = await supabaseClient
           .from('applicant_profiles')
-          .insert([{
-            full_name,
-            email,
-            phone,
-            location,
-            experience_summary,
-            resume_path,
-            resume_url
-          }])
+          .insert([profilePayload])
           .select()
           .single();
 
@@ -643,86 +703,52 @@ document.addEventListener('DOMContentLoaded', () => {
         profile = insertedProfile;
       }
 
-      const { data: existingApplication, error: existingApplicationError } = await supabaseClient
+      let existingApplication = null;
+
+      const uuidCheck = await supabaseClient
         .from('applications')
         .select('*')
         .eq('applicant_profile_id', profile.id)
         .eq('job_id_uuid', selectedJobUuid)
         .maybeSingle();
 
-      if (existingApplicationError) {
-        const { data: fallbackExistingApplication, error: fallbackError } = await supabaseClient
+      if (!uuidCheck.error) {
+        existingApplication = uuidCheck.data;
+      } else {
+        const legacyCheck = await supabaseClient
           .from('applications')
           .select('*')
           .eq('applicant_profile_id', profile.id)
           .eq('job_id', selectedJobSlug)
           .maybeSingle();
 
-        if (fallbackError) throw fallbackError;
+        if (legacyCheck.error) throw legacyCheck.error;
+        existingApplication = legacyCheck.data;
+      }
 
-        if (fallbackExistingApplication) {
-          const { error: updateAppError } = await supabaseClient
-            .from('applications')
-            .update({
-              status,
-              recruiter_email,
-              email,
-              application_source,
-              confirmation_email_status: 'pending',
-              job_title: selectedJobTitle,
-              job_id: selectedJobSlug,
-              job_id_uuid: selectedJobUuid
-            })
-            .eq('id', fallbackExistingApplication.id);
+      const applicationPayload = {
+        applicant_profile_id: profile.id,
+        email,
+        job_title: selectedJobTitle,
+        job_id: selectedJobSlug,
+        job_id_uuid: selectedJobUuid,
+        recruiter_email,
+        status,
+        application_source,
+        confirmation_email_status: 'pending'
+      };
 
-          if (updateAppError) throw updateAppError;
-        } else {
-          const { error: insertAppError } = await supabaseClient
-            .from('applications')
-            .insert([{
-              applicant_profile_id: profile.id,
-              email,
-              job_title: selectedJobTitle,
-              job_id: selectedJobSlug,
-              job_id_uuid: selectedJobUuid,
-              recruiter_email,
-              status,
-              application_source,
-              confirmation_email_status: 'pending'
-            }]);
-
-          if (insertAppError) throw insertAppError;
-        }
-      } else if (existingApplication) {
+      if (existingApplication) {
         const { error: updateAppError } = await supabaseClient
           .from('applications')
-          .update({
-            status,
-            recruiter_email,
-            email,
-            application_source,
-            confirmation_email_status: 'pending',
-            job_title: selectedJobTitle,
-            job_id: selectedJobSlug,
-            job_id_uuid: selectedJobUuid
-          })
+          .update(applicationPayload)
           .eq('id', existingApplication.id);
 
         if (updateAppError) throw updateAppError;
       } else {
         const { error: insertAppError } = await supabaseClient
           .from('applications')
-          .insert([{
-            applicant_profile_id: profile.id,
-            email,
-            job_title: selectedJobTitle,
-            job_id: selectedJobSlug,
-            job_id_uuid: selectedJobUuid,
-            recruiter_email,
-            status,
-            application_source,
-            confirmation_email_status: 'pending'
-          }]);
+          .insert([applicationPayload]);
 
         if (insertAppError) throw insertAppError;
       }
@@ -742,9 +768,60 @@ document.addEventListener('DOMContentLoaded', () => {
     } catch (error) {
       showNotice(error.message || 'Error saving candidate.', 'error');
     } finally {
-      setSavingState(false);
+      setBusyState();
     }
   }
+
+  resumeDropZone.addEventListener('click', () => resumeInput.click());
+
+  resumeInput.addEventListener('change', () => {
+    if (resumeInput.files.length > 0) {
+      try {
+        validateResumeFile(resumeInput.files[0]);
+        showResumePreview(resumeInput.files[0]);
+        resetParsedState();
+      } catch (error) {
+        resumeInput.value = '';
+        resumePreview.innerHTML = '';
+        resumePreview.style.display = 'none';
+        showNotice(error.message, 'error');
+      }
+    }
+  });
+
+  resumeDropZone.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    resumeDropZone.classList.add('dragover');
+  });
+
+  resumeDropZone.addEventListener('dragleave', (e) => {
+    e.preventDefault();
+    resumeDropZone.classList.remove('dragover');
+  });
+
+  resumeDropZone.addEventListener('drop', (e) => {
+    e.preventDefault();
+    resumeDropZone.classList.remove('dragover');
+
+    const files = e.dataTransfer.files;
+    if (!files || !files.length) return;
+
+    try {
+      validateResumeFile(files[0]);
+      resumeInput.files = files;
+      showResumePreview(files[0]);
+      resetParsedState();
+    } catch (error) {
+      resumeInput.value = '';
+      resumePreview.innerHTML = '';
+      resumePreview.style.display = 'none';
+      showNotice(error.message, 'error');
+    }
+  });
+
+  parseResumeBtn.addEventListener('click', async () => {
+    await parseResume();
+  });
 
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
