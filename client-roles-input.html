@@ -55,6 +55,13 @@
       letter-spacing: -0.03em;
     }
 
+    h2 {
+      margin: 0 0 14px;
+      color: var(--blue);
+      font-size: 1.2rem;
+      letter-spacing: -0.02em;
+    }
+
     .subtitle {
       margin: 0;
       color: var(--muted);
@@ -102,7 +109,7 @@
     }
 
     .btn[disabled] {
-      opacity: .65;
+      opacity: 0.65;
       cursor: not-allowed;
       transform: none;
     }
@@ -178,17 +185,17 @@
       border: 1px solid #fed7aa;
     }
 
+    .helper {
+      margin-top: 6px;
+      color: var(--muted);
+      font-size: .84rem;
+    }
+
     .actions {
       display: flex;
       gap: 10px;
       flex-wrap: wrap;
       margin-top: 18px;
-    }
-
-    .helper {
-      margin-top: 6px;
-      color: var(--muted);
-      font-size: .84rem;
     }
 
     .table-wrap {
@@ -218,6 +225,7 @@
     }
 
     .preview-box {
+      display: none;
       background: #f8fafc;
       border: 1px solid var(--line);
       border-radius: 14px;
@@ -237,6 +245,17 @@
       word-break: break-word;
       font: inherit;
       color: var(--text);
+      line-height: 1.6;
+    }
+
+    .small-chip {
+      display: inline-block;
+      padding: 6px 10px;
+      border-radius: 999px;
+      background: #eff6ff;
+      color: var(--blue);
+      font-size: .78rem;
+      font-weight: 700;
     }
 
     @media (max-width: 760px) {
@@ -317,14 +336,15 @@
         </div>
 
         <div class="full">
-          <label for="raw_jd">Raw Job Description Input</label>
-          <textarea id="raw_jd" placeholder="Paste the full client JD here. Then click Parse JD to auto-generate a cleaner version."></textarea>
-          <div class="helper">This can be the raw client JD, notes, responsibilities, qualifications, and setup details.</div>
+          <label for="raw_jd">Raw Job Description</label>
+          <textarea id="raw_jd" placeholder="Paste the original client JD here, then click Parse JD."></textarea>
+          <div class="helper">Use this for the full raw JD before optimization.</div>
         </div>
 
         <div class="full">
           <label for="job_description">Optimized Job Description</label>
           <textarea id="job_description" placeholder="This will be filled by Parse JD, or you can type it manually."></textarea>
+          <div class="helper">This stores the optimized role description that will be shown in your ATS/careers flow.</div>
         </div>
 
         <div class="full">
@@ -333,7 +353,7 @@
         </div>
 
         <div class="full">
-          <div id="jdPreview" class="preview-box" style="display:none;">
+          <div id="jdPreview" class="preview-box">
             <h3>Parsed JD Preview</h3>
             <pre id="jdPreviewText"></pre>
           </div>
@@ -349,7 +369,7 @@
   </div>
 
   <div class="panel">
-    <h2 style="margin-top:0; color:#1e3a8a;">Existing Roles</h2>
+    <h2>Existing Roles</h2>
     <div class="table-wrap">
       <table>
         <thead>
@@ -414,19 +434,31 @@ document.addEventListener('DOMContentLoaded', () => {
     noticeEl.className = 'notice';
   }
 
-  function shorten(text, max = 120) {
-    const value = String(text || '');
-    if (value.length <= max) return value;
-    return value.slice(0, max) + '...';
-  }
-
   function setBusyState({ saving = false, parsing = false } = {}) {
     saveBtn.disabled = saving || parsing;
     parseJDBtn.disabled = saving || parsing;
     resetBtn.disabled = saving || parsing;
 
-    saveBtn.textContent = saving ? (editingJobId ? 'Updating...' : 'Saving...') : (editingJobId ? 'Update Role' : 'Save Role');
+    saveBtn.textContent = saving
+      ? (editingJobId ? 'Updating...' : 'Saving...')
+      : (editingJobId ? 'Update Role' : 'Save Role');
+
     parseJDBtn.textContent = parsing ? 'Parsing...' : 'Parse JD';
+  }
+
+  function shorten(text, max = 140) {
+    const value = String(text || '');
+    if (value.length <= max) return value;
+    return value.slice(0, max) + '...';
+  }
+
+  function escapeHtml(value) {
+    return String(value ?? '')
+      .replaceAll('&', '&amp;')
+      .replaceAll('<', '&lt;')
+      .replaceAll('>', '&gt;')
+      .replaceAll('"', '&quot;')
+      .replaceAll("'", '&#039;');
   }
 
   async function protectPage() {
@@ -460,7 +492,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     existingClientSelect.innerHTML =
       `<option value="">Select existing client</option>` +
-      clients.map(client => `<option value="${client}">${client}</option>`).join('');
+      clients.map(client => `<option value="${escapeHtml(client)}">${escapeHtml(client)}</option>`).join('');
   }
 
   function renderJobsTable() {
@@ -471,13 +503,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
     jobsTable.innerHTML = allJobs.map(job => `
       <tr>
-        <td>${job.client_name || '-'}</td>
-        <td>${job.title || '-'}</td>
-        <td>${job.industry || '-'}</td>
-        <td>${job.location || '-'}</td>
-        <td>${job.work_setup || '-'}</td>
-        <td>${job.featured ? 'Yes' : 'No'}</td>
-        <td>${shorten(job.job_description, 140) || '-'}</td>
+        <td>${escapeHtml(job.client_name || '-')}</td>
+        <td>${escapeHtml(job.title || '-')}</td>
+        <td>${escapeHtml(job.industry || '-')}</td>
+        <td>${escapeHtml(job.location || '-')}</td>
+        <td>${escapeHtml(job.work_setup || '-')}</td>
+        <td>${job.featured ? '<span class="small-chip">Yes</span>' : 'No'}</td>
+        <td>${escapeHtml(shorten(job.job_description, 140) || '-')}</td>
         <td>
           <div style="display:flex; gap:8px; flex-wrap:wrap;">
             <button class="btn btn-outline" onclick="editJob('${job.id}')">Edit</button>
@@ -495,7 +527,7 @@ document.addEventListener('DOMContentLoaded', () => {
       .order('title', { ascending: true });
 
     if (error) {
-      jobsTable.innerHTML = `<tr><td colspan="8">${error.message}</td></tr>`;
+      jobsTable.innerHTML = `<tr><td colspan="8">${escapeHtml(error.message)}</td></tr>`;
       return;
     }
 
@@ -551,8 +583,10 @@ document.addEventListener('DOMContentLoaded', () => {
       const optimizedJD = buildOptimizedJDText(parsedJDState);
 
       document.getElementById('job_description').value = optimizedJD;
-      document.getElementById('work_setup').value = parsedJDState.work_setup || document.getElementById('work_setup').value;
-      document.getElementById('keywords').value = parsedJDState.keywords || document.getElementById('keywords').value;
+      document.getElementById('work_setup').value =
+        parsedJDState.work_setup || document.getElementById('work_setup').value;
+      document.getElementById('keywords').value =
+        parsedJDState.keywords || document.getElementById('keywords').value;
 
       jdPreviewText.textContent = optimizedJD;
       jdPreview.style.display = 'block';
