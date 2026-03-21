@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Client Roles Input | TalentBuzz</title>
+  <title>Client Add Role | TalentBuzz</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -20,7 +20,6 @@
       --white:#ffffff;
       --success:#166534;
       --error:#b91c1c;
-      --warning:#b45309;
       --shadow-soft:0 10px 30px rgba(30,58,138,.06),0 2px 10px rgba(15,23,42,.03);
     }
 
@@ -34,7 +33,7 @@
     }
 
     .container {
-      max-width: 1120px;
+      max-width: 1200px;
       margin: 0 auto;
       padding: 24px 20px 40px;
     }
@@ -202,7 +201,7 @@
     table {
       width: 100%;
       border-collapse: collapse;
-      min-width: 1100px;
+      min-width: 1400px;
     }
 
     th, td {
@@ -250,14 +249,12 @@
       color: var(--text);
     }
 
-    .preview-section ul {
+    .preview-pre {
       margin: 0;
-      padding-left: 20px;
+      white-space: pre-wrap;
+      font-family: inherit;
       line-height: 1.7;
-    }
-
-    .preview-section li {
-      margin-bottom: 4px;
+      color: var(--text);
     }
 
     .small-chip {
@@ -270,17 +267,35 @@
       font-weight: 700;
     }
 
+    .email-chip {
+      display: inline-block;
+      padding: 5px 9px;
+      border-radius: 999px;
+      font-size: .75rem;
+      font-weight: 800;
+    }
+
+    .email-chip.personal {
+      background: #ecfdf5;
+      color: #166534;
+    }
+
+    .email-chip.work {
+      background: #eff6ff;
+      color: #1d4ed8;
+    }
+
+    .email-chip.none {
+      background: #f1f5f9;
+      color: #64748b;
+    }
+
     .prospect-panel {
       margin-top: 22px;
       padding: 16px;
       border: 1px solid var(--line);
       border-radius: 14px;
       background: #fbfdff;
-    }
-
-    .prospect-empty {
-      color: var(--muted);
-      font-size: .92rem;
     }
 
     .prospect-meta {
@@ -301,6 +316,16 @@
       line-height: 1.45;
       white-space: pre-wrap;
       word-break: break-word;
+    }
+
+    a.inline-link {
+      color: var(--blue-light);
+      text-decoration: none;
+      font-weight: 700;
+    }
+
+    a.inline-link:hover {
+      text-decoration: underline;
     }
 
     @media (max-width: 760px) {
@@ -389,7 +414,7 @@
         <div class="full">
           <label for="requirements">Requirements</label>
           <textarea id="requirements" placeholder="- At least 2 years of BPO experience&#10;- Strong communication skills&#10;- Experience in email and chat support"></textarea>
-          <div class="helper">Put each requirement on a new line. You can start lines with “-” for bullets.</div>
+          <div class="helper">Formatting is preserved exactly as typed, including bullets and line breaks.</div>
         </div>
 
         <div class="full">
@@ -431,14 +456,17 @@
               <th>Title</th>
               <th>Company</th>
               <th>Location</th>
-              <th>Email Status</th>
-              <th>Skills</th>
-              <th>Seniority</th>
+              <th>Email</th>
+              <th>Email Type</th>
+              <th>Phone</th>
+              <th>Education</th>
+              <th>Years Exp</th>
+              <th>LinkedIn</th>
             </tr>
           </thead>
           <tbody id="prospectsTable">
             <tr>
-              <td colspan="7" class="prospect-empty">No prospects yet.</td>
+              <td colspan="10">No prospects yet.</td>
             </tr>
           </tbody>
         </table>
@@ -479,7 +507,7 @@
 document.addEventListener('DOMContentLoaded', () => {
   const SUPABASE_URL = 'https://dilalntcxmvdcmwxjcct.supabase.co';
   const SUPABASE_ANON_KEY = 'sb_publishable_HrLVIUwnaRo54yijtrbWBQ_1aeb4ezs';
-  const APOLLO_BACKEND_URL = 'http://localhost:3000/api/apollo/search-prospects';
+  const PROSPECT_BACKEND_URL = 'http://localhost:3000/api/apollo/search-prospects';
 
   const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
@@ -526,8 +554,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function shorten(text, max = 140) {
     const value = String(text || '');
-    if (value.length <= max) return value;
-    return value.slice(0, max) + '...';
+    return value.length <= max ? value : `${value.slice(0, max)}...`;
   }
 
   function escapeHtml(value) {
@@ -539,11 +566,17 @@ document.addEventListener('DOMContentLoaded', () => {
       .replaceAll("'", '&#039;');
   }
 
+  function normalizeLinkedInUrl(url) {
+    const value = String(url || '').trim();
+    if (!value) return '';
+    return /^https?:\/\//i.test(value) ? value : `https://${value}`;
+  }
+
   async function protectPage() {
     const { data: { session } } = await supabaseClient.auth.getSession();
 
     if (!session || !session.user) {
-      window.location.href = 'login.html?redirect=client-roles-input.html';
+      window.location.href = 'login.html?redirect=client-add-role.html';
       return false;
     }
 
@@ -558,14 +591,6 @@ document.addEventListener('DOMContentLoaded', () => {
     return true;
   }
 
-  function normalizeBulletLines(text) {
-    return String(text || '')
-      .split('\n')
-      .map(line => line.trim())
-      .filter(Boolean)
-      .map(line => line.startsWith('-') ? line : `- ${line}`);
-  }
-
   function keywordsToArray(text) {
     return String(text || '')
       .split(',')
@@ -575,51 +600,44 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function buildJobDescription() {
     const lookingFor = document.getElementById('what_we_are_looking_for').value.trim();
-    const requirementsRaw = document.getElementById('requirements').value.trim();
+    const requirements = document.getElementById('requirements').value.trim();
     const workSetup = document.getElementById('work_setup').value.trim();
 
-    const sections = [];
+    let output = '';
 
     if (lookingFor) {
-      sections.push(`What We Are Looking For:\n${lookingFor}`);
+      output += `What We Are Looking For:\n${lookingFor}\n\n`;
     }
 
-    if (requirementsRaw) {
-      const requirementLines = normalizeBulletLines(requirementsRaw);
-      sections.push(`Requirements:\n${requirementLines.join('\n')}`);
+    if (requirements) {
+      output += `Requirements:\n${requirements}\n\n`;
     }
 
     if (workSetup) {
-      sections.push(`Work Setup:\n${workSetup}`);
+      output += `Work Setup:\n${workSetup}`;
     }
 
-    const finalText = sections.join('\n\n');
-    document.getElementById('job_description').value = finalText;
-
-    renderPreview(lookingFor, requirementsRaw, workSetup);
+    document.getElementById('job_description').value = output.trim();
+    renderPreview(lookingFor, requirements, workSetup);
   }
 
-  function renderPreview(lookingFor, requirementsRaw, workSetup) {
-    const requirementLines = normalizeBulletLines(requirementsRaw)
-      .map(line => `<li>${escapeHtml(line.replace(/^-+\s*/, ''))}</li>`)
-      .join('');
-
+  function renderPreview(lookingFor, requirements, workSetup) {
     const parts = [];
 
     if (lookingFor) {
       parts.push(`
         <div class="preview-section">
           <strong>What We Are Looking For</strong>
-          <p>${escapeHtml(lookingFor).replaceAll('\n', '<br>')}</p>
+          <p>${escapeHtml(lookingFor).replace(/\n/g, '<br>')}</p>
         </div>
       `);
     }
 
-    if (requirementsRaw) {
+    if (requirements) {
       parts.push(`
         <div class="preview-section">
           <strong>Requirements</strong>
-          <ul>${requirementLines}</ul>
+          <pre class="preview-pre">${escapeHtml(requirements)}</pre>
         </div>
       `);
     }
@@ -633,13 +651,8 @@ document.addEventListener('DOMContentLoaded', () => {
       `);
     }
 
-    if (parts.length) {
-      jdPreviewContent.innerHTML = parts.join('');
-      jdPreview.style.display = 'block';
-    } else {
-      jdPreviewContent.innerHTML = '';
-      jdPreview.style.display = 'none';
-    }
+    jdPreviewContent.innerHTML = parts.join('');
+    jdPreview.style.display = parts.length ? 'block' : 'none';
   }
 
   function parseStoredJobDescription(jobDescription) {
@@ -710,7 +723,7 @@ document.addEventListener('DOMContentLoaded', () => {
     prospectMeta.textContent = 'Use the form values above, then click “Find Prospects”, or click “View Prospects” on any saved role below.';
     prospectsTable.innerHTML = `
       <tr>
-        <td colspan="7" class="prospect-empty">No prospects yet.</td>
+        <td colspan="10">No prospects yet.</td>
       </tr>
     `;
     prospectRawResponse.style.display = 'none';
@@ -719,26 +732,51 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function renderProspects(matches = [], rawData = null) {
     if (!Array.isArray(matches) || !matches.length) {
+      prospectMeta.textContent = 'Search completed, but there were no matches.';
       prospectsTable.innerHTML = `
         <tr>
-          <td colspan="7" class="prospect-empty">No matching prospects returned yet.</td>
+          <td colspan="10">No matching prospects returned yet.</td>
         </tr>
       `;
-      prospectMeta.textContent = 'Search completed, but there were no matches.';
     } else {
       prospectMeta.textContent = `${matches.length} prospect${matches.length === 1 ? '' : 's'} returned from backend.`;
 
-      prospectsTable.innerHTML = matches.map(match => `
-        <tr>
-          <td>${escapeHtml(match.name || '-')}</td>
-          <td>${escapeHtml(match.title || '-')}</td>
-          <td>${escapeHtml(match.company || '-')}</td>
-          <td>${escapeHtml(match.location || '-')}</td>
-          <td>${escapeHtml(match.email_status || '-')}</td>
-          <td>${escapeHtml(Array.isArray(match.skills) ? match.skills.join(', ') : (match.skills || '-'))}</td>
-          <td>${escapeHtml(Array.isArray(match.seniority) ? match.seniority.join(', ') : (match.seniority || '-'))}</td>
-        </tr>
-      `).join('');
+      prospectsTable.innerHTML = matches.map(match => {
+        const linkedinUrl = normalizeLinkedInUrl(match.linkedin_url);
+        const personalEmail = match.personal_email || '';
+        const workEmail = match.work_email || '';
+        const email = personalEmail || workEmail || '';
+
+        let emailType = 'None';
+        let cls = 'none';
+
+        if (personalEmail) {
+          emailType = 'Personal';
+          cls = 'personal';
+        } else if (workEmail) {
+          emailType = 'Work';
+          cls = 'work';
+        }
+
+        return `
+          <tr>
+            <td>${escapeHtml(match.name || '-')}</td>
+            <td>${escapeHtml(match.title || '-')}</td>
+            <td>${escapeHtml(match.company || '-')}</td>
+            <td>${escapeHtml(match.location || '-')}</td>
+            <td>${email ? escapeHtml(email) : '-'}</td>
+            <td><span class="email-chip ${cls}">${escapeHtml(emailType)}</span></td>
+            <td>${match.phone ? escapeHtml(match.phone) : '-'}</td>
+            <td>${escapeHtml(match.education || '-')}</td>
+            <td>${match.years_experience !== null && match.years_experience !== undefined ? escapeHtml(String(match.years_experience)) : '-'}</td>
+            <td>
+              ${linkedinUrl
+                ? `<a class="inline-link" href="${escapeHtml(linkedinUrl)}" target="_blank" rel="noopener noreferrer">View</a>`
+                : '-'}
+            </td>
+          </tr>
+        `;
+      }).join('');
     }
 
     if (rawData) {
@@ -764,14 +802,10 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function getFormPayload() {
-    const title = document.getElementById('title').value.trim();
-    const location = document.getElementById('location').value.trim();
-    const keywords = document.getElementById('keywords').value.trim();
-
     return {
-      title,
-      location,
-      skills: keywordsToArray(keywords),
+      title: document.getElementById('title').value.trim(),
+      location: document.getElementById('location').value.trim(),
+      skills: keywordsToArray(document.getElementById('keywords').value.trim()),
       seniority: []
     };
   }
@@ -803,23 +837,25 @@ document.addEventListener('DOMContentLoaded', () => {
     prospectMeta.textContent = 'Searching backend for matching prospects...';
     prospectsTable.innerHTML = `
       <tr>
-        <td colspan="7" class="prospect-empty">Searching...</td>
+        <td colspan="10">Searching...</td>
       </tr>
     `;
 
     try {
-      const response = await fetch(APOLLO_BACKEND_URL, {
+      const response = await fetch(PROSPECT_BACKEND_URL, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       });
 
       const data = await response.json();
 
       if (!response.ok || !data.success) {
-        throw new Error(data.error || 'Failed to fetch prospects.');
+        throw new Error(
+          typeof data.error === 'string'
+            ? data.error
+            : (data.error?.message || 'Failed to fetch prospects.')
+        );
       }
 
       renderProspects(data.matches || [], data);
@@ -830,18 +866,15 @@ document.addEventListener('DOMContentLoaded', () => {
         prospectPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
       }
     } catch (error) {
+      prospectMeta.textContent = 'Prospect search failed.';
       prospectsTable.innerHTML = `
         <tr>
-          <td colspan="7" class="prospect-empty">Unable to load prospects.</td>
+          <td colspan="10">Unable to load prospects.</td>
         </tr>
       `;
-      prospectMeta.textContent = 'Prospect search failed.';
       prospectRawResponse.style.display = 'none';
       prospectRawResponse.textContent = '';
-      showNotice(
-        `${error.message || 'Error fetching prospects.'} Make sure your local backend is running on port 3000.`,
-        'error'
-      );
+      showNotice(`${error.message || 'Error fetching prospects.'} Make sure your local backend is running on port 3000.`, 'error');
     } finally {
       findProspectsBtn.disabled = false;
       findProspectsBtn.textContent = 'Find Prospects';
@@ -850,8 +883,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   async function findProspects() {
     buildJobDescription();
-    const payload = getFormPayload();
-    await fetchProspectsWithPayload(payload, 'form');
+    await fetchProspectsWithPayload(getFormPayload(), 'form');
   }
 
   form.addEventListener('submit', async (e) => {
@@ -951,9 +983,8 @@ document.addEventListener('DOMContentLoaded', () => {
       return;
     }
 
-    const payload = getProspectPayloadFromJob(job);
     prospectMeta.textContent = `Searching prospects for ${job.title || 'selected role'}...`;
-    await fetchProspectsWithPayload(payload, 'saved role');
+    await fetchProspectsWithPayload(getProspectPayloadFromJob(job), 'saved role');
   };
 
   window.deleteJob = async function (id) {
