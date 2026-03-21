@@ -20,6 +20,7 @@
       --white:#ffffff;
       --success:#166534;
       --error:#b91c1c;
+      --warning:#b45309;
       --shadow-soft:0 10px 30px rgba(30,58,138,.06),0 2px 10px rgba(15,23,42,.03);
     }
 
@@ -94,6 +95,18 @@
       border-color: #fecaca;
     }
 
+    .btn-warning {
+      background: #fff7ed;
+      color: var(--warning);
+      border-color: #fed7aa;
+    }
+
+    .btn[disabled] {
+      opacity: .65;
+      cursor: not-allowed;
+      transform: none;
+    }
+
     .panel {
       background: var(--white);
       border: 1px solid var(--line);
@@ -159,12 +172,23 @@
       color: var(--error);
       border: 1px solid #fecaca;
     }
+    .notice.warning {
+      background: #fff7ed;
+      color: var(--warning);
+      border: 1px solid #fed7aa;
+    }
 
     .actions {
       display: flex;
       gap: 10px;
       flex-wrap: wrap;
       margin-top: 18px;
+    }
+
+    .helper {
+      margin-top: 6px;
+      color: var(--muted);
+      font-size: .84rem;
     }
 
     .table-wrap {
@@ -191,6 +215,28 @@
       font-weight: 800;
       text-transform: uppercase;
       letter-spacing: .06em;
+    }
+
+    .preview-box {
+      background: #f8fafc;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 14px;
+      margin-top: 10px;
+    }
+
+    .preview-box h3 {
+      margin: 0 0 8px;
+      color: var(--blue);
+      font-size: 1rem;
+    }
+
+    .preview-box pre {
+      margin: 0;
+      white-space: pre-wrap;
+      word-break: break-word;
+      font: inherit;
+      color: var(--text);
     }
 
     @media (max-width: 760px) {
@@ -271,17 +317,31 @@
         </div>
 
         <div class="full">
-          <label for="job_description">Job Description</label>
-          <textarea id="job_description" placeholder="Enter the full job description, responsibilities, qualifications, salary, benefits, and important details."></textarea>
+          <label for="raw_jd">Raw Job Description Input</label>
+          <textarea id="raw_jd" placeholder="Paste the full client JD here. Then click Parse JD to auto-generate a cleaner version."></textarea>
+          <div class="helper">This can be the raw client JD, notes, responsibilities, qualifications, and setup details.</div>
+        </div>
+
+        <div class="full">
+          <label for="job_description">Optimized Job Description</label>
+          <textarea id="job_description" placeholder="This will be filled by Parse JD, or you can type it manually."></textarea>
         </div>
 
         <div class="full">
           <label for="keywords">Keywords</label>
           <textarea id="keywords" placeholder="customer service, voice, csr, support"></textarea>
         </div>
+
+        <div class="full">
+          <div id="jdPreview" class="preview-box" style="display:none;">
+            <h3>Parsed JD Preview</h3>
+            <pre id="jdPreviewText"></pre>
+          </div>
+        </div>
       </div>
 
       <div class="actions">
+        <button type="button" class="btn btn-warning" id="parseJDBtn">Parse JD</button>
         <button type="submit" class="btn btn-primary" id="saveBtn">Save Role</button>
         <button type="button" class="btn btn-outline" id="resetBtn">Clear Form</button>
       </div>
@@ -334,11 +394,15 @@ document.addEventListener('DOMContentLoaded', () => {
   const noticeEl = document.getElementById('notice');
   const saveBtn = document.getElementById('saveBtn');
   const resetBtn = document.getElementById('resetBtn');
+  const parseJDBtn = document.getElementById('parseJDBtn');
   const jobsTable = document.getElementById('jobsTable');
   const existingClientSelect = document.getElementById('existing_client');
+  const jdPreview = document.getElementById('jdPreview');
+  const jdPreviewText = document.getElementById('jdPreviewText');
 
   let editingJobId = null;
   let allJobs = [];
+  let parsedJDState = null;
 
   function showNotice(text, type = 'success') {
     noticeEl.textContent = text;
@@ -354,6 +418,15 @@ document.addEventListener('DOMContentLoaded', () => {
     const value = String(text || '');
     if (value.length <= max) return value;
     return value.slice(0, max) + '...';
+  }
+
+  function setBusyState({ saving = false, parsing = false } = {}) {
+    saveBtn.disabled = saving || parsing;
+    parseJDBtn.disabled = saving || parsing;
+    resetBtn.disabled = saving || parsing;
+
+    saveBtn.textContent = saving ? (editingJobId ? 'Updating...' : 'Saving...') : (editingJobId ? 'Update Role' : 'Save Role');
+    parseJDBtn.textContent = parsing ? 'Parsing...' : 'Parse JD';
   }
 
   async function protectPage() {
@@ -375,8 +448,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function resetForm() {
     editingJobId = null;
+    parsedJDState = null;
     form.reset();
     saveBtn.textContent = 'Save Role';
+    jdPreview.style.display = 'none';
+    jdPreviewText.textContent = '';
   }
 
   function populateClientDropdown() {
@@ -428,11 +504,71 @@ document.addEventListener('DOMContentLoaded', () => {
     renderJobsTable();
   }
 
+  function buildOptimizedJDText(parsed) {
+    const sections = [];
+
+    if (parsed.what_we_are_looking_for) {
+      sections.push(`What We Are Looking For:\n${parsed.what_we_are_looking_for}`);
+    }
+
+    if (parsed.requirements) {
+      sections.push(`Requirements:\n${parsed.requirements}`);
+    }
+
+    if (parsed.work_setup) {
+      sections.push(`Work Setup:\n${parsed.work_setup}`);
+    }
+
+    return sections.join('\n\n');
+  }
+
+  async function parseJD() {
+    clearNotice();
+
+    const rawJD = document.getElementById('raw_jd').value.trim();
+    if (!rawJD) {
+      showNotice('Please paste the raw job description first.', 'warning');
+      return;
+    }
+
+    try {
+      setBusyState({ parsing: true });
+
+      const { data, error } = await supabaseClient.functions.invoke('parse-job-description', {
+        body: { jd_text: rawJD }
+      });
+
+      if (error) {
+        throw new Error(error.message || 'JD parsing function returned an error.');
+      }
+
+      if (!data?.success) {
+        throw new Error(data?.error || 'JD parsing failed.');
+      }
+
+      parsedJDState = data.data;
+
+      const optimizedJD = buildOptimizedJDText(parsedJDState);
+
+      document.getElementById('job_description').value = optimizedJD;
+      document.getElementById('work_setup').value = parsedJDState.work_setup || document.getElementById('work_setup').value;
+      document.getElementById('keywords').value = parsedJDState.keywords || document.getElementById('keywords').value;
+
+      jdPreviewText.textContent = optimizedJD;
+      jdPreview.style.display = 'block';
+
+      showNotice('JD parsed successfully. Please review before saving.', 'success');
+    } catch (error) {
+      showNotice(error.message || 'JD parsing failed.', 'warning');
+    } finally {
+      setBusyState();
+    }
+  }
+
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
     clearNotice();
-    saveBtn.disabled = true;
-    saveBtn.textContent = editingJobId ? 'Updating...' : 'Saving...';
+    setBusyState({ saving: true });
 
     try {
       const existingClient = document.getElementById('existing_client').value.trim();
@@ -477,19 +613,19 @@ document.addEventListener('DOMContentLoaded', () => {
     } catch (error) {
       showNotice(error.message || 'Error saving role.', 'error');
     } finally {
-      saveBtn.disabled = false;
-      saveBtn.textContent = editingJobId ? 'Update Role' : 'Save Role';
-      if (!editingJobId) saveBtn.textContent = 'Save Role';
+      setBusyState();
     }
   });
 
   resetBtn.addEventListener('click', resetForm);
+  parseJDBtn.addEventListener('click', parseJD);
 
   window.editJob = function (id) {
     const job = allJobs.find(j => j.id === id);
     if (!job) return;
 
     editingJobId = id;
+    parsedJDState = null;
 
     document.getElementById('existing_client').value = '';
     document.getElementById('new_client_name').value = job.client_name || '';
@@ -501,6 +637,10 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('job_description').value = job.job_description || '';
     document.getElementById('keywords').value = job.keywords || '';
     document.getElementById('featured').value = job.featured ? 'true' : 'false';
+    document.getElementById('raw_jd').value = '';
+
+    jdPreview.style.display = 'none';
+    jdPreviewText.textContent = '';
 
     saveBtn.textContent = 'Update Role';
     window.scrollTo({ top: 0, behavior: 'smooth' });
