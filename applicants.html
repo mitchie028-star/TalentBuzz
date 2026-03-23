@@ -26,7 +26,6 @@
       --bg: #f8fbff;
       --surface: #ffffff;
       --success: #166534;
-      --warning: #b45309;
       --shadow: 0 12px 32px rgba(30, 58, 138, 0.06), 0 2px 10px rgba(15, 23, 42, 0.04);
     }
 
@@ -646,17 +645,29 @@
 
         const { data, error } = await supabaseClient
           .from("jobs")
-          .select("*")
-          .order("featured", { ascending: false })
-          .order("title", { ascending: true });
+          .select("*");
 
         if (error) {
+          console.error("Jobs query error:", error);
           els.resultsCount.textContent = "Unable to load jobs";
           els.jobsList.innerHTML = `<div class="empty">${escapeHtml(error.message)}</div>`;
           return;
         }
 
-        state.jobs = data || [];
+        const jobs = Array.isArray(data) ? data : [];
+
+        jobs.sort((a, b) => {
+          const featuredA = a?.featured ? 1 : 0;
+          const featuredB = b?.featured ? 1 : 0;
+
+          if (featuredA !== featuredB) {
+            return featuredB - featuredA;
+          }
+
+          return String(a?.title || "").localeCompare(String(b?.title || ""));
+        });
+
+        state.jobs = jobs;
         populateCountryFilter(state.jobs);
         renderJobs();
       }
