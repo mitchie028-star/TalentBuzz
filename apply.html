@@ -1,531 +1,265 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <title>Apply | TalentBuzz</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta
-    name="description"
-    content="Login, create your TalentBuzz account, complete your profile, and submit your application."
-  />
+<script>
+  const SUPABASE_URL = "https://dilalntcxmvdcmwxjcct.supabase.co";
+  const SUPABASE_ANON_KEY = "sb_publishable_HrLVIUwnaRo54yijtrbWBQ_1aeb4ezs";
+  const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link
-    href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap"
-    rel="stylesheet"
-  />
+  const params = new URLSearchParams(window.location.search);
+  const job = params.get("job") || "this role";
 
-  <style>
-    :root {
-      --primary: #1e3a8a;
-      --primary-light: #2563eb;
-      --text: #0f172a;
-      --muted: #64748b;
-      --border: #e2e8f0;
-      --surface: #ffffff;
-      --bg-soft: #f8fbff;
-      --success: #166534;
-      --error: #b91c1c;
-      --warning: #b45309;
-      --shadow: 0 10px 30px rgba(30, 58, 138, 0.06), 0 2px 10px rgba(15, 23, 42, 0.03);
-    }
+  const els = {
+    jobTitle: document.getElementById("jobTitle"),
+    summaryJob: document.getElementById("summaryJob"),
+    statusText: document.getElementById("statusText"),
+    message: document.getElementById("message"),
+    emailBtn: document.getElementById("emailBtn"),
+    email: document.getElementById("email"),
+    password: document.getElementById("password"),
+    source: document.getElementById("application_source"),
+    loginForm: document.getElementById("loginForm"),
+    googleLogin: document.getElementById("googleLogin"),
+    linkedinLogin: document.getElementById("linkedinLogin")
+  };
 
-    * {
-      box-sizing: border-box;
-    }
+  if (els.jobTitle) els.jobTitle.textContent = job;
+  if (els.summaryJob) els.summaryJob.textContent = job;
 
-    body {
-      margin: 0;
-      font-family: "Manrope", sans-serif;
-      background: var(--surface);
-      color: var(--text);
-      min-height: 100vh;
-    }
+  function showMessage(text, type = "error") {
+    if (!els.message) return;
+    els.message.textContent = text;
+    els.message.className = `message show ${type}`;
+  }
 
-    .page {
-      max-width: 560px;
-      margin: 0 auto;
-      padding: 40px 20px 60px;
-    }
+  function clearMessage() {
+    if (!els.message) return;
+    els.message.textContent = "";
+    els.message.className = "message";
+  }
 
-    .back-link {
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      margin-bottom: 22px;
-      color: var(--primary);
-      text-decoration: none;
-      font-weight: 700;
-      font-size: 0.95rem;
-    }
+  function setStatus(text) {
+    if (!els.statusText) return;
+    els.statusText.textContent = text;
+  }
 
-    .card {
-      background: linear-gradient(180deg, #fbfdff 0%, var(--bg-soft) 100%);
-      border: 1px solid var(--border);
-      border-radius: 20px;
-      padding: 28px;
-      box-shadow: var(--shadow);
-    }
-
-    h1 {
-      margin: 0 0 8px;
-      color: var(--primary);
-      font-size: 2rem;
-      line-height: 1.15;
-      letter-spacing: -0.03em;
-    }
-
-    .subtitle {
-      margin: 0 0 22px;
-      color: var(--muted);
-      line-height: 1.8;
-      font-size: 0.96rem;
-    }
-
-    .job-title {
-      color: var(--primary);
-      font-weight: 800;
-    }
-
-    .status-text {
-      margin-bottom: 18px;
-      color: var(--muted);
-      font-size: 0.92rem;
-    }
-
-    .field {
-      margin-top: 14px;
-    }
-
-    .field label {
-      display: block;
-      margin-bottom: 6px;
-      font-weight: 700;
-      font-size: 0.92rem;
-    }
-
-    input,
-    select {
-      width: 100%;
-      padding: 12px 14px;
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      font-family: inherit;
-      font-size: 14px;
-      outline: none;
-      background: white;
-      color: var(--text);
-    }
-
-    input:focus,
-    select:focus {
-      border-color: #93c5fd;
-      box-shadow: 0 0 0 3px rgba(147, 197, 253, 0.25);
-    }
-
-    .btn {
-      width: 100%;
-      padding: 13px 16px;
-      border-radius: 12px;
-      border: none;
-      font-family: inherit;
-      font-size: 14px;
-      font-weight: 800;
-      cursor: pointer;
-      transition: 0.2s ease;
-      text-align: center;
-    }
-
-    .btn:hover {
-      transform: translateY(-1px);
-    }
-
-    .btn:disabled {
-      opacity: 0.7;
-      cursor: not-allowed;
-      transform: none;
-    }
-
-    .btn-primary {
-      margin-top: 18px;
-      background: linear-gradient(135deg, var(--primary), var(--primary-light));
-      color: white;
-    }
-
-    .btn-secondary {
-      background: white;
-      color: var(--primary);
-      border: 1px solid var(--border);
-      margin-top: 10px;
-    }
-
-    .btn-linkedin {
-      background: white;
-      color: #0a66c2;
-      border: 1px solid #0a66c2;
-      margin-top: 10px;
-    }
-
-    .divider {
-      text-align: center;
-      margin: 18px 0;
-      color: #94a3b8;
-      font-size: 12px;
-      font-weight: 700;
-      text-transform: uppercase;
-      letter-spacing: 0.08em;
-    }
-
-    .message {
-      margin-top: 16px;
-      padding: 12px 14px;
-      border-radius: 12px;
-      font-size: 14px;
-      display: none;
-      line-height: 1.6;
-    }
-
-    .message.show {
-      display: block;
-    }
-
-    .message.error {
-      background: #fef2f2;
-      color: var(--error);
-      border: 1px solid #fecaca;
-    }
-
-    .message.success {
-      background: #ecfdf5;
-      color: var(--success);
-      border: 1px solid #bbf7d0;
-    }
-
-    .message.warning {
-      background: #fff7ed;
-      color: var(--warning);
-      border: 1px solid #fed7aa;
-    }
-
-    .helper {
-      margin-top: 14px;
-      color: var(--muted);
-      font-size: 0.85rem;
-      line-height: 1.7;
-    }
-
-    .summary-box {
-      margin-top: 16px;
-      padding: 14px;
-      border: 1px solid var(--border);
-      border-radius: 14px;
-      background: white;
-    }
-
-    .summary-title {
-      font-size: 0.85rem;
-      font-weight: 800;
-      color: var(--primary);
-      margin-bottom: 6px;
-      text-transform: uppercase;
-      letter-spacing: 0.04em;
-    }
-
-    .summary-row {
-      font-size: 0.92rem;
-      color: var(--muted);
-      line-height: 1.7;
-    }
-
-    @media (max-width: 640px) {
-      .page {
-        padding: 24px 14px 40px;
-      }
-
-      .card {
-        padding: 22px;
-      }
-
-      h1 {
-        font-size: 1.7rem;
-      }
-    }
-  </style>
-</head>
-<body>
-  <div class="page">
-    <a href="applicants.html" class="back-link">← Back to Opportunities</a>
-
-    <div class="card">
-      <h1>Apply Now</h1>
-      <p class="subtitle">
-        Continue your application for
-        <span class="job-title" id="jobTitle">this role</span>.
-      </p>
-
-      <div class="status-text" id="statusText">
-        Login or create an account to continue.
-      </div>
-
-      <div class="summary-box">
-        <div class="summary-title">Application Summary</div>
-        <div class="summary-row">
-          Job: <strong id="summaryJob">this role</strong>
-        </div>
-      </div>
-
-      <form id="loginForm">
-        <div class="field">
-          <label for="email">Email address</label>
-          <input type="email" id="email" placeholder="you@email.com" required />
-        </div>
-
-        <div class="field">
-          <label for="password">Password</label>
-          <input type="password" id="password" placeholder="Enter your password" required />
-        </div>
-
-        <div class="field">
-          <label for="application_source">Application Source</label>
-          <select id="application_source" required>
-            <option value="">Select source</option>
-            <option value="Facebook">Facebook</option>
-            <option value="LinkedIn">LinkedIn</option>
-            <option value="Website">Website</option>
-            <option value="Indeed">Indeed</option>
-            <option value="Referral">Referral</option>
-            <option value="Other">Other</option>
-          </select>
-        </div>
-
-        <button type="submit" class="btn btn-primary" id="emailBtn">
-          Login / Sign Up
-        </button>
-      </form>
-
-      <div class="divider">or continue with</div>
-
-      <button class="btn btn-secondary" id="googleLogin" type="button">
-        Continue with Google
-      </button>
-      <button class="btn btn-linkedin" id="linkedinLogin" type="button">
-        Continue with LinkedIn
-      </button>
-
-      <div id="message" class="message"></div>
-
-      <div class="helper">
-        If you don’t have an account yet, entering your email and password will create one for you.
-        If your profile is incomplete, you’ll be redirected to complete it before your application is submitted.
-      </div>
-    </div>
-  </div>
-
-  <script>
-    const SUPABASE_URL = "https://dilalntcxmvdcmwxjcct.supabase.co";
-    const SUPABASE_ANON_KEY = "sb_publishable_HrLVIUwnaRo54yijtrbWBQ_1aeb4ezs";
-    const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-
-    const params = new URLSearchParams(window.location.search);
-    const job = params.get("job") || "this role";
-
-    const els = {
-      jobTitle: document.getElementById("jobTitle"),
-      summaryJob: document.getElementById("summaryJob"),
-      statusText: document.getElementById("statusText"),
-      message: document.getElementById("message"),
-      emailBtn: document.getElementById("emailBtn"),
-      email: document.getElementById("email"),
-      password: document.getElementById("password"),
-      source: document.getElementById("application_source"),
-      loginForm: document.getElementById("loginForm"),
-      googleLogin: document.getElementById("googleLogin"),
-      linkedinLogin: document.getElementById("linkedinLogin")
-    };
-
-    els.jobTitle.textContent = job;
-    els.summaryJob.textContent = job;
-
-    function showMessage(text, type = "error") {
-      els.message.textContent = text;
-      els.message.className = `message show ${type}`;
-    }
-
-    function clearMessage() {
-      els.message.textContent = "";
-      els.message.className = "message";
-    }
-
-    function setStatus(text) {
-      els.statusText.textContent = text;
-    }
-
-    function setButtonState(isBusy, label = "Login / Sign Up") {
+  function setButtonState(isBusy, label = "Login / Sign Up") {
+    if (els.emailBtn) {
       els.emailBtn.disabled = isBusy;
-      els.googleLogin.disabled = isBusy;
-      els.linkedinLogin.disabled = isBusy;
       els.emailBtn.textContent = isBusy ? "Please wait..." : label;
     }
+    if (els.googleLogin) els.googleLogin.disabled = isBusy;
+    if (els.linkedinLogin) els.linkedinLogin.disabled = isBusy;
+  }
 
-    function getSafeJobId(title) {
-      return String(title || "")
-        .toLowerCase()
-        .trim()
-        .replace(/\s+/g, "-");
-    }
+  function getSafeJobId(title) {
+    return String(title || "")
+      .toLowerCase()
+      .trim()
+      .replace(/\s+/g, "-");
+  }
 
-    function getOAuthRedirectURL() {
-      return `https://talentbuzz.pro/apply.html?job=${encodeURIComponent(job)}`;
-    }
+  function getOAuthRedirectURL() {
+    return `https://talentbuzz.pro/apply.html?job=${encodeURIComponent(job)}`;
+  }
 
-    async function getApplicantProfile(user) {
-      if (!user?.email) return null;
+  async function getApplicantProfile(user) {
+    if (!user?.email) return null;
 
-      const { data, error } = await supabaseClient
-        .from("applicant_profiles")
-        .select("*")
-        .eq("email", user.email)
-        .maybeSingle();
+    const { data, error } = await supabaseClient
+      .from("applicant_profiles")
+      .select("*")
+      .eq("email", user.email)
+      .maybeSingle();
 
-      if (error || !data) return null;
-      return data;
-    }
+    if (error || !data) return null;
+    return data;
+  }
 
-    async function hasCompletedProfile(user) {
-      const profile = await getApplicantProfile(user);
-      if (!profile) return false;
+  async function hasCompletedProfile(user) {
+    const profile = await getApplicantProfile(user);
+    if (!profile) return false;
 
-      return Boolean(
-        profile.full_name &&
-        (
-          profile.phone ||
-          profile.location ||
-          profile.experience_summary ||
-          profile.resume_path ||
-          profile.resume_url
-        )
+    return Boolean(
+      profile.full_name &&
+      (
+        profile.phone ||
+        profile.location ||
+        profile.experience_summary ||
+        profile.resume_path ||
+        profile.resume_url
+      )
+    );
+  }
+
+  async function sendConfirmationEmail(applicationId, fullName, email, jobTitle) {
+    try {
+      await supabaseClient
+        .from("applications")
+        .update({ confirmation_email_status: "sending" })
+        .eq("id", applicationId);
+
+      const { data, error } = await supabaseClient.functions.invoke(
+        "send-application-confirmation",
+        {
+          body: {
+            candidate_name: fullName || "Applicant",
+            candidate_email: email,
+            job_title: jobTitle
+          }
+        }
       );
-    }
 
-    async function applyNow(email) {
-      clearMessage();
-
-      const applicationSource = els.source.value;
-      if (!applicationSource) {
-        setStatus("Please select an application source.");
-        showMessage("Please select an application source.");
-        return;
+      if (error || !data?.success) {
+        await supabaseClient
+          .from("applications")
+          .update({ confirmation_email_status: "failed" })
+          .eq("id", applicationId);
+        return false;
       }
 
-      setStatus("Submitting your application...");
+      await supabaseClient
+        .from("applications")
+        .update({ confirmation_email_status: "sent" })
+        .eq("id", applicationId);
 
-      const safeJobId = getSafeJobId(job);
+      return true;
+    } catch (err) {
+      await supabaseClient
+        .from("applications")
+        .update({ confirmation_email_status: "failed" })
+        .eq("id", applicationId);
+      return false;
+    }
+  }
 
-      const { data: profile, error: profileError } = await supabaseClient
-        .from("applicant_profiles")
-        .select("id, email")
-        .eq("email", email)
+  async function applyNow(email) {
+    clearMessage();
+
+    const applicationSource = els.source?.value;
+    if (!applicationSource) {
+      setStatus("Please select an application source.");
+      showMessage("Please select an application source.");
+      return;
+    }
+
+    setStatus("Submitting your application...");
+
+    const safeJobId = getSafeJobId(job);
+
+    const { data: profile, error: profileError } = await supabaseClient
+      .from("applicant_profiles")
+      .select("id, email, full_name")
+      .eq("email", email)
+      .single();
+
+    if (profileError || !profile) {
+      setStatus("Could not find your applicant profile.");
+      showMessage(profileError?.message || "Applicant profile not found.");
+      return;
+    }
+
+    const { data: existingApplication, error: existingError } = await supabaseClient
+      .from("applications")
+      .select("*")
+      .eq("applicant_profile_id", profile.id)
+      .eq("job_id", safeJobId)
+      .maybeSingle();
+
+    if (existingError) {
+      setStatus("Could not check existing application.");
+      showMessage(existingError.message);
+      return;
+    }
+
+    const currentStatus = String(existingApplication?.status || "").toLowerCase();
+    let savedApplicationId = null;
+
+    if (existingApplication && currentStatus !== "withdrawn") {
+      showMessage("You already applied to this role.", "success");
+      setStatus("Application already found.");
+      setTimeout(() => {
+        window.location.href = "dashboard.html";
+      }, 800);
+      return;
+    }
+
+    if (existingApplication && currentStatus === "withdrawn") {
+      const { data: updatedApp, error: reviveError } = await supabaseClient
+        .from("applications")
+        .update({
+          status: "submitted",
+          created_at: new Date().toISOString(),
+          application_source: applicationSource,
+          confirmation_email_status: "pending"
+        })
+        .eq("id", existingApplication.id)
+        .select()
         .single();
 
-      if (profileError || !profile) {
-        setStatus("Could not find your applicant profile.");
-        showMessage(profileError?.message || "Applicant profile not found.");
+      if (reviveError) {
+        setStatus("Could not restore your application.");
+        showMessage(reviveError.message);
         return;
       }
 
-      const { data: existingApplication, error: existingError } = await supabaseClient
+      savedApplicationId = updatedApp.id;
+    } else {
+      const { data: insertedApp, error: insertError } = await supabaseClient
         .from("applications")
-        .select("*")
-        .eq("applicant_profile_id", profile.id)
-        .eq("job_id", safeJobId)
-        .maybeSingle();
+        .insert([{
+          email,
+          job_title: job,
+          job_id: safeJobId,
+          applicant_profile_id: profile.id,
+          status: "submitted",
+          application_source: applicationSource,
+          confirmation_email_status: "pending"
+        }])
+        .select()
+        .single();
 
-      if (existingError) {
-        setStatus("Could not check existing application.");
-        showMessage(existingError.message);
+      if (insertError) {
+        setStatus("There was a problem with your application.");
+        showMessage(insertError.message);
         return;
       }
 
-      const currentStatus = String(existingApplication?.status || "").toLowerCase();
-
-      if (existingApplication && currentStatus !== "withdrawn") {
-        showMessage("You already applied to this role.", "success");
-        setStatus("Application already found.");
-        setTimeout(() => {
-          window.location.href = "dashboard.html";
-        }, 800);
-        return;
-      }
-
-      if (existingApplication && currentStatus === "withdrawn") {
-        const { error: reviveError } = await supabaseClient
-          .from("applications")
-          .update({
-            status: "submitted",
-            created_at: new Date().toISOString(),
-            application_source: applicationSource,
-            confirmation_email_status: "pending"
-          })
-          .eq("id", existingApplication.id);
-
-        if (reviveError) {
-          setStatus("Could not restore your application.");
-          showMessage(reviveError.message);
-          return;
-        }
-      } else {
-        const { error: insertError } = await supabaseClient
-          .from("applications")
-          .insert([{
-            email,
-            job_title: job,
-            job_id: safeJobId,
-            applicant_profile_id: profile.id,
-            status: "submitted",
-            application_source: applicationSource,
-            confirmation_email_status: "pending"
-          }]);
-
-        if (insertError) {
-          setStatus("There was a problem with your application.");
-          showMessage(insertError.message);
-          return;
-        }
-      }
-
-      showMessage("✅ Your application has been submitted successfully.", "success");
-      setStatus("Application submitted successfully.");
-
-      setTimeout(() => {
-        window.location.href = "apply-success.html";
-      }, 900);
+      savedApplicationId = insertedApp.id;
     }
 
-    async function checkSessionAndApply() {
-      const {
-        data: { session },
-        error
-      } = await supabaseClient.auth.getSession();
+    await sendConfirmationEmail(savedApplicationId, profile.full_name, email, job);
 
-      if (error) {
-        showMessage(error.message);
+    showMessage("✅ Your application has been submitted successfully.", "success");
+    setStatus("Application submitted successfully.");
+
+    setTimeout(() => {
+      window.location.href = "apply-success.html";
+    }, 900);
+  }
+
+  async function checkSessionAndApply() {
+    const {
+      data: { session },
+      error
+    } = await supabaseClient.auth.getSession();
+
+    if (error) {
+      showMessage(error.message);
+      return;
+    }
+
+    if (session?.user) {
+      setStatus("Signed in. Checking your profile...");
+
+      const profileReady = await hasCompletedProfile(session.user);
+      if (!profileReady) {
+        window.location.href = `create-profile.html?job=${encodeURIComponent(job)}&fromApply=1`;
         return;
       }
 
-      if (session?.user) {
-        setStatus("Signed in. Checking your profile...");
-
-        const profileReady = await hasCompletedProfile(session.user);
-        if (!profileReady) {
-          window.location.href = `create-profile.html?job=${encodeURIComponent(job)}&fromApply=1`;
-          return;
-        }
-
-        setStatus("You’re signed in. Complete the source field to submit your application.");
-      }
+      setStatus("You’re signed in. Complete the source field to submit your application.");
     }
+  }
 
+  if (els.loginForm) {
     els.loginForm.addEventListener("submit", async (event) => {
       event.preventDefault();
       clearMessage();
@@ -564,9 +298,7 @@
         }
 
         const signedInUser = signInData.user;
-        if (!signedInUser) {
-          throw new Error("Unable to retrieve account.");
-        }
+        if (!signedInUser) throw new Error("Unable to retrieve account.");
 
         const profileReady = await hasCompletedProfile(signedInUser);
         if (!profileReady) {
@@ -582,7 +314,9 @@
         setButtonState(false);
       }
     });
+  }
 
+  if (els.googleLogin) {
     els.googleLogin.addEventListener("click", async () => {
       clearMessage();
       setStatus("Redirecting to Google...");
@@ -597,7 +331,9 @@
         setStatus("Unable to continue with Google.");
       }
     });
+  }
 
+  if (els.linkedinLogin) {
     els.linkedinLogin.addEventListener("click", async () => {
       clearMessage();
       setStatus("Redirecting to LinkedIn...");
@@ -612,8 +348,7 @@
         setStatus("Unable to continue with LinkedIn.");
       }
     });
+  }
 
-    checkSessionAndApply();
-  </script>
-</body>
-</html>
+  checkSessionAndApply();
+</script>
