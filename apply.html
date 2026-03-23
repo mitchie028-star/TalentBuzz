@@ -344,28 +344,33 @@
       linkedinLogin: document.getElementById("linkedinLogin")
     };
 
-    els.jobTitle.textContent = job;
-    els.summaryJob.textContent = job;
+    if (els.jobTitle) els.jobTitle.textContent = job;
+    if (els.summaryJob) els.summaryJob.textContent = job;
 
     function showMessage(text, type = "error") {
+      if (!els.message) return;
       els.message.textContent = text;
       els.message.className = `message show ${type}`;
     }
 
     function clearMessage() {
+      if (!els.message) return;
       els.message.textContent = "";
       els.message.className = "message";
     }
 
     function setStatus(text) {
+      if (!els.statusText) return;
       els.statusText.textContent = text;
     }
 
     function setButtonState(isBusy, label = "Login / Sign Up") {
-      els.emailBtn.disabled = isBusy;
-      els.googleLogin.disabled = isBusy;
-      els.linkedinLogin.disabled = isBusy;
-      els.emailBtn.textContent = isBusy ? "Please wait..." : label;
+      if (els.emailBtn) {
+        els.emailBtn.disabled = isBusy;
+        els.emailBtn.textContent = isBusy ? "Please wait..." : label;
+      }
+      if (els.googleLogin) els.googleLogin.disabled = isBusy;
+      if (els.linkedinLogin) els.linkedinLogin.disabled = isBusy;
     }
 
     function getSafeJobId(title) {
@@ -408,10 +413,51 @@
       );
     }
 
+    async function sendConfirmationEmail(applicationId, fullName, email, jobTitle) {
+      try {
+        await supabaseClient
+          .from("applications")
+          .update({ confirmation_email_status: "sending" })
+          .eq("id", applicationId);
+
+        const { data, error } = await supabaseClient.functions.invoke(
+          "send-application-confirmation",
+          {
+            body: {
+              candidate_name: fullName || "Applicant",
+              candidate_email: email,
+              job_title: jobTitle
+            }
+          }
+        );
+
+        if (error || !data?.success) {
+          await supabaseClient
+            .from("applications")
+            .update({ confirmation_email_status: "failed" })
+            .eq("id", applicationId);
+          return false;
+        }
+
+        await supabaseClient
+          .from("applications")
+          .update({ confirmation_email_status: "sent" })
+          .eq("id", applicationId);
+
+        return true;
+      } catch (err) {
+        await supabaseClient
+          .from("applications")
+          .update({ confirmation_email_status: "failed" })
+          .eq("id", applicationId);
+        return false;
+      }
+    }
+
     async function applyNow(email) {
       clearMessage();
 
-      const applicationSource = els.source.value;
+      const applicationSource = els.source?.value;
       if (!applicationSource) {
         setStatus("Please select an application source.");
         showMessage("Please select an application source.");
@@ -424,7 +470,7 @@
 
       const { data: profile, error: profileError } = await supabaseClient
         .from("applicant_profiles")
-        .select("id, email")
+        .select("id, email, full_name")
         .eq("email", email)
         .single();
 
@@ -448,6 +494,7 @@
       }
 
       const currentStatus = String(existingApplication?.status || "").toLowerCase();
+      let savedApplicationId = null;
 
       if (existingApplication && currentStatus !== "withdrawn") {
         showMessage("You already applied to this role.", "success");
@@ -459,7 +506,7 @@
       }
 
       if (existingApplication && currentStatus === "withdrawn") {
-        const { error: reviveError } = await supabaseClient
+        const { data: updatedApp, error: reviveError } = await supabaseClient
           .from("applications")
           .update({
             status: "submitted",
@@ -467,15 +514,19 @@
             application_source: applicationSource,
             confirmation_email_status: "pending"
           })
-          .eq("id", existingApplication.id);
+          .eq("id", existingApplication.id)
+          .select()
+          .single();
 
         if (reviveError) {
           setStatus("Could not restore your application.");
           showMessage(reviveError.message);
           return;
         }
+
+        savedApplicationId = updatedApp.id;
       } else {
-        const { error: insertError } = await supabaseClient
+        const { data: insertedApp, error: insertError } = await supabaseClient
           .from("applications")
           .insert([{
             email,
@@ -485,14 +536,20 @@
             status: "submitted",
             application_source: applicationSource,
             confirmation_email_status: "pending"
-          }]);
+          }])
+          .select()
+          .single();
 
         if (insertError) {
           setStatus("There was a problem with your application.");
           showMessage(insertError.message);
           return;
         }
+
+        savedApplicationId = insertedApp.id;
       }
+
+      await sendConfirmationEmail(savedApplicationId, profile.full_name, email, job);
 
       showMessage("✅ Your application has been submitted successfully.", "success");
       setStatus("Application submitted successfully.");
@@ -526,92 +583,96 @@
       }
     }
 
-    els.loginForm.addEventListener("submit", async (event) => {
-      event.preventDefault();
-      clearMessage();
-      setButtonState(true);
+    if (els.loginForm) {
+      els.loginForm.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        clearMessage();
+        setButtonState(true);
 
-      const email = els.email.value.trim();
-      const password = els.password.value;
+        const email = els.email.value.trim();
+        const password = els.password.value;
 
-      try {
-        const { data: signInData, error: signInError } =
-          await supabaseClient.auth.signInWithPassword({
-            email,
-            password
-          });
-
-        if (signInError) {
-          const { data: signUpData, error: signUpError } =
-            await supabaseClient.auth.signUp({
+        try {
+          const { data: signInData, error: signInError } =
+            await supabaseClient.auth.signInWithPassword({
               email,
               password
             });
 
-          if (signUpError) throw signUpError;
+          if (signInError) {
+            const { data: signUpData, error: signUpError } =
+              await supabaseClient.auth.signUp({
+                email,
+                password
+              });
 
-          if (!signUpData.session) {
-            showMessage(
-              "Account created. Please check your email to confirm your account before signing in.",
-              "success"
-            );
-            setStatus("Account created.");
+            if (signUpError) throw signUpError;
+
+            if (!signUpData.session) {
+              showMessage(
+                "Account created. Please check your email to confirm your account before signing in.",
+                "success"
+              );
+              setStatus("Account created.");
+              return;
+            }
+
+            window.location.href = `create-profile.html?job=${encodeURIComponent(job)}&fromApply=1`;
             return;
           }
 
-          window.location.href = `create-profile.html?job=${encodeURIComponent(job)}&fromApply=1`;
-          return;
+          const signedInUser = signInData.user;
+          if (!signedInUser) throw new Error("Unable to retrieve account.");
+
+          const profileReady = await hasCompletedProfile(signedInUser);
+          if (!profileReady) {
+            window.location.href = `create-profile.html?job=${encodeURIComponent(job)}&fromApply=1`;
+            return;
+          }
+
+          await applyNow(signedInUser.email);
+        } catch (error) {
+          showMessage(error.message || "Something went wrong.");
+          setStatus("Login failed.");
+        } finally {
+          setButtonState(false);
         }
-
-        const signedInUser = signInData.user;
-        if (!signedInUser) {
-          throw new Error("Unable to retrieve account.");
-        }
-
-        const profileReady = await hasCompletedProfile(signedInUser);
-        if (!profileReady) {
-          window.location.href = `create-profile.html?job=${encodeURIComponent(job)}&fromApply=1`;
-          return;
-        }
-
-        await applyNow(signedInUser.email);
-      } catch (error) {
-        showMessage(error.message || "Something went wrong.");
-        setStatus("Login failed.");
-      } finally {
-        setButtonState(false);
-      }
-    });
-
-    els.googleLogin.addEventListener("click", async () => {
-      clearMessage();
-      setStatus("Redirecting to Google...");
-
-      const { error } = await supabaseClient.auth.signInWithOAuth({
-        provider: "google",
-        options: { redirectTo: getOAuthRedirectURL() }
       });
+    }
 
-      if (error) {
-        showMessage(error.message);
-        setStatus("Unable to continue with Google.");
-      }
-    });
+    if (els.googleLogin) {
+      els.googleLogin.addEventListener("click", async () => {
+        clearMessage();
+        setStatus("Redirecting to Google...");
 
-    els.linkedinLogin.addEventListener("click", async () => {
-      clearMessage();
-      setStatus("Redirecting to LinkedIn...");
+        const { error } = await supabaseClient.auth.signInWithOAuth({
+          provider: "google",
+          options: { redirectTo: getOAuthRedirectURL() }
+        });
 
-      const { error } = await supabaseClient.auth.signInWithOAuth({
-        provider: "linkedin_oidc",
-        options: { redirectTo: getOAuthRedirectURL() }
+        if (error) {
+          showMessage(error.message);
+          setStatus("Unable to continue with Google.");
+        }
       });
+    }
 
-      if (error) {
-        showMessage(error.message);
-        setStatus("Unable to continue with LinkedIn.");
-      }
-    });
+    if (els.linkedinLogin) {
+      els.linkedinLogin.addEventListener("click", async () => {
+        clearMessage();
+        setStatus("Redirecting to LinkedIn...");
+
+        const { error } = await supabaseClient.auth.signInWithOAuth({
+          provider: "linkedin_oidc",
+          options: { redirectTo: getOAuthRedirectURL() }
+        });
+
+        if (error) {
+          showMessage(error.message);
+          setStatus("Unable to continue with LinkedIn.");
+        }
+      });
+    }
 
     checkSessionAndApply();
   </script>
