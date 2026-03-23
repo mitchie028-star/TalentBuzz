@@ -46,10 +46,13 @@
       margin-bottom: 14px;
       border-radius: 10px;
       border: 1px solid #e2e8f0;
+      font: inherit;
+      box-sizing: border-box;
     }
 
     textarea {
       min-height: 120px;
+      resize: vertical;
     }
 
     .btn {
@@ -61,6 +64,18 @@
       color: white;
       font-weight: 800;
       cursor: pointer;
+      font-family: inherit;
+      transition: 0.2s ease;
+    }
+
+    .btn:hover {
+      transform: translateY(-1px);
+    }
+
+    .btn:disabled {
+      opacity: 0.7;
+      cursor: not-allowed;
+      transform: none;
     }
 
     .message {
@@ -109,13 +124,12 @@
       <textarea id="experience"></textarea>
 
       <label>Resume</label>
-      <input id="resume" type="file">
+      <input id="resume" type="file" accept=".pdf,.doc,.docx">
 
-      <button class="btn" id="saveBtn">Save Profile</button>
+      <button type="submit" class="btn" id="saveBtn">Save Profile</button>
     </form>
 
     <div id="message" class="message"></div>
-
   </div>
 
 </div>
@@ -133,6 +147,7 @@
 
   const form = document.getElementById('profileForm');
   const message = document.getElementById('message');
+  const saveBtn = document.getElementById('saveBtn');
 
   let currentUser = null;
   let existingProfile = null;
@@ -142,31 +157,61 @@
     message.className = 'message ' + type;
   }
 
+  function clearMessage() {
+    message.textContent = '';
+    message.className = 'message';
+  }
+
+  function setSavingState(isSaving) {
+    saveBtn.disabled = isSaving;
+    saveBtn.textContent = isSaving ? 'Saving...' : 'Save Profile';
+  }
+
   function getFullName(user) {
     const m = user.user_metadata || {};
-    return m.full_name || m.name ||
+    return (
+      m.full_name ||
+      m.name ||
       `${m.given_name || ''} ${m.family_name || ''}`.trim() ||
-      user.email.split('@')[0];
+      (user.email ? user.email.split('@')[0] : '')
+    );
+  }
+
+  function validateResumeFile(file) {
+    if (!file) return;
+
+    const allowedExtensions = ['.pdf', '.doc', '.docx'];
+    const lowerName = file.name.toLowerCase();
+    const isValid = allowedExtensions.some(ext => lowerName.endsWith(ext));
+
+    if (!isValid) {
+      throw new Error('Please upload a PDF, DOC, or DOCX file only.');
+    }
   }
 
   async function loadUser() {
-    const { data: { user } } = await supabaseClient.auth.getUser();
+    const { data: { user }, error } = await supabaseClient.auth.getUser();
 
-    if (!user) {
+    if (error || !user) {
       window.location.href = 'login.html';
       return;
     }
 
     currentUser = user;
 
-    document.getElementById('email').value = user.email;
+    document.getElementById('email').value = user.email || '';
     document.getElementById('full_name').value = getFullName(user);
 
-    const { data } = await supabaseClient
+    const { data, error: profileError } = await supabaseClient
       .from('applicant_profiles')
       .select('*')
       .eq('email', user.email)
       .maybeSingle();
+
+    if (profileError) {
+      showMessage(profileError.message || 'Unable to load profile.', 'error');
+      return;
+    }
 
     if (data) {
       existingProfile = data;
@@ -179,30 +224,24 @@
   }
 
   async function uploadResume(file) {
+    validateResumeFile(file);
+
     const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
-    const path = `${currentUser.id}/${Date.now()}-${safeName}`;
+    const safeFolder = (currentUser.email || currentUser.id || 'unknown')
+      .replace(/[^a-zA-Z0-9._-]/g, '_');
+    const path = `manual/${safeFolder}/${Date.now()}-${safeName}`;
 
     const { error } = await supabaseClient
       .storage
       .from('resumes')
-      .upload(path, file);
+      .upload(path, file, { upsert: false });
 
     if (error) throw error;
 
-    const { data } = supabaseClient
-      .storage
-      .from('resumes')
-      .getPublicUrl(path);
-
-    return {
-      path,
-      url: data.publicUrl
-    };
+    return { path };
   }
 
   function redirectAfterSave() {
-    // 🔥 PRIORITY ORDER
-
     if (fromApply === '1' && job) {
       window.location.href = `apply.html?job=${encodeURIComponent(job)}`;
       return;
@@ -218,26 +257,36 @@
 
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
+    clearMessage();
+    setSavingState(true);
 
     try {
-      const full_name = document.getElementById('full_name').value;
-      const email = document.getElementById('email').value;
-      const phone = document.getElementById('phone').value;
-      const location = document.getElementById('location').value;
-      const experience = document.getElementById('experience').value;
+      const full_name = document.getElementById('full_name').value.trim();
+      const email = document.getElementById('email').value.trim().toLowerCase();
+      const phone = document.getElementById('phone').value.trim();
+      const location = document.getElementById('location').value.trim();
+      const experience = document.getElementById('experience').value.trim();
       const file = document.getElementById('resume').files[0];
 
+      if (!full_name) {
+        throw new Error('Full name is required.');
+      }
+
+      if (!email) {
+        throw new Error('Email is required.');
+      }
+
       let resume_path = existingProfile?.resume_path || null;
-      let resume_url = existingProfile?.resume_url || null;
+      let resume_url = null;
 
       if (file) {
         const uploaded = await uploadResume(file);
         resume_path = uploaded.path;
-        resume_url = uploaded.url;
+        resume_url = null;
       }
 
       if (existingProfile) {
-        await supabaseClient
+        const { data, error } = await supabaseClient
           .from('applicant_profiles')
           .update({
             full_name,
@@ -247,9 +296,14 @@
             resume_path,
             resume_url
           })
-          .eq('email', email);
+          .eq('email', email)
+          .select()
+          .single();
+
+        if (error) throw error;
+        existingProfile = data;
       } else {
-        await supabaseClient
+        const { data, error } = await supabaseClient
           .from('applicant_profiles')
           .insert([{
             full_name,
@@ -259,7 +313,12 @@
             experience_summary: experience,
             resume_path,
             resume_url
-          }]);
+          }])
+          .select()
+          .single();
+
+        if (error) throw error;
+        existingProfile = data;
       }
 
       showMessage('Profile saved successfully.', 'success');
@@ -270,6 +329,8 @@
 
     } catch (err) {
       showMessage(err.message || 'Error saving profile.', 'error');
+    } finally {
+      setSavingState(false);
     }
   });
 
