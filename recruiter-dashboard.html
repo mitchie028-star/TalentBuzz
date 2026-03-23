@@ -6,7 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta
     name="description"
-    content="Manage candidates, applications, recruiter assignments, and hiring progress in TalentBuzz."
+    content="Manage candidates, applications, recruiter assignments, hiring progress, and resume previews in TalentBuzz."
   />
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -138,6 +138,12 @@
       background: white;
       color: var(--danger);
       border-color: #fecaca;
+    }
+
+    .table-btn {
+      padding: 9px 12px;
+      font-size: 0.84rem;
+      border-radius: 10px;
     }
 
     .stats-grid {
@@ -334,6 +340,11 @@
       padding: 10px 0 4px;
     }
 
+    .loading {
+      color: var(--muted);
+      font-style: italic;
+    }
+
     .status-pill {
       display: inline-block;
       padding: 6px 10px;
@@ -371,9 +382,80 @@
       color: #166534;
     }
 
-    .loading {
+    .modal {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(15, 23, 42, 0.65);
+      z-index: 9999;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+
+    .modal.show {
+      display: flex;
+    }
+
+    .modal-content {
+      background: white;
+      width: 100%;
+      max-width: 980px;
+      height: 88vh;
+      border-radius: 16px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.2);
+    }
+
+    .modal-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--border);
+      background: #fff;
+    }
+
+    .modal-header h3 {
+      margin: 0;
+      color: var(--primary);
+      font-size: 1.05rem;
+    }
+
+    .modal-actions {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .modal-close {
+      background: none;
+      border: none;
+      font-size: 24px;
+      line-height: 1;
+      cursor: pointer;
       color: var(--muted);
-      font-style: italic;
+      padding: 4px 6px;
+      border-radius: 8px;
+    }
+
+    .modal-close:hover {
+      background: #f1f5f9;
+    }
+
+    .modal-body {
+      flex: 1;
+      background: #f8fafc;
+    }
+
+    .modal-body iframe {
+      width: 100%;
+      height: 100%;
+      border: none;
+      background: white;
     }
 
     @media (max-width: 1200px) {
@@ -398,6 +480,10 @@
 
       .container {
         padding: 18px 14px 34px;
+      }
+
+      .modal-content {
+        height: 90vh;
       }
     }
   </style>
@@ -537,6 +623,32 @@
     </div>
   </div>
 
+  <div id="resumeModal" class="modal" aria-hidden="true">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>Resume Preview</h3>
+        <div class="modal-actions">
+          <a
+            id="downloadResumeBtn"
+            href="#"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="btn btn-outline table-btn"
+            style="display:none;"
+          >
+            Open in New Tab
+          </a>
+          <button id="closeModal" class="modal-close" type="button" aria-label="Close">
+            &times;
+          </button>
+        </div>
+      </div>
+      <div class="modal-body">
+        <iframe id="resumeFrame" src=""></iframe>
+      </div>
+    </div>
+  </div>
+
   <script>
     document.addEventListener("DOMContentLoaded", () => {
       const SUPABASE_URL = "https://dilalntcxmvdcmwxjcct.supabase.co";
@@ -599,7 +711,11 @@
         statEndorsed: document.getElementById("statEndorsed"),
         statRejected: document.getElementById("statRejected"),
         statInterviewed: document.getElementById("statInterviewed"),
-        statHired: document.getElementById("statHired")
+        statHired: document.getElementById("statHired"),
+        resumeModal: document.getElementById("resumeModal"),
+        resumeFrame: document.getElementById("resumeFrame"),
+        closeModal: document.getElementById("closeModal"),
+        downloadResumeBtn: document.getElementById("downloadResumeBtn")
       };
 
       function escapeHtml(value) {
@@ -663,6 +779,16 @@
         );
       }
 
+      function getFileExtension(url) {
+        try {
+          const cleanUrl = String(url || "").split("?")[0].split("#")[0];
+          const parts = cleanUrl.split(".");
+          return parts.length > 1 ? parts.pop().toLowerCase() : "";
+        } catch {
+          return "";
+        }
+      }
+
       async function getResumeUrl(app) {
         const profile = getProfileFromApplication(app);
         if (!profile) return "";
@@ -686,6 +812,35 @@
         }
 
         return "";
+      }
+
+      function openResumeModal(url) {
+        if (!url) return;
+
+        const extension = getFileExtension(url);
+        const isPdf = extension === "pdf";
+
+        els.downloadResumeBtn.href = url;
+        els.downloadResumeBtn.style.display = "inline-flex";
+
+        if (isPdf) {
+          els.resumeFrame.src = url;
+        } else {
+          els.resumeFrame.src = `https://docs.google.com/gview?url=${encodeURIComponent(url)}&embedded=true`;
+        }
+
+        els.resumeModal.classList.add("show");
+        els.resumeModal.setAttribute("aria-hidden", "false");
+        document.body.style.overflow = "hidden";
+      }
+
+      function closeResumeModal() {
+        els.resumeModal.classList.remove("show");
+        els.resumeModal.setAttribute("aria-hidden", "true");
+        els.resumeFrame.src = "";
+        els.downloadResumeBtn.href = "#";
+        els.downloadResumeBtn.style.display = "none";
+        document.body.style.overflow = "";
       }
 
       async function protectRecruiterPage() {
@@ -866,8 +1021,16 @@
                 <td>
                   ${
                     safeResumeUrl
-                      ? `<a href="${safeResumeUrl}" target="_blank" rel="noopener noreferrer" class="resume-link">View Resume</a>`
-                      : "-"
+                      ? `
+                        <button
+                          class="btn btn-outline table-btn view-resume-btn"
+                          type="button"
+                          data-url="${safeResumeUrl}"
+                        >
+                          View Resume
+                        </button>
+                      `
+                      : `<span class="small">No resume</span>`
                   }
                 </td>
                 <td>
@@ -1037,9 +1200,29 @@
       els.applicationsTable.addEventListener("click", async event => {
         const target = event.target;
 
+        if (target.classList.contains("view-resume-btn")) {
+          const url = target.dataset.url;
+          openResumeModal(url);
+          return;
+        }
+
         if (target.classList.contains("btn-delete")) {
           const applicationId = target.dataset.id;
           await deleteApplication(applicationId);
+        }
+      });
+
+      els.closeModal.addEventListener("click", closeResumeModal);
+
+      els.resumeModal.addEventListener("click", event => {
+        if (event.target === els.resumeModal) {
+          closeResumeModal();
+        }
+      });
+
+      document.addEventListener("keydown", event => {
+        if (event.key === "Escape" && els.resumeModal.classList.contains("show")) {
+          closeResumeModal();
         }
       });
 
