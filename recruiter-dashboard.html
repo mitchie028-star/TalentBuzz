@@ -1,576 +1,995 @@
-<script>
-  document.addEventListener("DOMContentLoaded", () => {
-    const SUPABASE_URL = "https://dilalntcxmvdcmwxjcct.supabase.co";
-    const SUPABASE_ANON_KEY = "sb_publishable_HrLVIUwnaRo54yijtrbWBQ_1aeb4ezs";
-    const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Recruiter Dashboard | TalentBuzz</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta
+    name="description"
+    content="Manage candidates, applications, recruiter assignments, hiring progress, and resume previews in TalentBuzz."
+  />
 
-    const RECRUITERS = {
-      "michelle.giray@talentbuzz.pro": "Michelle Giray",
-      "angel.n@talentbuzz.pro": "Angelia Nerida",
-      "jercey.cayetano@talentbuzz.pro": "Jercey Cayetano",
-      "jayson.c@talentbuzz.pro": "Jayson Cornejo",
-      "xyrene.e@talentbuzz.pro": "Xyrene Ellsworth"
-    };
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap"
+    rel="stylesheet"
+  />
 
-    const ALLOWED_RECRUITER_EMAILS = Object.keys(RECRUITERS).concat(["mitchie028@gmail.com"]);
-    const STATUS_OPTIONS = [
-      "submitted",
-      "failed paper screening",
-      "endorsed",
-      "assessment",
-      "initial",
-      "final",
-      "hired",
-      "onboarded",
-      "no-show (onboarding)",
-      "withdrawn",
-      "rejected"
-    ];
-
-    const REJECTED_STATUSES = ["failed paper screening", "withdrawn", "rejected", "no-show (onboarding)"];
-    const INTERVIEWED_STATUSES = ["assessment", "initial", "final"];
-    const HIRED_STATUSES = ["hired", "onboarded"];
-
-    const state = {
-      allApplications: [],
-      currentUser: null
-    };
-
-    const els = {
-      applicationsTable: document.getElementById("applicationsTable"),
-      jobFilter: document.getElementById("jobFilter"),
-      statusFilter: document.getElementById("statusFilter"),
-      recruiterFilter: document.getElementById("recruiterFilter"),
-      sourceFilter: document.getElementById("sourceFilter"),
-      searchInput: document.getElementById("searchInput"),
-      notice: document.getElementById("notice"),
-      helloRecruiter: document.getElementById("helloRecruiter"),
-      logoutBtn: document.getElementById("logoutBtn"),
-      refreshBtn: document.getElementById("refreshBtn"),
-      statTotal: document.getElementById("statTotal"),
-      statEndorsed: document.getElementById("statEndorsed"),
-      statRejected: document.getElementById("statRejected"),
-      statInterviewed: document.getElementById("statInterviewed"),
-      statHired: document.getElementById("statHired"),
-      resumeModal: document.getElementById("resumeModal"),
-      resumeFrame: document.getElementById("resumeFrame"),
-      closeModal: document.getElementById("closeModal"),
-      downloadResumeBtn: document.getElementById("downloadResumeBtn")
-    };
-
-    function escapeHtml(value) {
-      return String(value ?? "")
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;")
-        .replace(/"/g, "&quot;")
-        .replace(/'/g, "&#039;");
+  <style>
+    :root {
+      --primary: #1e3a8a;
+      --primary-2: #2563eb;
+      --text: #0f172a;
+      --muted: #64748b;
+      --border: #e2e8f0;
+      --bg: #f8fbff;
+      --white: #ffffff;
+      --success: #166534;
+      --danger: #b91c1c;
+      --warning: #b45309;
+      --info: #4338ca;
+      --shadow: 0 12px 30px rgba(30, 58, 138, 0.06), 0 2px 10px rgba(15, 23, 42, 0.04);
+      --radius-lg: 18px;
     }
 
-    function normalizeText(value) {
-      return String(value || "").trim().toLowerCase();
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: "Manrope", sans-serif;
+      background: linear-gradient(180deg, #f8fbff 0%, #f4f8ff 100%);
+      color: var(--text);
+      line-height: 1.6;
     }
 
-    function formatDate(dateString) {
-      if (!dateString) return "-";
-      const date = new Date(dateString);
-      if (Number.isNaN(date.getTime())) return "-";
-      return date.toLocaleDateString(undefined, {
-        year: "numeric",
-        month: "short",
-        day: "numeric"
-      });
+    a { color: inherit; }
+
+    .container {
+      max-width: 1440px;
+      margin: 0 auto;
+      padding: 24px 20px 44px;
     }
 
-    function showNotice(message, type = "success") {
-      els.notice.textContent = message;
-      els.notice.className = `notice show ${type}`;
-      window.clearTimeout(showNotice._timer);
-      showNotice._timer = window.setTimeout(() => {
-        clearNotice();
-      }, 3500);
+    .topbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 16px;
+      flex-wrap: wrap;
+      margin-bottom: 20px;
     }
 
-    function clearNotice() {
-      els.notice.textContent = "";
-      els.notice.className = "notice";
+    .topbar h1 {
+      margin: 0 0 6px;
+      color: var(--primary);
+      font-size: 2rem;
+      line-height: 1.1;
+      letter-spacing: -0.03em;
     }
 
-    function getRecruiterName(email) {
-      return RECRUITERS[email] || email || "Unassigned";
+    .subtitle {
+      margin: 0;
+      color: var(--muted);
+      font-size: 0.95rem;
     }
 
-    function getProfileFromApplication(app) {
-      if (Array.isArray(app.applicant_profiles)) return app.applicant_profiles[0] || null;
-      return app.applicant_profiles || null;
+    .top-right {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
     }
 
-    function getStatusClass(status) {
-      return (
-        "status-" +
-        String(status || "submitted")
-          .toLowerCase()
-          .replace(/\s+/g, "-")
-          .replace(/[()]/g, "")
-      );
+    .hello {
+      background: var(--white);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 10px 14px;
+      font-weight: 700;
+      box-shadow: var(--shadow);
     }
 
-    function getFileExtension(url) {
-      try {
-        const cleanUrl = String(url || "").split("?")[0].split("#")[0];
-        const parts = cleanUrl.split(".");
-        return parts.length > 1 ? parts.pop().toLowerCase() : "";
-      } catch {
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 11px 14px;
+      border-radius: 12px;
+      border: 1px solid transparent;
+      text-decoration: none;
+      font-weight: 800;
+      font-size: 0.92rem;
+      cursor: pointer;
+      font-family: inherit;
+      transition: 0.18s ease;
+      background: white;
+      white-space: nowrap;
+    }
+
+    .btn:hover { transform: translateY(-1px); }
+    .btn:disabled { opacity: 0.65; cursor: not-allowed; transform: none; }
+
+    .btn-primary {
+      background: linear-gradient(135deg, var(--primary), var(--primary-2));
+      color: white;
+    }
+
+    .btn-outline {
+      background: white;
+      color: var(--primary);
+      border-color: var(--border);
+    }
+
+    .btn-danger {
+      background: white;
+      color: var(--danger);
+      border-color: #fecaca;
+    }
+
+    .table-btn {
+      padding: 9px 12px;
+      font-size: 0.84rem;
+      border-radius: 10px;
+    }
+
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 16px;
+      margin-bottom: 20px;
+    }
+
+    .stat-card, .panel {
+      background: var(--white);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow);
+    }
+
+    .stat-card { padding: 18px; }
+
+    .stat-label {
+      color: var(--muted);
+      font-size: 0.84rem;
+      margin-bottom: 8px;
+      font-weight: 700;
+    }
+
+    .stat-value {
+      color: var(--primary);
+      font-size: 1.8rem;
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      line-height: 1;
+    }
+
+    .panel {
+      padding: 20px;
+      margin-bottom: 20px;
+    }
+
+    .panel h2 {
+      margin: 0 0 14px;
+      color: var(--primary);
+      font-size: 1.2rem;
+      letter-spacing: -0.02em;
+    }
+
+    .action-row {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-bottom: 20px;
+    }
+
+    .filters-grid {
+      display: grid;
+      grid-template-columns: 1.6fr 1fr 1fr 1fr 1fr auto;
+      gap: 14px;
+      align-items: end;
+    }
+
+    .field label {
+      display: block;
+      margin-bottom: 6px;
+      font-size: 0.9rem;
+      font-weight: 700;
+    }
+
+    .field input,
+    .field select {
+      width: 100%;
+      padding: 12px;
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      font: inherit;
+      background: white;
+      outline: none;
+    }
+
+    .field input:focus,
+    .field select:focus {
+      border-color: #93c5fd;
+      box-shadow: 0 0 0 3px rgba(147, 197, 253, 0.25);
+    }
+
+    .table-wrap {
+      overflow-x: auto;
+      border: 1px solid var(--border);
+      border-radius: 16px;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      min-width: 1780px;
+      background: white;
+    }
+
+    th, td {
+      padding: 12px 10px;
+      border-bottom: 1px solid var(--border);
+      text-align: left;
+      vertical-align: top;
+      font-size: 0.92rem;
+    }
+
+    tr:last-child td { border-bottom: none; }
+
+    th {
+      color: var(--muted);
+      font-size: 0.78rem;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      background: #f8fbff;
+    }
+
+    .candidate-name {
+      font-weight: 800;
+      color: var(--primary);
+      margin-bottom: 2px;
+    }
+
+    .small {
+      color: var(--muted);
+      font-size: 0.82rem;
+      line-height: 1.5;
+    }
+
+    .table-select {
+      width: 100%;
+      min-width: 180px;
+      padding: 9px 10px;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      font: inherit;
+      background: white;
+      outline: none;
+    }
+
+    .notice {
+      display: none;
+      margin-bottom: 16px;
+      padding: 12px 14px;
+      border-radius: 12px;
+      font-size: 0.92rem;
+      font-weight: 700;
+    }
+
+    .notice.show { display: block; }
+    .notice.success { background: #ecfdf5; color: var(--success); border: 1px solid #bbf7d0; }
+    .notice.error { background: #fef2f2; color: var(--danger); border: 1px solid #fecaca; }
+    .notice.info { background: #eef2ff; color: var(--info); border: 1px solid #c7d2fe; }
+
+    .empty { color: var(--muted); font-size: 0.95rem; padding: 10px 0 4px; }
+    .loading { color: var(--muted); font-style: italic; }
+
+    .status-pill {
+      display: inline-block;
+      padding: 6px 10px;
+      border-radius: 999px;
+      font-size: 0.76rem;
+      font-weight: 800;
+      white-space: nowrap;
+      text-transform: capitalize;
+    }
+
+    .status-submitted { background: #dbeafe; color: #1d4ed8; }
+    .status-failed-paper-screening,
+    .status-withdrawn,
+    .status-rejected,
+    .status-no-show-onboarding { background: #fee2e2; color: #b91c1c; }
+    .status-endorsed,
+    .status-assessment,
+    .status-initial,
+    .status-final { background: #fef3c7; color: #b45309; }
+    .status-hired,
+    .status-onboarded { background: #dcfce7; color: #166534; }
+
+    .modal {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(15, 23, 42, 0.65);
+      z-index: 9999;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+
+    .modal.show { display: flex; }
+
+    .modal-content {
+      background: white;
+      width: 100%;
+      max-width: 980px;
+      height: 88vh;
+      border-radius: 16px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.2);
+    }
+
+    .modal-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--border);
+      background: #fff;
+    }
+
+    .modal-header h3 {
+      margin: 0;
+      color: var(--primary);
+      font-size: 1.05rem;
+    }
+
+    .modal-actions {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .modal-close {
+      background: none;
+      border: none;
+      font-size: 24px;
+      line-height: 1;
+      cursor: pointer;
+      color: var(--muted);
+      padding: 4px 6px;
+      border-radius: 8px;
+    }
+
+    .modal-body { flex: 1; background: #f8fafc; }
+    .modal-body iframe {
+      width: 100%;
+      height: 100%;
+      border: none;
+      background: white;
+    }
+
+    @media (max-width: 1200px) {
+      .stats-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+      .filters-grid { grid-template-columns: 1fr 1fr; }
+    }
+
+    @media (max-width: 760px) {
+      .stats-grid, .filters-grid { grid-template-columns: 1fr; }
+      .topbar h1 { font-size: 1.7rem; }
+      .container { padding: 18px 14px 34px; }
+      .modal-content { height: 90vh; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="topbar">
+      <div>
+        <h1>Recruiter Dashboard</h1>
+        <p class="subtitle">
+          Manage candidates, update statuses, assign recruiters, and track application sources.
+        </p>
+      </div>
+
+      <div class="top-right">
+        <div class="hello" id="helloRecruiter">Hello!</div>
+        <a href="index.html" class="btn btn-outline">Home</a>
+        <button id="logoutBtn" class="btn btn-danger" type="button">Logout</button>
+      </div>
+    </div>
+
+    <div id="notice" class="notice"></div>
+
+    <div class="stats-grid">
+      <div class="stat-card"><div class="stat-label">Total</div><div class="stat-value" id="statTotal">0</div></div>
+      <div class="stat-card"><div class="stat-label">Endorsed</div><div class="stat-value" id="statEndorsed">0</div></div>
+      <div class="stat-card"><div class="stat-label">Rejected</div><div class="stat-value" id="statRejected">0</div></div>
+      <div class="stat-card"><div class="stat-label">Interviewed</div><div class="stat-value" id="statInterviewed">0</div></div>
+      <div class="stat-card"><div class="stat-label">Hired</div><div class="stat-value" id="statHired">0</div></div>
+    </div>
+
+    <div class="action-row">
+      <a href="recruiter-add-candidate.html" class="btn btn-primary">Add Candidate</a>
+      <a href="recruiter-productivity.html" class="btn btn-outline">Recruiter Productivity</a>
+      <a href="client-roles-input.html" class="btn btn-outline">Client Status / Open Roles</a>
+    </div>
+
+    <div class="panel">
+      <h2>Filters</h2>
+      <div class="filters-grid">
+        <div class="field">
+          <label for="searchInput">Search candidate or email</label>
+          <input id="searchInput" type="text" placeholder="Search by name or email" />
+        </div>
+
+        <div class="field">
+          <label for="jobFilter">Job Title</label>
+          <select id="jobFilter"><option value="">All jobs</option></select>
+        </div>
+
+        <div class="field">
+          <label for="statusFilter">Application Status</label>
+          <select id="statusFilter">
+            <option value="">All statuses</option>
+            <option value="submitted">Submitted</option>
+            <option value="failed paper screening">Failed paper screening</option>
+            <option value="endorsed">Endorsed</option>
+            <option value="assessment">Assessment</option>
+            <option value="initial">Initial</option>
+            <option value="final">Final</option>
+            <option value="hired">Hired</option>
+            <option value="onboarded">Onboarded</option>
+            <option value="no-show (onboarding)">No-show (Onboarding)</option>
+            <option value="withdrawn">Withdrawn</option>
+            <option value="rejected">Rejected</option>
+          </select>
+        </div>
+
+        <div class="field">
+          <label for="recruiterFilter">Recruiter</label>
+          <select id="recruiterFilter"><option value="">All recruiters</option></select>
+        </div>
+
+        <div class="field">
+          <label for="sourceFilter">Application Source</label>
+          <select id="sourceFilter">
+            <option value="">All sources</option>
+            <option value="facebook">Facebook</option>
+            <option value="linkedin">LinkedIn</option>
+            <option value="website">Website</option>
+            <option value="indeed">Indeed</option>
+            <option value="referral">Referral</option>
+            <option value="other">Other</option>
+          </select>
+        </div>
+
+        <button id="refreshBtn" class="btn btn-outline" type="button">Refresh</button>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>Candidate List</h2>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Candidate</th>
+              <th>Job</th>
+              <th>Status</th>
+              <th>Recruiter</th>
+              <th>Source</th>
+              <th>Applied</th>
+              <th>Phone</th>
+              <th>Location</th>
+              <th>Experience</th>
+              <th>Resume</th>
+              <th>Update Status</th>
+              <th>Assign Recruiter</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="applicationsTable">
+            <tr><td colspan="13" class="empty">Loading candidates...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div id="resumeModal" class="modal" aria-hidden="true">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>Resume Preview</h3>
+        <div class="modal-actions">
+          <a id="downloadResumeBtn" href="#" target="_blank" rel="noopener noreferrer" class="btn btn-outline table-btn" style="display:none;">Open in New Tab</a>
+          <button id="closeModal" class="modal-close" type="button" aria-label="Close">&times;</button>
+        </div>
+      </div>
+      <div class="modal-body">
+        <iframe id="resumeFrame" src=""></iframe>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    document.addEventListener("DOMContentLoaded", () => {
+      const SUPABASE_URL = "https://dilalntcxmvdcmwxjcct.supabase.co";
+      const SUPABASE_ANON_KEY = "sb_publishable_HrLVIUwnaRo54yijtrbWBQ_1aeb4ezs";
+      const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+      const RECRUITERS = {
+        "michelle.giray@talentbuzz.pro": "Michelle Giray",
+        "angel.n@talentbuzz.pro": "Angelia Nerida",
+        "jercey.cayetano@talentbuzz.pro": "Jercey Cayetano",
+        "jayson.c@talentbuzz.pro": "Jayson Cornejo",
+        "xyrene.e@talentbuzz.pro": "Xyrene Ellsworth"
+      };
+
+      const ALLOWED_RECRUITER_EMAILS = Object.keys(RECRUITERS).concat(["mitchie028@gmail.com"]);
+      const STATUS_OPTIONS = [
+        "submitted",
+        "failed paper screening",
+        "endorsed",
+        "assessment",
+        "initial",
+        "final",
+        "hired",
+        "onboarded",
+        "no-show (onboarding)",
+        "withdrawn",
+        "rejected"
+      ];
+
+      const REJECTED_STATUSES = ["failed paper screening", "withdrawn", "rejected", "no-show (onboarding)"];
+      const INTERVIEWED_STATUSES = ["assessment", "initial", "final"];
+      const HIRED_STATUSES = ["hired", "onboarded"];
+
+      const state = {
+        allApplications: [],
+        currentUser: null
+      };
+
+      const els = {
+        applicationsTable: document.getElementById("applicationsTable"),
+        jobFilter: document.getElementById("jobFilter"),
+        statusFilter: document.getElementById("statusFilter"),
+        recruiterFilter: document.getElementById("recruiterFilter"),
+        sourceFilter: document.getElementById("sourceFilter"),
+        searchInput: document.getElementById("searchInput"),
+        notice: document.getElementById("notice"),
+        helloRecruiter: document.getElementById("helloRecruiter"),
+        logoutBtn: document.getElementById("logoutBtn"),
+        refreshBtn: document.getElementById("refreshBtn"),
+        statTotal: document.getElementById("statTotal"),
+        statEndorsed: document.getElementById("statEndorsed"),
+        statRejected: document.getElementById("statRejected"),
+        statInterviewed: document.getElementById("statInterviewed"),
+        statHired: document.getElementById("statHired"),
+        resumeModal: document.getElementById("resumeModal"),
+        resumeFrame: document.getElementById("resumeFrame"),
+        closeModal: document.getElementById("closeModal"),
+        downloadResumeBtn: document.getElementById("downloadResumeBtn")
+      };
+
+      function escapeHtml(value) {
+        return String(value ?? "")
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;")
+          .replace(/'/g, "&#039;");
+      }
+
+      function normalizeText(value) {
+        return String(value || "").trim().toLowerCase();
+      }
+
+      function formatDate(dateString) {
+        if (!dateString) return "-";
+        const date = new Date(dateString);
+        if (Number.isNaN(date.getTime())) return "-";
+        return date.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+      }
+
+      function showNotice(message, type = "success") {
+        els.notice.textContent = message;
+        els.notice.className = `notice show ${type}`;
+        window.clearTimeout(showNotice._timer);
+        showNotice._timer = window.setTimeout(clearNotice, 3500);
+      }
+
+      function clearNotice() {
+        els.notice.textContent = "";
+        els.notice.className = "notice";
+      }
+
+      function getRecruiterName(email) {
+        return RECRUITERS[email] || email || "Unassigned";
+      }
+
+      function getProfileFromApplication(app) {
+        if (Array.isArray(app.applicant_profiles)) return app.applicant_profiles[0] || null;
+        return app.applicant_profiles || null;
+      }
+
+      function getStatusClass(status) {
+        return "status-" + String(status || "submitted").toLowerCase().replace(/\s+/g, "-").replace(/[()]/g, "");
+      }
+
+      function getFileExtension(url) {
+        try {
+          const cleanUrl = String(url || "").split("?")[0].split("#")[0];
+          const parts = cleanUrl.split(".");
+          return parts.length > 1 ? parts.pop().toLowerCase() : "";
+        } catch {
+          return "";
+        }
+      }
+
+      async function getResumeUrl(app) {
+        const profile = getProfileFromApplication(app);
+        if (!profile) return "";
+
+        if (profile.resume_url) return profile.resume_url;
+
+        if (profile.resume_path) {
+          const { data, error } = await supabaseClient.storage.from("resumes").createSignedUrl(profile.resume_path, 3600);
+          if (error) return "";
+          return data?.signedUrl || "";
+        }
+
         return "";
       }
-    }
 
-    async function getResumeUrl(app) {
-      const profile = getProfileFromApplication(app);
-      if (!profile) return "";
+      function openResumeModal(url) {
+        if (!url) return;
+        const extension = getFileExtension(url);
+        const isPdf = extension === "pdf";
 
-      if (profile.resume_url) return profile.resume_url;
+        els.downloadResumeBtn.href = url;
+        els.downloadResumeBtn.style.display = "inline-flex";
+        els.resumeFrame.src = isPdf
+          ? url
+          : `https://docs.google.com/gview?url=${encodeURIComponent(url)}&embedded=true`;
 
-      if (profile.resume_path) {
-        const { data, error } = await supabaseClient
-          .storage
-          .from("resumes")
-          .createSignedUrl(profile.resume_path, 3600);
-
-        if (error) return "";
-        return data?.signedUrl || "";
+        els.resumeModal.classList.add("show");
+        els.resumeModal.setAttribute("aria-hidden", "false");
+        document.body.style.overflow = "hidden";
       }
 
-      return "";
-    }
-
-    function openResumeModal(url) {
-      if (!url) return;
-
-      const extension = getFileExtension(url);
-      const isPdf = extension === "pdf";
-
-      els.downloadResumeBtn.href = url;
-      els.downloadResumeBtn.style.display = "inline-flex";
-
-      els.resumeFrame.src = isPdf
-        ? url
-        : `https://docs.google.com/gview?url=${encodeURIComponent(url)}&embedded=true`;
-
-      els.resumeModal.classList.add("show");
-      els.resumeModal.setAttribute("aria-hidden", "false");
-      document.body.style.overflow = "hidden";
-    }
-
-    function closeResumeModal() {
-      els.resumeModal.classList.remove("show");
-      els.resumeModal.setAttribute("aria-hidden", "true");
-      els.resumeFrame.src = "";
-      els.downloadResumeBtn.href = "#";
-      els.downloadResumeBtn.style.display = "none";
-      document.body.style.overflow = "";
-    }
-
-    async function protectRecruiterPage() {
-      const {
-        data: { session }
-      } = await supabaseClient.auth.getSession();
-
-      if (!session || !session.user) {
-        window.location.href = "login.html?redirect=recruiter-dashboard.html";
-        return null;
+      function closeResumeModal() {
+        els.resumeModal.classList.remove("show");
+        els.resumeModal.setAttribute("aria-hidden", "true");
+        els.resumeFrame.src = "";
+        els.downloadResumeBtn.href = "#";
+        els.downloadResumeBtn.style.display = "none";
+        document.body.style.overflow = "";
       }
 
-      const email = normalizeText(session.user.email);
-      const allowedEmails = ALLOWED_RECRUITER_EMAILS.map(v => normalizeText(v));
+      async function protectRecruiterPage() {
+        const { data: { session } } = await supabaseClient.auth.getSession();
 
-      if (!allowedEmails.includes(email)) {
-        alert("Access denied.");
-        window.location.href = "dashboard.html";
-        return null;
+        if (!session || !session.user) {
+          window.location.href = "login.html?redirect=recruiter-dashboard.html";
+          return null;
+        }
+
+        const email = normalizeText(session.user.email);
+        const allowed = ALLOWED_RECRUITER_EMAILS.map(v => normalizeText(v));
+
+        if (!allowed.includes(email)) {
+          alert("Access denied.");
+          window.location.href = "dashboard.html";
+          return null;
+        }
+
+        state.currentUser = session.user;
+        els.helloRecruiter.textContent = `Hello! ${getRecruiterName(email)}`;
+        return session.user;
       }
 
-      state.currentUser = session.user;
-      els.helloRecruiter.textContent = `Hello! ${getRecruiterName(email)}`;
-      return session.user;
-    }
+      function populateFilters() {
+        const urlParams = new URLSearchParams(window.location.search);
+        const selectedJobFromUrl = normalizeText(urlParams.get("job"));
+        const currentRecruiterValue = els.recruiterFilter.value;
+        const jobsMap = new Map();
 
-    function populateFilters() {
-      const urlParams = new URLSearchParams(window.location.search);
-      const selectedJobFromUrl = normalizeText(urlParams.get("job"));
-      const currentRecruiterValue = els.recruiterFilter.value;
-      const jobsMap = new Map();
+        state.allApplications.forEach(app => {
+          const title = app.jobs?.title || app.job_title || "";
+          const slug = app.jobs?.slug || title;
+          if (title) jobsMap.set(String(slug), String(title));
+        });
 
-      state.allApplications.forEach(app => {
-        const title = app.jobs?.title || app.job_title || "";
-        const slug = app.jobs?.slug || title;
-        if (title) jobsMap.set(String(slug), String(title));
-      });
+        const jobsOptions = Array.from(jobsMap.entries())
+          .sort((a, b) => a[1].localeCompare(b[1]))
+          .map(([slug, title]) => {
+            const selected = normalizeText(slug) === selectedJobFromUrl ? "selected" : "";
+            return `<option value="${escapeHtml(slug)}" ${selected}>${escapeHtml(title)}</option>`;
+          })
+          .join("");
 
-      const jobsOptions = Array.from(jobsMap.entries())
-        .sort((a, b) => a[1].localeCompare(b[1]))
-        .map(([slug, title]) => {
-          const selected = normalizeText(slug) === selectedJobFromUrl ? "selected" : "";
-          return `<option value="${escapeHtml(slug)}" ${selected}>${escapeHtml(title)}</option>`;
-        })
-        .join("");
+        els.jobFilter.innerHTML = `<option value="">All jobs</option>${jobsOptions}`;
 
-      els.jobFilter.innerHTML = `<option value="">All jobs</option>${jobsOptions}`;
+        const recruiterOptions = Object.entries(RECRUITERS)
+          .map(([email, name]) => `<option value="${escapeHtml(email)}">${escapeHtml(name)}</option>`)
+          .join("");
 
-      const recruiterOptions = Object.entries(RECRUITERS)
-        .map(([email, name]) => `<option value="${escapeHtml(email)}">${escapeHtml(name)}</option>`)
-        .join("");
+        els.recruiterFilter.innerHTML = `<option value="">All recruiters</option>${recruiterOptions}`;
 
-      els.recruiterFilter.innerHTML = `<option value="">All recruiters</option>${recruiterOptions}`;
-
-      if (currentRecruiterValue) {
-        els.recruiterFilter.value = currentRecruiterValue;
-      }
-    }
-
-    function getFilteredApplications() {
-      const search = normalizeText(els.searchInput.value);
-      const selectedJobSlug = normalizeText(els.jobFilter.value);
-      const selectedStatus = normalizeText(els.statusFilter.value);
-      const selectedRecruiter = normalizeText(els.recruiterFilter.value);
-      const selectedSource = normalizeText(els.sourceFilter.value);
-
-      return state.allApplications.filter(app => {
-        const profile = getProfileFromApplication(app);
-        const candidateName = normalizeText(profile?.full_name);
-        const candidateEmail = normalizeText(app.email);
-        const jobSlug = normalizeText(app.jobs?.slug || app.job_title);
-        const status = normalizeText(app.status || "submitted");
-        const recruiter = normalizeText(app.recruiter_email);
-        const source = normalizeText(app.application_source);
-
-        return (
-          (!search || candidateName.includes(search) || candidateEmail.includes(search)) &&
-          (!selectedJobSlug || jobSlug === selectedJobSlug) &&
-          (!selectedStatus || status === selectedStatus) &&
-          (!selectedRecruiter || recruiter === selectedRecruiter) &&
-          (!selectedSource || source === selectedSource)
-        );
-      });
-    }
-
-    function renderStats() {
-      const filtered = getFilteredApplications();
-      els.statTotal.textContent = filtered.length;
-      els.statEndorsed.textContent = filtered.filter(a => normalizeText(a.status) === "endorsed").length;
-      els.statRejected.textContent = filtered.filter(a => REJECTED_STATUSES.includes(normalizeText(a.status))).length;
-      els.statInterviewed.textContent = filtered.filter(a => INTERVIEWED_STATUSES.includes(normalizeText(a.status))).length;
-      els.statHired.textContent = filtered.filter(a => HIRED_STATUSES.includes(normalizeText(a.status))).length;
-    }
-
-    async function renderTable() {
-      const filtered = getFilteredApplications();
-
-      if (!filtered.length) {
-        els.applicationsTable.innerHTML = '<tr><td colspan="13" class="empty">No candidates found.</td></tr>';
-        return;
+        if (currentRecruiterValue) els.recruiterFilter.value = currentRecruiterValue;
       }
 
-      const rows = await Promise.all(
-        filtered.map(async app => {
+      function getFilteredApplications() {
+        const search = normalizeText(els.searchInput.value);
+        const selectedJobSlug = normalizeText(els.jobFilter.value);
+        const selectedStatus = normalizeText(els.statusFilter.value);
+        const selectedRecruiter = normalizeText(els.recruiterFilter.value);
+        const selectedSource = normalizeText(els.sourceFilter.value);
+
+        return state.allApplications.filter(app => {
           const profile = getProfileFromApplication(app);
-          const candidateName = escapeHtml(profile?.full_name || "Unnamed");
-          const candidateEmail = escapeHtml(app.email || "-");
-          const jobTitle = escapeHtml(app.jobs?.title || app.job_title || "-");
-          const currentStatus = String(app.status || "submitted");
-          const safeStatus = escapeHtml(currentStatus);
-          const recruiterName = escapeHtml(getRecruiterName(app.recruiter_email));
-          const source = escapeHtml(app.application_source || "-");
-          const appliedDate = escapeHtml(formatDate(app.created_at));
-          const phone = escapeHtml(profile?.phone || "-");
-          const location = escapeHtml(profile?.location || "-");
-          const yearsOfExperience =
-            profile?.years_of_experience !== null &&
-            profile?.years_of_experience !== undefined &&
-            profile?.years_of_experience !== ""
-              ? `${escapeHtml(profile.years_of_experience)} yr${Number(profile.years_of_experience) === 1 ? "" : "s"}`
-              : "-";
+          const candidateName = normalizeText(profile?.full_name);
+          const candidateEmail = normalizeText(app.email);
+          const jobSlug = normalizeText(app.jobs?.slug || app.job_title);
+          const status = normalizeText(app.status || "submitted");
+          const recruiter = normalizeText(app.recruiter_email);
+          const source = normalizeText(app.application_source);
 
-          const resumeUrl = await getResumeUrl(app);
-          const safeResumeUrl = resumeUrl ? escapeHtml(resumeUrl) : "";
+          return (
+            (!search || candidateName.includes(search) || candidateEmail.includes(search)) &&
+            (!selectedJobSlug || jobSlug === selectedJobSlug) &&
+            (!selectedStatus || status === selectedStatus) &&
+            (!selectedRecruiter || recruiter === selectedRecruiter) &&
+            (!selectedSource || source === selectedSource)
+          );
+        });
+      }
 
-          const statusOptions = STATUS_OPTIONS.map(option => {
-            const selected = normalizeText(option) === normalizeText(currentStatus) ? "selected" : "";
-            return `<option value="${escapeHtml(option)}" ${selected}>${escapeHtml(option)}</option>`;
-          }).join("");
+      function renderStats() {
+        const filtered = getFilteredApplications();
+        els.statTotal.textContent = filtered.length;
+        els.statEndorsed.textContent = filtered.filter(a => normalizeText(a.status) === "endorsed").length;
+        els.statRejected.textContent = filtered.filter(a => REJECTED_STATUSES.includes(normalizeText(a.status))).length;
+        els.statInterviewed.textContent = filtered.filter(a => INTERVIEWED_STATUSES.includes(normalizeText(a.status))).length;
+        els.statHired.textContent = filtered.filter(a => HIRED_STATUSES.includes(normalizeText(a.status))).length;
+      }
 
-          const recruiterOptions =
-            `<option value="">Unassigned</option>` +
-            Object.entries(RECRUITERS)
-              .map(([email, name]) => {
-                const selected = normalizeText(app.recruiter_email) === normalizeText(email) ? "selected" : "";
-                return `<option value="${escapeHtml(email)}" ${selected}>${escapeHtml(name)}</option>`;
-              })
-              .join("");
+      async function renderTable() {
+        const filtered = getFilteredApplications();
 
-          return `
-            <tr>
-              <td>
-                <div class="candidate-name">${candidateName}</div>
-                <div class="small">${candidateEmail}</div>
-              </td>
-              <td>${jobTitle}</td>
-              <td><span class="status-pill ${getStatusClass(currentStatus)}">${safeStatus}</span></td>
-              <td>${recruiterName}</td>
-              <td>${source}</td>
-              <td>${appliedDate}</td>
-              <td>${phone}</td>
-              <td>${location}</td>
-              <td>${yearsOfExperience}</td>
-              <td>
-                ${
-                  safeResumeUrl
-                    ? `<button class="btn btn-outline table-btn view-resume-btn" type="button" data-url="${safeResumeUrl}">View Resume</button>`
-                    : `<span class="small">No resume</span>`
-                }
-              </td>
-              <td>
-                <select class="table-select status-select" data-id="${escapeHtml(app.id)}">
-                  ${statusOptions}
-                </select>
-              </td>
-              <td>
-                <select class="table-select recruiter-select" data-id="${escapeHtml(app.id)}">
-                  ${recruiterOptions}
-                </select>
-              </td>
-              <td>
-                <div style="display:flex;gap:8px;flex-wrap:wrap;">
-                  <button class="btn btn-outline table-btn edit-btn" type="button" data-id="${escapeHtml(app.id)}">Edit</button>
-                  <button class="btn btn-danger table-btn btn-delete" type="button" data-id="${escapeHtml(app.id)}">Remove</button>
-                </div>
-              </td>
-            </tr>
-          `;
-        })
-      );
-
-      els.applicationsTable.innerHTML = rows.join("");
-    }
-
-    async function sendRejectionEmail(application) {
-      const profile = getProfileFromApplication(application);
-
-      await supabaseClient
-        .from("applications")
-        .update({ rejection_email_status: "sending" })
-        .eq("id", application.id);
-
-      const { data, error } = await supabaseClient.functions.invoke(
-        "send-rejection-email",
-        {
-          body: {
-            candidate_name: profile?.full_name || "Applicant",
-            candidate_email: application.email,
-            job_title: application.jobs?.title || application.job_title || "Role"
-          }
+        if (!filtered.length) {
+          els.applicationsTable.innerHTML = '<tr><td colspan="13" class="empty">No candidates found.</td></tr>';
+          return;
         }
-      );
 
-      if (error || !data?.success) {
-        await supabaseClient
+        const rows = await Promise.all(
+          filtered.map(async app => {
+            const profile = getProfileFromApplication(app);
+            const candidateName = escapeHtml(profile?.full_name || "Unnamed");
+            const candidateEmail = escapeHtml(app.email || "-");
+            const jobTitle = escapeHtml(app.jobs?.title || app.job_title || "-");
+            const currentStatus = String(app.status || "submitted");
+            const safeStatus = escapeHtml(currentStatus);
+            const recruiterName = escapeHtml(getRecruiterName(app.recruiter_email));
+            const source = escapeHtml(app.application_source || "-");
+            const appliedDate = escapeHtml(formatDate(app.created_at));
+            const phone = escapeHtml(profile?.phone || "-");
+            const location = escapeHtml(profile?.location || "-");
+            const yearsOfExperience =
+              profile?.years_of_experience !== null &&
+              profile?.years_of_experience !== undefined &&
+              profile?.years_of_experience !== ""
+                ? `${escapeHtml(profile.years_of_experience)} yr${Number(profile.years_of_experience) === 1 ? "" : "s"}`
+                : "-";
+
+            const resumeUrl = await getResumeUrl(app);
+            const safeResumeUrl = resumeUrl ? escapeHtml(resumeUrl) : "";
+
+            const statusOptions = STATUS_OPTIONS.map(option => {
+              const selected = normalizeText(option) === normalizeText(currentStatus) ? "selected" : "";
+              return `<option value="${escapeHtml(option)}" ${selected}>${escapeHtml(option)}</option>`;
+            }).join("");
+
+            const recruiterOptions =
+              `<option value="">Unassigned</option>` +
+              Object.entries(RECRUITERS)
+                .map(([email, name]) => {
+                  const selected = normalizeText(app.recruiter_email) === normalizeText(email) ? "selected" : "";
+                  return `<option value="${escapeHtml(email)}" ${selected}>${escapeHtml(name)}</option>`;
+                })
+                .join("");
+
+            return `
+              <tr>
+                <td>
+                  <div class="candidate-name">${candidateName}</div>
+                  <div class="small">${candidateEmail}</div>
+                </td>
+                <td>${jobTitle}</td>
+                <td><span class="status-pill ${getStatusClass(currentStatus)}">${safeStatus}</span></td>
+                <td>${recruiterName}</td>
+                <td>${source}</td>
+                <td>${appliedDate}</td>
+                <td>${phone}</td>
+                <td>${location}</td>
+                <td>${yearsOfExperience}</td>
+                <td>
+                  ${
+                    safeResumeUrl
+                      ? `<button class="btn btn-outline table-btn view-resume-btn" type="button" data-url="${safeResumeUrl}">View Resume</button>`
+                      : `<span class="small">No resume</span>`
+                  }
+                </td>
+                <td>
+                  <select class="table-select status-select" data-id="${escapeHtml(app.id)}">
+                    ${statusOptions}
+                  </select>
+                </td>
+                <td>
+                  <select class="table-select recruiter-select" data-id="${escapeHtml(app.id)}">
+                    ${recruiterOptions}
+                  </select>
+                </td>
+                <td>
+                  <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                    <button class="btn btn-outline table-btn edit-btn" type="button" data-id="${escapeHtml(app.id)}">Edit</button>
+                    <button class="btn btn-danger table-btn btn-delete" type="button" data-id="${escapeHtml(app.id)}">Remove</button>
+                  </div>
+                </td>
+              </tr>
+            `;
+          })
+        );
+
+        els.applicationsTable.innerHTML = rows.join("");
+      }
+
+      async function loadApplications() {
+        clearNotice();
+        els.refreshBtn.disabled = true;
+        els.refreshBtn.textContent = "Refreshing...";
+        els.applicationsTable.innerHTML = '<tr><td colspan="13" class="empty loading">Loading candidates...</td></tr>';
+
+        const { data, error } = await supabaseClient
           .from("applications")
-          .update({ rejection_email_status: "failed" })
-          .eq("id", application.id);
-        return false;
-      }
+          .select(`
+            id,
+            applicant_profile_id,
+            email,
+            job_id,
+            job_id_uuid,
+            job_title,
+            status,
+            recruiter_email,
+            application_source,
+            confirmation_email_status,
+            created_at,
+            jobs(id, title, slug),
+            applicant_profiles(id, full_name, phone, location, years_of_experience, current_title, skills, resume_url, resume_path)
+          `)
+          .order("created_at", { ascending: false });
 
-      await supabaseClient
-        .from("applications")
-        .update({ rejection_email_status: "sent" })
-        .eq("id", application.id);
+        els.refreshBtn.disabled = false;
+        els.refreshBtn.textContent = "Refresh";
 
-      return true;
-    }
-
-    async function updateApplicationStatus(applicationId, newStatus) {
-      const application = state.allApplications.find(app => app.id === applicationId);
-
-      const { error } = await supabaseClient
-        .from("applications")
-        .update({ status: newStatus })
-        .eq("id", applicationId);
-
-      if (error) {
-        showNotice(error.message || "Failed to update status.", "error");
-        return;
-      }
-
-      const newStatusNormalized = normalizeText(newStatus);
-
-      if (
-        newStatusNormalized === "rejected" &&
-        application &&
-        application.rejection_email_status !== "sent"
-      ) {
-        try {
-          const sent = await sendRejectionEmail(application);
-          if (sent) {
-            showNotice("Status updated and rejection email sent.", "success");
-          } else {
-            showNotice("Status updated, but rejection email failed.", "error");
-          }
-        } catch {
-          showNotice("Status updated, but rejection email failed.", "error");
+        if (error) {
+          els.applicationsTable.innerHTML = `<tr><td colspan="13" class="empty">${escapeHtml(error.message)}</td></tr>`;
+          return;
         }
-      } else {
+
+        state.allApplications = data || [];
+        populateFilters();
+        renderStats();
+        await renderTable();
+      }
+
+      async function updateApplicationStatus(applicationId, newStatus) {
+        const { error } = await supabaseClient.from("applications").update({ status: newStatus }).eq("id", applicationId);
+        if (error) {
+          showNotice(error.message || "Failed to update status.", "error");
+          return;
+        }
         showNotice("Application status updated.", "success");
+        await loadApplications();
       }
 
-      await loadApplications();
-    }
-
-    async function updateRecruiter(applicationId, recruiterEmail) {
-      const { error } = await supabaseClient
-        .from("applications")
-        .update({ recruiter_email: recruiterEmail || null })
-        .eq("id", applicationId);
-
-      if (error) {
-        showNotice(error.message || "Failed to assign recruiter.", "error");
-        return;
+      async function updateRecruiter(applicationId, recruiterEmail) {
+        const { error } = await supabaseClient.from("applications").update({ recruiter_email: recruiterEmail || null }).eq("id", applicationId);
+        if (error) {
+          showNotice(error.message || "Failed to assign recruiter.", "error");
+          return;
+        }
+        showNotice("Recruiter assignment updated.", "success");
+        await loadApplications();
       }
 
-      showNotice("Recruiter assignment updated.", "success");
-      await loadApplications();
-    }
+      async function deleteApplication(applicationId) {
+        const confirmed = window.confirm("Are you sure you want to remove this application?");
+        if (!confirmed) return;
 
-    async function deleteApplication(applicationId) {
-      const confirmed = window.confirm("Are you sure you want to remove this application?");
-      if (!confirmed) return;
+        const { error } = await supabaseClient.from("applications").delete().eq("id", applicationId);
+        if (error) {
+          showNotice(error.message || "Failed to remove application.", "error");
+          return;
+        }
 
-      const { error } = await supabaseClient
-        .from("applications")
-        .delete()
-        .eq("id", applicationId);
-
-      if (error) {
-        showNotice(error.message || "Failed to remove application.", "error");
-        return;
+        showNotice("Application removed successfully.", "success");
+        await loadApplications();
       }
 
-      showNotice("Application removed successfully.", "success");
-      await loadApplications();
-    }
-
-    async function loadApplications() {
-      clearNotice();
-      els.refreshBtn.disabled = true;
-      els.refreshBtn.textContent = "Refreshing...";
-      els.applicationsTable.innerHTML = '<tr><td colspan="13" class="empty loading">Loading candidates...</td></tr>';
-
-      const { data, error } = await supabaseClient
-        .from("applications")
-        .select(`
-          id,
-          applicant_profile_id,
-          email,
-          job_id,
-          job_id_uuid,
-          job_title,
-          status,
-          recruiter_email,
-          application_source,
-          confirmation_email_status,
-          rejection_email_status,
-          created_at,
-          jobs(id, title, slug),
-          applicant_profiles(id, full_name, phone, location, years_of_experience, current_title, skills, resume_url, resume_path)
-        `)
-        .order("created_at", { ascending: false });
-
-      els.refreshBtn.disabled = false;
-      els.refreshBtn.textContent = "Refresh";
-
-      if (error) {
-        els.applicationsTable.innerHTML = `<tr><td colspan="13" class="empty">${escapeHtml(error.message)}</td></tr>`;
-        return;
+      function syncJobFilterToUrl() {
+        const selectedSlug = els.jobFilter.value;
+        const url = new URL(window.location.href);
+        if (selectedSlug) url.searchParams.set("job", selectedSlug);
+        else url.searchParams.delete("job");
+        window.history.replaceState({}, "", url.toString());
       }
 
-      state.allApplications = data || [];
-      populateFilters();
-      renderStats();
-      await renderTable();
-    }
-
-    function syncJobFilterToUrl() {
-      const selectedSlug = els.jobFilter.value;
-      const url = new URL(window.location.href);
-      if (selectedSlug) url.searchParams.set("job", selectedSlug);
-      else url.searchParams.delete("job");
-      window.history.replaceState({}, "", url.toString());
-    }
-
-    function handleFilterChange() {
-      renderStats();
-      renderTable();
-    }
-
-    els.jobFilter.addEventListener("change", () => {
-      syncJobFilterToUrl();
-      handleFilterChange();
-    });
-
-    [els.statusFilter, els.recruiterFilter, els.sourceFilter].forEach(el => {
-      el.addEventListener("change", handleFilterChange);
-    });
-
-    els.searchInput.addEventListener("input", handleFilterChange);
-    els.refreshBtn.addEventListener("click", loadApplications);
-
-    els.applicationsTable.addEventListener("change", async event => {
-      const target = event.target;
-
-      if (target.classList.contains("status-select")) {
-        await updateApplicationStatus(target.dataset.id, target.value);
-        return;
+      function handleFilterChange() {
+        renderStats();
+        renderTable();
       }
 
-      if (target.classList.contains("recruiter-select")) {
-        await updateRecruiter(target.dataset.id, target.value || null);
-      }
-    });
+      els.jobFilter.addEventListener("change", () => {
+        syncJobFilterToUrl();
+        handleFilterChange();
+      });
 
-    els.applicationsTable.addEventListener("click", async event => {
-      const target = event.target;
+      [els.statusFilter, els.recruiterFilter, els.sourceFilter].forEach(el => {
+        el.addEventListener("change", handleFilterChange);
+      });
 
-      if (target.classList.contains("view-resume-btn")) {
-        openResumeModal(target.dataset.url);
-        return;
-      }
+      els.searchInput.addEventListener("input", handleFilterChange);
+      els.refreshBtn.addEventListener("click", loadApplications);
 
-      if (target.classList.contains("edit-btn")) {
-        window.location.href = `recruiter-add-candidate.html?id=${encodeURIComponent(target.dataset.id)}`;
-        return;
-      }
+      els.applicationsTable.addEventListener("change", async event => {
+        const target = event.target;
 
-      if (target.classList.contains("btn-delete")) {
-        await deleteApplication(target.dataset.id);
-      }
-    });
+        if (target.classList.contains("status-select")) {
+          await updateApplicationStatus(target.dataset.id, target.value);
+          return;
+        }
 
-    if (els.closeModal) {
+        if (target.classList.contains("recruiter-select")) {
+          await updateRecruiter(target.dataset.id, target.value || null);
+        }
+      });
+
+      els.applicationsTable.addEventListener("click", async event => {
+        const target = event.target;
+
+        if (target.classList.contains("view-resume-btn")) {
+          openResumeModal(target.dataset.url);
+          return;
+        }
+
+        if (target.classList.contains("edit-btn")) {
+          window.location.href = `recruiter-add-candidate.html?id=${encodeURIComponent(target.dataset.id)}`;
+          return;
+        }
+
+        if (target.classList.contains("btn-delete")) {
+          await deleteApplication(target.dataset.id);
+        }
+      });
+
       els.closeModal.addEventListener("click", closeResumeModal);
-    }
-
-    if (els.resumeModal) {
       els.resumeModal.addEventListener("click", event => {
         if (event.target === els.resumeModal) closeResumeModal();
       });
-    }
 
-    document.addEventListener("keydown", event => {
-      if (els.resumeModal && event.key === "Escape" && els.resumeModal.classList.contains("show")) {
-        closeResumeModal();
-      }
-    });
+      document.addEventListener("keydown", event => {
+        if (event.key === "Escape" && els.resumeModal.classList.contains("show")) {
+          closeResumeModal();
+        }
+      });
 
-    if (els.logoutBtn) {
       els.logoutBtn.addEventListener("click", async () => {
         try {
           await supabaseClient.auth.signOut();
@@ -578,16 +997,17 @@
           window.location.href = "login.html";
         }
       });
-    }
 
-    supabaseClient.auth.onAuthStateChange((event, session) => {
-      if (event === "SIGNED_OUT" || !session?.user) {
-        window.location.href = "login.html?redirect=recruiter-dashboard.html";
-      }
-    });
+      supabaseClient.auth.onAuthStateChange((event, session) => {
+        if (event === "SIGNED_OUT" || !session?.user) {
+          window.location.href = "login.html?redirect=recruiter-dashboard.html";
+        }
+      });
 
-    protectRecruiterPage().then(user => {
-      if (user) loadApplications();
+      protectRecruiterPage().then(user => {
+        if (user) loadApplications();
+      });
     });
-  });
-</script>
+  </script>
+</body>
+</html>
