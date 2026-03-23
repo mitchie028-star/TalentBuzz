@@ -109,6 +109,16 @@
       color: var(--muted);
     }
 
+    .resume-link {
+      color: var(--blue-light);
+      font-weight: 800;
+      text-decoration: none;
+    }
+
+    .resume-link:hover {
+      text-decoration: underline;
+    }
+
     .btn {
       display: inline-block;
       padding: 11px 14px;
@@ -401,6 +411,26 @@
     return 'status-other';
   }
 
+  async function getResumeUrl(profile) {
+    if (!profile) return '';
+
+    if (profile.resume_url) {
+      return profile.resume_url;
+    }
+
+    if (profile.resume_path) {
+      const { data, error } = await supabaseClient
+        .storage
+        .from('resumes')
+        .createSignedUrl(profile.resume_path, 3600);
+
+      if (error) return '';
+      return data?.signedUrl || '';
+    }
+
+    return '';
+  }
+
   async function requireAuth() {
     const { data: { session } } = await supabaseClient.auth.getSession();
 
@@ -425,24 +455,37 @@
   }
 
   async function loadProfile(email) {
-    const { data } = await supabaseClient
+    const { data, error } = await supabaseClient
       .from('applicant_profiles')
       .select('*')
       .eq('email', email)
       .maybeSingle();
 
-    if (!data) {
+    const resumeStatusEl = document.getElementById('resumeStatus');
+
+    if (error || !data) {
       document.getElementById('name').textContent = '-';
       document.getElementById('phone').textContent = '-';
       document.getElementById('location').textContent = '-';
-      document.getElementById('resumeStatus').textContent = 'Not uploaded';
+      resumeStatusEl.textContent = 'Not uploaded';
       return;
     }
 
     document.getElementById('name').textContent = data.full_name || '-';
     document.getElementById('phone').textContent = data.phone || '-';
     document.getElementById('location').textContent = data.location || '-';
-    document.getElementById('resumeStatus').textContent = data.resume_url ? 'Resume uploaded' : 'Not uploaded';
+
+    const resumeUrl = await getResumeUrl(data);
+
+    if (resumeUrl) {
+      resumeStatusEl.innerHTML = `
+        <a href="${resumeUrl}" target="_blank" rel="noopener noreferrer" class="resume-link">
+          View Resume
+        </a>
+      `;
+    } else {
+      resumeStatusEl.textContent = 'Not uploaded';
+    }
   }
 
   async function loadApplications(email) {
