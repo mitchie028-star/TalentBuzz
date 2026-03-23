@@ -702,13 +702,6 @@
         .toLowerCase();
     }
 
-    function titleCase(value) {
-      if (!value) return "-";
-      return String(value)
-        .toLowerCase()
-        .replace(/\b\w/g, char => char.toUpperCase());
-    }
-
     function formatDate(dateString) {
       if (!dateString) return "-";
       const date = new Date(dateString);
@@ -759,6 +752,21 @@
       if (!text) return "";
       if (text.length <= max) return text;
       return text.slice(0, max).trimEnd() + "...";
+    }
+
+    function buildApplyUrl(job) {
+      const params = new URLSearchParams();
+      params.set("job", job.title || "this role");
+      if (job.id) params.set("job_id", job.id);
+      return `apply.html?${params.toString()}`;
+    }
+
+    function buildJobLocation(job) {
+      return [
+        job.city || "",
+        job.state || "",
+        job.country || ""
+      ].filter(Boolean).join(", ") || job.location || "Location not specified";
     }
 
     async function getResumeUrl(profile) {
@@ -938,32 +946,37 @@
       );
     }
 
-    function computeJobScore(job, profile, appliedTitles) {
+    function computeJobScore(job, profile, appliedTitles, appliedJobIds) {
       const title = normalizeText(job.title);
-      const location = normalizeText(job.location);
       const industry = normalizeText(job.industry);
       const keywords = normalizeText(job.keywords);
-      const description = normalizeText(job.description);
+      const description = normalizeText(job.job_description || job.description || job.summary);
       const workSetup = normalizeText(job.work_setup);
+      const country = normalizeText(job.country);
+      const stateVal = normalizeText(job.state);
+      const city = normalizeText(job.city);
+      const location = normalizeText(job.location);
 
       const candidateLocation = normalizeText(profile?.location);
       const keywordSet = buildCandidateKeywordSet(profile);
 
       let score = 0;
 
-      if (appliedTitles.has(title)) {
+      if ((job.id && appliedJobIds.has(job.id)) || appliedTitles.has(title)) {
         return -9999;
       }
 
+      const fullJobLocation = [city, stateVal, country, location].filter(Boolean).join(" ");
+
       if (candidateLocation) {
-        if (location.includes(candidateLocation)) score += 6;
+        if (fullJobLocation.includes(candidateLocation)) score += 6;
 
         const locationParts = candidateLocation
           .split(/[,\s]+/)
           .map(x => x.trim())
           .filter(x => x.length > 2);
 
-        const matchedParts = locationParts.filter(part => location.includes(part)).length;
+        const matchedParts = locationParts.filter(part => fullJobLocation.includes(part)).length;
         score += matchedParts * 2;
       }
 
@@ -997,14 +1010,21 @@
 
       els.jobsList.innerHTML = jobs.map(job => {
         const title = escapeHtml(job.title || "Untitled Role");
-        const location = escapeHtml(job.location || "Location not specified");
+        const location = escapeHtml(buildJobLocation(job));
         const industry = escapeHtml(job.industry || "");
         const workSetup = escapeHtml(job.work_setup || "");
-        const description = escapeHtml(shortText(job.description || job.summary || "", 160));
+        const employmentType = escapeHtml(job.employment_type || "");
+        const salaryMin = job.salary_min ? Number(job.salary_min).toLocaleString() : "";
+        const salaryMax = job.salary_max ? Number(job.salary_max).toLocaleString() : "";
+        const salary =
+          salaryMin || salaryMax
+            ? [salaryMin || "-", salaryMax || "-"].join(" - ")
+            : "";
+        const description = escapeHtml(shortText(job.job_description || job.description || job.summary || "", 160));
         const score = Number.isFinite(job.score) ? job.score : 0;
-        const applyLink = `apply.html?job=${encodeURIComponent(job.title || "")}`;
+        const applyLink = buildApplyUrl(job);
 
-        const meta = [location, industry, workSetup].filter(Boolean).join(" | ");
+        const meta = [location, industry, workSetup, employmentType, salary].filter(Boolean).join(" | ");
 
         return `
           <div class="job-card">
@@ -1031,17 +1051,24 @@
 
       const { data: applications } = await supabaseClient
         .from("applications")
-        .select("job_title")
+        .select("job_title, job_id_uuid")
         .eq("email", userEmail);
 
       const appliedTitles = new Set(
         (applications || []).map(app => normalizeText(app.job_title))
       );
 
+      const appliedJobIds = new Set(
+        (applications || [])
+          .map(app => app.job_id_uuid)
+          .filter(Boolean)
+      );
+
       const { data: jobs, error } = await supabaseClient
         .from("jobs")
         .select("*")
-        .order("created_at", { ascending: false });
+        .order("featured", { ascending: false })
+        .order("title", { ascending: true });
 
       if (error) {
         els.jobsList.innerHTML = `<div class="empty-state">${escapeHtml(error.message)}</div>`;
@@ -1056,7 +1083,7 @@
       const scoredJobs = jobs
         .map(job => ({
           ...job,
-          score: computeJobScore(job, profile, appliedTitles)
+          score: computeJobScore(job, profile, appliedTitles, appliedJobIds)
         }))
         .filter(job => job.score > -9999)
         .sort((a, b) => b.score - a.score)
