@@ -384,14 +384,14 @@
         </select>
       </div>
 
-      <div>
+      <div id="regionFieldWrap">
         <label for="state_region">State / Region</label>
         <select id="state_region">
           <option value="">Select state / region</option>
         </select>
       </div>
 
-      <div>
+      <div id="cityFieldWrap">
         <label for="city">City</label>
         <select id="city">
           <option value="">Select city</option>
@@ -478,55 +478,42 @@ document.addEventListener('DOMContentLoaded', async () => {
     'xyrene.e@talentbuzz.pro'
   ];
 
-  const LOCATION_DATA = {
+  const COUNTRIES = [
+    "Afghanistan","Albania","Algeria","Andorra","Angola","Antigua and Barbuda","Argentina","Armenia","Australia","Austria",
+    "Azerbaijan","Bahamas","Bahrain","Bangladesh","Barbados","Belarus","Belgium","Belize","Benin","Bhutan","Bolivia",
+    "Bosnia and Herzegovina","Botswana","Brazil","Brunei","Bulgaria","Burkina Faso","Burundi","Cabo Verde","Cambodia",
+    "Cameroon","Canada","Central African Republic","Chad","Chile","China","Colombia","Comoros","Congo","Costa Rica",
+    "Croatia","Cuba","Cyprus","Czech Republic","Democratic Republic of the Congo","Denmark","Djibouti","Dominica",
+    "Dominican Republic","Ecuador","Egypt","El Salvador","Equatorial Guinea","Eritrea","Estonia","Eswatini","Ethiopia",
+    "Fiji","Finland","France","Gabon","Gambia","Georgia","Germany","Ghana","Greece","Grenada","Guatemala","Guinea",
+    "Guinea-Bissau","Guyana","Haiti","Honduras","Hungary","Iceland","India","Indonesia","Iran","Iraq","Ireland","Israel",
+    "Italy","Jamaica","Japan","Jordan","Kazakhstan","Kenya","Kiribati","Kuwait","Kyrgyzstan","Laos","Latvia","Lebanon",
+    "Lesotho","Liberia","Libya","Liechtenstein","Lithuania","Luxembourg","Madagascar","Malawi","Malaysia","Maldives",
+    "Mali","Malta","Marshall Islands","Mauritania","Mauritius","Mexico","Micronesia","Moldova","Monaco","Mongolia",
+    "Montenegro","Morocco","Mozambique","Myanmar","Namibia","Nauru","Nepal","Netherlands","New Zealand","Nicaragua",
+    "Niger","Nigeria","North Korea","North Macedonia","Norway","Oman","Pakistan","Palau","Panama","Papua New Guinea",
+    "Paraguay","Peru","Philippines","Poland","Portugal","Qatar","Romania","Russia","Rwanda","Saint Kitts and Nevis",
+    "Saint Lucia","Saint Vincent and the Grenadines","Samoa","San Marino","Sao Tome and Principe","Saudi Arabia",
+    "Senegal","Serbia","Seychelles","Sierra Leone","Singapore","Slovakia","Slovenia","Solomon Islands","Somalia",
+    "South Africa","South Korea","South Sudan","Spain","Sri Lanka","Sudan","Suriname","Sweden","Switzerland","Syria",
+    "Taiwan","Tajikistan","Tanzania","Thailand","Timor-Leste","Togo","Tonga","Trinidad and Tobago","Tunisia","Turkey",
+    "Turkmenistan","Tuvalu","Uganda","Ukraine","United Arab Emirates","United Kingdom","United States","Uruguay",
+    "Uzbekistan","Vanuatu","Vatican City","Venezuela","Vietnam","Yemen","Zambia","Zimbabwe"
+  ];
+
+  const STRUCTURED_LOCATIONS = {
     "Philippines": {
       "Metro Manila": [
-        "Manila",
-        "Makati",
-        "Quezon City",
-        "Taguig",
-        "Pasig",
-        "Mandaluyong",
-        "Pasay",
-        "Parañaque",
-        "Las Piñas",
-        "Muntinlupa",
-        "Marikina",
-        "San Juan",
-        "Caloocan",
-        "Malabon",
-        "Navotas",
-        "Valenzuela",
-        "Pateros"
+        "Manila","Makati","Quezon City","Taguig","Pasig","Mandaluyong","Pasay","Parañaque","Las Piñas","Muntinlupa",
+        "Marikina","San Juan","Caloocan","Malabon","Navotas","Valenzuela","Pateros"
       ],
-      "Cebu": [
-        "Cebu City",
-        "Mandaue",
-        "Lapu-Lapu",
-        "Talisay"
-      ],
-      "Davao del Sur": [
-        "Davao City"
-      ]
+      "Cebu": ["Cebu City","Mandaue","Lapu-Lapu","Talisay"],
+      "Davao del Sur": ["Davao City"]
     },
     "United States": {
-      "California": [
-        "Los Angeles",
-        "San Francisco",
-        "San Diego",
-        "San Jose"
-      ],
-      "Texas": [
-        "Houston",
-        "Dallas",
-        "Austin",
-        "San Antonio"
-      ],
-      "New York": [
-        "New York City",
-        "Buffalo",
-        "Albany"
-      ]
+      "California": ["Los Angeles","San Francisco","San Diego","San Jose"],
+      "Texas": ["Houston","Dallas","Austin","San Antonio"],
+      "New York": ["New York City","Buffalo","Albany"]
     }
   };
 
@@ -542,9 +529,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   const debugBox = document.getElementById('debugBox');
 
   const countrySelect = document.getElementById('country');
-  const regionSelect = document.getElementById('state_region');
-  const citySelect = document.getElementById('city');
-
   const params = new URLSearchParams(window.location.search);
   const jobId = params.get('job_id');
 
@@ -590,34 +574,111 @@ document.addEventListener('DOMContentLoaded', async () => {
     debugBox.textContent = '';
   }
 
+  function getRegionElement() {
+    return document.getElementById('state_region');
+  }
+
+  function getCityElement() {
+    return document.getElementById('city');
+  }
+
+  function getRegionValue() {
+    const el = getRegionElement();
+    return el ? String(el.value || '').trim() : '';
+  }
+
+  function getCityValue() {
+    const el = getCityElement();
+    return el ? String(el.value || '').trim() : '';
+  }
+
   function populateCountryDropdown() {
-    const countries = Object.keys(LOCATION_DATA).sort();
     countrySelect.innerHTML =
       `<option value="">Select country</option>` +
-      countries.map(country => `<option value="${escapeHtml(country)}">${escapeHtml(country)}</option>`).join('');
+      COUNTRIES
+        .slice()
+        .sort((a, b) => a.localeCompare(b))
+        .map(country => `<option value="${escapeHtml(country)}">${escapeHtml(country)}</option>`)
+        .join('');
+  }
+
+  function switchRegionCityMode(country) {
+    const regionWrap = document.getElementById('regionFieldWrap');
+    const cityWrap = document.getElementById('cityFieldWrap');
+    const currentRegion = getRegionValue();
+    const currentCity = getCityValue();
+
+    if (STRUCTURED_LOCATIONS[country]) {
+      regionWrap.innerHTML = `
+        <label for="state_region">State / Region</label>
+        <select id="state_region">
+          <option value="">Select state / region</option>
+        </select>
+      `;
+      cityWrap.innerHTML = `
+        <label for="city">City</label>
+        <select id="city">
+          <option value="">Select city</option>
+        </select>
+      `;
+      populateRegionDropdown(country);
+      if (currentRegion) {
+        document.getElementById('state_region').value = currentRegion;
+        populateCityDropdown(country, currentRegion);
+      }
+      if (currentCity) {
+        document.getElementById('city').value = currentCity;
+      }
+      bindStructuredLocationEvents();
+    } else {
+      regionWrap.innerHTML = `
+        <label for="state_region">State / Region</label>
+        <input id="state_region" placeholder="Enter state / region" value="${escapeHtml(currentRegion)}">
+      `;
+      cityWrap.innerHTML = `
+        <label for="city">City</label>
+        <input id="city" placeholder="Enter city" value="${escapeHtml(currentCity)}">
+      `;
+    }
   }
 
   function populateRegionDropdown(country) {
-    regionSelect.innerHTML = `<option value="">Select state / region</option>`;
-    citySelect.innerHTML = `<option value="">Select city</option>`;
+    const regionEl = getRegionElement();
+    const cityEl = getCityElement();
+    if (!regionEl || !cityEl || regionEl.tagName !== 'SELECT' || cityEl.tagName !== 'SELECT') return;
 
-    if (!country || !LOCATION_DATA[country]) return;
+    regionEl.innerHTML = `<option value="">Select state / region</option>`;
+    cityEl.innerHTML = `<option value="">Select city</option>`;
 
-    const regions = Object.keys(LOCATION_DATA[country]).sort();
-    regionSelect.innerHTML += regions
+    if (!country || !STRUCTURED_LOCATIONS[country]) return;
+
+    const regions = Object.keys(STRUCTURED_LOCATIONS[country]).sort();
+    regionEl.innerHTML += regions
       .map(region => `<option value="${escapeHtml(region)}">${escapeHtml(region)}</option>`)
       .join('');
   }
 
   function populateCityDropdown(country, region) {
-    citySelect.innerHTML = `<option value="">Select city</option>`;
+    const cityEl = getCityElement();
+    if (!cityEl || cityEl.tagName !== 'SELECT') return;
 
-    if (!country || !region || !LOCATION_DATA[country] || !LOCATION_DATA[country][region]) return;
+    cityEl.innerHTML = `<option value="">Select city</option>`;
 
-    const cities = LOCATION_DATA[country][region];
-    citySelect.innerHTML += cities
+    if (!country || !region || !STRUCTURED_LOCATIONS[country] || !STRUCTURED_LOCATIONS[country][region]) return;
+
+    const cities = STRUCTURED_LOCATIONS[country][region];
+    cityEl.innerHTML += cities
       .map(city => `<option value="${escapeHtml(city)}">${escapeHtml(city)}</option>`)
       .join('');
+  }
+
+  function bindStructuredLocationEvents() {
+    const regionEl = getRegionElement();
+    if (regionEl && regionEl.tagName === 'SELECT') {
+      regionEl.addEventListener('change', () => {
+        populateCityDropdown(countrySelect.value, regionEl.value);
+      });
+    }
   }
 
   async function protectPage() {
@@ -678,16 +739,21 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     if (data.country) {
       countrySelect.value = data.country;
-      populateRegionDropdown(data.country);
+      switchRegionCityMode(data.country);
     }
 
-    if (data.state_region) {
-      regionSelect.value = data.state_region;
-      populateCityDropdown(data.country || '', data.state_region);
+    const regionEl = getRegionElement();
+    const cityEl = getCityElement();
+
+    if (data.state_region && regionEl) {
+      regionEl.value = data.state_region;
+      if (regionEl.tagName === 'SELECT') {
+        populateCityDropdown(data.country || '', data.state_region);
+      }
     }
 
-    if (data.city) {
-      citySelect.value = data.city;
+    if (data.city && cityEl) {
+      cityEl.value = data.city;
     }
   }
 
@@ -770,8 +836,8 @@ document.addEventListener('DOMContentLoaded', async () => {
       job_id: currentJob.id,
       title: document.getElementById('title').value.trim(),
       country: countrySelect.value.trim(),
-      state_region: regionSelect.value.trim(),
-      city: citySelect.value.trim(),
+      state_region: getRegionValue(),
+      city: getCityValue(),
       keywords: document.getElementById('keywords').value.trim(),
       current_companies: normalizeCompaniesInput(document.getElementById('companies').value),
       min_years_experience: document.getElementById('minYears').value
@@ -841,16 +907,26 @@ document.addEventListener('DOMContentLoaded', async () => {
       document.getElementById('keywords').value = currentJob.keywords || '';
 
       countrySelect.value = currentJob.country || '';
-      populateRegionDropdown(currentJob.country || '');
-      regionSelect.value = currentJob.state_region || '';
-      populateCityDropdown(currentJob.country || '', currentJob.state_region || '');
-      citySelect.value = currentJob.city || '';
+      switchRegionCityMode(currentJob.country || '');
+
+      const regionEl = getRegionElement();
+      const cityEl = getCityElement();
+
+      if (regionEl) {
+        regionEl.value = currentJob.state_region || '';
+        if (regionEl.tagName === 'SELECT') {
+          populateCityDropdown(currentJob.country || '', currentJob.state_region || '');
+        }
+      }
+
+      if (cityEl) {
+        cityEl.value = currentJob.city || '';
+      }
     } else {
       document.getElementById('title').value = '';
       document.getElementById('keywords').value = '';
       countrySelect.value = '';
-      populateRegionDropdown('');
-      populateCityDropdown('', '');
+      switchRegionCityMode('');
     }
 
     document.getElementById('companies').value = '';
@@ -860,17 +936,14 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   countrySelect.addEventListener('change', () => {
-    populateRegionDropdown(countrySelect.value);
-  });
-
-  regionSelect.addEventListener('change', () => {
-    populateCityDropdown(countrySelect.value, regionSelect.value);
+    switchRegionCityMode(countrySelect.value);
   });
 
   searchBtn.addEventListener('click', searchProspects);
   resetFiltersBtn.addEventListener('click', resetFilters);
 
   populateCountryDropdown();
+  switchRegionCityMode('');
 
   const allowed = await protectPage();
   if (!allowed) return;
