@@ -507,7 +507,16 @@
       <div class="modal-header">
         <h3>Resume Preview</h3>
         <div class="modal-actions">
-          <a id="downloadResumeBtn" href="#" target="_blank" rel="noopener noreferrer" class="btn btn-outline table-btn" style="display:none;">Open in New Tab</a>
+          <a
+            id="downloadResumeBtn"
+            href="#"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="btn btn-outline table-btn"
+            style="display:none;"
+          >
+            Open in New Tab
+          </a>
           <button id="closeModal" class="modal-close" type="button" aria-label="Close">&times;</button>
         </div>
       </div>
@@ -594,14 +603,20 @@
         if (!dateString) return "-";
         const date = new Date(dateString);
         if (Number.isNaN(date.getTime())) return "-";
-        return date.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+        return date.toLocaleDateString(undefined, {
+          year: "numeric",
+          month: "short",
+          day: "numeric"
+        });
       }
 
       function showNotice(message, type = "success") {
         els.notice.textContent = message;
         els.notice.className = `notice show ${type}`;
         window.clearTimeout(showNotice._timer);
-        showNotice._timer = window.setTimeout(clearNotice, 3500);
+        showNotice._timer = window.setTimeout(() => {
+          clearNotice();
+        }, 3500);
       }
 
       function clearNotice() {
@@ -619,7 +634,13 @@
       }
 
       function getStatusClass(status) {
-        return "status-" + String(status || "submitted").toLowerCase().replace(/\s+/g, "-").replace(/[()]/g, "");
+        return (
+          "status-" +
+          String(status || "submitted")
+            .toLowerCase()
+            .replace(/\s+/g, "-")
+            .replace(/[()]/g, "")
+        );
       }
 
       function getFileExtension(url) {
@@ -639,7 +660,11 @@
         if (profile.resume_url) return profile.resume_url;
 
         if (profile.resume_path) {
-          const { data, error } = await supabaseClient.storage.from("resumes").createSignedUrl(profile.resume_path, 3600);
+          const { data, error } = await supabaseClient
+            .storage
+            .from("resumes")
+            .createSignedUrl(profile.resume_path, 3600);
+
           if (error) return "";
           return data?.signedUrl || "";
         }
@@ -649,11 +674,13 @@
 
       function openResumeModal(url) {
         if (!url) return;
+
         const extension = getFileExtension(url);
         const isPdf = extension === "pdf";
 
         els.downloadResumeBtn.href = url;
         els.downloadResumeBtn.style.display = "inline-flex";
+
         els.resumeFrame.src = isPdf
           ? url
           : `https://docs.google.com/gview?url=${encodeURIComponent(url)}&embedded=true`;
@@ -673,7 +700,9 @@
       }
 
       async function protectRecruiterPage() {
-        const { data: { session } } = await supabaseClient.auth.getSession();
+        const {
+          data: { session }
+        } = await supabaseClient.auth.getSession();
 
         if (!session || !session.user) {
           window.location.href = "login.html?redirect=recruiter-dashboard.html";
@@ -681,9 +710,9 @@
         }
 
         const email = normalizeText(session.user.email);
-        const allowed = ALLOWED_RECRUITER_EMAILS.map(v => normalizeText(v));
+        const allowedEmails = ALLOWED_RECRUITER_EMAILS.map(v => normalizeText(v));
 
-        if (!allowed.includes(email)) {
+        if (!allowedEmails.includes(email)) {
           alert("Access denied.");
           window.location.href = "dashboard.html";
           return null;
@@ -722,7 +751,9 @@
 
         els.recruiterFilter.innerHTML = `<option value="">All recruiters</option>${recruiterOptions}`;
 
-        if (currentRecruiterValue) els.recruiterFilter.value = currentRecruiterValue;
+        if (currentRecruiterValue) {
+          els.recruiterFilter.value = currentRecruiterValue;
+        }
       }
 
       function getFilteredApplications() {
@@ -850,6 +881,111 @@
         els.applicationsTable.innerHTML = rows.join("");
       }
 
+      async function sendRejectionEmail(application) {
+        const profile = getProfileFromApplication(application);
+
+        await supabaseClient
+          .from("applications")
+          .update({ rejection_email_status: "sending" })
+          .eq("id", application.id);
+
+        const { data, error } = await supabaseClient.functions.invoke(
+          "send-rejection-email",
+          {
+            body: {
+              candidate_name: profile?.full_name || "Applicant",
+              candidate_email: application.email,
+              job_title: application.jobs?.title || application.job_title || "Role"
+            }
+          }
+        );
+
+        if (error || !data?.success) {
+          await supabaseClient
+            .from("applications")
+            .update({ rejection_email_status: "failed" })
+            .eq("id", application.id);
+          return false;
+        }
+
+        await supabaseClient
+          .from("applications")
+          .update({ rejection_email_status: "sent" })
+          .eq("id", application.id);
+
+        return true;
+      }
+
+      async function updateApplicationStatus(applicationId, newStatus) {
+        const application = state.allApplications.find(app => app.id === applicationId);
+
+        const { error } = await supabaseClient
+          .from("applications")
+          .update({ status: newStatus })
+          .eq("id", applicationId);
+
+        if (error) {
+          showNotice(error.message || "Failed to update status.", "error");
+          return;
+        }
+
+        const newStatusNormalized = normalizeText(newStatus);
+
+        if (
+          newStatusNormalized === "rejected" &&
+          application &&
+          application.rejection_email_status !== "sent"
+        ) {
+          try {
+            const sent = await sendRejectionEmail(application);
+            if (sent) {
+              showNotice("Status updated and rejection email sent.", "success");
+            } else {
+              showNotice("Status updated, but rejection email failed.", "error");
+            }
+          } catch {
+            showNotice("Status updated, but rejection email failed.", "error");
+          }
+        } else {
+          showNotice("Application status updated.", "success");
+        }
+
+        await loadApplications();
+      }
+
+      async function updateRecruiter(applicationId, recruiterEmail) {
+        const { error } = await supabaseClient
+          .from("applications")
+          .update({ recruiter_email: recruiterEmail || null })
+          .eq("id", applicationId);
+
+        if (error) {
+          showNotice(error.message || "Failed to assign recruiter.", "error");
+          return;
+        }
+
+        showNotice("Recruiter assignment updated.", "success");
+        await loadApplications();
+      }
+
+      async function deleteApplication(applicationId) {
+        const confirmed = window.confirm("Are you sure you want to remove this application?");
+        if (!confirmed) return;
+
+        const { error } = await supabaseClient
+          .from("applications")
+          .delete()
+          .eq("id", applicationId);
+
+        if (error) {
+          showNotice(error.message || "Failed to remove application.", "error");
+          return;
+        }
+
+        showNotice("Application removed successfully.", "success");
+        await loadApplications();
+      }
+
       async function loadApplications() {
         clearNotice();
         els.refreshBtn.disabled = true;
@@ -869,6 +1005,7 @@
             recruiter_email,
             application_source,
             confirmation_email_status,
+            rejection_email_status,
             created_at,
             jobs(id, title, slug),
             applicant_profiles(id, full_name, phone, location, years_of_experience, current_title, skills, resume_url, resume_path)
@@ -887,40 +1024,6 @@
         populateFilters();
         renderStats();
         await renderTable();
-      }
-
-      async function updateApplicationStatus(applicationId, newStatus) {
-        const { error } = await supabaseClient.from("applications").update({ status: newStatus }).eq("id", applicationId);
-        if (error) {
-          showNotice(error.message || "Failed to update status.", "error");
-          return;
-        }
-        showNotice("Application status updated.", "success");
-        await loadApplications();
-      }
-
-      async function updateRecruiter(applicationId, recruiterEmail) {
-        const { error } = await supabaseClient.from("applications").update({ recruiter_email: recruiterEmail || null }).eq("id", applicationId);
-        if (error) {
-          showNotice(error.message || "Failed to assign recruiter.", "error");
-          return;
-        }
-        showNotice("Recruiter assignment updated.", "success");
-        await loadApplications();
-      }
-
-      async function deleteApplication(applicationId) {
-        const confirmed = window.confirm("Are you sure you want to remove this application?");
-        if (!confirmed) return;
-
-        const { error } = await supabaseClient.from("applications").delete().eq("id", applicationId);
-        if (error) {
-          showNotice(error.message || "Failed to remove application.", "error");
-          return;
-        }
-
-        showNotice("Application removed successfully.", "success");
-        await loadApplications();
       }
 
       function syncJobFilterToUrl() {
@@ -979,24 +1082,31 @@
         }
       });
 
-      els.closeModal.addEventListener("click", closeResumeModal);
-      els.resumeModal.addEventListener("click", event => {
-        if (event.target === els.resumeModal) closeResumeModal();
-      });
+      if (els.closeModal) {
+        els.closeModal.addEventListener("click", closeResumeModal);
+      }
+
+      if (els.resumeModal) {
+        els.resumeModal.addEventListener("click", event => {
+          if (event.target === els.resumeModal) closeResumeModal();
+        });
+      }
 
       document.addEventListener("keydown", event => {
-        if (event.key === "Escape" && els.resumeModal.classList.contains("show")) {
+        if (els.resumeModal && event.key === "Escape" && els.resumeModal.classList.contains("show")) {
           closeResumeModal();
         }
       });
 
-      els.logoutBtn.addEventListener("click", async () => {
-        try {
-          await supabaseClient.auth.signOut();
-        } finally {
-          window.location.href = "login.html";
-        }
-      });
+      if (els.logoutBtn) {
+        els.logoutBtn.addEventListener("click", async () => {
+          try {
+            await supabaseClient.auth.signOut();
+          } finally {
+            window.location.href = "login.html";
+          }
+        });
+      }
 
       supabaseClient.auth.onAuthStateChange((event, session) => {
         if (event === "SIGNED_OUT" || !session?.user) {
