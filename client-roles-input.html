@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Client Add Role | TalentBuzz</title>
+  <title>Client Roles Input | TalentBuzz</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="description" content="Create and manage client roles, locations, salary range, and screening questions in TalentBuzz." />
 
@@ -293,7 +293,7 @@
   <div class="container">
     <div class="topbar">
       <div>
-        <h1>Client Add Role</h1>
+        <h1>Client Roles Input</h1>
         <p class="subtitle">
           Create and manage open roles, salary ranges, locations, and screening questions.
         </p>
@@ -516,9 +516,7 @@
         els.notice.textContent = message;
         els.notice.className = `notice show ${type}`;
         window.clearTimeout(showNotice._timer);
-        showNotice._timer = window.setTimeout(() => {
-          clearNotice();
-        }, 3500);
+        showNotice._timer = window.setTimeout(() => clearNotice(), 3500);
       }
 
       function clearNotice() {
@@ -587,12 +585,9 @@
       }
 
       function getLocationString() {
-        const parts = [
-          els.city.value.trim(),
-          els.state.value.trim(),
-          els.country.value.trim()
-        ].filter(Boolean);
-        return parts.join(", ");
+        return [els.city.value.trim(), els.state.value.trim(), els.country.value.trim()]
+          .filter(Boolean)
+          .join(", ");
       }
 
       function populateCountries() {
@@ -605,21 +600,13 @@
       function populateStates(states, selectedValue = "") {
         els.state.innerHTML =
           `<option value="">${states.length ? "Select state" : "No states available"}</option>` +
-          states.map(item => `
-            <option value="${item.name}" ${item.name === selectedValue ? "selected" : ""}>
-              ${item.name}
-            </option>
-          `).join("");
+          states.map(item => `<option value="${item.name}" ${item.name === selectedValue ? "selected" : ""}>${item.name}</option>`).join("");
       }
 
       function populateCities(cities, selectedValue = "") {
         els.city.innerHTML =
           `<option value="">${cities.length ? "Select city" : "No cities available"}</option>` +
-          cities.map(city => `
-            <option value="${city}" ${city === selectedValue ? "selected" : ""}>
-              ${city}
-            </option>
-          `).join("");
+          cities.map(city => `<option value="${city}" ${city === selectedValue ? "selected" : ""}>${city}</option>`).join("");
       }
 
       function findCountryByName(name) {
@@ -674,12 +661,10 @@
       }
 
       async function protectPage() {
-        const {
-          data: { session }
-        } = await supabaseClient.auth.getSession();
+        const { data: { session } } = await supabaseClient.auth.getSession();
 
         if (!session?.user) {
-          window.location.href = "login.html?redirect=client-add-role.html";
+          window.location.href = "login.html?redirect=client-roles-input.html";
           return false;
         }
 
@@ -695,9 +680,9 @@
 
       async function loadGeography() {
         try {
-          const response = await fetch("./countries-states-cities.json");
+          const response = await fetch("https://raw.githubusercontent.com/dr5hn/countries-states-cities-database/master/json/countries+states+cities.json");
           if (!response.ok) {
-            throw new Error("Could not load countries-states-cities.json");
+            throw new Error("Failed to load online location dataset.");
           }
 
           const data = await response.json();
@@ -706,13 +691,10 @@
           populateStates([]);
           populateCities([]);
         } catch (error) {
-          showNotice(
-            "Unable to load country/state/city dataset. Please add countries-states-cities.json beside this file.",
-            "error"
-          );
-          els.country.innerHTML = `<option value="">Dataset missing</option>`;
-          els.state.innerHTML = `<option value="">Dataset missing</option>`;
-          els.city.innerHTML = `<option value="">Dataset missing</option>`;
+          showNotice("Unable to load country/state/city dataset from the online source.", "error");
+          els.country.innerHTML = `<option value="">Unable to load countries</option>`;
+          els.state.innerHTML = `<option value="">Unable to load states</option>`;
+          els.city.innerHTML = `<option value="">Unable to load cities</option>`;
         }
       }
 
@@ -722,7 +704,7 @@
         const { data: jobs, error } = await supabaseClient
           .from("jobs")
           .select("*")
-          .order("created_at", { ascending: false });
+          .order("title", { ascending: true });
 
         if (error) {
           els.jobsTable.innerHTML = `<tr><td colspan="8" class="empty">${error.message}</td></tr>`;
@@ -730,7 +712,6 @@
         }
 
         state.jobs = jobs || [];
-
         const jobIds = state.jobs.map(job => job.id);
         let questionsMap = new Map();
 
@@ -828,7 +809,6 @@
           .eq("job_id", jobId);
 
         if (deleteError) throw deleteError;
-
         if (!questions.length) return;
 
         const payload = questions.map(q => ({
@@ -872,7 +852,6 @@
           if (!country) throw new Error("Please select a country.");
           if (!stateName) throw new Error("Please select a state / province / region.");
           if (!city) throw new Error("Please select a city.");
-
           if (salary_min !== null && salary_max !== null && salary_min > salary_max) {
             throw new Error("Salary Min cannot be greater than Salary Max.");
           }
@@ -951,9 +930,7 @@
           return;
         }
 
-        if (state.editingJobId === jobId) {
-          resetForm();
-        }
+        if (state.editingJobId === jobId) resetForm();
 
         showNotice("Role deleted successfully.", "success");
         await loadRoles();
@@ -963,7 +940,6 @@
         const country = findCountryByName(els.country.value);
         state.selectedCountry = country;
         state.selectedState = null;
-
         populateStates(country?.states || []);
         populateCities([]);
       });
@@ -974,23 +950,12 @@
         populateCities(Array.isArray(selectedState?.cities) ? selectedState.cities : []);
       });
 
-      function findCountryByName(name) {
-        return state.geography.find(country => country.name === name) || null;
-      }
-
-      function findStateByName(country, stateName) {
-        if (!country || !Array.isArray(country.states)) return null;
-        return country.states.find(item => item.name === stateName) || null;
-      }
-
       els.jobForm.addEventListener("submit", async (event) => {
         event.preventDefault();
         await saveRole();
       });
 
-      els.resetBtn.addEventListener("click", () => {
-        resetForm();
-      });
+      els.resetBtn.addEventListener("click", () => resetForm());
 
       els.deleteBtn.addEventListener("click", async () => {
         if (!state.editingJobId) return;
