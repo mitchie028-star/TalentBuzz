@@ -557,6 +557,26 @@
         "xyrene.e@talentbuzz.pro"
       ];
 
+      const METRO_MANILA_FALLBACK = [
+        "Caloocan",
+        "Las Piñas",
+        "Makati",
+        "Malabon",
+        "Mandaluyong",
+        "Manila",
+        "Marikina",
+        "Muntinlupa",
+        "Navotas",
+        "Parañaque",
+        "Pasay",
+        "Pasig",
+        "Quezon City",
+        "San Juan",
+        "Taguig",
+        "Valenzuela",
+        "Pateros"
+      ];
+
       const state = {
         editingJobId: null,
         jobs: [],
@@ -644,13 +664,33 @@
         return cities
           .map(city => {
             if (typeof city === "string") return city.trim();
-            if (city && typeof city === "object") {
-              return String(city.name || city.city || "").trim();
-            }
+            if (city && typeof city === "object") return String(city.name || city.city || "").trim();
             return "";
           })
           .filter(Boolean)
           .sort((a, b) => a.localeCompare(b));
+      }
+
+      function isMetroManilaSelection(countryName, stateName) {
+        const country = String(countryName || "").trim().toLowerCase();
+        const stateVal = String(stateName || "").trim().toLowerCase();
+
+        return (
+          country === "philippines" &&
+          (
+            stateVal === "national capital region (metro manila)" ||
+            stateVal === "national capital region" ||
+            stateVal === "metro manila" ||
+            stateVal === "ncr"
+          )
+        );
+      }
+
+      function getCitiesForSelectedState(countryName, stateObj, stateName) {
+        if (isMetroManilaSelection(countryName, stateName)) {
+          return METRO_MANILA_FALLBACK;
+        }
+        return stateObj?.cities || [];
       }
 
       function renderQuestions() {
@@ -838,7 +878,7 @@
         const selectedState = findStateByName(selectedCountry, stateName);
         state.selectedState = selectedState;
 
-        const cities = selectedState?.cities || [];
+        const cities = getCitiesForSelectedState(countryName, selectedState, stateName);
         populateCities(cities, cityName);
 
         state.questions = (questions || []).map(q => ({
@@ -1184,7 +1224,8 @@
       els.state.addEventListener("change", () => {
         const selectedState = findStateByName(state.selectedCountry, els.state.value);
         state.selectedState = selectedState;
-        populateCities(selectedState?.cities || []);
+        const cities = getCitiesForSelectedState(els.country.value, selectedState, els.state.value);
+        populateCities(cities);
       });
 
       els.jobForm.addEventListener("submit", async (event) => {
