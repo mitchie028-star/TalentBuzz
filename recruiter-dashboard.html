@@ -770,19 +770,49 @@
         const profile = getProfileFromApplication(app);
         if (!profile) return "";
 
-        if (profile.resume_url) return profile.resume_url;
+        const rawResumeUrl = String(profile.resume_url || "").trim();
+        const rawResumePath = String(profile.resume_path || "").trim();
 
-        if (profile.resume_path) {
+        if (rawResumeUrl && /^https?:\/\//i.test(rawResumeUrl)) {
+          return rawResumeUrl;
+        }
+
+        if (rawResumePath && /^https?:\/\//i.test(rawResumePath)) {
+          return rawResumePath;
+        }
+
+        const cleanedPath = rawResumePath
+          .replace(/^\/+/, "")
+          .replace(/^resumes\//i, "");
+
+        if (!cleanedPath) return "";
+
+        try {
           const { data, error } = await supabaseClient
             .storage
             .from("resumes")
-            .createSignedUrl(profile.resume_path, 3600);
+            .createSignedUrl(cleanedPath, 3600);
 
-          if (error) return "";
-          return data?.signedUrl || "";
+          if (!error && data?.signedUrl) {
+            return data.signedUrl;
+          }
+
+          console.warn("Signed URL failed, trying public URL:", error);
+        } catch (err) {
+          console.warn("Signed URL exception, trying public URL:", err);
         }
 
-        return "";
+        try {
+          const { data } = supabaseClient
+            .storage
+            .from("resumes")
+            .getPublicUrl(cleanedPath);
+
+          return data?.publicUrl || "";
+        } catch (err) {
+          console.error("Public URL failed:", err);
+          return "";
+        }
       }
 
       function openResumeModal(url) {
@@ -937,6 +967,13 @@
             const noteUpdated = app.stage_note_updated_at ? formatDateTime(app.stage_note_updated_at) : "";
 
             const resumeUrl = await getResumeUrl(app);
+            console.log("Resume debug", {
+              applicationId: app.id,
+              candidate: profile?.full_name,
+              resume_url: profile?.resume_url,
+              resume_path: profile?.resume_path,
+              resolved_resume_url: resumeUrl
+            });
             const safeResumeUrl = resumeUrl ? escapeHtml(resumeUrl) : "";
 
             const statusOptions = STATUS_OPTIONS.map(option => {
