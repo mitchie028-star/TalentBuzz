@@ -4,10 +4,7 @@
   <meta charset="UTF-8" />
   <title>Careers | TalentBuzz</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta
-    name="description"
-    content="Browse open roles and apply through TalentBuzz."
-  />
+  <meta name="description" content="Browse open roles and apply through TalentBuzz." />
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -26,19 +23,13 @@
       --bg: #f8fbff;
       --surface: #ffffff;
       --success: #166534;
-      --warning-bg: #fff7ed;
-      --warning-text: #9a3412;
       --success-bg: #f0fdf4;
       --shadow: 0 12px 32px rgba(30, 58, 138, 0.06), 0 2px 10px rgba(15, 23, 42, 0.04);
     }
 
-    * {
-      box-sizing: border-box;
-    }
+    * { box-sizing: border-box; }
 
-    html {
-      scroll-behavior: smooth;
-    }
+    html { scroll-behavior: smooth; }
 
     body {
       margin: 0;
@@ -353,7 +344,10 @@
     <div class="topbar-left">
       <a href="index.html" class="btn btn-outline">🏠 Home</a>
     </div>
-    <div class="topbar-right" id="topbarRight"></div>
+    <div class="topbar-right" id="topbarRight">
+      <a href="login.html" class="btn btn-outline">Login</a>
+      <a href="index.html" class="btn btn-primary">Main Page</a>
+    </div>
   </div>
 
   <section class="hero">
@@ -429,7 +423,19 @@
     document.addEventListener("DOMContentLoaded", () => {
       const SUPABASE_URL = "https://dilalntcxmvdcmwxjcct.supabase.co";
       const SUPABASE_ANON_KEY = "sb_publishable_HrLVIUwnaRo54yijtrbWBQ_1aeb4ezs";
-      const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+      // Public client for careers listing only
+      // This avoids authenticated-session/RLS issues on the public jobs page
+      const publicClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+        auth: {
+          persistSession: false,
+          autoRefreshToken: false,
+          detectSessionInUrl: false
+        }
+      });
+
+      // Normal client for session-aware actions
+      const authClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
       const RECRUITER_EMAILS = new Set([
         "michelle.giray@talentbuzz.pro",
@@ -516,16 +522,25 @@
         return RECRUITER_EMAILS.has(normalizeText(email));
       }
 
+      function withTimeout(promise, ms, label) {
+        return Promise.race([
+          promise,
+          new Promise((_, reject) =>
+            setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms)
+          )
+        ]);
+      }
+
       async function getSafeSession() {
         try {
-          const { data, error } = await supabaseClient.auth.getSession();
-          if (error) {
-            console.error("getSession error:", error);
+          const result = await withTimeout(authClient.auth.getSession(), 3000, "getSession");
+          if (result?.error) {
+            console.error("getSession error:", result.error);
             return null;
           }
-          return data?.session || null;
+          return result?.data?.session || null;
         } catch (err) {
-          console.error("getSession exception:", err);
+          console.warn("getSafeSession failed:", err);
           return null;
         }
       }
@@ -536,16 +551,12 @@
         const currentValue = els.countryFilter.value || "";
 
         const countries = [...new Set(
-          jobs
-            .map(job => String(job.country || "").trim())
-            .filter(Boolean)
+          jobs.map(job => String(job.country || "").trim()).filter(Boolean)
         )].sort((a, b) => a.localeCompare(b));
 
         els.countryFilter.innerHTML =
           `<option value="">All countries</option>` +
-          countries
-            .map(country => `<option value="${escapeHtml(country)}">${escapeHtml(country)}</option>`)
-            .join("");
+          countries.map(country => `<option value="${escapeHtml(country)}">${escapeHtml(country)}</option>`).join("");
 
         if (countries.includes(currentValue)) {
           els.countryFilter.value = currentValue;
@@ -621,7 +632,7 @@
             <article class="job-card">
               <div class="job-card-header">
                 <h3 class="job-title">${escapeHtml(job.title || "Untitled Role")}</h3>
-                <div style="display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end;">
+                <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;">
                   ${job.featured ? `<span class="featured-pill">Featured</span>` : ``}
                   ${alreadyApplied ? `<span class="applied-pill">Already Applied</span>` : ``}
                 </div>
@@ -670,9 +681,7 @@
 
           if (state.sessionUser) {
             const email = state.sessionUser.email || "";
-            const dashboardHref = isRecruiterEmail(email)
-              ? "recruiter-dashboard.html"
-              : "dashboard.html";
+            const dashboardHref = isRecruiterEmail(email) ? "recruiter-dashboard.html" : "dashboard.html";
 
             els.topbarRight.innerHTML = `
               <a href="${dashboardHref}" class="btn btn-outline">← Dashboard</a>
@@ -681,7 +690,7 @@
 
             document.getElementById("logoutBtnTop")?.addEventListener("click", async () => {
               try {
-                await supabaseClient.auth.signOut();
+                await authClient.auth.signOut();
               } catch (err) {
                 console.error("signOut error:", err);
               }
@@ -694,13 +703,7 @@
             `;
           }
         } catch (err) {
-          console.error("setupTopbar error:", err);
-          if (els.topbarRight) {
-            els.topbarRight.innerHTML = `
-              <a href="login.html" class="btn btn-outline">Login</a>
-              <a href="index.html" class="btn btn-primary">Main Page</a>
-            `;
-          }
+          console.warn("setupTopbar failed:", err);
         }
       }
 
@@ -711,34 +714,32 @@
         try {
           const session = await getSafeSession();
           const email = session?.user?.email || "";
+
           if (!email) return;
+          if (isRecruiterEmail(email)) return;
 
-          if (isRecruiterEmail(email)) {
+          const result = await withTimeout(
+            authClient
+              .from("applications")
+              .select("job_id_uuid, job_title")
+              .eq("email", email),
+            4000,
+            "applications query"
+          );
+
+          if (result?.error) {
+            console.warn("applications lookup error:", result.error);
             return;
           }
 
-          const { data, error } = await supabaseClient
-            .from("applications")
-            .select("job_id_uuid, job_title")
-            .eq("email", email);
-
-          if (error) {
-            console.warn("applications lookup error:", error);
-            return;
-          }
-
-          if (!Array.isArray(data)) return;
+          const data = Array.isArray(result?.data) ? result.data : [];
 
           data.forEach(app => {
-            if (app.job_id_uuid) {
-              state.appliedJobIds.add(app.job_id_uuid);
-            }
-            if (app.job_title) {
-              state.appliedJobTitles.add(normalizeText(app.job_title));
-            }
+            if (app.job_id_uuid) state.appliedJobIds.add(app.job_id_uuid);
+            if (app.job_title) state.appliedJobTitles.add(normalizeText(app.job_title));
           });
         } catch (err) {
-          console.error("loadAppliedJobs error:", err);
+          console.warn("loadAppliedJobs failed:", err);
         }
       }
 
@@ -749,32 +750,32 @@
         els.jobsList.innerHTML = `<div class="empty">Loading careers...</div>`;
 
         try {
-          const { data, error } = await supabaseClient
-            .from("jobs")
-            .select("*");
+          const result = await withTimeout(
+            publicClient.from("jobs").select("*"),
+            5000,
+            "jobs query"
+          );
 
-          if (error) throw error;
+          if (result?.error) {
+            throw result.error;
+          }
 
-          const jobs = Array.isArray(data) ? data : [];
+          const jobs = Array.isArray(result?.data) ? result.data : [];
 
           jobs.sort((a, b) => {
             const featuredA = a?.featured ? 1 : 0;
             const featuredB = b?.featured ? 1 : 0;
 
-            if (featuredA !== featuredB) {
-              return featuredB - featuredA;
-            }
-
+            if (featuredA !== featuredB) return featuredB - featuredA;
             return String(a?.title || "").localeCompare(String(b?.title || ""));
           });
 
           state.jobs = jobs;
           state.jobsLoaded = true;
-
           populateCountryFilter(state.jobs);
           renderJobs();
         } catch (err) {
-          console.error("Jobs query error:", err);
+          console.error("Jobs query failed:", err);
           state.jobs = [];
           state.jobsLoaded = true;
           els.resultsCount.textContent = "Unable to load careers";
@@ -797,30 +798,27 @@
         els.workSetupFilter,
         els.employmentTypeFilter,
         els.featuredFilter
-      ]
-        .filter(Boolean)
-        .forEach(el => {
-          el.addEventListener(el.tagName === "INPUT" ? "input" : "change", renderJobs);
-        });
+      ].filter(Boolean).forEach(el => {
+        el.addEventListener(el.tagName === "INPUT" ? "input" : "change", renderJobs);
+      });
 
       els.resetFiltersBtn?.addEventListener("click", resetFilters);
 
-      supabaseClient.auth.onAuthStateChange(async () => {
+      authClient.auth.onAuthStateChange(async () => {
         try {
           await setupTopbar();
           await loadAppliedJobs();
           renderJobs();
         } catch (err) {
-          console.error("auth state change error:", err);
+          console.warn("auth state update failed:", err);
         }
       });
 
       (async () => {
         renderJobs();
-        await loadJobs();
-        await setupTopbar();
-        await loadAppliedJobs();
-        renderJobs();
+        await loadJobs();       // always load public jobs first
+        setupTopbar();          // do not block page on auth
+        loadAppliedJobs().then(renderJobs).catch(() => {});
       })();
     });
   </script>
