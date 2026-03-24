@@ -22,19 +22,23 @@
       --success:#166534;
       --shadow:0 14px 40px rgba(30,58,138,.08),0 3px 10px rgba(15,23,42,.04);
     }
+
     *{box-sizing:border-box}
+
     body{
       margin:0;
       font-family:'Manrope',sans-serif;
       background:linear-gradient(180deg,#f8fbff 0%,#eef4ff 100%);
       color:var(--text);
     }
+
     .shell{
       min-height:100vh;
       display:grid;
       place-items:center;
       padding:24px;
     }
+
     .card{
       width:100%;
       max-width:460px;
@@ -44,6 +48,7 @@
       box-shadow:var(--shadow);
       padding:28px;
     }
+
     .brand{
       display:inline-block;
       color:var(--blue);
@@ -52,24 +57,28 @@
       text-decoration:none;
       margin-bottom:14px;
     }
+
     h1{
       margin:0 0 8px;
       color:var(--blue);
       font-size:1.9rem;
       line-height:1.1;
     }
+
     .subtitle{
       margin:0 0 22px;
       color:var(--muted);
       font-size:.95rem;
       line-height:1.6;
     }
+
     label{
       display:block;
       margin:14px 0 6px;
       font-weight:700;
       font-size:.93rem;
     }
+
     input{
       width:100%;
       padding:12px 14px;
@@ -79,15 +88,30 @@
       background:#fff;
       outline:none;
     }
+
     input:focus{
       border-color:#93c5fd;
       box-shadow:0 0 0 3px rgba(147,197,253,.25);
     }
+
+    .forgot-row{
+      margin-top:8px;
+      text-align:right;
+    }
+
+    .forgot-row a{
+      color:var(--blue);
+      font-weight:700;
+      font-size:.9rem;
+      text-decoration:none;
+    }
+
     .actions{
       display:grid;
       gap:10px;
       margin-top:18px;
     }
+
     .btn{
       width:100%;
       border:none;
@@ -96,29 +120,42 @@
       font:inherit;
       font-weight:800;
       cursor:pointer;
+      transition:.18s ease;
     }
+
+    .btn:disabled{
+      opacity:.7;
+      cursor:not-allowed;
+    }
+
     .btn-primary{
       background:linear-gradient(135deg,var(--blue),var(--blue-light));
       color:#fff;
     }
+
     .msg{
       margin-top:14px;
       padding:12px 14px;
       border-radius:12px;
       font-weight:700;
       display:none;
+      line-height:1.5;
     }
+
     .msg.show{display:block}
+
     .msg.error{
       background:#fef2f2;
       color:var(--danger);
       border:1px solid #fecaca;
     }
+
     .msg.success{
       background:#f0fdf4;
       color:var(--success);
       border:1px solid #bbf7d0;
     }
+
     .links{
       margin-top:18px;
       display:flex;
@@ -127,6 +164,7 @@
       flex-wrap:wrap;
       font-size:.9rem;
     }
+
     .links a{
       color:var(--blue);
       font-weight:700;
@@ -147,6 +185,10 @@
 
         <label for="password">Password</label>
         <input id="password" type="password" autocomplete="current-password" required />
+
+        <div class="forgot-row">
+          <a href="#" id="forgotPasswordLink">Forgot password?</a>
+        </div>
 
         <div class="actions">
           <button id="submitBtn" type="submit" class="btn btn-primary">Login</button>
@@ -172,8 +214,13 @@
     const passwordInput = document.getElementById('password');
     const submitBtn = document.getElementById('submitBtn');
     const messageBox = document.getElementById('messageBox');
+    const forgotPasswordLink = document.getElementById('forgotPasswordLink');
 
     let isSubmitting = false;
+
+    function normalizeEmail(value) {
+      return String(value || '').trim().toLowerCase();
+    }
 
     function showMessage(message, type = 'error') {
       messageBox.textContent = message;
@@ -186,10 +233,12 @@
     }
 
     async function verifyRecruiterAccess(email) {
+      const cleanEmail = normalizeEmail(email);
+
       const { data, error } = await supabaseClient
         .from('recruiters')
-        .select('id, email, active')
-        .eq('email', email)
+        .select('id, email, full_name, active')
+        .ilike('email', cleanEmail)
         .eq('active', true)
         .maybeSingle();
 
@@ -199,13 +248,21 @@
       return data;
     }
 
+    async function signOutQuietly() {
+      try {
+        await supabaseClient.auth.signOut();
+      } catch (err) {
+        console.error('Silent sign out failed:', err);
+      }
+    }
+
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
       if (isSubmitting) return;
 
       clearMessage();
 
-      const email = emailInput.value.trim().toLowerCase();
+      const email = normalizeEmail(emailInput.value);
       const password = passwordInput.value;
 
       if (!email || !password) {
@@ -224,30 +281,69 @@
         });
 
         if (error) {
-          if (String(error.message || '').toLowerCase().includes('invalid login credentials')) {
-            throw new Error('Incorrect password or recruiter account is missing in Supabase Auth.');
+          const raw = String(error.message || '').toLowerCase();
+
+          if (raw.includes('invalid login credentials')) {
+            throw new Error('Invalid recruiter email or password.');
           }
+
+          if (raw.includes('email rate limit exceeded') || raw.includes('rate limit')) {
+            throw new Error('Too many attempts. Please wait a bit before trying again.');
+          }
+
           throw error;
         }
 
-        const signedInEmail = (data.user?.email || '').trim().toLowerCase();
+        const signedInEmail = normalizeEmail(data.user?.email);
 
-        await verifyRecruiterAccess(signedInEmail);
+        if (!signedInEmail) {
+          await signOutQuietly();
+          throw new Error('Unable to verify the signed-in recruiter email.');
+        }
 
-        showMessage('Login successful.', 'success');
+        const recruiter = await verifyRecruiterAccess(signedInEmail);
+
+        showMessage(`Welcome, ${recruiter.full_name || signedInEmail}. Redirecting...`, 'success');
         window.location.href = 'recruiter-dashboard.html';
       } catch (error) {
-        const msg = String(error?.message || 'Login failed.');
-
-        if (msg.toLowerCase().includes('rate limit')) {
-          showMessage('Too many attempts. Please wait a bit before trying again.');
-        } else {
-          showMessage(msg);
-        }
+        console.error('Recruiter login error:', error);
+        showMessage(error.message || 'Login failed.');
       } finally {
         isSubmitting = false;
         submitBtn.disabled = false;
         submitBtn.textContent = 'Login';
+      }
+    });
+
+    forgotPasswordLink.addEventListener('click', async (e) => {
+      e.preventDefault();
+      clearMessage();
+
+      const email = normalizeEmail(emailInput.value);
+
+      if (!email) {
+        showMessage('Enter your recruiter email first, then click Forgot password.');
+        return;
+      }
+
+      try {
+        const recruiter = await verifyRecruiterAccess(email);
+
+        const { error } = await supabaseClient.auth.resetPasswordForEmail(recruiter.email, {
+          redirectTo: `${window.location.origin}/reset-password.html`
+        });
+
+        if (error) throw error;
+
+        showMessage('Password reset email sent. Please check your inbox.', 'success');
+      } catch (error) {
+        const msg = String(error?.message || 'Failed to send password reset email.');
+
+        if (msg.toLowerCase().includes('rate limit')) {
+          showMessage('Too many reset attempts. Please wait a bit before trying again.');
+        } else {
+          showMessage(msg);
+        }
       }
     });
   </script>
