@@ -4,7 +4,10 @@
   <meta charset="UTF-8" />
   <title>Client Roles Input | TalentBuzz</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="description" content="Create and manage client roles, locations, salary range, and screening questions in TalentBuzz." />
+  <meta
+    name="description"
+    content="Create and manage client roles, locations, salary range, salary currency, and screening questions in TalentBuzz."
+  />
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -373,7 +376,7 @@
       <div>
         <h1>Client Roles Input</h1>
         <p class="subtitle">
-          Create and manage open roles, salary ranges, locations, screening questions, and sourcing links.
+          Create and manage open roles, salary ranges, salary currency, locations, screening questions, and sourcing links.
         </p>
       </div>
 
@@ -446,6 +449,21 @@
                 <option value="Project-based">Project-based</option>
                 <option value="Temporary">Temporary</option>
                 <option value="Internship">Internship</option>
+              </select>
+            </div>
+
+            <div class="field">
+              <label for="salary_currency">Salary Currency</label>
+              <select id="salary_currency">
+                <option value="PHP">PHP - Philippine Peso</option>
+                <option value="USD">USD - US Dollar</option>
+                <option value="HKD">HKD - Hong Kong Dollar</option>
+                <option value="SGD">SGD - Singapore Dollar</option>
+                <option value="EUR">EUR - Euro</option>
+                <option value="GBP">GBP - British Pound</option>
+                <option value="AUD">AUD - Australian Dollar</option>
+                <option value="CAD">CAD - Canadian Dollar</option>
+                <option value="JPY">JPY - Japanese Yen</option>
               </select>
             </div>
 
@@ -602,6 +620,7 @@
         workSetup: document.getElementById("work_setup"),
         industry: document.getElementById("industry"),
         employmentType: document.getElementById("employment_type"),
+        salaryCurrency: document.getElementById("salary_currency"),
         salaryMin: document.getElementById("salary_min"),
         salaryMax: document.getElementById("salary_max"),
         keywords: document.getElementById("keywords"),
@@ -649,6 +668,10 @@
           .trim()
           .replace(/[^a-z0-9]+/g, "-")
           .replace(/^-+|-+$/g, "");
+      }
+
+      function formatCurrencyCode(code) {
+        return String(code || "PHP").trim().toUpperCase();
       }
 
       function createEmptyQuestion() {
@@ -792,6 +815,7 @@
         els.deleteBtn.classList.add("hidden");
         els.featured.value = "false";
         els.status.value = "open";
+        els.salaryCurrency.value = "PHP";
         clearNotice();
         populateCountries();
         populateStates([]);
@@ -856,6 +880,7 @@
         els.workSetup.value = job.work_setup || "";
         els.industry.value = job.industry || "";
         els.employmentType.value = job.employment_type || "";
+        els.salaryCurrency.value = job.salary_currency || "PHP";
         els.salaryMin.value = job.salary_min ?? "";
         els.salaryMax.value = job.salary_max ?? "";
         els.keywords.value = job.keywords || "";
@@ -966,9 +991,10 @@
 
         els.jobsTable.innerHTML = state.jobs.map(job => {
           const questions = questionsMap.get(job.id) || [];
+          const currencyCode = formatCurrencyCode(job.salary_currency || "PHP");
           const salaryRange =
             job.salary_min || job.salary_max
-              ? `${job.salary_min ? Number(job.salary_min).toLocaleString() : "-"} - ${job.salary_max ? Number(job.salary_max).toLocaleString() : "-"}`
+              ? `${currencyCode} ${job.salary_min ? Number(job.salary_min).toLocaleString() : "-"} - ${job.salary_max ? Number(job.salary_max).toLocaleString() : "-"}`
               : "-";
 
           const locationLabel = [
@@ -1070,6 +1096,7 @@
           const work_setup = els.workSetup.value;
           const industry = els.industry.value.trim();
           const employment_type = els.employmentType.value;
+          const salary_currency = els.salaryCurrency.value || "PHP";
           const salary_min = els.salaryMin.value !== "" ? Number(els.salaryMin.value) : null;
           const salary_max = els.salaryMax.value !== "" ? Number(els.salaryMax.value) : null;
           const keywords = els.keywords.value.trim();
@@ -1096,6 +1123,7 @@
             work_setup,
             industry,
             employment_type,
+            salary_currency,
             salary_min,
             salary_max,
             keywords,
@@ -1176,56 +1204,42 @@
 
         if (target.classList.contains("remove-question-btn")) {
           const index = Number(target.dataset.index);
-          state.questions.splice(index, 1);
-          renderQuestions();
+          if (Number.isInteger(index)) {
+            state.questions.splice(index, 1);
+            renderQuestions();
+          }
           return;
         }
 
         if (target.classList.contains("add-after-btn")) {
           const index = Number(target.dataset.index);
-          state.questions.splice(index + 1, 0, createEmptyQuestion());
-          renderQuestions();
-        }
-      });
-
-      els.questionsList.addEventListener("input", (event) => {
-        const target = event.target;
-        const index = Number(target.dataset.index);
-
-        if (Number.isNaN(index) || !state.questions[index]) return;
-
-        if (target.classList.contains("question-text-input")) {
-          state.questions[index].question = target.value;
-        }
-      });
-
-      els.questionsList.addEventListener("change", (event) => {
-        const target = event.target;
-        const index = Number(target.dataset.index);
-
-        if (Number.isNaN(index) || !state.questions[index]) return;
-
-        if (target.classList.contains("question-type-select")) {
-          state.questions[index].type = target.value;
-        }
-
-        if (target.classList.contains("question-required-checkbox")) {
-          state.questions[index].required = Boolean(target.checked);
+          if (Number.isInteger(index)) {
+            state.questions.splice(index + 1, 0, createEmptyQuestion());
+            renderQuestions();
+          }
         }
       });
 
       els.country.addEventListener("change", () => {
-        const country = findCountryByName(els.country.value);
-        state.selectedCountry = country;
+        const countryName = els.country.value;
+        const selectedCountry = findCountryByName(countryName);
+        state.selectedCountry = selectedCountry;
         state.selectedState = null;
-        populateStates(country?.states || []);
+
+        const states = selectedCountry?.states || [];
+        populateStates(states);
         populateCities([]);
       });
 
       els.state.addEventListener("change", () => {
-        const selectedState = findStateByName(state.selectedCountry, els.state.value);
+        const countryName = els.country.value;
+        const selectedCountry = state.selectedCountry || findCountryByName(countryName);
+        const selectedState = findStateByName(selectedCountry, els.state.value);
+
+        state.selectedCountry = selectedCountry;
         state.selectedState = selectedState;
-        const cities = getCitiesForSelectedState(els.country.value, selectedState, els.state.value);
+
+        const cities = getCitiesForSelectedState(countryName, selectedState, els.state.value);
         populateCities(cities);
       });
 
@@ -1234,7 +1248,9 @@
         await saveRole();
       });
 
-      els.resetBtn.addEventListener("click", () => resetForm());
+      els.resetBtn.addEventListener("click", () => {
+        resetForm();
+      });
 
       els.deleteBtn.addEventListener("click", async () => {
         if (!state.editingJobId) return;
@@ -1242,26 +1258,32 @@
       });
 
       els.jobsTable.addEventListener("click", async (event) => {
-        const target = event.target;
+        const button = event.target.closest("button");
+        if (!button) return;
 
-        if (target.classList.contains("source-role-btn")) {
-          window.location.href = `job-sourcing.html?job_id=${encodeURIComponent(target.dataset.id)}`;
+        const jobId = button.dataset.id;
+        if (!jobId) return;
+
+        if (button.classList.contains("edit-role-btn")) {
+          await loadRoleForEdit(jobId);
           return;
         }
 
-        if (target.classList.contains("edit-role-btn")) {
-          await loadRoleForEdit(target.dataset.id);
+        if (button.classList.contains("delete-role-btn")) {
+          await deleteRole(jobId);
           return;
         }
 
-        if (target.classList.contains("delete-role-btn")) {
-          await deleteRole(target.dataset.id);
+        if (button.classList.contains("source-role-btn")) {
+          window.location.href = `sourcing-workspace.html?job_id=${encodeURIComponent(jobId)}`;
         }
       });
 
-      (async () => {
+      (async function init() {
         const allowed = await protectPage();
         if (!allowed) return;
+
+        renderQuestions();
         await loadGeography();
         resetForm();
         await loadRoles();
