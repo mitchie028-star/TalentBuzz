@@ -123,9 +123,11 @@
       transition:.18s ease;
     }
 
+    .btn:hover{transform:translateY(-1px)}
     .btn:disabled{
       opacity:.7;
       cursor:not-allowed;
+      transform:none;
     }
 
     .btn-primary{
@@ -205,58 +207,86 @@
   </div>
 
   <script>
-    const SUPABASE_URL = 'https://dilalntcxmvdcmwxjcct.supabase.co';
-    const SUPABASE_ANON_KEY = 'sb_publishable_HrLVIUwnaRo54yijtrbWBQ_1aeb4ezs';
+    const SUPABASE_URL = "https://dilalntcxmvdcmwxjcct.supabase.co";
+    const SUPABASE_ANON_KEY = "sb_publishable_HrLVIUwnaRo54yijtrbWBQ_1aeb4ezs";
     const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-    const form = document.getElementById('loginForm');
-    const emailInput = document.getElementById('email');
-    const passwordInput = document.getElementById('password');
-    const submitBtn = document.getElementById('submitBtn');
-    const messageBox = document.getElementById('messageBox');
-    const forgotPasswordLink = document.getElementById('forgotPasswordLink');
+    const form = document.getElementById("loginForm");
+    const emailInput = document.getElementById("email");
+    const passwordInput = document.getElementById("password");
+    const submitBtn = document.getElementById("submitBtn");
+    const messageBox = document.getElementById("messageBox");
+    const forgotPasswordLink = document.getElementById("forgotPasswordLink");
 
     let isSubmitting = false;
 
     function normalizeEmail(value) {
-      return String(value || '').trim().toLowerCase();
+      return String(value || "").trim().toLowerCase();
     }
 
-    function showMessage(message, type = 'error') {
+    function showMessage(message, type = "error") {
       messageBox.textContent = message;
       messageBox.className = `msg show ${type}`;
     }
 
     function clearMessage() {
-      messageBox.textContent = '';
-      messageBox.className = 'msg';
-    }
-
-    async function verifyRecruiterAccess(email) {
-      const cleanEmail = normalizeEmail(email);
-
-      const { data, error } = await supabaseClient
-        .from('recruiters')
-        .select('id, email, full_name, active')
-        .ilike('email', cleanEmail)
-        .eq('active', true)
-        .maybeSingle();
-
-      if (error) throw error;
-      if (!data) throw new Error('This account is not authorized for recruiter access.');
-
-      return data;
+      messageBox.textContent = "";
+      messageBox.className = "msg";
     }
 
     async function signOutQuietly() {
       try {
         await supabaseClient.auth.signOut();
       } catch (err) {
-        console.error('Silent sign out failed:', err);
+        console.error("Silent sign out failed:", err);
       }
     }
 
-    form.addEventListener('submit', async (e) => {
+    async function verifyRecruiterAccess(email) {
+      const cleanEmail = normalizeEmail(email);
+
+      if (!cleanEmail) {
+        throw new Error("Recruiter email is missing.");
+      }
+
+      const { data, error } = await supabaseClient
+        .from("recruiters")
+        .select("id, email, full_name, active")
+        .eq("email", cleanEmail)
+        .eq("active", true);
+
+      if (error) {
+        console.error("verifyRecruiterAccess error:", error);
+        throw error;
+      }
+
+      if (!Array.isArray(data) || data.length === 0) {
+        throw new Error(`This account is not authorized for recruiter access. Logged in as: ${cleanEmail}`);
+      }
+
+      if (data.length > 1) {
+        throw new Error(`Duplicate recruiter records found for ${cleanEmail}. Please clean up the recruiters table.`);
+      }
+
+      return data[0];
+    }
+
+    async function redirectIfAlreadyLoggedIn() {
+      const {
+        data: { session }
+      } = await supabaseClient.auth.getSession();
+
+      if (!session?.user?.email) return;
+
+      try {
+        await verifyRecruiterAccess(session.user.email);
+        window.location.href = "recruiter-dashboard.html";
+      } catch {
+        await signOutQuietly();
+      }
+    }
+
+    form.addEventListener("submit", async (e) => {
       e.preventDefault();
       if (isSubmitting) return;
 
@@ -266,13 +296,13 @@
       const password = passwordInput.value;
 
       if (!email || !password) {
-        showMessage('Please enter your email and password.');
+        showMessage("Please enter your email and password.");
         return;
       }
 
       isSubmitting = true;
       submitBtn.disabled = true;
-      submitBtn.textContent = 'Signing in...';
+      submitBtn.textContent = "Signing in...";
 
       try {
         const { data, error } = await supabaseClient.auth.signInWithPassword({
@@ -281,48 +311,52 @@
         });
 
         if (error) {
-          const raw = String(error.message || '').toLowerCase();
+          const raw = String(error.message || "").toLowerCase();
 
-          if (raw.includes('invalid login credentials')) {
-            throw new Error('Invalid recruiter email or password.');
+          if (raw.includes("invalid login credentials")) {
+            throw new Error("Invalid recruiter email or password.");
           }
 
-          if (raw.includes('email rate limit exceeded') || raw.includes('rate limit')) {
-            throw new Error('Too many attempts. Please wait a bit before trying again.');
+          if (raw.includes("email rate limit exceeded") || raw.includes("rate limit")) {
+            throw new Error("Too many attempts. Please wait a bit before trying again.");
           }
 
           throw error;
         }
 
-        const signedInEmail = normalizeEmail(data.user?.email);
+        const signedInEmail = normalizeEmail(data?.user?.email);
 
         if (!signedInEmail) {
           await signOutQuietly();
-          throw new Error('Unable to verify the signed-in recruiter email.');
+          throw new Error("Unable to verify the signed-in recruiter email.");
         }
 
         const recruiter = await verifyRecruiterAccess(signedInEmail);
 
-        showMessage(`Welcome, ${recruiter.full_name || signedInEmail}. Redirecting...`, 'success');
-        window.location.href = 'recruiter-dashboard.html';
+        showMessage(`Welcome, ${recruiter.full_name || signedInEmail}. Redirecting...`, "success");
+
+        setTimeout(() => {
+          window.location.href = "recruiter-dashboard.html";
+        }, 500);
       } catch (error) {
-        console.error('Recruiter login error:', error);
-        showMessage(error.message || 'Login failed.');
+        console.error("Recruiter login error:", error);
+        await signOutQuietly();
+        showMessage(error.message || "Login failed.");
       } finally {
         isSubmitting = false;
         submitBtn.disabled = false;
-        submitBtn.textContent = 'Login';
+        submitBtn.textContent = "Login";
       }
     });
 
-    forgotPasswordLink.addEventListener('click', async (e) => {
+    forgotPasswordLink.addEventListener("click", async (e) => {
       e.preventDefault();
       clearMessage();
 
       const email = normalizeEmail(emailInput.value);
 
       if (!email) {
-        showMessage('Enter your recruiter email first, then click Forgot password.');
+        showMessage("Enter your recruiter email first, then click Forgot password.");
         return;
       }
 
@@ -335,17 +369,18 @@
 
         if (error) throw error;
 
-        showMessage('Password reset email sent. Please check your inbox.', 'success');
+        showMessage("Password reset email sent. Please check your inbox.", "success");
       } catch (error) {
-        const msg = String(error?.message || 'Failed to send password reset email.');
-
-        if (msg.toLowerCase().includes('rate limit')) {
-          showMessage('Too many reset attempts. Please wait a bit before trying again.');
+        const msg = String(error?.message || "Failed to send password reset email.");
+        if (msg.toLowerCase().includes("rate limit")) {
+          showMessage("Too many reset attempts. Please wait a bit before trying again.");
         } else {
           showMessage(msg);
         }
       }
     });
+
+    redirectIfAlreadyLoggedIn();
   </script>
 </body>
 </html>
