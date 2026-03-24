@@ -1062,12 +1062,33 @@
       }
 
       async function sendRejectionEmail(application) {
+        if (!application?.id || !application?.email) return false;
+
+        const currentEmailStatus = normalizeText(application.rejection_email_status);
+
+        if (currentEmailStatus === "sent" || currentEmailStatus === "sending") {
+          console.log("Rejection email already handled. Skipping.", application.id);
+          return false;
+        }
+
         const profile = getProfileFromApplication(application);
 
-        await supabaseClient
+        const { data: lockedRows, error: lockError } = await supabaseClient
           .from("applications")
           .update({ rejection_email_status: "sending" })
-          .eq("id", application.id);
+          .eq("id", application.id)
+          .not("rejection_email_status", "in", '("sent","sending")')
+          .select("id");
+
+        if (lockError) {
+          console.error("Failed to lock rejection email:", lockError);
+          return false;
+        }
+
+        if (!lockedRows || !lockedRows.length) {
+          console.log("Another request already processed this rejection email. Skipping.", application.id);
+          return false;
+        }
 
         const { data, error } = await supabaseClient.functions.invoke(
           "send-rejection-email",
@@ -1081,10 +1102,13 @@
         );
 
         if (error || !data?.success) {
+          console.error("send-rejection-email failed:", error || data);
+
           await supabaseClient
             .from("applications")
             .update({ rejection_email_status: "failed" })
             .eq("id", application.id);
+
           return false;
         }
 
@@ -1098,6 +1122,9 @@
 
       async function updateApplicationStatus(applicationId, newStatus) {
         const application = state.allApplications.find(app => String(app.id) === String(applicationId));
+        const oldStatus = normalizeText(application?.status);
+        const newStatusNormalized = normalizeText(newStatus);
+        const currentEmailStatus = normalizeText(application?.rejection_email_status);
 
         const { error } = await supabaseClient
           .from("applications")
@@ -1114,12 +1141,25 @@
           return;
         }
 
-        const newStatusNormalized = normalizeText(newStatus);
-        if (application && newStatusNormalized === "rejected") {
-          await sendRejectionEmail(application);
+        const shouldSendRejectionEmail =
+          application &&
+          oldStatus !== "rejected" &&
+          newStatusNormalized === "rejected" &&
+          currentEmailStatus !== "sent" &&
+          currentEmailStatus !== "sending";
+
+        if (shouldSendRejectionEmail) {
+          const sent = await sendRejectionEmail(application);
+
+          if (sent) {
+            showNotice("Application status updated and rejection email sent.", "success");
+          } else {
+            showNotice("Application status updated. Rejection email was skipped or failed.", "info");
+          }
+        } else {
+          showNotice("Application status updated.", "success");
         }
 
-        showNotice("Application status updated.", "success");
         await loadApplications();
       }
 
