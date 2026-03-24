@@ -129,7 +129,7 @@
       font-weight: 700;
     }
 
-    input, textarea, select {
+    input, textarea {
       width: 100%;
       padding: 12px;
       border-radius: 12px;
@@ -145,7 +145,7 @@
       resize: vertical;
     }
 
-    input:focus, textarea:focus, select:focus {
+    input:focus, textarea:focus {
       border-color: #93c5fd;
       box-shadow: 0 0 0 3px rgba(147, 197, 253, 0.25);
     }
@@ -290,38 +290,6 @@
       text-decoration: underline;
     }
 
-    .debug-box {
-      display: none;
-      margin-top: 14px;
-      border: 1px solid var(--line);
-      border-radius: 14px;
-      background: #0f172a;
-      color: #e2e8f0;
-      padding: 14px;
-      white-space: pre-wrap;
-      word-break: break-word;
-      font-size: 0.84rem;
-      line-height: 1.5;
-      overflow: auto;
-    }
-
-    .query-list {
-      margin-top: 10px;
-      display: grid;
-      gap: 8px;
-    }
-
-    .query-item {
-      border: 1px solid var(--line);
-      background: #f8fafc;
-      border-radius: 12px;
-      padding: 10px 12px;
-      font-size: 0.86rem;
-      color: var(--text);
-      white-space: pre-wrap;
-      word-break: break-word;
-    }
-
     @media (max-width: 980px) {
       .container {
         padding: 18px 14px 30px;
@@ -343,7 +311,7 @@
   <div class="topbar">
     <div>
       <h1>Sourcing Workspace</h1>
-      <p class="subtitle">Search Supabase prospects first, then enrich with People Data Labs if needed.</p>
+      <p class="subtitle">Search and review prospects for a specific role.</p>
     </div>
     <div>
       <a href="client-roles-input.html" class="btn btn-outline">Back to Roles</a>
@@ -395,7 +363,7 @@
     <div class="grid">
       <div>
         <label for="title">Target Title</label>
-        <input id="title" placeholder="Customer Service" />
+        <input id="title" placeholder="Content Moderator" />
       </div>
 
       <div>
@@ -420,13 +388,13 @@
 
       <div class="full">
         <label for="keywords">Keywords</label>
-        <textarea id="keywords" placeholder="customer support, chat support, email support"></textarea>
-        <div class="helper">Use broad terms first. Results are sorted by location relevance first, then match score.</div>
+        <textarea id="keywords" placeholder="content moderator, social media moderator, chat support, email support, non-voice, bpo"></textarea>
+        <div class="helper">Use broader titles and let keywords narrow the results.</div>
       </div>
 
       <div class="full">
         <label for="companies">Target Companies</label>
-        <textarea id="companies" placeholder="Concentrix, Foundever, TaskUs"></textarea>
+        <textarea id="companies" placeholder="TaskUs, Foundever, Concentrix, Alorica"></textarea>
       </div>
     </div>
 
@@ -434,22 +402,6 @@
       <button id="searchBtn" class="btn btn-primary">Search Prospects</button>
       <button id="resetFiltersBtn" class="btn btn-outline">Reset Filters</button>
     </div>
-
-    <div class="helper" id="searchMeta" style="margin-top:14px;">
-      No search run yet.
-    </div>
-
-    <div id="usedSqlWrap" style="display:none; margin-top:14px;">
-      <label>Used Search Logic</label>
-      <div class="query-item" id="usedSqlBox"></div>
-    </div>
-
-    <div id="triedQueriesWrap" style="display:none; margin-top:14px;">
-      <label>Tried Queries</label>
-      <div class="query-list" id="triedQueriesList"></div>
-    </div>
-
-    <div id="debugBox" class="debug-box"></div>
   </div>
 
   <div class="panel">
@@ -480,337 +432,267 @@
   </div>
 </div>
 
-  <script>
-    document.addEventListener("DOMContentLoaded", async () => {
-      const SUPABASE_URL = "https://dilalntcxmvdcmwxjcct.supabase.co";
-      const SUPABASE_ANON_KEY = "sb_publishable_HrLVIUwnaRo54yijtrbWBQ_1aeb4ezs";
-      const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+<script>
+document.addEventListener("DOMContentLoaded", async () => {
+  const SUPABASE_URL = "https://dilalntcxmvdcmwxjcct.supabase.co";
+  const SUPABASE_ANON_KEY = "sb_publishable_HrLVIUwnaRo54yijtrbWBQ_1aeb4ezs";
+  const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-      const ALLOWED_RECRUITER_EMAILS = [
-        "mitchie028@gmail.com",
-        "michelle.giray@talentbuzz.pro",
-        "angel.n@talentbuzz.pro",
-        "jercey.cayetano@talentbuzz.pro",
-        "jayson.c@talentbuzz.pro",
-        "xyrene.e@talentbuzz.pro"
-      ];
+  const ALLOWED_RECRUITER_EMAILS = [
+    "mitchie028@gmail.com",
+    "michelle.giray@talentbuzz.pro",
+    "angel.n@talentbuzz.pro",
+    "jercey.cayetano@talentbuzz.pro",
+    "jayson.c@talentbuzz.pro",
+    "xyrene.e@talentbuzz.pro"
+  ];
 
-      const noticeEl = document.getElementById("notice");
-      const searchBtn = document.getElementById("searchBtn");
-      const resetFiltersBtn = document.getElementById("resetFiltersBtn");
-      const prospectsTable = document.getElementById("prospectsTable");
-      const searchMeta = document.getElementById("searchMeta");
-      const usedSqlWrap = document.getElementById("usedSqlWrap");
-      const usedSqlBox = document.getElementById("usedSqlBox");
-      const triedQueriesWrap = document.getElementById("triedQueriesWrap");
-      const triedQueriesList = document.getElementById("triedQueriesList");
-      const debugBox = document.getElementById("debugBox");
+  const noticeEl = document.getElementById("notice");
+  const searchBtn = document.getElementById("searchBtn");
+  const resetFiltersBtn = document.getElementById("resetFiltersBtn");
+  const prospectsTable = document.getElementById("prospectsTable");
 
-      const params = new URLSearchParams(window.location.search);
-      const jobId = params.get("job_id");
+  const params = new URLSearchParams(window.location.search);
+  const jobId = params.get("job_id");
 
-      let currentJob = null;
+  let currentJob = null;
 
-      function showNotice(text, type = "success") {
-        noticeEl.textContent = text;
-        noticeEl.className = `notice show ${type}`;
+  function showNotice(text, type = "success") {
+    noticeEl.textContent = text;
+    noticeEl.className = `notice show ${type}`;
+  }
+
+  function clearNotice() {
+    noticeEl.textContent = "";
+    noticeEl.className = "notice";
+  }
+
+  function escapeHtml(value) {
+    return String(value ?? "")
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;")
+      .replaceAll('"', "&quot;")
+      .replaceAll("'", "&#039;");
+  }
+
+  function isUuid(value) {
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(value || "").trim());
+  }
+
+  function normalizeCompaniesInput(text) {
+    return String(text || "")
+      .split(",")
+      .map(v => v.trim())
+      .filter(Boolean);
+  }
+
+  function getLocationLabel(rank) {
+    const n = Number(rank || 0);
+    if (n === 1) return "Exact city match";
+    if (n === 2) return "State match";
+    if (n === 3) return "Country match";
+    if (n === 99) return "Outside target country";
+    return "Outside target area";
+  }
+
+  function getLocationChipClass(rank) {
+    const n = Number(rank || 0);
+    if (n === 1 || n === 2) return "chip chip-green";
+    if (n === 3) return "chip chip-yellow";
+    return "chip chip-gray";
+  }
+
+  async function protectPage() {
+    const { data: { session } } = await supabaseClient.auth.getSession();
+
+    if (!session || !session.user) {
+      window.location.href = "login.html?redirect=" + encodeURIComponent(window.location.pathname + window.location.search);
+      return false;
+    }
+
+    const email = String(session.user.email || "").toLowerCase();
+
+    if (!ALLOWED_RECRUITER_EMAILS.includes(email)) {
+      alert("Access denied.");
+      window.location.href = "dashboard.html";
+      return false;
+    }
+
+    return true;
+  }
+
+  async function loadJob() {
+    document.getElementById("jobIdValue").textContent = jobId || "-";
+
+    if (!jobId) {
+      showNotice("Missing job_id in URL.", "error");
+      return;
+    }
+
+    if (!isUuid(jobId)) {
+      showNotice("Invalid job_id in URL. Please open this page from the Source button in your roles table.", "error");
+      return;
+    }
+
+    const { data, error } = await supabaseClient
+      .from("jobs")
+      .select("id, title, client_name, country, state_region, city, location, work_setup, keywords")
+      .eq("id", jobId)
+      .single();
+
+    if (error || !data) {
+      showNotice(error?.message || "Job not found.", "error");
+      return;
+    }
+
+    currentJob = data;
+
+    document.getElementById("jobTitle").textContent = data.title || "-";
+    document.getElementById("jobClient").textContent = data.client_name || "-";
+    document.getElementById("jobWorkSetup").textContent = data.work_setup || "-";
+    document.getElementById("jobKeywords").textContent = data.keywords || "-";
+    document.getElementById("jobCountry").textContent = data.country || "-";
+    document.getElementById("jobRegion").textContent = data.state_region || "-";
+    document.getElementById("jobCity").textContent = data.city || "-";
+
+    document.getElementById("title").value = data.title || "";
+    document.getElementById("country").value = data.country || "";
+    document.getElementById("state_region").value = data.state_region || "";
+    document.getElementById("city").value = data.city || "";
+    document.getElementById("keywords").value = data.keywords || "";
+  }
+
+  function renderProspects(rows) {
+    if (!Array.isArray(rows) || !rows.length) {
+      prospectsTable.innerHTML = '<tr><td colspan="12">No prospects found.</td></tr>';
+      return;
+    }
+
+    prospectsTable.innerHTML = rows.map(row => {
+      const p = row.prospects || {};
+      const email = p.personal_email || p.work_email || "-";
+      const linkedin = p.linkedin_url
+        ? `<a class="inline-link" href="${escapeHtml(p.linkedin_url)}" target="_blank" rel="noopener noreferrer">Open</a>`
+        : "-";
+
+      return `
+        <tr>
+          <td>${escapeHtml(p.full_name || "-")}</td>
+          <td>${escapeHtml(p.current_title || "-")}</td>
+          <td>${escapeHtml(p.current_company || "-")}</td>
+          <td>${escapeHtml(p.location || "-")}</td>
+          <td><span class="${getLocationChipClass(row.location_rank)}">${escapeHtml(getLocationLabel(row.location_rank))}</span></td>
+          <td><span class="chip">${escapeHtml(String(row.match_score ?? 0))}</span></td>
+          <td><span class="chip chip-gray">${escapeHtml(p.source || "-")}</span></td>
+          <td>${escapeHtml(email)}</td>
+          <td>${escapeHtml(p.phone || "-")}</td>
+          <td>${escapeHtml(p.education || "-")}</td>
+          <td>${escapeHtml(p.skills || "-")}</td>
+          <td>${linkedin}</td>
+        </tr>
+      `;
+    }).join("");
+  }
+
+  async function searchProspects() {
+    clearNotice();
+
+    if (!currentJob) {
+      showNotice("Job not loaded yet.", "error");
+      return;
+    }
+
+    if (!isUuid(currentJob.id)) {
+      showNotice("Invalid job ID. Please reopen the sourcing page from the Source button.", "error");
+      return;
+    }
+
+    const body = {
+      job_id: currentJob.id,
+      title: document.getElementById("title").value.trim(),
+      country: document.getElementById("country").value.trim(),
+      state: document.getElementById("state_region").value.trim(),
+      city: document.getElementById("city").value.trim(),
+      keywords: document.getElementById("keywords").value.trim(),
+      current_companies: normalizeCompaniesInput(document.getElementById("companies").value),
+      min_years_experience: document.getElementById("minYears").value
+        ? Number(document.getElementById("minYears").value)
+        : null
+    };
+
+    if (!body.title) {
+      showNotice("Target title is required.", "error");
+      return;
+    }
+
+    if (!body.country) {
+      showNotice("Country is required.", "error");
+      return;
+    }
+
+    searchBtn.disabled = true;
+    searchBtn.textContent = "Searching...";
+    prospectsTable.innerHTML = '<tr><td colspan="12">Searching...</td></tr>';
+
+    try {
+      const { data, error } = await supabaseClient.functions.invoke("source-prospects-v2", {
+        body
+      });
+
+      if (error) {
+        throw new Error(error.message || "Search failed.");
       }
 
-      function clearNotice() {
-        noticeEl.textContent = "";
-        noticeEl.className = "notice";
+      if (!data?.success) {
+        prospectsTable.innerHTML = '<tr><td colspan="12">No prospects found.</td></tr>';
+        showNotice(
+          typeof data?.error === "string"
+            ? data.error
+            : (data?.error?.message || "Search returned no matches."),
+          "warning"
+        );
+        return;
       }
 
-      function escapeHtml(value) {
-        return String(value ?? "")
-          .replaceAll("&", "&amp;")
-          .replaceAll("<", "&lt;")
-          .replaceAll(">", "&gt;")
-          .replaceAll('"', "&quot;")
-          .replaceAll("'", "&#039;");
-      }
+      renderProspects(data.data || []);
+      showNotice(`Loaded ${data.count || 0} prospect(s).`, "success");
+    } catch (error) {
+      prospectsTable.innerHTML = '<tr><td colspan="12">Unable to load prospects.</td></tr>';
+      showNotice(error.message || "Search failed.", "error");
+    } finally {
+      searchBtn.disabled = false;
+      searchBtn.textContent = "Search Prospects";
+    }
+  }
 
-      function isUuid(value) {
-        return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(value || "").trim());
-      }
+  function resetFilters() {
+    if (currentJob) {
+      document.getElementById("title").value = currentJob.title || "";
+      document.getElementById("country").value = currentJob.country || "";
+      document.getElementById("state_region").value = currentJob.state_region || "";
+      document.getElementById("city").value = currentJob.city || "";
+      document.getElementById("keywords").value = currentJob.keywords || "";
+    } else {
+      document.getElementById("title").value = "";
+      document.getElementById("country").value = "";
+      document.getElementById("state_region").value = "";
+      document.getElementById("city").value = "";
+      document.getElementById("keywords").value = "";
+    }
 
-      function normalizeCompaniesInput(text) {
-        return String(text || "")
-          .split(",")
-          .map(v => v.trim())
-          .filter(Boolean);
-      }
+    document.getElementById("companies").value = "";
+    document.getElementById("minYears").value = "";
+  }
 
-      function showDebug(data) {
-        debugBox.style.display = "block";
-        debugBox.textContent = JSON.stringify(data, null, 2);
-      }
+  searchBtn.addEventListener("click", searchProspects);
+  resetFiltersBtn.addEventListener("click", resetFilters);
 
-      function hideDebug() {
-        debugBox.style.display = "none";
-        debugBox.textContent = "";
-      }
+  const allowed = await protectPage();
+  if (!allowed) return;
 
-      function getLocationLabel(rank) {
-        const n = Number(rank || 0);
-        if (n === 1) return "Exact city match";
-        if (n === 2) return "State match";
-        if (n === 3) return "Country match";
-        if (n === 99) return "Outside target country";
-        return "Outside target area";
-      }
-
-      function getLocationChipClass(rank) {
-        const n = Number(rank || 0);
-        if (n === 1 || n === 2) return "chip chip-green";
-        if (n === 3) return "chip chip-yellow";
-        return "chip chip-gray";
-      }
-
-      async function protectPage() {
-        const { data: { session } } = await supabaseClient.auth.getSession();
-
-        if (!session || !session.user) {
-          window.location.href = "login.html?redirect=" + encodeURIComponent(window.location.pathname + window.location.search);
-          return false;
-        }
-
-        const email = String(session.user.email || "").toLowerCase();
-
-        if (!ALLOWED_RECRUITER_EMAILS.includes(email)) {
-          alert("Access denied.");
-          window.location.href = "dashboard.html";
-          return false;
-        }
-
-        return true;
-      }
-
-      async function loadJob() {
-        document.getElementById("jobIdValue").textContent = jobId || "-";
-
-        if (!jobId) {
-          showNotice("Missing job_id in URL.", "error");
-          return;
-        }
-
-        if (!isUuid(jobId)) {
-          showNotice("Invalid job_id in URL. Please open this page from the Source button in your roles table.", "error");
-          return;
-        }
-
-        const { data, error } = await supabaseClient
-          .from("jobs")
-          .select("id, title, client_name, country, state_region, city, location, work_setup, keywords")
-          .eq("id", jobId)
-          .single();
-
-        if (error || !data) {
-          showNotice(error?.message || "Job not found.", "error");
-          return;
-        }
-
-        currentJob = data;
-
-        document.getElementById("jobTitle").textContent = data.title || "-";
-        document.getElementById("jobClient").textContent = data.client_name || "-";
-        document.getElementById("jobWorkSetup").textContent = data.work_setup || "-";
-        document.getElementById("jobKeywords").textContent = data.keywords || "-";
-        document.getElementById("jobCountry").textContent = data.country || "-";
-        document.getElementById("jobRegion").textContent = data.state_region || "-";
-        document.getElementById("jobCity").textContent = data.city || "-";
-
-        document.getElementById("title").value = data.title || "";
-        document.getElementById("country").value = data.country || "";
-        document.getElementById("state_region").value = data.state_region || "";
-        document.getElementById("city").value = data.city || "";
-        document.getElementById("keywords").value = data.keywords || "";
-      }
-
-      function resetQueryDisplay() {
-        usedSqlWrap.style.display = "none";
-        usedSqlBox.textContent = "";
-        triedQueriesWrap.style.display = "none";
-        triedQueriesList.innerHTML = "";
-        hideDebug();
-      }
-
-      function renderQueryDisplay(data) {
-        const usedSql = data?.used_sql || "";
-        const triedQueries = Array.isArray(data?.tried_queries) ? data.tried_queries : [];
-
-        if (usedSql) {
-          usedSqlWrap.style.display = "block";
-          usedSqlBox.textContent = usedSql;
-        } else {
-          usedSqlWrap.style.display = "none";
-          usedSqlBox.textContent = "";
-        }
-
-        if (triedQueries.length) {
-          triedQueriesWrap.style.display = "block";
-          triedQueriesList.innerHTML = triedQueries
-            .map(query => `<div class="query-item">${escapeHtml(query)}</div>`)
-            .join("");
-        } else {
-          triedQueriesWrap.style.display = "none";
-          triedQueriesList.innerHTML = "";
-        }
-      }
-
-      function renderProspects(rows) {
-        if (!Array.isArray(rows) || !rows.length) {
-          prospectsTable.innerHTML = '<tr><td colspan="12">No prospects found.</td></tr>';
-          return;
-        }
-
-        prospectsTable.innerHTML = rows.map(row => {
-          const p = row.prospects || {};
-          const email = p.personal_email || p.work_email || "-";
-          const linkedin = p.linkedin_url
-            ? `<a class="inline-link" href="${escapeHtml(p.linkedin_url)}" target="_blank" rel="noopener noreferrer">Open</a>`
-            : "-";
-
-          return `
-            <tr>
-              <td>${escapeHtml(p.full_name || "-")}</td>
-              <td>${escapeHtml(p.current_title || "-")}</td>
-              <td>${escapeHtml(p.current_company || "-")}</td>
-              <td>${escapeHtml(p.location || "-")}</td>
-              <td><span class="${getLocationChipClass(row.location_rank)}">${escapeHtml(getLocationLabel(row.location_rank))}</span></td>
-              <td><span class="chip">${escapeHtml(String(row.match_score ?? 0))}</span></td>
-              <td><span class="chip chip-gray">${escapeHtml(p.source || "-")}</span></td>
-              <td>${escapeHtml(email)}</td>
-              <td>${escapeHtml(p.phone || "-")}</td>
-              <td>${escapeHtml(p.education || "-")}</td>
-              <td>${escapeHtml(p.skills || "-")}</td>
-              <td>${linkedin}</td>
-            </tr>
-          `;
-        }).join("");
-      }
-
-      async function searchProspects() {
-        clearNotice();
-        resetQueryDisplay();
-
-        if (!currentJob) {
-          showNotice("Job not loaded yet.", "error");
-          return;
-        }
-
-        if (!isUuid(currentJob.id)) {
-          showNotice("Invalid job ID. Please reopen the sourcing page from the Source button.", "error");
-          return;
-        }
-
-        const body = {
-          job_id: currentJob.id,
-          title: document.getElementById("title").value.trim(),
-          country: document.getElementById("country").value.trim(),
-          state: document.getElementById("state_region").value.trim(),
-          city: document.getElementById("city").value.trim(),
-          keywords: document.getElementById("keywords").value.trim(),
-          current_companies: normalizeCompaniesInput(document.getElementById("companies").value),
-          min_years_experience: document.getElementById("minYears").value
-            ? Number(document.getElementById("minYears").value)
-            : null
-        };
-
-        if (!body.title) {
-          showNotice("Target title is required.", "error");
-          return;
-        }
-
-        if (!body.country) {
-          showNotice("Country is required.", "error");
-          return;
-        }
-
-        searchBtn.disabled = true;
-        searchBtn.textContent = "Searching...";
-        searchMeta.textContent = "Searching Supabase prospects and People Data Labs...";
-        prospectsTable.innerHTML = '<tr><td colspan="12">Searching...</td></tr>';
-
-        try {
-          const { data, error } = await supabaseClient.functions.invoke("source-prospects-v2", {
-            body
-          });
-
-          if (error) {
-            throw new Error(error.message || "Search failed.");
-          }
-
-          renderQueryDisplay(data);
-
-          if (!data?.success) {
-            prospectsTable.innerHTML = '<tr><td colspan="12">No prospects found.</td></tr>';
-            searchMeta.textContent = "Search completed with no matches.";
-            showNotice(
-              typeof data?.error === "string"
-                ? data.error
-                : (data?.error?.message || "Search returned no matches."),
-              "warning"
-            );
-            showDebug(data);
-            return;
-          }
-
-          renderProspects(data.data || []);
-
-          const dbCount = Number(data?.sources_used?.database_count || 0);
-          const pdlCount = Number(data?.sources_used?.pdl_count || 0);
-          const usedPdl = Boolean(data?.sources_used?.used_pdl);
-
-          searchMeta.textContent =
-            `Loaded ${data.count || 0} prospect(s). ` +
-            `Database matches: ${dbCount}. ` +
-            `${usedPdl ? `PDL matches: ${pdlCount}.` : "PDL fallback not used."}`;
-
-          showNotice(`Loaded ${data.count || 0} prospect(s).`, "success");
-
-          if (data?.warning) {
-            showDebug(data);
-          }
-        } catch (error) {
-          prospectsTable.innerHTML = '<tr><td colspan="12">Unable to load prospects.</td></tr>';
-          searchMeta.textContent = "Search failed.";
-          showNotice(error.message || "Search failed.", "error");
-        } finally {
-          searchBtn.disabled = false;
-          searchBtn.textContent = "Search Prospects";
-        }
-      }
-
-      function resetFilters() {
-        if (currentJob) {
-          document.getElementById("title").value = currentJob.title || "";
-          document.getElementById("country").value = currentJob.country || "";
-          document.getElementById("state_region").value = currentJob.state_region || "";
-          document.getElementById("city").value = currentJob.city || "";
-          document.getElementById("keywords").value = currentJob.keywords || "";
-        } else {
-          document.getElementById("title").value = "";
-          document.getElementById("country").value = "";
-          document.getElementById("state_region").value = "";
-          document.getElementById("city").value = "";
-          document.getElementById("keywords").value = "";
-        }
-
-        document.getElementById("companies").value = "";
-        document.getElementById("minYears").value = "";
-        searchMeta.textContent = "Filters reset.";
-        resetQueryDisplay();
-      }
-
-      searchBtn.addEventListener("click", searchProspects);
-      resetFiltersBtn.addEventListener("click", resetFilters);
-
-      const allowed = await protectPage();
-      if (!allowed) return;
-
-      await loadJob();
-    });
-  </script>
+  await loadJob();
+});
+</script>
 </body>
 </html>
