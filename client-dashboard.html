@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Client Dashboard | TalentBuzz</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    body { font-family: Manrope, sans-serif; background:#f8fbff; margin:0; color:#0f172a; }
+    .container { max-width:1200px; margin:auto; padding:24px; }
+    .top { display:flex; justify-content:space-between; align-items:center; gap:16px; flex-wrap:wrap; }
+    h1 { color:#1e3a8a; margin:0; }
+    .btn { padding:10px 14px; border-radius:12px; border:1px solid #e2e8f0; background:#fff; font:inherit; font-weight:800; cursor:pointer; }
+    .panel { margin-top:20px; background:#fff; border:1px solid #e2e8f0; border-radius:18px; padding:18px; }
+    .filters { display:grid; grid-template-columns:1.2fr 1fr 1fr; gap:12px; margin-bottom:16px; }
+    input, select, textarea { width:100%; padding:12px; border:1px solid #e2e8f0; border-radius:12px; font:inherit; }
+    table { width:100%; border-collapse:collapse; min-width:1000px; }
+    th, td { padding:12px 10px; border-bottom:1px solid #e2e8f0; text-align:left; vertical-align:top; }
+    th { color:#64748b; font-size:.78rem; text-transform:uppercase; letter-spacing:.06em; }
+    .table-wrap { overflow:auto; }
+    .pill { display:inline-block; padding:6px 10px; border-radius:999px; background:#eef2ff; color:#4338ca; font-size:.78rem; font-weight:800; }
+    .card-actions { display:flex; gap:8px; flex-wrap:wrap; }
+    .small { color:#64748b; font-size:.84rem; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="top">
+      <div>
+        <h1>Client Dashboard</h1>
+        <div class="small">View candidates endorsed to your company only.</div>
+      </div>
+      <button id="logoutBtn" class="btn" type="button">Logout</button>
+    </div>
+
+    <div class="panel">
+      <div class="filters">
+        <input id="searchInput" placeholder="Search candidate name" />
+        <select id="roleFilter"><option value="">All roles</option></select>
+        <select id="statusFilter">
+          <option value="">All feedback statuses</option>
+          <option value="for_interview">For Interview</option>
+          <option value="shortlisted">Shortlisted</option>
+          <option value="on_hold">On Hold</option>
+          <option value="rejected_by_client">Rejected</option>
+          <option value="need_more_profiles">Need More Profiles</option>
+        </select>
+      </div>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Candidate</th>
+              <th>Role</th>
+              <th>Experience</th>
+              <th>Location</th>
+              <th>Work Setup</th>
+              <th>Resume</th>
+              <th>Your Feedback</th>
+              <th>Notes</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="endorsementsTable">
+            <tr><td colspan="9">Loading candidates...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const supabaseClient = supabase.createClient(
+      'https://dilalntcxmvdcmwxjcct.supabase.co',
+      'sb_publishable_HrLVIUwnaRo54yijtrbWBQ_1aeb4ezs'
+    );
+
+    const state = { rows: [] };
+
+    const els = {
+      table: document.getElementById('endorsementsTable'),
+      searchInput: document.getElementById('searchInput'),
+      roleFilter: document.getElementById('roleFilter'),
+      statusFilter: document.getElementById('statusFilter'),
+      logoutBtn: document.getElementById('logoutBtn')
+    };
+
+    function escapeHtml(v) {
+      return String(v ?? '')
+        .replaceAll('&','&amp;')
+        .replaceAll('<','&lt;')
+        .replaceAll('>','&gt;')
+        .replaceAll('"','&quot;')
+        .replaceAll("'","&#039;");
+    }
+
+    function normalize(v) {
+      return String(v || '').trim().toLowerCase();
+    }
+
+    async function protectPage() {
+      const { data: { session } } = await supabaseClient.auth.getSession();
+      if (!session?.user) {
+        window.location.href = 'client-login.html';
+        return null;
+      }
+      return session.user;
+    }
+
+    async function loadRows() {
+      const { data, error } = await supabaseClient
+        .from('client_endorsement_view')
+        .select('*')
+        .order('sent_at', { ascending: false });
+
+      if (error) {
+        els.table.innerHTML = `<tr><td colspan="9">${escapeHtml(error.message)}</td></tr>`;
+        return;
+      }
+
+      state.rows = data || [];
+      populateRoleFilter();
+      renderRows();
+      await markViewed();
+    }
+
+    async function markViewed() {
+      const ids = state.rows
+        .filter(r => !r.client_viewed_at)
+        .map(r => r.endorsement_id);
+
+      if (!ids.length) return;
+
+      await supabaseClient
+        .from('application_endorsements')
+        .update({ client_viewed_at: new Date().toISOString() })
+        .in('id', ids);
+    }
+
+    function populateRoleFilter() {
+      const roles = [...new Set(state.rows.map(r => r.job_title_from_jobs || r.job_title).filter(Boolean))].sort();
+      els.roleFilter.innerHTML =
+        '<option value="">All roles</option>' +
+        roles.map(role => `<option value="${escapeHtml(role)}">${escapeHtml(role)}</option>`).join('');
+    }
+
+    function getFilteredRows() {
+      const search = normalize(els.searchInput.value);
+      const role = normalize(els.roleFilter.value);
+      const status = normalize(els.statusFilter.value);
+
+      return state.rows.filter(r => {
+        return (
+          (!search || normalize(r.full_name).includes(search)) &&
+          (!role || normalize(r.job_title_from_jobs || r.job_title) === role) &&
+          (!status || normalize(r.client_response_status) === status)
+        );
+      });
+    }
+
+    function renderRows() {
+      const rows = getFilteredRows();
+
+      if (!rows.length) {
+        els.table.innerHTML = '<tr><td colspan="9">No endorsed candidates found.</td></tr>';
+        return;
+      }
+
+      els.table.innerHTML = rows.map(r => `
+        <tr>
+          <td>
+            <strong>${escapeHtml(r.full_name || '-')}</strong><br>
+            <span class="small">${escapeHtml(r.current_title || '')}</span>
+          </td>
+          <td>${escapeHtml(r.job_title_from_jobs || r.job_title || '-')}</td>
+          <td>${escapeHtml(r.years_of_experience ?? '-')}</td>
+          <td>${escapeHtml(r.location || '-')}</td>
+          <td>${escapeHtml(r.work_setup || '-')}</td>
+          <td>
+            ${r.resume_url ? `<a class="btn" href="${escapeHtml(r.resume_url)}" target="_blank" rel="noopener">View Resume</a>` : '<span class="small">No resume</span>'}
+          </td>
+          <td>
+            <select class="feedback-status" data-id="${escapeHtml(r.endorsement_id)}">
+              <option value="">Select</option>
+              <option value="for_interview" ${normalize(r.client_response_status)==='for_interview'?'selected':''}>For Interview</option>
+              <option value="shortlisted" ${normalize(r.client_response_status)==='shortlisted'?'selected':''}>Shortlisted</option>
+              <option value="on_hold" ${normalize(r.client_response_status)==='on_hold'?'selected':''}>On Hold</option>
+              <option value="rejected_by_client" ${normalize(r.client_response_status)==='rejected_by_client'?'selected':''}>Rejected</option>
+              <option value="need_more_profiles" ${normalize(r.client_response_status)==='need_more_profiles'?'selected':''}>Need More Profiles</option>
+            </select>
+          </td>
+          <td>
+            <textarea class="feedback-notes" data-id="${escapeHtml(r.endorsement_id)}" rows="3">${escapeHtml(r.client_response_notes || '')}</textarea>
+          </td>
+          <td>
+            <div class="card-actions">
+              <button class="btn save-feedback" type="button" data-id="${escapeHtml(r.endorsement_id)}">Save</button>
+            </div>
+          </td>
+        </tr>
+      `).join('');
+    }
+
+    async function saveFeedback(endorsementId) {
+      const statusEl = document.querySelector(`.feedback-status[data-id="${CSS.escape(endorsementId)}"]`);
+      const notesEl = document.querySelector(`.feedback-notes[data-id="${CSS.escape(endorsementId)}"]`);
+
+      const payload = {
+        client_response_status: statusEl?.value || null,
+        client_response_notes: notesEl?.value.trim() || null,
+        client_responded_at: new Date().toISOString()
+      };
+
+      const { error } = await supabaseClient
+        .from('application_endorsements')
+        .update(payload)
+        .eq('id', endorsementId);
+
+      if (error) {
+        alert(error.message);
+        return;
+      }
+
+      await loadRows();
+      alert('Feedback saved.');
+    }
+
+    els.searchInput.addEventListener('input', renderRows);
+    els.roleFilter.addEventListener('change', renderRows);
+    els.statusFilter.addEventListener('change', renderRows);
+
+    els.table.addEventListener('click', async (e) => {
+      const btn = e.target.closest('.save-feedback');
+      if (!btn) return;
+      await saveFeedback(btn.dataset.id);
+    });
+
+    els.logoutBtn.addEventListener('click', async () => {
+      await supabaseClient.auth.signOut();
+      window.location.href = 'client-login.html';
+    });
+
+    protectPage().then(user => {
+      if (user) loadRows();
+    });
+  </script>
+</body>
+</html>
