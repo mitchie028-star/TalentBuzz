@@ -167,15 +167,6 @@
     const SUPABASE_ANON_KEY = 'sb_publishable_HrLVIUwnaRo54yijtrbWBQ_1aeb4ezs';
     const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-    const RECRUITER_EMAILS = [
-      'michelle.giray@talentbuzz.pro',
-      'angel.n@talentbuzz.pro',
-      'jercey.cayetano@talentbuzz.pro',
-      'jayson.c@talentbuzz.pro',
-      'xyrene.e@talentbuzz.pro',
-      'mitchie028@gmail.com'
-    ];
-
     const form = document.getElementById('loginForm');
     const emailInput = document.getElementById('email');
     const passwordInput = document.getElementById('password');
@@ -194,6 +185,20 @@
       messageBox.className = 'msg';
     }
 
+    async function verifyRecruiterAccess(email) {
+      const { data, error } = await supabaseClient
+        .from('recruiters')
+        .select('id, email, active')
+        .eq('email', email)
+        .eq('active', true)
+        .maybeSingle();
+
+      if (error) throw error;
+      if (!data) throw new Error('This account is not authorized for recruiter access.');
+
+      return data;
+    }
+
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
       if (isSubmitting) return;
@@ -208,11 +213,6 @@
         return;
       }
 
-      if (!RECRUITER_EMAILS.includes(email)) {
-        showMessage('This account is not authorized for recruiter access.');
-        return;
-      }
-
       isSubmitting = true;
       submitBtn.disabled = true;
       submitBtn.textContent = 'Signing in...';
@@ -223,21 +223,23 @@
           password
         });
 
-        if (error) throw error;
-
-        const signedInEmail = (data.user?.email || '').toLowerCase();
-        if (!RECRUITER_EMAILS.includes(signedInEmail)) {
-          await supabaseClient.auth.signOut();
-          throw new Error('This account is not authorized for recruiter access.');
+        if (error) {
+          if (String(error.message || '').toLowerCase().includes('invalid login credentials')) {
+            throw new Error('Incorrect password or recruiter account is missing in Supabase Auth.');
+          }
+          throw error;
         }
+
+        const signedInEmail = (data.user?.email || '').trim().toLowerCase();
+
+        await verifyRecruiterAccess(signedInEmail);
 
         showMessage('Login successful.', 'success');
         window.location.href = 'recruiter-dashboard.html';
       } catch (error) {
         const msg = String(error?.message || 'Login failed.');
-        if (msg.toLowerCase().includes('invalid login credentials')) {
-          showMessage('Invalid recruiter email or password.');
-        } else if (msg.toLowerCase().includes('rate limit')) {
+
+        if (msg.toLowerCase().includes('rate limit')) {
           showMessage('Too many attempts. Please wait a bit before trying again.');
         } else {
           showMessage(msg);
