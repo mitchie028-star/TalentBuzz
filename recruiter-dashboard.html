@@ -376,7 +376,11 @@
       border-radius: 8px;
     }
 
-    .modal-body { flex: 1; background: #f8fafc; }
+    .modal-body {
+      flex: 1;
+      background: #f8fafc;
+    }
+
     .modal-body iframe {
       width: 100%;
       height: 100%;
@@ -600,9 +604,7 @@
       <div class="modal-header">
         <h3>Resume Preview</h3>
         <div class="modal-actions">
-          <a id="downloadResumeBtn" href="#" target="_blank" rel="noopener noreferrer" class="btn btn-outline table-btn" style="display:none;">
-            Open in New Tab
-          </a>
+          <a id="downloadResumeBtn" href="#" target="_blank" rel="noopener noreferrer" class="btn btn-outline table-btn" style="display:none;">Open in New Tab</a>
           <button id="closeModal" class="modal-close" type="button" aria-label="Close">&times;</button>
         </div>
       </div>
@@ -712,6 +714,7 @@
 
       const state = {
         allApplications: [],
+        allRecruitersMap: {},
         currentUser: null,
         currentRecruiterRecord: null,
         selectedEndorsementApp: null
@@ -839,16 +842,16 @@
         return "on_track";
       }
 
+      function clearNotice() {
+        els.notice.textContent = "";
+        els.notice.className = "notice";
+      }
+
       function showNotice(message, type = "success") {
         els.notice.textContent = message;
         els.notice.className = `notice show ${type}`;
         window.clearTimeout(showNotice._timer);
         showNotice._timer = window.setTimeout(clearNotice, 4000);
-      }
-
-      function clearNotice() {
-        els.notice.textContent = "";
-        els.notice.className = "notice";
       }
 
       function getStageNoteOptions(status) {
@@ -896,35 +899,42 @@
         const profile = getProfileFromApplication(app);
         const candidateName = profile?.full_name || "Candidate";
         const jobTitle = app.jobs?.title || app.job_title || "Role";
-        return `Candidate Endorsement | ${candidateName} | ${jobTitle}`;
+        const clientName = app.jobs?.client_name || "Client";
+        return `Candidate Endorsement: ${candidateName} for ${jobTitle} | ${clientName}`;
       }
 
       function buildEndorsementBody(app) {
         const profile = getProfileFromApplication(app);
-        const recruiterName = state.currentRecruiterRecord?.full_name || state.currentUser?.email || "TalentBuzz";
-        const clientName = app.jobs?.client_name || "your team";
+        const recruiterName =
+          state.currentRecruiterRecord?.full_name ||
+          state.currentUser?.email ||
+          "TalentBuzz";
+        const clientName = app.jobs?.client_name || "Hiring Team";
         const candidateName = profile?.full_name || "Candidate";
         const jobTitle = app.jobs?.title || app.job_title || "Role";
 
         const summaryLines = [];
-        if (profile?.current_title) summaryLines.push(`- Current title: ${profile.current_title}`);
-        if (profile?.years_of_experience || profile?.years_of_experience === 0) summaryLines.push(`- Experience: ${profile.years_of_experience} year(s)`);
-        if (profile?.location) summaryLines.push(`- Location: ${profile.location}`);
-        if (profile?.skills) summaryLines.push(`- Skills: ${profile.skills}`);
+        if (profile?.current_title) summaryLines.push(`Current Title: ${profile.current_title}`);
+        if (profile?.years_of_experience || profile?.years_of_experience === 0) {
+          summaryLines.push(`Years of Experience: ${profile.years_of_experience}`);
+        }
+        if (profile?.location) summaryLines.push(`Location: ${profile.location}`);
+        if (profile?.skills) summaryLines.push(`Key Skills: ${profile.skills}`);
 
         return `Hi ${clientName} Team,
 
-I’d like to endorse ${candidateName} for the ${jobTitle} role.
+Good day.
 
-Candidate snapshot:
-${summaryLines.length ? summaryLines.join("\n") : "- Profile details available in ATS"}
+We would like to endorse ${candidateName} for your ${jobTitle} opening.
 
-Why we’re endorsing this candidate:
-This profile appears aligned with the role requirements based on experience, background, and overall fit.
+Candidate Snapshot:
+${summaryLines.length ? summaryLines.map(line => `- ${line}`).join("\n") : "- Candidate profile available upon review"}
 
-Please review and let us know if you would like us to proceed with the next step.
+Please see the candidate's resume attached/link provided for your review.
 
-Best,
+Let us know if you would like us to proceed with the next step or arrange an interview.
+
+Best regards,
 ${recruiterName}
 TalentBuzz`;
       }
@@ -1113,7 +1123,11 @@ TalentBuzz`;
         const rawResumePath = String(profile.resume_path || "").trim();
         const rawResumeUrl = String(profile.resume_url || "").trim();
 
-        if (rawResumeUrl && (rawResumeUrl.includes("/storage/v1/object/sign/") || rawResumeUrl.includes("/storage/v1/object/public/"))) {
+        if (
+          rawResumeUrl &&
+          (rawResumeUrl.includes("/storage/v1/object/sign/") ||
+            rawResumeUrl.includes("/storage/v1/object/public/"))
+        ) {
           return rawResumeUrl;
         }
 
@@ -1124,7 +1138,9 @@ TalentBuzz`;
           .replace(/^resumes\//i, "");
 
         try {
-          const { data, error } = await supabaseClient.storage.from("resumes").createSignedUrl(cleanedPath, 3600);
+          const { data, error } = await supabaseClient.storage
+            .from("resumes")
+            .createSignedUrl(cleanedPath, 3600);
           if (error) return "";
           return data?.signedUrl || "";
         } catch {
@@ -1132,27 +1148,46 @@ TalentBuzz`;
         }
       }
 
-      async function saveEndorsementRecord({ app, recipientEmail, markAsSent = false }) {
+      async function saveEndorsementRecord({
+        app,
+        recipientEmail,
+        subject,
+        body,
+        resumeUrl,
+        markAsSent = false,
+        errorMessage = null
+      }) {
         const nowIso = new Date().toISOString();
         const recruiterEmail = state.currentUser?.email || null;
+
+        if (!app?.id) {
+          throw new Error("Application record is missing.");
+        }
 
         if (!app.jobs?.client_uuid) {
           throw new Error("This job is not linked to a client profile yet.");
         }
 
+        const endorsementPayload = {
+          application_id: app.id,
+          client_id: app.jobs.client_uuid,
+          job_id: app.jobs?.id || app.job_id || null,
+          candidate_summary: buildCandidateSummary(app),
+          recipient_email: recipientEmail || null,
+          email_subject: subject || null,
+          email_body: body || null,
+          resume_url: resumeUrl || null,
+          endorsement_status: markAsSent ? "sent" : "draft_ready",
+          sent_at: markAsSent ? nowIso : null,
+          sent_by: recruiterEmail,
+          client_response_status: null,
+          client_response_notes: null,
+          last_error: errorMessage || null
+        };
+
         const { error: endorsementError } = await supabaseClient
           .from("application_endorsements")
-          .upsert([{
-            application_id: app.id,
-            client_id: app.jobs.client_uuid,
-            job_id: app.jobs?.id || app.job_id || null,
-            candidate_summary: buildCandidateSummary(app),
-            endorsement_status: markAsSent ? "sent" : "draft_ready",
-            sent_at: markAsSent ? nowIso : null,
-            sent_by: recruiterEmail,
-            client_response_status: null,
-            client_response_notes: null
-          }], { onConflict: "application_id,client_id" });
+          .upsert([endorsementPayload], { onConflict: "application_id,client_id" });
 
         if (endorsementError) throw endorsementError;
 
@@ -1178,25 +1213,55 @@ TalentBuzz`;
       }
 
       async function sendEndorsementEmail({ app, subject, body, recipientEmail }) {
+        if (!app) throw new Error("No application selected.");
         if (!recipientEmail) throw new Error("No client recipient email found.");
+        if (!subject?.trim()) throw new Error("Email subject is required.");
+        if (!body?.trim()) throw new Error("Email body is required.");
+
+        if (!app.jobs?.title && !app.job_title) {
+          throw new Error("Job title is missing.");
+        }
+
+        if (!app.jobs?.client_uuid) {
+          throw new Error("Client is not linked to this job yet.");
+        }
 
         const profile = getProfileFromApplication(app);
+        if (!profile?.full_name) {
+          throw new Error("Candidate name is missing.");
+        }
+
         const resumeUrl = await getResumeUrl(app);
+        if (!resumeUrl) {
+          throw new Error("Resume file is missing. Please upload a resume before endorsing.");
+        }
 
         const { data, error } = await supabaseClient.functions.invoke("send-endorsement-email", {
           body: {
             to: recipientEmail,
-            subject,
-            body,
-            candidate_name: profile?.full_name || "Candidate",
+            subject: subject.trim(),
+            body: body.trim(),
+            candidate_name: profile.full_name,
+            candidate_email: app.email || null,
+            candidate_phone: profile.phone || null,
+            candidate_location: profile.location || null,
+            current_title: profile.current_title || null,
+            years_of_experience: profile.years_of_experience ?? null,
+            skills: profile.skills || null,
             job_title: app.jobs?.title || app.job_title || "Role",
-            resume_url: resumeUrl || null
+            client_name: app.jobs?.client_name || null,
+            resume_url: resumeUrl
           }
         });
 
         if (error || !data?.success) {
           throw new Error(error?.message || data?.error || "Failed to send endorsement email.");
         }
+
+        return {
+          success: true,
+          resumeUrl
+        };
       }
 
       async function sendRejectionEmail(application) {
@@ -1232,6 +1297,7 @@ TalentBuzz`;
       }
 
       function populateFilters() {
+        const currentJobValue = els.jobFilter.value;
         const currentRecruiterValue = els.recruiterFilter.value;
         const currentClientValue = els.clientFilter.value;
 
@@ -1271,6 +1337,7 @@ TalentBuzz`;
             .map(([email, name]) => `<option value="${escapeHtml(email)}">${escapeHtml(name)}</option>`)
             .join("");
 
+        if (currentJobValue) els.jobFilter.value = currentJobValue;
         if (currentRecruiterValue) els.recruiterFilter.value = currentRecruiterValue;
         if (currentClientValue) els.clientFilter.value = currentClientValue;
       }
@@ -1395,13 +1462,13 @@ TalentBuzz`;
                 <td>
                   <span class="status-pill ${getStatusClass(endorsementStatus)}">${safeEndorsementStatus}</span>
                   <div class="small" style="margin-top:6px;">
-                    ${app.endorsement_sent_at ? `Sent: ${escapeHtml(formatDateTime(app.endorsement_sent_at))}` : 'Not yet sent'}
+                    ${app.endorsement_sent_at ? `Sent: ${escapeHtml(formatDateTime(app.endorsement_sent_at))}` : "Not yet sent"}
                   </div>
                 </td>
                 <td>
                   <span class="status-pill ${getStatusClass(slaStatus)}">${escapeHtml(slaStatus)}</span>
                   <div class="small" style="margin-top:6px;">
-                    ${app.sla_due_at ? `Due: ${escapeHtml(formatDateTime(app.sla_due_at))}` : '-'}
+                    ${app.sla_due_at ? `Due: ${escapeHtml(formatDateTime(app.sla_due_at))}` : "-"}
                   </div>
                 </td>
                 <td>
@@ -1623,6 +1690,10 @@ TalentBuzz`;
           const recipient = await fetchClientRecipient(app.jobs?.client_uuid);
           openEndorseModal(app);
           els.endorseRecipient.value = recipient || "";
+
+          if (!recipient) {
+            showNotice("No active client email found for this job's client.", "info");
+          }
           return;
         }
 
@@ -1694,9 +1765,15 @@ TalentBuzz`;
 
           try {
             els.saveEndorseBtn.disabled = true;
+
+            const resumeUrl = await getResumeUrl(app);
+
             await saveEndorsementRecord({
               app,
               recipientEmail: els.endorseRecipient.value.trim(),
+              subject: els.endorseSubject.value.trim(),
+              body: els.endorseBody.value.trim(),
+              resumeUrl,
               markAsSent: false
             });
 
@@ -1724,15 +1801,46 @@ TalentBuzz`;
             const body = els.endorseBody.value.trim();
             const recipientEmail = els.endorseRecipient.value.trim();
 
-            if (!recipientEmail) throw new Error("No client recipient email found for this client.");
+            if (!recipientEmail) {
+              throw new Error("No client recipient email found for this client.");
+            }
 
-            await sendEndorsementEmail({ app, subject, body, recipientEmail });
-            await saveEndorsementRecord({ app, recipientEmail, markAsSent: true });
+            const sendResult = await sendEndorsementEmail({
+              app,
+              subject,
+              body,
+              recipientEmail
+            });
+
+            await saveEndorsementRecord({
+              app,
+              recipientEmail,
+              subject,
+              body,
+              resumeUrl: sendResult.resumeUrl,
+              markAsSent: true
+            });
 
             showNotice("Endorsement email sent successfully.", "success");
             closeEndorseModal();
             await loadApplications();
           } catch (error) {
+            try {
+              if (app?.id) {
+                await saveEndorsementRecord({
+                  app,
+                  recipientEmail: els.endorseRecipient.value.trim(),
+                  subject: els.endorseSubject.value.trim(),
+                  body: els.endorseBody.value.trim(),
+                  resumeUrl: null,
+                  markAsSent: false,
+                  errorMessage: error.message || "Unknown send error"
+                });
+              }
+            } catch (saveError) {
+              console.error("Failed to save failed endorsement state:", saveError);
+            }
+
             showNotice(error.message || "Failed to send endorsement email.", "error");
           } finally {
             els.sendEndorseBtn.disabled = false;
