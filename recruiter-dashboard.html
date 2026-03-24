@@ -6,11 +6,12 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta
     name="description"
-    content="Manage candidates, applications, recruiter assignments, hiring progress, and resume previews in TalentBuzz."
+    content="TalentBuzz recruiter dashboard for managing candidates, stages, structured notes, and pipeline reporting."
   />
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link
     href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap"
     rel="stylesheet"
@@ -19,1105 +20,1716 @@
   <style>
     :root {
       --primary: #1e3a8a;
-      --primary-2: #2563eb;
+      --primary-light: #2563eb;
+      --primary-soft: #dbeafe;
       --text: #0f172a;
       --muted: #64748b;
-      --border: #e2e8f0;
+      --line: #e2e8f0;
       --bg: #f8fbff;
-      --white: #ffffff;
+      --card: #ffffff;
       --success: #166534;
+      --success-bg: #dcfce7;
+      --warning: #92400e;
+      --warning-bg: #fef3c7;
       --danger: #b91c1c;
-      --warning: #b45309;
-      --info: #4338ca;
-      --shadow: 0 12px 30px rgba(30, 58, 138, 0.06), 0 2px 10px rgba(15, 23, 42, 0.04);
-      --radius-lg: 18px;
+      --danger-bg: #fee2e2;
+      --chip: #eff6ff;
+      --shadow-soft: 0 14px 40px rgba(15, 23, 42, 0.08);
+      --radius-lg: 22px;
+      --radius-md: 14px;
+      --radius-sm: 10px;
     }
 
-    * { box-sizing: border-box; }
+    * {
+      box-sizing: border-box;
+    }
 
-    body {
+    html, body {
       margin: 0;
+      padding: 0;
       font-family: "Manrope", sans-serif;
-      background: linear-gradient(180deg, #f8fbff 0%, #f4f8ff 100%);
+      background: linear-gradient(180deg, #f8fbff 0%, #eef4ff 100%);
       color: var(--text);
-      line-height: 1.6;
     }
 
-    a { color: inherit; }
+    a {
+      color: var(--primary-light);
+      text-decoration: none;
+    }
 
-    .container {
-      max-width: 1440px;
-      margin: 0 auto;
-      padding: 24px 20px 44px;
+    button, input, select {
+      font: inherit;
+    }
+
+    .app-shell {
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
     }
 
     .topbar {
-      display: flex;
-      justify-content: space-between;
-      align-items: flex-start;
-      gap: 16px;
-      flex-wrap: wrap;
-      margin-bottom: 20px;
+      position: sticky;
+      top: 0;
+      z-index: 20;
+      background: rgba(255, 255, 255, 0.92);
+      backdrop-filter: blur(14px);
+      border-bottom: 1px solid rgba(226, 232, 240, 0.9);
     }
 
-    .topbar h1 {
-      margin: 0 0 6px;
-      color: var(--primary);
-      font-size: 2rem;
-      line-height: 1.1;
-      letter-spacing: -0.03em;
-    }
-
-    .subtitle {
-      margin: 0;
-      color: var(--muted);
-      font-size: 0.95rem;
-    }
-
-    .top-right {
+    .topbar-inner {
+      max-width: 1440px;
+      margin: 0 auto;
+      padding: 18px 24px;
       display: flex;
       align-items: center;
-      gap: 10px;
+      justify-content: space-between;
+      gap: 18px;
       flex-wrap: wrap;
     }
 
-    .hello {
-      background: var(--white);
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      padding: 10px 14px;
-      font-weight: 700;
-      box-shadow: var(--shadow);
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 14px;
     }
 
-    .btn {
+    .brand-mark {
+      width: 48px;
+      height: 48px;
+      border-radius: 16px;
+      background: linear-gradient(135deg, var(--primary) 0%, var(--primary-light) 100%);
+      color: #fff;
+      display: grid;
+      place-items: center;
+      font-weight: 800;
+      letter-spacing: 0.03em;
+      box-shadow: 0 10px 24px rgba(37, 99, 235, 0.22);
+    }
+
+    .brand-copy h1 {
+      margin: 0;
+      font-size: 1.08rem;
+      font-weight: 800;
+      line-height: 1.15;
+    }
+
+    .brand-copy p {
+      margin: 4px 0 0;
+      color: var(--muted);
+      font-size: 0.92rem;
+    }
+
+    .topbar-right {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .recruiter-badge {
       display: inline-flex;
       align-items: center;
-      justify-content: center;
-      padding: 11px 14px;
-      border-radius: 12px;
-      border: 1px solid transparent;
-      text-decoration: none;
-      font-weight: 800;
+      gap: 10px;
+      background: #fff;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 8px 14px;
       font-size: 0.92rem;
+      color: var(--text);
+      box-shadow: 0 8px 20px rgba(15, 23, 42, 0.04);
+    }
+
+    .online-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: #22c55e;
+      box-shadow: 0 0 0 4px rgba(34, 197, 94, 0.15);
+    }
+
+    .ghost-btn,
+    .primary-btn {
+      border: none;
+      border-radius: 12px;
+      padding: 11px 16px;
       cursor: pointer;
-      font-family: inherit;
-      transition: 0.18s ease;
-      background: white;
-      white-space: nowrap;
-    }
-
-    .btn:hover { transform: translateY(-1px); }
-    .btn:disabled { opacity: 0.65; cursor: not-allowed; transform: none; }
-
-    .btn-primary {
-      background: linear-gradient(135deg, var(--primary), var(--primary-2));
-      color: white;
-    }
-
-    .btn-outline {
-      background: white;
-      color: var(--primary);
-      border-color: var(--border);
-    }
-
-    .btn-danger {
-      background: white;
-      color: var(--danger);
-      border-color: #fecaca;
-    }
-
-    .table-btn {
-      padding: 9px 12px;
-      font-size: 0.84rem;
-      border-radius: 10px;
-    }
-
-    .stats-grid {
-      display: grid;
-      grid-template-columns: repeat(5, minmax(0, 1fr));
-      gap: 16px;
-      margin-bottom: 20px;
-    }
-
-    .stat-card, .panel {
-      background: var(--white);
-      border: 1px solid var(--border);
-      border-radius: var(--radius-lg);
-      box-shadow: var(--shadow);
-    }
-
-    .stat-card { padding: 18px; }
-
-    .stat-label {
-      color: var(--muted);
-      font-size: 0.84rem;
-      margin-bottom: 8px;
+      transition: transform 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
       font-weight: 700;
     }
 
-    .stat-value {
-      color: var(--primary);
-      font-size: 1.8rem;
+    .ghost-btn {
+      background: #fff;
+      border: 1px solid var(--line);
+      color: var(--text);
+    }
+
+    .primary-btn {
+      background: linear-gradient(135deg, var(--primary) 0%, var(--primary-light) 100%);
+      color: #fff;
+      box-shadow: 0 10px 22px rgba(37, 99, 235, 0.24);
+    }
+
+    .ghost-btn:hover,
+    .primary-btn:hover {
+      transform: translateY(-1px);
+    }
+
+    .page {
+      max-width: 1440px;
+      width: 100%;
+      margin: 0 auto;
+      padding: 26px 24px 44px;
+    }
+
+    .hero {
+      display: grid;
+      grid-template-columns: 1.35fr 1fr;
+      gap: 18px;
+      margin-bottom: 20px;
+    }
+
+    .hero-card,
+    .summary-card,
+    .panel,
+    .table-panel {
+      background: rgba(255, 255, 255, 0.94);
+      border: 1px solid rgba(226, 232, 240, 0.92);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow-soft);
+    }
+
+    .hero-card {
+      padding: 24px;
+      min-height: 170px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+    }
+
+    .hero-card h2 {
+      margin: 0 0 10px;
+      font-size: 1.55rem;
+      line-height: 1.15;
       font-weight: 800;
-      letter-spacing: -0.03em;
+    }
+
+    .hero-card p {
+      margin: 0;
+      color: var(--muted);
+      line-height: 1.65;
+      max-width: 72ch;
+    }
+
+    .hero-actions {
+      display: flex;
+      gap: 10px;
+      margin-top: 18px;
+      flex-wrap: wrap;
+    }
+
+    .summary-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    .summary-card {
+      padding: 18px;
+      min-height: 115px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+    }
+
+    .summary-label {
+      color: var(--muted);
+      font-size: 0.88rem;
+      font-weight: 700;
+    }
+
+    .summary-value {
+      font-size: 1.9rem;
+      font-weight: 800;
       line-height: 1;
+      color: var(--primary);
+    }
+
+    .summary-sub {
+      color: var(--muted);
+      font-size: 0.84rem;
+    }
+
+    .filters-wrap {
+      display: grid;
+      grid-template-columns: 1.3fr 1fr 1fr 1fr 1fr auto;
+      gap: 12px;
+      margin-bottom: 18px;
     }
 
     .panel {
-      padding: 20px;
-      margin-bottom: 20px;
+      padding: 18px;
     }
 
-    .panel h2 {
-      margin: 0 0 14px;
-      color: var(--primary);
-      font-size: 1.2rem;
-      letter-spacing: -0.02em;
-    }
-
-    .action-row {
-      display: flex;
-      gap: 10px;
-      flex-wrap: wrap;
-      margin-bottom: 20px;
-    }
-
-    .filters-grid {
-      display: grid;
-      grid-template-columns: 1.6fr 1fr 1fr 1fr 1fr auto;
-      gap: 14px;
-      align-items: end;
-    }
-
-    .field label {
+    .filter-field label,
+    .inline-field label {
       display: block;
-      margin-bottom: 6px;
-      font-size: 0.9rem;
+      font-size: 0.8rem;
       font-weight: 700;
+      color: var(--muted);
+      margin-bottom: 7px;
     }
 
-    .field input,
-    .field select {
+    .filter-field input,
+    .filter-field select,
+    .inline-field select {
       width: 100%;
-      padding: 12px;
+      border: 1px solid var(--line);
+      background: #fff;
       border-radius: 12px;
-      border: 1px solid var(--border);
-      font: inherit;
-      background: white;
+      padding: 12px 13px;
       outline: none;
+      transition: border-color 0.18s ease, box-shadow 0.18s ease;
+      color: var(--text);
     }
 
-    .field input:focus,
-    .field select:focus {
+    .filter-field input:focus,
+    .filter-field select:focus,
+    .inline-field select:focus {
       border-color: #93c5fd;
-      box-shadow: 0 0 0 3px rgba(147, 197, 253, 0.25);
+      box-shadow: 0 0 0 4px rgba(147, 197, 253, 0.18);
+    }
+
+    .table-panel {
+      overflow: hidden;
+    }
+
+    .table-toolbar {
+      padding: 18px 20px;
+      border-bottom: 1px solid var(--line);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .table-toolbar h3 {
+      margin: 0;
+      font-size: 1.02rem;
+      font-weight: 800;
+    }
+
+    .table-toolbar p {
+      margin: 4px 0 0;
+      color: var(--muted);
+      font-size: 0.88rem;
     }
 
     .table-wrap {
-      overflow-x: auto;
-      border: 1px solid var(--border);
-      border-radius: 16px;
+      overflow: auto;
+      width: 100%;
     }
 
     table {
       width: 100%;
-      border-collapse: collapse;
-      min-width: 1780px;
-      background: white;
+      border-collapse: separate;
+      border-spacing: 0;
+      min-width: 1550px;
     }
 
-    th, td {
-      padding: 12px 10px;
-      border-bottom: 1px solid var(--border);
+    thead th {
+      position: sticky;
+      top: 0;
+      z-index: 1;
+      background: #f8fbff;
+      color: #334155;
       text-align: left;
+      font-size: 0.8rem;
+      font-weight: 800;
+      letter-spacing: 0.02em;
+      padding: 14px 14px;
+      border-bottom: 1px solid var(--line);
+      white-space: nowrap;
+    }
+
+    tbody td {
+      padding: 14px;
+      border-bottom: 1px solid #eef2f7;
       vertical-align: top;
+      background: #fff;
       font-size: 0.92rem;
     }
 
-    tr:last-child td { border-bottom: none; }
+    tbody tr:hover td {
+      background: #fcfdff;
+    }
 
-    th {
-      color: var(--muted);
-      font-size: 0.78rem;
-      font-weight: 800;
-      text-transform: uppercase;
-      letter-spacing: 0.06em;
-      background: #f8fbff;
+    .candidate-cell {
+      min-width: 260px;
     }
 
     .candidate-name {
       font-weight: 800;
-      color: var(--primary);
-      margin-bottom: 2px;
+      color: var(--text);
+      margin-bottom: 5px;
+      line-height: 1.35;
     }
 
-    .small {
+    .candidate-meta {
       color: var(--muted);
+      font-size: 0.84rem;
+      line-height: 1.55;
+      word-break: break-word;
+    }
+
+    .resume-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      margin-top: 8px;
+      padding: 8px 12px;
+      border-radius: 999px;
+      background: var(--chip);
+      border: 1px solid #dbeafe;
+      color: var(--primary);
+      font-weight: 700;
       font-size: 0.82rem;
+      white-space: nowrap;
+    }
+
+    .job-title {
+      font-weight: 700;
+      line-height: 1.45;
+      min-width: 200px;
+    }
+
+    .muted {
+      color: var(--muted);
+      font-size: 0.84rem;
       line-height: 1.5;
     }
 
-    .table-select {
-      width: 100%;
-      min-width: 180px;
-      padding: 9px 10px;
-      border-radius: 10px;
-      border: 1px solid var(--border);
-      font: inherit;
-      background: white;
-      outline: none;
-    }
-
-    .notice {
-      display: none;
-      margin-bottom: 16px;
-      padding: 12px 14px;
-      border-radius: 12px;
-      font-size: 0.92rem;
-      font-weight: 700;
-    }
-
-    .notice.show { display: block; }
-    .notice.success { background: #ecfdf5; color: var(--success); border: 1px solid #bbf7d0; }
-    .notice.error { background: #fef2f2; color: var(--danger); border: 1px solid #fecaca; }
-    .notice.info { background: #eef2ff; color: var(--info); border: 1px solid #c7d2fe; }
-
-    .empty { color: var(--muted); font-size: 0.95rem; padding: 10px 0 4px; }
-    .loading { color: var(--muted); font-style: italic; }
-
-    .status-pill {
-      display: inline-block;
-      padding: 6px 10px;
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      padding: 7px 10px;
       border-radius: 999px;
-      font-size: 0.76rem;
+      font-size: 0.79rem;
       font-weight: 800;
+      line-height: 1;
       white-space: nowrap;
-      text-transform: capitalize;
+      border: 1px solid transparent;
     }
 
-    .status-submitted { background: #dbeafe; color: #1d4ed8; }
-    .status-failed-paper-screening,
-    .status-withdrawn,
-    .status-rejected,
-    .status-no-show-onboarding { background: #fee2e2; color: #b91c1c; }
-    .status-endorsed,
-    .status-assessment,
-    .status-initial,
-    .status-final { background: #fef3c7; color: #b45309; }
-    .status-hired,
-    .status-onboarded { background: #dcfce7; color: #166534; }
-
-    .modal {
-      display: none;
-      position: fixed;
-      inset: 0;
-      background: rgba(15, 23, 42, 0.65);
-      z-index: 9999;
-      align-items: center;
-      justify-content: center;
-      padding: 20px;
+    .chip-default {
+      background: #eef2ff;
+      color: #3730a3;
+      border-color: #c7d2fe;
     }
 
-    .modal.show { display: flex; }
-
-    .modal-content {
-      background: white;
-      width: 100%;
-      max-width: 980px;
-      height: 88vh;
-      border-radius: 16px;
-      overflow: hidden;
-      display: flex;
-      flex-direction: column;
-      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.2);
+    .chip-success {
+      background: var(--success-bg);
+      color: var(--success);
+      border-color: #bbf7d0;
     }
 
-    .modal-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      gap: 12px;
-      padding: 14px 16px;
-      border-bottom: 1px solid var(--border);
+    .chip-warning {
+      background: var(--warning-bg);
+      color: var(--warning);
+      border-color: #fde68a;
+    }
+
+    .chip-danger {
+      background: var(--danger-bg);
+      color: var(--danger);
+      border-color: #fecaca;
+    }
+
+    .chip-neutral {
+      background: #f1f5f9;
+      color: #475569;
+      border-color: #e2e8f0;
+    }
+
+    .inline-field {
+      min-width: 180px;
+    }
+
+    .inline-field select {
+      min-width: 180px;
+      font-size: 0.9rem;
       background: #fff;
     }
 
-    .modal-header h3 {
-      margin: 0;
-      color: var(--primary);
-      font-size: 1.05rem;
-    }
-
-    .modal-actions {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-    }
-
-    .modal-close {
-      background: none;
-      border: none;
-      font-size: 24px;
-      line-height: 1;
-      cursor: pointer;
+    .small-meta {
+      margin-top: 8px;
       color: var(--muted);
-      padding: 4px 6px;
-      border-radius: 8px;
+      font-size: 0.78rem;
+      line-height: 1.45;
     }
 
-    .modal-body { flex: 1; background: #f8fafc; }
-    .modal-body iframe {
-      width: 100%;
-      height: 100%;
-      border: none;
-      background: white;
+    .row-actions {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      min-width: 140px;
     }
 
-    @media (max-width: 1200px) {
-      .stats-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-      .filters-grid { grid-template-columns: 1fr 1fr; }
+    .row-btn {
+      border: 1px solid var(--line);
+      background: #fff;
+      color: var(--text);
+      border-radius: 10px;
+      padding: 10px 12px;
+      cursor: pointer;
+      font-weight: 700;
+      transition: all 0.18s ease;
+      text-align: center;
     }
 
-    @media (max-width: 760px) {
-      .stats-grid, .filters-grid { grid-template-columns: 1fr; }
-      .topbar h1 { font-size: 1.7rem; }
-      .container { padding: 18px 14px 34px; }
-      .modal-content { height: 90vh; }
+    .row-btn:hover {
+      border-color: #bfdbfe;
+      color: var(--primary);
+      background: #f8fbff;
+    }
+
+    .loading-state,
+    .empty-state {
+      padding: 42px 22px;
+      text-align: center;
+      color: var(--muted);
+    }
+
+    .loading-state strong,
+    .empty-state strong {
+      color: var(--text);
+      display: block;
+      margin-bottom: 6px;
+    }
+
+    .footer-note {
+      margin-top: 18px;
+      color: var(--muted);
+      font-size: 0.82rem;
+      line-height: 1.6;
+    }
+
+    .status-banner {
+      position: fixed;
+      right: 20px;
+      bottom: 20px;
+      min-width: 280px;
+      max-width: 420px;
+      padding: 14px 16px;
+      border-radius: 14px;
+      color: #fff;
+      font-weight: 700;
+      box-shadow: 0 16px 30px rgba(15, 23, 42, 0.16);
+      opacity: 0;
+      visibility: hidden;
+      transform: translateY(16px);
+      transition: all 0.24s ease;
+      z-index: 60;
+    }
+
+    .status-banner.show {
+      opacity: 1;
+      visibility: visible;
+      transform: translateY(0);
+    }
+
+    .status-banner.success {
+      background: linear-gradient(135deg, #166534, #22c55e);
+    }
+
+    .status-banner.error {
+      background: linear-gradient(135deg, #991b1b, #ef4444);
+    }
+
+    .status-banner.info {
+      background: linear-gradient(135deg, #1e3a8a, #2563eb);
+    }
+
+    .mobile-cards {
+      display: none;
+      gap: 14px;
+      flex-direction: column;
+    }
+
+    .candidate-card {
+      background: #fff;
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      padding: 16px;
+      box-shadow: var(--shadow-soft);
+    }
+
+    .candidate-card-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: flex-start;
+      margin-bottom: 12px;
+    }
+
+    .card-grid {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 12px;
+    }
+
+    .card-block {
+      background: #fbfdff;
+      border: 1px solid #eef2f7;
+      border-radius: 14px;
+      padding: 12px;
+    }
+
+    .card-block-title {
+      color: var(--muted);
+      font-size: 0.78rem;
+      font-weight: 800;
+      margin-bottom: 6px;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+    }
+
+    @media (max-width: 1220px) {
+      .hero {
+        grid-template-columns: 1fr;
+      }
+
+      .filters-wrap {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+      }
+    }
+
+    @media (max-width: 860px) {
+      .page {
+        padding: 18px 14px 34px;
+      }
+
+      .topbar-inner {
+        padding: 16px 14px;
+      }
+
+      .filters-wrap {
+        grid-template-columns: 1fr;
+      }
+
+      .table-wrap {
+        display: none;
+      }
+
+      .mobile-cards {
+        display: flex;
+      }
+
+      .summary-grid {
+        grid-template-columns: 1fr 1fr;
+      }
+    }
+
+    @media (max-width: 560px) {
+      .summary-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .hero-card h2 {
+        font-size: 1.3rem;
+      }
     }
   </style>
 </head>
 <body>
-  <div class="container">
-    <div class="topbar">
-      <div>
-        <h1>Recruiter Dashboard</h1>
-        <p class="subtitle">
-          Manage candidates, update statuses, assign recruiters, and track application sources.
-        </p>
-      </div>
-
-      <div class="top-right">
-        <div class="hello" id="helloRecruiter">Hello!</div>
-        <a href="index.html" class="btn btn-outline">Home</a>
-        <button id="logoutBtn" class="btn btn-danger" type="button">Logout</button>
-      </div>
-    </div>
-
-    <div id="notice" class="notice"></div>
-
-    <div class="stats-grid">
-      <div class="stat-card"><div class="stat-label">Total</div><div class="stat-value" id="statTotal">0</div></div>
-      <div class="stat-card"><div class="stat-label">Endorsed</div><div class="stat-value" id="statEndorsed">0</div></div>
-      <div class="stat-card"><div class="stat-label">Rejected</div><div class="stat-value" id="statRejected">0</div></div>
-      <div class="stat-card"><div class="stat-label">Interviewed</div><div class="stat-value" id="statInterviewed">0</div></div>
-      <div class="stat-card"><div class="stat-label">Hired</div><div class="stat-value" id="statHired">0</div></div>
-    </div>
-
-    <div class="action-row">
-      <a href="recruiter-add-candidate.html" class="btn btn-primary">Add Candidate</a>
-      <a href="recruiter-productivity.html" class="btn btn-outline">Recruiter Productivity</a>
-      <a href="client-roles-input.html" class="btn btn-outline">Client Status / Open Roles</a>
-    </div>
-
-    <div class="panel">
-      <h2>Filters</h2>
-      <div class="filters-grid">
-        <div class="field">
-          <label for="searchInput">Search candidate or email</label>
-          <input id="searchInput" type="text" placeholder="Search by name or email" />
+  <div class="app-shell">
+    <header class="topbar">
+      <div class="topbar-inner">
+        <div class="brand">
+          <div class="brand-mark">TB</div>
+          <div class="brand-copy">
+            <h1>Recruiter Dashboard</h1>
+            <p>Track candidates, update stages, and capture structured stage notes.</p>
+          </div>
         </div>
 
-        <div class="field">
-          <label for="jobFilter">Job Title</label>
-          <select id="jobFilter"><option value="">All jobs</option></select>
-        </div>
-
-        <div class="field">
-          <label for="statusFilter">Application Status</label>
-          <select id="statusFilter">
-            <option value="">All statuses</option>
-            <option value="submitted">Submitted</option>
-            <option value="failed paper screening">Failed paper screening</option>
-            <option value="endorsed">Endorsed</option>
-            <option value="assessment">Assessment</option>
-            <option value="initial">Initial</option>
-            <option value="final">Final</option>
-            <option value="hired">Hired</option>
-            <option value="onboarded">Onboarded</option>
-            <option value="no-show (onboarding)">No-show (Onboarding)</option>
-            <option value="withdrawn">Withdrawn</option>
-            <option value="rejected">Rejected</option>
-          </select>
-        </div>
-
-        <div class="field">
-          <label for="recruiterFilter">Recruiter</label>
-          <select id="recruiterFilter"><option value="">All recruiters</option></select>
-        </div>
-
-        <div class="field">
-          <label for="sourceFilter">Application Source</label>
-          <select id="sourceFilter">
-            <option value="">All sources</option>
-            <option value="facebook">Facebook</option>
-            <option value="linkedin">LinkedIn</option>
-            <option value="website">Website</option>
-            <option value="indeed">Indeed</option>
-            <option value="referral">Referral</option>
-            <option value="other">Other</option>
-          </select>
-        </div>
-
-        <button id="refreshBtn" class="btn btn-outline" type="button">Refresh</button>
-      </div>
-    </div>
-
-    <div class="panel">
-      <h2>Candidate List</h2>
-      <div class="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>Candidate</th>
-              <th>Job</th>
-              <th>Status</th>
-              <th>Recruiter</th>
-              <th>Source</th>
-              <th>Applied</th>
-              <th>Phone</th>
-              <th>Location</th>
-              <th>Experience</th>
-              <th>Resume</th>
-              <th>Update Status</th>
-              <th>Assign Recruiter</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody id="applicationsTable">
-            <tr><td colspan="13" class="empty">Loading candidates...</td></tr>
-          </tbody>
-        </table>
-      </div>
-    </div>
-  </div>
-
-  <div id="resumeModal" class="modal" aria-hidden="true">
-    <div class="modal-content">
-      <div class="modal-header">
-        <h3>Resume Preview</h3>
-        <div class="modal-actions">
-          <a
-            id="downloadResumeBtn"
-            href="#"
-            target="_blank"
-            rel="noopener noreferrer"
-            class="btn btn-outline table-btn"
-            style="display:none;"
-          >
-            Open in New Tab
-          </a>
-          <button id="closeModal" class="modal-close" type="button" aria-label="Close">&times;</button>
+        <div class="topbar-right">
+          <div class="recruiter-badge">
+            <span class="online-dot"></span>
+            <span id="recruiterDisplay">Recruiter</span>
+          </div>
+          <button class="ghost-btn" id="refreshBtn" type="button">Refresh</button>
+          <button class="primary-btn" id="logoutBtn" type="button">Log Out</button>
         </div>
       </div>
-      <div class="modal-body">
-        <iframe id="resumeFrame" src=""></iframe>
-      </div>
-    </div>
-  </div>
+    </header>
 
-  <script>
-    document.addEventListener("DOMContentLoaded", () => {
-      const SUPABASE_URL = "https://dilalntcxmvdcmwxjcct.supabase.co";
-      const SUPABASE_ANON_KEY = "sb_publishable_HrLVIUwnaRo54yijtrbWBQ_1aeb4ezs";
-      const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    <main class="page">
+      <section class="hero">
+        <div class="hero-card">
+          <div>
+            <h2>Structured stage notes for cleaner reporting</h2>
+            <p>
+              Recruiters can now select predefined notes per status instead of typing free-form remarks.
+              This makes it easier to quantify salary mismatch, no-shows, experience gaps, and other
+              stage-level reasons across the pipeline.
+            </p>
+          </div>
 
-      const RECRUITERS = {
-        "michelle.giray@talentbuzz.pro": "Michelle Giray",
-        "angel.n@talentbuzz.pro": "Angelia Nerida",
-        "jercey.cayetano@talentbuzz.pro": "Jercey Cayetano",
-        "jayson.c@talentbuzz.pro": "Jayson Cornejo",
-        "xyrene.e@talentbuzz.pro": "Xyrene Ellsworth"
-      };
+          <div class="hero-actions">
+            <button class="primary-btn" type="button" id="scrollToPipelineBtn">View Pipeline</button>
+            <button class="ghost-btn" type="button" id="clearFiltersBtn">Clear Filters</button>
+          </div>
+        </div>
 
-      const ALLOWED_RECRUITER_EMAILS = Object.keys(RECRUITERS).concat(["mitchie028@gmail.com"]);
-      const STATUS_OPTIONS = [
-        "submitted",
-        "failed paper screening",
-        "endorsed",
-        "assessment",
-        "initial",
-        "final",
-        "hired",
-        "onboarded",
-        "no-show (onboarding)",
-        "withdrawn",
-        "rejected"
-      ];
+        <div class="summary-grid">
+          <div class="summary-card">
+            <div class="summary-label">Total Applications</div>
+            <div class="summary-value" id="totalApplicationsValue">0</div>
+            <div class="summary-sub">Current filtered result count</div>
+          </div>
 
-      const REJECTED_STATUSES = ["failed paper screening", "withdrawn", "rejected", "no-show (onboarding)"];
-      const INTERVIEWED_STATUSES = ["assessment", "initial", "final"];
-      const HIRED_STATUSES = ["hired", "onboarded"];
+          <div class="summary-card">
+            <div class="summary-label">With Structured Notes</div>
+            <div class="summary-value" id="withNotesValue">0</div>
+            <div class="summary-sub">Applications with stage note selected</div>
+          </div>
 
-      const state = {
-        allApplications: [],
-        currentUser: null
-      };
+          <div class="summary-card">
+            <div class="summary-label">Hired</div>
+            <div class="summary-value" id="hiredValue">0</div>
+            <div class="summary-sub">Candidates marked as hired</div>
+          </div>
 
-      const els = {
-        applicationsTable: document.getElementById("applicationsTable"),
-        jobFilter: document.getElementById("jobFilter"),
-        statusFilter: document.getElementById("statusFilter"),
-        recruiterFilter: document.getElementById("recruiterFilter"),
-        sourceFilter: document.getElementById("sourceFilter"),
-        searchInput: document.getElementById("searchInput"),
-        notice: document.getElementById("notice"),
-        helloRecruiter: document.getElementById("helloRecruiter"),
-        logoutBtn: document.getElementById("logoutBtn"),
-        refreshBtn: document.getElementById("refreshBtn"),
-        statTotal: document.getElementById("statTotal"),
-        statEndorsed: document.getElementById("statEndorsed"),
-        statRejected: document.getElementById("statRejected"),
-        statInterviewed: document.getElementById("statInterviewed"),
-        statHired: document.getElementById("statHired"),
-        resumeModal: document.getElementById("resumeModal"),
-        resumeFrame: document.getElementById("resumeFrame"),
-        closeModal: document.getElementById("closeModal"),
-        downloadResumeBtn: document.getElementById("downloadResumeBtn")
-      };
+          <div class="summary-card">
+            <div class="summary-label">No-Shows</div>
+            <div class="summary-value" id="noShowValue">0</div>
+            <div class="summary-sub">Across interview, assessment, and onboarding</div>
+          </div>
+        </div>
+      </section>
 
-      function escapeHtml(value) {
-        return String(value ?? "")
-          .replace(/&/g, "&amp;")
-          .replace(/</g, "&lt;")
-          .replace(/>/g, "&gt;")
-          .replace(/"/g, "&quot;")
-          .replace(/'/g, "&#039;");
-      }
+      <section class="panel">
+        <div class="filters-wrap">
+          <div class="filter-field">
+            <label for="searchInput">Search</label>
+            <input
+              id="searchInput"
+              type="text"
+              placeholder="Search candidate, email, job title, recruiter, or note"
+            />
+          </div>
 
-      function normalizeText(value) {
-        return String(value || "").trim().toLowerCase();
-      }
+          <div class="filter-field">
+            <label for="statusFilter">Status</label>
+            <select id="statusFilter">
+              <option value="">All statuses</option>
+            </select>
+          </div>
 
-      function formatDate(dateString) {
-        if (!dateString) return "-";
-        const date = new Date(dateString);
-        if (Number.isNaN(date.getTime())) return "-";
-        return date.toLocaleDateString(undefined, {
-          year: "numeric",
-          month: "short",
-          day: "numeric"
-        });
-      }
+          <div class="filter-field">
+            <label for="noteFilter">Stage Note</label>
+            <select id="noteFilter">
+              <option value="">All notes</option>
+            </select>
+          </div>
 
-      function showNotice(message, type = "success") {
-        els.notice.textContent = message;
-        els.notice.className = `notice show ${type}`;
-        window.clearTimeout(showNotice._timer);
-        showNotice._timer = window.setTimeout(() => {
-          clearNotice();
-        }, 3500);
-      }
+          <div class="filter-field">
+            <label for="sourceFilter">Application Source</label>
+            <select id="sourceFilter">
+              <option value="">All sources</option>
+            </select>
+          </div>
 
-      function clearNotice() {
-        els.notice.textContent = "";
-        els.notice.className = "notice";
-      }
+          <div class="filter-field">
+            <label for="recruiterFilter">Recruiter</label>
+            <select id="recruiterFilter">
+              <option value="">All recruiters</option>
+            </select>
+          </div>
 
-      function getRecruiterName(email) {
-        return RECRUITERS[email] || email || "Unassigned";
-      }
+          <div class="filter-field">
+            <label>&nbsp;</label>
+            <button class="ghost-btn" id="applyFiltersBtn" type="button" style="width:100%; height:46px;">
+              Apply Filters
+            </button>
+          </div>
+        </div>
+      </section>
 
-      function getProfileFromApplication(app) {
-        if (Array.isArray(app.applicant_profiles)) return app.applicant_profiles[0] || null;
-        return app.applicant_profiles || null;
-      }
+      <section class="table-panel" id="pipelineSection">
+        <div class="table-toolbar">
+          <div>
+            <h3>Candidate Pipeline</h3>
+            <p>Update the status and stage note directly in the dashboard.</p>
+          </div>
+          <div class="muted" id="lastUpdatedLabel">Last updated: —</div>
+        </div>
 
-      function getStatusClass(status) {
-        return (
-          "status-" +
-          String(status || "submitted")
-            .toLowerCase()
-            .replace(/\s+/g, "-")
-            .replace(/[()]/g, "")
-        );
-      }
-
-      function getFileExtension(url) {
-        try {
-          const cleanUrl = String(url || "").split("?")[0].split("#")[0];
-          const parts = cleanUrl.split(".");
-          return parts.length > 1 ? parts.pop().toLowerCase() : "";
-        } catch {
-          return "";
-        }
-      }
-
-      async function getResumeUrl(app) {
-        const profile = getProfileFromApplication(app);
-        if (!profile) return "";
-
-        if (profile.resume_url) return profile.resume_url;
-
-        if (profile.resume_path) {
-          const { data, error } = await supabaseClient
-            .storage
-            .from("resumes")
-            .createSignedUrl(profile.resume_path, 3600);
-
-          if (error) return "";
-          return data?.signedUrl || "";
-        }
-
-        return "";
-      }
-
-      function openResumeModal(url) {
-        if (!url) return;
-
-        const extension = getFileExtension(url);
-        const isPdf = extension === "pdf";
-
-        els.downloadResumeBtn.href = url;
-        els.downloadResumeBtn.style.display = "inline-flex";
-
-        els.resumeFrame.src = isPdf
-          ? url
-          : `https://docs.google.com/gview?url=${encodeURIComponent(url)}&embedded=true`;
-
-        els.resumeModal.classList.add("show");
-        els.resumeModal.setAttribute("aria-hidden", "false");
-        document.body.style.overflow = "hidden";
-      }
-
-      function closeResumeModal() {
-        els.resumeModal.classList.remove("show");
-        els.resumeModal.setAttribute("aria-hidden", "true");
-        els.resumeFrame.src = "";
-        els.downloadResumeBtn.href = "#";
-        els.downloadResumeBtn.style.display = "none";
-        document.body.style.overflow = "";
-      }
-
-      async function protectRecruiterPage() {
-        const {
-          data: { session }
-        } = await supabaseClient.auth.getSession();
-
-        if (!session || !session.user) {
-          window.location.href = "login.html?redirect=recruiter-dashboard.html";
-          return null;
-        }
-
-        const email = normalizeText(session.user.email);
-        const allowedEmails = ALLOWED_RECRUITER_EMAILS.map(v => normalizeText(v));
-
-        if (!allowedEmails.includes(email)) {
-          alert("Access denied.");
-          window.location.href = "dashboard.html";
-          return null;
-        }
-
-        state.currentUser = session.user;
-        els.helloRecruiter.textContent = `Hello! ${getRecruiterName(email)}`;
-        return session.user;
-      }
-
-      function populateFilters() {
-        const urlParams = new URLSearchParams(window.location.search);
-        const selectedJobFromUrl = normalizeText(urlParams.get("job"));
-        const currentRecruiterValue = els.recruiterFilter.value;
-        const jobsMap = new Map();
-
-        state.allApplications.forEach(app => {
-          const title = app.jobs?.title || app.job_title || "";
-          const slug = app.jobs?.slug || title;
-          if (title) jobsMap.set(String(slug), String(title));
-        });
-
-        const jobsOptions = Array.from(jobsMap.entries())
-          .sort((a, b) => a[1].localeCompare(b[1]))
-          .map(([slug, title]) => {
-            const selected = normalizeText(slug) === selectedJobFromUrl ? "selected" : "";
-            return `<option value="${escapeHtml(slug)}" ${selected}>${escapeHtml(title)}</option>`;
-          })
-          .join("");
-
-        els.jobFilter.innerHTML = `<option value="">All jobs</option>${jobsOptions}`;
-
-        const recruiterOptions = Object.entries(RECRUITERS)
-          .map(([email, name]) => `<option value="${escapeHtml(email)}">${escapeHtml(name)}</option>`)
-          .join("");
-
-        els.recruiterFilter.innerHTML = `<option value="">All recruiters</option>${recruiterOptions}`;
-
-        if (currentRecruiterValue) {
-          els.recruiterFilter.value = currentRecruiterValue;
-        }
-      }
-
-      function getFilteredApplications() {
-        const search = normalizeText(els.searchInput.value);
-        const selectedJobSlug = normalizeText(els.jobFilter.value);
-        const selectedStatus = normalizeText(els.statusFilter.value);
-        const selectedRecruiter = normalizeText(els.recruiterFilter.value);
-        const selectedSource = normalizeText(els.sourceFilter.value);
-
-        return state.allApplications.filter(app => {
-          const profile = getProfileFromApplication(app);
-          const candidateName = normalizeText(profile?.full_name);
-          const candidateEmail = normalizeText(app.email);
-          const jobSlug = normalizeText(app.jobs?.slug || app.job_title);
-          const status = normalizeText(app.status || "submitted");
-          const recruiter = normalizeText(app.recruiter_email);
-          const source = normalizeText(app.application_source);
-
-          return (
-            (!search || candidateName.includes(search) || candidateEmail.includes(search)) &&
-            (!selectedJobSlug || jobSlug === selectedJobSlug) &&
-            (!selectedStatus || status === selectedStatus) &&
-            (!selectedRecruiter || recruiter === selectedRecruiter) &&
-            (!selectedSource || source === selectedSource)
-          );
-        });
-      }
-
-      function renderStats() {
-        const filtered = getFilteredApplications();
-        els.statTotal.textContent = filtered.length;
-        els.statEndorsed.textContent = filtered.filter(a => normalizeText(a.status) === "endorsed").length;
-        els.statRejected.textContent = filtered.filter(a => REJECTED_STATUSES.includes(normalizeText(a.status))).length;
-        els.statInterviewed.textContent = filtered.filter(a => INTERVIEWED_STATUSES.includes(normalizeText(a.status))).length;
-        els.statHired.textContent = filtered.filter(a => HIRED_STATUSES.includes(normalizeText(a.status))).length;
-      }
-
-      async function renderTable() {
-        const filtered = getFilteredApplications();
-
-        if (!filtered.length) {
-          els.applicationsTable.innerHTML = '<tr><td colspan="13" class="empty">No candidates found.</td></tr>';
-          return;
-        }
-
-        const rows = await Promise.all(
-          filtered.map(async app => {
-            const profile = getProfileFromApplication(app);
-            const candidateName = escapeHtml(profile?.full_name || "Unnamed");
-            const candidateEmail = escapeHtml(app.email || "-");
-            const jobTitle = escapeHtml(app.jobs?.title || app.job_title || "-");
-            const currentStatus = String(app.status || "submitted");
-            const safeStatus = escapeHtml(currentStatus);
-            const recruiterName = escapeHtml(getRecruiterName(app.recruiter_email));
-            const source = escapeHtml(app.application_source || "-");
-            const appliedDate = escapeHtml(formatDate(app.created_at));
-            const phone = escapeHtml(profile?.phone || "-");
-            const location = escapeHtml(profile?.location || "-");
-            const yearsOfExperience =
-              profile?.years_of_experience !== null &&
-              profile?.years_of_experience !== undefined &&
-              profile?.years_of_experience !== ""
-                ? `${escapeHtml(profile.years_of_experience)} yr${Number(profile.years_of_experience) === 1 ? "" : "s"}`
-                : "-";
-
-            const resumeUrl = await getResumeUrl(app);
-            const safeResumeUrl = resumeUrl ? escapeHtml(resumeUrl) : "";
-
-            const statusOptions = STATUS_OPTIONS.map(option => {
-              const selected = normalizeText(option) === normalizeText(currentStatus) ? "selected" : "";
-              return `<option value="${escapeHtml(option)}" ${selected}>${escapeHtml(option)}</option>`;
-            }).join("");
-
-            const recruiterOptions =
-              `<option value="">Unassigned</option>` +
-              Object.entries(RECRUITERS)
-                .map(([email, name]) => {
-                  const selected = normalizeText(app.recruiter_email) === normalizeText(email) ? "selected" : "";
-                  return `<option value="${escapeHtml(email)}" ${selected}>${escapeHtml(name)}</option>`;
-                })
-                .join("");
-
-            return `
+        <div class="table-wrap">
+          <table>
+            <thead>
               <tr>
-                <td>
-                  <div class="candidate-name">${candidateName}</div>
-                  <div class="small">${candidateEmail}</div>
-                </td>
-                <td>${jobTitle}</td>
-                <td><span class="status-pill ${getStatusClass(currentStatus)}">${safeStatus}</span></td>
-                <td>${recruiterName}</td>
-                <td>${source}</td>
-                <td>${appliedDate}</td>
-                <td>${phone}</td>
-                <td>${location}</td>
-                <td>${yearsOfExperience}</td>
-                <td>
-                  ${
-                    safeResumeUrl
-                      ? `<button class="btn btn-outline table-btn view-resume-btn" type="button" data-url="${safeResumeUrl}">View Resume</button>`
-                      : `<span class="small">No resume</span>`
-                  }
-                </td>
-                <td>
-                  <select class="table-select status-select" data-id="${escapeHtml(app.id)}">
-                    ${statusOptions}
-                  </select>
-                </td>
-                <td>
-                  <select class="table-select recruiter-select" data-id="${escapeHtml(app.id)}">
-                    ${recruiterOptions}
-                  </select>
-                </td>
-                <td>
-                  <div style="display:flex;gap:8px;flex-wrap:wrap;">
-                    <button class="btn btn-outline table-btn edit-btn" type="button" data-id="${escapeHtml(app.id)}">Edit</button>
-                    <button class="btn btn-danger table-btn btn-delete" type="button" data-id="${escapeHtml(app.id)}">Remove</button>
-                  </div>
+                <th>Candidate</th>
+                <th>Job</th>
+                <th>Recruiter</th>
+                <th>Source</th>
+                <th>Applied</th>
+                <th>Status</th>
+                <th>Stage Note</th>
+                <th>Note Updated</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="applicationsTableBody">
+              <tr>
+                <td colspan="9" class="loading-state">
+                  <strong>Loading applications...</strong>
+                  Please wait while we fetch the latest pipeline.
                 </td>
               </tr>
-            `;
-          })
-        );
+            </tbody>
+          </table>
+        </div>
 
-        els.applicationsTable.innerHTML = rows.join("");
+        <div class="mobile-cards" id="mobileCards">
+          <div class="loading-state">
+            <strong>Loading applications...</strong>
+            Please wait while we fetch the latest pipeline.
+          </div>
+        </div>
+      </section>
+
+      <div class="footer-note">
+        Notes:
+        This version assumes your <strong>applications</strong> table contains
+        <strong>stage_note_code</strong>, <strong>stage_note_label</strong>, and
+        <strong>stage_note_updated_at</strong>. It also assumes the dashboard can read
+        applicant data from a joined <strong>applicant_profiles</strong> relation.
+      </div>
+    </main>
+  </div>
+
+  <div id="statusBanner" class="status-banner info"></div>
+
+  <script>
+    /******************************************************************
+     * TALENTBUZZ RECRUITER DASHBOARD
+     * Full version with structured stage-note dropdown per status
+     ******************************************************************/
+
+    /******************************************************************
+     * CONFIG
+     * Replace these if not already injected elsewhere.
+     ******************************************************************/
+    const SUPABASE_URL =
+      window.SUPABASE_URL ||
+      window.__SUPABASE_URL__ ||
+      localStorage.getItem("SUPABASE_URL") ||
+      "YOUR_SUPABASE_URL";
+
+    const SUPABASE_ANON_KEY =
+      window.SUPABASE_ANON_KEY ||
+      window.__SUPABASE_ANON_KEY__ ||
+      localStorage.getItem("SUPABASE_ANON_KEY") ||
+      "YOUR_SUPABASE_ANON_KEY";
+
+    const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+    /******************************************************************
+     * ALLOWED RECRUITERS
+     ******************************************************************/
+    const ALLOWED_RECRUITERS = {
+      "michelle.giray@talentbuzz.pro": "Michelle Giray",
+      "angel.n@talentbuzz.pro": "Angelia Nerida",
+      "jercey.cayetano@talentbuzz.pro": "Jercey Cayetano",
+      "jayson.c@talentbuzz.pro": "Jayson Cornejo",
+      "xyrene.e@talentbuzz.pro": "Xyrene Ellsworth",
+      "mitchie028@gmail.com": "Mitchie"
+    };
+
+    /******************************************************************
+     * STATUS OPTIONS
+     ******************************************************************/
+    const STATUS_OPTIONS = [
+      "submitted",
+      "failed paper screening",
+      "endorsed",
+      "assessment",
+      "initial",
+      "final",
+      "hired",
+      "onboarded",
+      "no-show (onboarding)",
+      "withdrawn",
+      "rejected"
+    ];
+
+    /******************************************************************
+     * STRUCTURED STAGE NOTES
+     ******************************************************************/
+    const STAGE_NOTE_OPTIONS = {
+      "submitted": [
+        { code: "meets_basic_requirements", label: "Meets basic requirements" },
+        { code: "incomplete_profile", label: "Incomplete profile" },
+        { code: "salary_not_aligned", label: "Salary not aligned" },
+        { code: "location_not_aligned", label: "Location not aligned" },
+        { code: "experience_not_aligned", label: "Experience not aligned" }
+      ],
+      "failed paper screening": [
+        { code: "failed_basic_qualification", label: "Failed basic qualification" },
+        { code: "failed_experience_match", label: "Failed experience match" },
+        { code: "failed_education_requirement", label: "Failed education requirement" },
+        { code: "failed_language_requirement", label: "Failed language requirement" },
+        { code: "failed_shift_or_work_setup", label: "Failed shift or work setup" }
+      ],
+      "endorsed": [
+        { code: "endorsed_to_client", label: "Endorsed to client" },
+        { code: "shortlisted_for_next_step", label: "Shortlisted for next step" },
+        { code: "client_review_pending", label: "Client review pending" },
+        { code: "awaiting_client_feedback", label: "Awaiting client feedback" }
+      ],
+      "assessment": [
+        { code: "assessment_sent", label: "Assessment sent" },
+        { code: "assessment_passed", label: "Assessment passed" },
+        { code: "assessment_failed", label: "Assessment failed" },
+        { code: "assessment_no_show", label: "Assessment no-show" },
+        { code: "assessment_pending_completion", label: "Assessment pending completion" }
+      ],
+      "initial": [
+        { code: "good_communication", label: "Good communication" },
+        { code: "failed_initial_interview", label: "Failed initial interview" },
+        { code: "initial_interview_no_show", label: "Initial interview no-show" },
+        { code: "for_final_interview", label: "For final interview" },
+        { code: "pending_initial_feedback", label: "Pending initial feedback" }
+      ],
+      "final": [
+        { code: "passed_final_interview", label: "Passed final interview" },
+        { code: "rejected_by_client", label: "Rejected by client" },
+        { code: "for_offer", label: "For offer" },
+        { code: "final_interview_no_show", label: "Final interview no-show" },
+        { code: "pending_final_feedback", label: "Pending final feedback" }
+      ],
+      "hired": [
+        { code: "offer_accepted", label: "Offer accepted" },
+        { code: "offer_declined", label: "Offer declined" },
+        { code: "pre_employment_in_progress", label: "Pre-employment in progress" },
+        { code: "start_date_confirmed", label: "Start date confirmed" }
+      ],
+      "onboarded": [
+        { code: "completed_onboarding", label: "Completed onboarding" },
+        { code: "actively_deployed", label: "Actively deployed" },
+        { code: "start_date_moved", label: "Start date moved" }
+      ],
+      "no-show (onboarding)": [
+        { code: "onboarding_no_show", label: "Onboarding no-show" },
+        { code: "unreachable_before_start", label: "Unreachable before start" },
+        { code: "backed_out_before_day_1", label: "Backed out before Day 1" }
+      ],
+      "withdrawn": [
+        { code: "candidate_withdrew", label: "Candidate withdrew" },
+        { code: "accepted_other_offer", label: "Accepted other offer" },
+        { code: "unresponsive", label: "Unresponsive" },
+        { code: "personal_reasons", label: "Personal reasons" }
+      ],
+      "rejected": [
+        { code: "rejected_due_to_experience", label: "Rejected due to experience" },
+        { code: "rejected_due_to_salary", label: "Rejected due to salary" },
+        { code: "rejected_due_to_location", label: "Rejected due to location" },
+        { code: "rejected_due_to_comms", label: "Rejected due to communication" },
+        { code: "rejected_due_to_culture_fit", label: "Rejected due to culture fit" }
+      ]
+    };
+
+    /******************************************************************
+     * STATE
+     ******************************************************************/
+    let loggedInUser = null;
+    let recruiterEmail = "";
+    let recruiterName = "Recruiter";
+    let rawApplications = [];
+    let filteredApplications = [];
+    let toastTimer = null;
+
+    /******************************************************************
+     * DOM
+     ******************************************************************/
+    const recruiterDisplay = document.getElementById("recruiterDisplay");
+    const refreshBtn = document.getElementById("refreshBtn");
+    const logoutBtn = document.getElementById("logoutBtn");
+    const scrollToPipelineBtn = document.getElementById("scrollToPipelineBtn");
+    const clearFiltersBtn = document.getElementById("clearFiltersBtn");
+    const applyFiltersBtn = document.getElementById("applyFiltersBtn");
+
+    const searchInput = document.getElementById("searchInput");
+    const statusFilter = document.getElementById("statusFilter");
+    const noteFilter = document.getElementById("noteFilter");
+    const sourceFilter = document.getElementById("sourceFilter");
+    const recruiterFilter = document.getElementById("recruiterFilter");
+
+    const applicationsTableBody = document.getElementById("applicationsTableBody");
+    const mobileCards = document.getElementById("mobileCards");
+    const statusBanner = document.getElementById("statusBanner");
+    const lastUpdatedLabel = document.getElementById("lastUpdatedLabel");
+
+    const totalApplicationsValue = document.getElementById("totalApplicationsValue");
+    const withNotesValue = document.getElementById("withNotesValue");
+    const hiredValue = document.getElementById("hiredValue");
+    const noShowValue = document.getElementById("noShowValue");
+
+    /******************************************************************
+     * HELPERS
+     ******************************************************************/
+    function normalize(value) {
+      return (value || "").toString().trim().toLowerCase();
+    }
+
+    function escapeHtml(value) {
+      return (value || "")
+        .toString()
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#039;");
+    }
+
+    function titleCase(value) {
+      return (value || "")
+        .toString()
+        .toLowerCase()
+        .replace(/\b\w/g, char => char.toUpperCase());
+    }
+
+    function formatDateTime(value) {
+      if (!value) return "—";
+      const date = new Date(value);
+      if (Number.isNaN(date.getTime())) return "—";
+      return date.toLocaleString("en-PH", {
+        year: "numeric",
+        month: "short",
+        day: "numeric",
+        hour: "numeric",
+        minute: "2-digit"
+      });
+    }
+
+    function formatDateShort(value) {
+      if (!value) return "—";
+      const date = new Date(value);
+      if (Number.isNaN(date.getTime())) return "—";
+      return date.toLocaleDateString("en-PH", {
+        year: "numeric",
+        month: "short",
+        day: "numeric"
+      });
+    }
+
+    function formatRecruiterName(email) {
+      const normalized = normalize(email);
+      if (ALLOWED_RECRUITERS[normalized]) return ALLOWED_RECRUITERS[normalized];
+      if (!email) return "Unassigned";
+      const local = email.split("@")[0] || "";
+      return titleCase(local.replace(/[._-]+/g, " "));
+    }
+
+    function statusChipClass(status) {
+      const s = normalize(status);
+      if (["hired", "onboarded"].includes(s)) return "chip-success";
+      if (["withdrawn", "rejected", "failed paper screening", "no-show (onboarding)"].includes(s)) return "chip-danger";
+      if (["assessment", "initial", "final", "endorsed"].includes(s)) return "chip-warning";
+      if (["submitted"].includes(s)) return "chip-default";
+      return "chip-neutral";
+    }
+
+    function getStageNoteOptions(stage) {
+      return STAGE_NOTE_OPTIONS[normalize(stage)] || [];
+    }
+
+    function getNoteLabelByCode(stage, noteCode) {
+      const matched = getStageNoteOptions(stage).find(item => item.code === noteCode);
+      return matched ? matched.label : "";
+    }
+
+    function buildResumeUrl(row) {
+      const joinedProfile = row.applicant_profiles || {};
+      const resumeUrl = joinedProfile.resume_url || row.resume_url || "";
+      const resumePath = joinedProfile.resume_path || row.resume_path || "";
+
+      if (resumeUrl && resumeUrl.includes("/storage/v1/object/public/resumes/")) {
+        return resumeUrl;
       }
 
-      async function sendRejectionEmail(application) {
-        const profile = getProfileFromApplication(application);
+      if (resumePath) {
+        const { data } = supabase.storage.from("resumes").getPublicUrl(resumePath);
+        return data?.publicUrl || "";
+      }
 
-        await supabaseClient
-          .from("applications")
-          .update({ rejection_email_status: "sending" })
-          .eq("id", application.id);
+      return resumeUrl || "";
+    }
 
-        const { data, error } = await supabaseClient.functions.invoke(
-          "send-rejection-email",
-          {
-            body: {
-              candidate_name: profile?.full_name || "Applicant",
-              candidate_email: application.email,
-              job_title: application.jobs?.title || application.job_title || "Role"
-            }
-          }
-        );
+    function showToast(message, type = "info") {
+      clearTimeout(toastTimer);
+      statusBanner.className = `status-banner ${type} show`;
+      statusBanner.textContent = message;
+      toastTimer = setTimeout(() => {
+        statusBanner.classList.remove("show");
+      }, 2600);
+    }
 
-        if (error || !data?.success) {
-          await supabaseClient
-            .from("applications")
-            .update({ rejection_email_status: "failed" })
-            .eq("id", application.id);
+    function setLoadingState() {
+      applicationsTableBody.innerHTML = `
+        <tr>
+          <td colspan="9" class="loading-state">
+            <strong>Loading applications...</strong>
+            Please wait while we fetch the latest pipeline.
+          </td>
+        </tr>
+      `;
+
+      mobileCards.innerHTML = `
+        <div class="loading-state">
+          <strong>Loading applications...</strong>
+          Please wait while we fetch the latest pipeline.
+        </div>
+      `;
+    }
+
+    function setEmptyState() {
+      applicationsTableBody.innerHTML = `
+        <tr>
+          <td colspan="9" class="empty-state">
+            <strong>No applications found.</strong>
+            Try changing your filters or refresh the dashboard.
+          </td>
+        </tr>
+      `;
+
+      mobileCards.innerHTML = `
+        <div class="empty-state">
+          <strong>No applications found.</strong>
+          Try changing your filters or refresh the dashboard.
+        </div>
+      `;
+    }
+
+    /******************************************************************
+     * AUTH
+     ******************************************************************/
+    async function validateSession() {
+      try {
+        const { data, error } = await supabase.auth.getUser();
+        if (error) throw error;
+
+        const user = data?.user || null;
+        if (!user) {
+          window.location.href = "login.html";
           return false;
         }
 
-        await supabaseClient
-          .from("applications")
-          .update({ rejection_email_status: "sent" })
-          .eq("id", application.id);
+        loggedInUser = user;
+        recruiterEmail = normalize(user.email || "");
+        recruiterName = formatRecruiterName(recruiterEmail);
+
+        recruiterDisplay.textContent = recruiterName;
+
+        if (Object.keys(ALLOWED_RECRUITERS).length && !ALLOWED_RECRUITERS[recruiterEmail]) {
+          showToast("You are signed in, but this account is not in the recruiter allowlist.", "error");
+        }
 
         return true;
+      } catch (error) {
+        console.error("Session validation failed:", error);
+        showToast("Unable to validate session.", "error");
+        window.location.href = "login.html";
+        return false;
       }
+    }
 
-      async function updateApplicationStatus(applicationId, newStatus) {
-        const application = state.allApplications.find(app => app.id === applicationId);
-
-        const { error } = await supabaseClient
-          .from("applications")
-          .update({ status: newStatus })
-          .eq("id", applicationId);
-
-        if (error) {
-          showNotice(error.message || "Failed to update status.", "error");
-          return;
-        }
-
-        const newStatusNormalized = normalizeText(newStatus);
-
-        if (
-          newStatusNormalized === "rejected" &&
-          application &&
-          application.rejection_email_status !== "sent"
-        ) {
-          try {
-            const sent = await sendRejectionEmail(application);
-            if (sent) {
-              showNotice("Status updated and rejection email sent.", "success");
-            } else {
-              showNotice("Status updated, but rejection email failed.", "error");
-            }
-          } catch {
-            showNotice("Status updated, but rejection email failed.", "error");
-          }
-        } else {
-          showNotice("Application status updated.", "success");
-        }
-
-        await loadApplications();
+    async function handleLogout() {
+      try {
+        await supabase.auth.signOut();
+      } catch (error) {
+        console.error("Logout failed:", error);
+      } finally {
+        window.location.href = "login.html";
       }
+    }
 
-      async function updateRecruiter(applicationId, recruiterEmail) {
-        const { error } = await supabaseClient
-          .from("applications")
-          .update({ recruiter_email: recruiterEmail || null })
-          .eq("id", applicationId);
+    /******************************************************************
+     * DATA LOAD
+     ******************************************************************/
+    async function fetchApplications() {
+      setLoadingState();
 
-        if (error) {
-          showNotice(error.message || "Failed to assign recruiter.", "error");
-          return;
-        }
-
-        showNotice("Recruiter assignment updated.", "success");
-        await loadApplications();
-      }
-
-      async function deleteApplication(applicationId) {
-        const confirmed = window.confirm("Are you sure you want to remove this application?");
-        if (!confirmed) return;
-
-        const { error } = await supabaseClient
-          .from("applications")
-          .delete()
-          .eq("id", applicationId);
-
-        if (error) {
-          showNotice(error.message || "Failed to remove application.", "error");
-          return;
-        }
-
-        showNotice("Application removed successfully.", "success");
-        await loadApplications();
-      }
-
-      async function loadApplications() {
-        clearNotice();
-        els.refreshBtn.disabled = true;
-        els.refreshBtn.textContent = "Refreshing...";
-        els.applicationsTable.innerHTML = '<tr><td colspan="13" class="empty loading">Loading candidates...</td></tr>';
-
-        const { data, error } = await supabaseClient
+      try {
+        const { data, error } = await supabase
           .from("applications")
           .select(`
             id,
             applicant_profile_id,
             email,
             job_id,
-            job_id_uuid,
             job_title,
             status,
             recruiter_email,
             application_source,
             confirmation_email_status,
             rejection_email_status,
+            screening_result,
+            screening_score,
+            auto_disposition_reason,
+            stage_note_code,
+            stage_note_label,
+            stage_note_updated_at,
             created_at,
-            jobs(id, title, slug),
-            applicant_profiles(id, full_name, phone, location, years_of_experience, current_title, skills, resume_url, resume_path)
+            applicant_profiles (
+              id,
+              full_name,
+              phone,
+              location,
+              resume_url,
+              resume_path
+            )
           `)
           .order("created_at", { ascending: false });
 
-        els.refreshBtn.disabled = false;
-        els.refreshBtn.textContent = "Refresh";
+        if (error) throw error;
 
-        if (error) {
-          els.applicationsTable.innerHTML = `<tr><td colspan="13" class="empty">${escapeHtml(error.message)}</td></tr>`;
-          return;
-        }
+        rawApplications = (data || []).map(row => ({
+          ...row,
+          recruiter_name: formatRecruiterName(row.recruiter_email),
+          candidate_name: row.applicant_profiles?.full_name || "Unnamed Candidate",
+          phone: row.applicant_profiles?.phone || "",
+          location: row.applicant_profiles?.location || "",
+          resume_link: buildResumeUrl(row)
+        }));
 
-        state.allApplications = data || [];
-        populateFilters();
-        renderStats();
-        await renderTable();
+        populateFilterOptions(rawApplications);
+        applyFilters();
+        lastUpdatedLabel.textContent = `Last updated: ${formatDateTime(new Date().toISOString())}`;
+      } catch (error) {
+        console.error("Failed to fetch applications:", error);
+        applicationsTableBody.innerHTML = `
+          <tr>
+            <td colspan="9" class="empty-state">
+              <strong>Failed to load applications.</strong>
+              ${escapeHtml(error.message || "Please check your Supabase table and join configuration.")}
+            </td>
+          </tr>
+        `;
+        mobileCards.innerHTML = `
+          <div class="empty-state">
+            <strong>Failed to load applications.</strong>
+            ${escapeHtml(error.message || "Please check your Supabase table and join configuration.")}
+          </div>
+        `;
+        showToast("Failed to load applications.", "error");
       }
+    }
 
-      function syncJobFilterToUrl() {
-        const selectedSlug = els.jobFilter.value;
-        const url = new URL(window.location.href);
-        if (selectedSlug) url.searchParams.set("job", selectedSlug);
-        else url.searchParams.delete("job");
-        window.history.replaceState({}, "", url.toString());
-      }
+    /******************************************************************
+     * FILTERS
+     ******************************************************************/
+    function populateFilterOptions(rows) {
+      const uniqueStatuses = [...new Set(STATUS_OPTIONS)];
+      const uniqueSources = [...new Set(rows.map(item => item.application_source).filter(Boolean))].sort();
+      const uniqueRecruiters = [...new Set(rows.map(item => item.recruiter_email).filter(Boolean))].sort();
+      const uniqueNotes = [...new Set(
+        rows
+          .map(item => item.stage_note_label || "")
+          .filter(Boolean)
+      )].sort();
 
-      function handleFilterChange() {
-        renderStats();
-        renderTable();
-      }
+      statusFilter.innerHTML = `<option value="">All statuses</option>` +
+        uniqueStatuses.map(status => `<option value="${escapeHtml(status)}">${escapeHtml(titleCase(status))}</option>`).join("");
 
-      els.jobFilter.addEventListener("change", () => {
-        syncJobFilterToUrl();
-        handleFilterChange();
+      sourceFilter.innerHTML = `<option value="">All sources</option>` +
+        uniqueSources.map(source => `<option value="${escapeHtml(source)}">${escapeHtml(source)}</option>`).join("");
+
+      recruiterFilter.innerHTML = `<option value="">All recruiters</option>` +
+        uniqueRecruiters.map(email => `
+          <option value="${escapeHtml(email)}">${escapeHtml(formatRecruiterName(email))}</option>
+        `).join("");
+
+      noteFilter.innerHTML = `<option value="">All notes</option>` +
+        uniqueNotes.map(note => `<option value="${escapeHtml(note)}">${escapeHtml(note)}</option>`).join("");
+    }
+
+    function applyFilters() {
+      const q = normalize(searchInput.value);
+      const statusValue = normalize(statusFilter.value);
+      const noteValue = normalize(noteFilter.value);
+      const sourceValue = normalize(sourceFilter.value);
+      const recruiterValue = normalize(recruiterFilter.value);
+
+      filteredApplications = rawApplications.filter(row => {
+        const haystack = [
+          row.candidate_name,
+          row.email,
+          row.job_title,
+          row.recruiter_email,
+          row.recruiter_name,
+          row.stage_note_label,
+          row.application_source,
+          row.location,
+          row.phone
+        ].join(" ").toLowerCase();
+
+        const matchesSearch = !q || haystack.includes(q);
+        const matchesStatus = !statusValue || normalize(row.status) === statusValue;
+        const matchesNote = !noteValue || normalize(row.stage_note_label) === noteValue;
+        const matchesSource = !sourceValue || normalize(row.application_source) === sourceValue;
+        const matchesRecruiter = !recruiterValue || normalize(row.recruiter_email) === recruiterValue;
+
+        return matchesSearch && matchesStatus && matchesNote && matchesSource && matchesRecruiter;
       });
 
-      [els.statusFilter, els.recruiterFilter, els.sourceFilter].forEach(el => {
-        el.addEventListener("change", handleFilterChange);
-      });
+      renderApplications();
+      updateSummaryCards();
+    }
 
-      els.searchInput.addEventListener("input", handleFilterChange);
-      els.refreshBtn.addEventListener("click", loadApplications);
+    function clearFilters() {
+      searchInput.value = "";
+      statusFilter.value = "";
+      noteFilter.value = "";
+      sourceFilter.value = "";
+      recruiterFilter.value = "";
+      applyFilters();
+    }
 
-      els.applicationsTable.addEventListener("change", async event => {
-        const target = event.target;
+    /******************************************************************
+     * SUMMARY
+     ******************************************************************/
+    function updateSummaryCards() {
+      const total = filteredApplications.length;
+      const withNotes = filteredApplications.filter(item => !!item.stage_note_code).length;
+      const hiredCount = filteredApplications.filter(item => normalize(item.status) === "hired").length;
+      const noShowCount = filteredApplications.filter(item => {
+        const code = normalize(item.stage_note_code);
+        const status = normalize(item.status);
+        return code.includes("no_show") || status.includes("no-show");
+      }).length;
 
-        if (target.classList.contains("status-select")) {
-          await updateApplicationStatus(target.dataset.id, target.value);
-          return;
-        }
+      totalApplicationsValue.textContent = total;
+      withNotesValue.textContent = withNotes;
+      hiredValue.textContent = hiredCount;
+      noShowValue.textContent = noShowCount;
+    }
 
-        if (target.classList.contains("recruiter-select")) {
-          await updateRecruiter(target.dataset.id, target.value || null);
-        }
-      });
-
-      els.applicationsTable.addEventListener("click", async event => {
-        const target = event.target;
-
-        if (target.classList.contains("view-resume-btn")) {
-          openResumeModal(target.dataset.url);
-          return;
-        }
-
-        if (target.classList.contains("edit-btn")) {
-          window.location.href = `recruiter-add-candidate.html?id=${encodeURIComponent(target.dataset.id)}`;
-          return;
-        }
-
-        if (target.classList.contains("btn-delete")) {
-          await deleteApplication(target.dataset.id);
-        }
-      });
-
-      if (els.closeModal) {
-        els.closeModal.addEventListener("click", closeResumeModal);
+    /******************************************************************
+     * RENDER
+     ******************************************************************/
+    function renderApplications() {
+      if (!filteredApplications.length) {
+        setEmptyState();
+        return;
       }
 
-      if (els.resumeModal) {
-        els.resumeModal.addEventListener("click", event => {
-          if (event.target === els.resumeModal) closeResumeModal();
+      applicationsTableBody.innerHTML = filteredApplications.map(renderTableRow).join("");
+      mobileCards.innerHTML = filteredApplications.map(renderMobileCard).join("");
+
+      bindDynamicEvents();
+    }
+
+    function renderStatusOptions(selectedValue) {
+      const current = normalize(selectedValue);
+      return STATUS_OPTIONS.map(status => `
+        <option value="${escapeHtml(status)}" ${normalize(status) === current ? "selected" : ""}>
+          ${escapeHtml(titleCase(status))}
+        </option>
+      `).join("");
+    }
+
+    function renderStageNoteOptions(status, selectedCode) {
+      const currentCode = normalize(selectedCode);
+      const options = getStageNoteOptions(status);
+      let html = `<option value="">Select note</option>`;
+
+      options.forEach(option => {
+        html += `
+          <option value="${escapeHtml(option.code)}" ${normalize(option.code) === currentCode ? "selected" : ""}>
+            ${escapeHtml(option.label)}
+          </option>
+        `;
+      });
+
+      return html;
+    }
+
+    function renderTableRow(row) {
+      const candidateName = escapeHtml(row.candidate_name || "Unnamed Candidate");
+      const candidateEmail = escapeHtml(row.email || "—");
+      const phone = escapeHtml(row.phone || "—");
+      const location = escapeHtml(titleCase(row.location || "—"));
+      const resumeLink = row.resume_link;
+      const jobTitle = escapeHtml(row.job_title || "Untitled Role");
+      const recruiterNameDisplay = escapeHtml(row.recruiter_name || "Unassigned");
+      const recruiterEmailDisplay = escapeHtml(row.recruiter_email || "—");
+      const source = escapeHtml(row.application_source || "—");
+      const createdAt = formatDateShort(row.created_at);
+      const noteUpdatedAt = formatDateTime(row.stage_note_updated_at);
+      const statusClass = statusChipClass(row.status);
+
+      return `
+        <tr data-application-id="${row.id}">
+          <td class="candidate-cell">
+            <div class="candidate-name">${candidateName}</div>
+            <div class="candidate-meta">
+              ${candidateEmail}<br />
+              ${phone}<br />
+              ${location}
+            </div>
+            ${resumeLink ? `<a class="resume-link" href="${resumeLink}" target="_blank" rel="noopener noreferrer">View Resume</a>` : ""}
+          </td>
+
+          <td>
+            <div class="job-title">${jobTitle}</div>
+            <div class="muted">Job ID: ${escapeHtml(row.job_id || "—")}</div>
+          </td>
+
+          <td>
+            <div class="job-title">${recruiterNameDisplay}</div>
+            <div class="muted">${recruiterEmailDisplay}</div>
+          </td>
+
+          <td>
+            <span class="chip chip-neutral">${source}</span>
+          </td>
+
+          <td>
+            <div>${escapeHtml(createdAt)}</div>
+            <div class="small-meta">Application received</div>
+          </td>
+
+          <td>
+            <div class="inline-field">
+              <label>Status</label>
+              <select
+                class="status-select"
+                data-application-id="${row.id}"
+                data-current-status="${escapeHtml(row.status || "")}"
+              >
+                ${renderStatusOptions(row.status)}
+              </select>
+            </div>
+            <div class="small-meta">
+              <span class="chip ${statusClass}">${escapeHtml(titleCase(row.status || "Unknown"))}</span>
+            </div>
+          </td>
+
+          <td>
+            <div class="inline-field">
+              <label>Stage Note</label>
+              <select
+                class="stage-note-select"
+                data-application-id="${row.id}"
+                data-current-note-code="${escapeHtml(row.stage_note_code || "")}"
+                ${getStageNoteOptions(row.status).length ? "" : "disabled"}
+              >
+                ${renderStageNoteOptions(row.status, row.stage_note_code)}
+              </select>
+            </div>
+            <div class="small-meta">${escapeHtml(row.stage_note_label || "No note selected")}</div>
+          </td>
+
+          <td>
+            <div>${escapeHtml(noteUpdatedAt)}</div>
+            <div class="small-meta">Most recent note update</div>
+          </td>
+
+          <td>
+            <div class="row-actions">
+              ${resumeLink ? `
+                <a class="row-btn" href="${resumeLink}" target="_blank" rel="noopener noreferrer">Open Resume</a>
+              ` : `<button class="row-btn" type="button" disabled>No Resume</button>`}
+              <button class="row-btn copy-email-btn" type="button" data-email="${escapeHtml(row.email || "")}">
+                Copy Email
+              </button>
+            </div>
+          </td>
+        </tr>
+      `;
+    }
+
+    function renderMobileCard(row) {
+      const candidateName = escapeHtml(row.candidate_name || "Unnamed Candidate");
+      const candidateEmail = escapeHtml(row.email || "—");
+      const phone = escapeHtml(row.phone || "—");
+      const location = escapeHtml(titleCase(row.location || "—"));
+      const resumeLink = row.resume_link;
+      const statusClass = statusChipClass(row.status);
+
+      return `
+        <div class="candidate-card" data-application-id="${row.id}">
+          <div class="candidate-card-head">
+            <div>
+              <div class="candidate-name">${candidateName}</div>
+              <div class="candidate-meta">
+                ${candidateEmail}<br />
+                ${phone}<br />
+                ${location}
+              </div>
+            </div>
+            <span class="chip ${statusClass}">${escapeHtml(titleCase(row.status || "Unknown"))}</span>
+          </div>
+
+          <div class="card-grid">
+            <div class="card-block">
+              <div class="card-block-title">Job</div>
+              <div class="job-title">${escapeHtml(row.job_title || "Untitled Role")}</div>
+              <div class="muted">Applied: ${escapeHtml(formatDateShort(row.created_at))}</div>
+            </div>
+
+            <div class="card-block">
+              <div class="card-block-title">Recruiter</div>
+              <div>${escapeHtml(row.recruiter_name || "Unassigned")}</div>
+              <div class="muted">${escapeHtml(row.recruiter_email || "—")}</div>
+            </div>
+
+            <div class="card-block">
+              <div class="inline-field">
+                <label>Status</label>
+                <select
+                  class="status-select"
+                  data-application-id="${row.id}"
+                  data-current-status="${escapeHtml(row.status || "")}"
+                >
+                  ${renderStatusOptions(row.status)}
+                </select>
+              </div>
+            </div>
+
+            <div class="card-block">
+              <div class="inline-field">
+                <label>Stage Note</label>
+                <select
+                  class="stage-note-select"
+                  data-application-id="${row.id}"
+                  data-current-note-code="${escapeHtml(row.stage_note_code || "")}"
+                  ${getStageNoteOptions(row.status).length ? "" : "disabled"}
+                >
+                  ${renderStageNoteOptions(row.status, row.stage_note_code)}
+                </select>
+              </div>
+              <div class="small-meta">${escapeHtml(row.stage_note_label || "No note selected")}</div>
+            </div>
+
+            <div class="card-block">
+              <div class="card-block-title">Source</div>
+              <div>${escapeHtml(row.application_source || "—")}</div>
+              <div class="small-meta">Note updated: ${escapeHtml(formatDateTime(row.stage_note_updated_at))}</div>
+            </div>
+
+            <div class="card-block">
+              ${resumeLink ? `<a class="row-btn" href="${resumeLink}" target="_blank" rel="noopener noreferrer">Open Resume</a>` : `<button class="row-btn" type="button" disabled>No Resume</button>`}
+              <button class="row-btn copy-email-btn" type="button" data-email="${escapeHtml(row.email || "")}" style="margin-top:8px;">
+                Copy Email
+              </button>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    function bindDynamicEvents() {
+      document.querySelectorAll(".status-select").forEach(select => {
+        select.addEventListener("change", async event => {
+          const applicationId = event.target.dataset.applicationId;
+          const newStatus = event.target.value;
+          const currentStatus = event.target.dataset.currentStatus || "";
+
+          if (!applicationId) return;
+          if (normalize(newStatus) === normalize(currentStatus)) {
+            refreshNoteDropdownForApplication(applicationId, newStatus, "");
+            return;
+          }
+
+          const ok = await updateApplicationStatus(applicationId, newStatus);
+          if (!ok) {
+            event.target.value = currentStatus;
+            return;
+          }
+
+          event.target.dataset.currentStatus = newStatus;
+          refreshNoteDropdownForApplication(applicationId, newStatus, "");
         });
-      }
-
-      document.addEventListener("keydown", event => {
-        if (els.resumeModal && event.key === "Escape" && els.resumeModal.classList.contains("show")) {
-          closeResumeModal();
-        }
       });
 
-      if (els.logoutBtn) {
-        els.logoutBtn.addEventListener("click", async () => {
+      document.querySelectorAll(".stage-note-select").forEach(select => {
+        select.addEventListener("change", async event => {
+          const applicationId = event.target.dataset.applicationId;
+          if (!applicationId) return;
+
+          const rowContainer =
+            event.target.closest("tr[data-application-id]") ||
+            event.target.closest(".candidate-card[data-application-id]");
+
+          const statusSelect = rowContainer?.querySelector(".status-select");
+          const selectedStatus = statusSelect?.value || "";
+          const noteCode = event.target.value || "";
+
+          const ok = await updateApplicationStageNote(applicationId, selectedStatus, noteCode);
+          if (!ok) {
+            event.target.value = event.target.dataset.currentNoteCode || "";
+            return;
+          }
+
+          event.target.dataset.currentNoteCode = noteCode;
+        });
+      });
+
+      document.querySelectorAll(".copy-email-btn").forEach(btn => {
+        btn.addEventListener("click", async () => {
+          const email = btn.dataset.email || "";
+          if (!email) {
+            showToast("No email found for this candidate.", "error");
+            return;
+          }
+
           try {
-            await supabaseClient.auth.signOut();
-          } finally {
-            window.location.href = "login.html";
+            await navigator.clipboard.writeText(email);
+            showToast("Candidate email copied.", "success");
+          } catch (error) {
+            console.error("Failed to copy email:", error);
+            showToast("Failed to copy email.", "error");
           }
         });
-      }
+      });
+    }
 
-      supabaseClient.auth.onAuthStateChange((event, session) => {
-        if (event === "SIGNED_OUT" || !session?.user) {
-          window.location.href = "login.html?redirect=recruiter-dashboard.html";
+    function refreshNoteDropdownForApplication(applicationId, status, selectedCode = "") {
+      document.querySelectorAll(`[data-application-id="${applicationId}"].stage-note-select`).forEach(select => {
+        const options = getStageNoteOptions(status);
+        select.innerHTML = renderStageNoteOptions(status, selectedCode);
+        select.disabled = options.length === 0;
+        select.dataset.currentNoteCode = selectedCode || "";
+      });
+
+      const targets = document.querySelectorAll(`[data-application-id="${applicationId}"]`);
+      targets.forEach(container => {
+        const noteMeta = container.querySelector?.(".small-meta");
+        if (noteMeta && noteMeta.textContent?.includes("No note selected")) {
+          noteMeta.textContent = "No note selected";
         }
       });
 
-      protectRecruiterPage().then(user => {
-        if (user) loadApplications();
+      const item = rawApplications.find(app => String(app.id) === String(applicationId));
+      if (item) {
+        item.status = status;
+        item.stage_note_code = selectedCode || null;
+        item.stage_note_label = selectedCode ? getNoteLabelByCode(status, selectedCode) : null;
+        item.stage_note_updated_at = selectedCode ? new Date().toISOString() : null;
+      }
+
+      applyFilters();
+    }
+
+    /******************************************************************
+     * SAVE ACTIONS
+     ******************************************************************/
+    async function updateApplicationStatus(applicationId, newStatus) {
+      try {
+        const payload = {
+          status: newStatus,
+          stage_note_code: null,
+          stage_note_label: null,
+          stage_note_updated_at: null
+        };
+
+        const { error } = await supabase
+          .from("applications")
+          .update(payload)
+          .eq("id", applicationId);
+
+        if (error) throw error;
+
+        const row = rawApplications.find(item => String(item.id) === String(applicationId));
+        if (row) {
+          row.status = newStatus;
+          row.stage_note_code = null;
+          row.stage_note_label = null;
+          row.stage_note_updated_at = null;
+        }
+
+        populateFilterOptions(rawApplications);
+        applyFilters();
+        showToast("Candidate status updated.", "success");
+        return true;
+      } catch (error) {
+        console.error("Failed to update application status:", error);
+        showToast(`Failed to update status: ${error.message || "Unknown error"}`, "error");
+        return false;
+      }
+    }
+
+    async function updateApplicationStageNote(applicationId, stage, noteCode) {
+      try {
+        const matched = getStageNoteOptions(stage).find(item => item.code === noteCode);
+        const payload = {
+          stage_note_code: matched ? matched.code : null,
+          stage_note_label: matched ? matched.label : null,
+          stage_note_updated_at: matched ? new Date().toISOString() : null
+        };
+
+        const { error } = await supabase
+          .from("applications")
+          .update(payload)
+          .eq("id", applicationId);
+
+        if (error) throw error;
+
+        const row = rawApplications.find(item => String(item.id) === String(applicationId));
+        if (row) {
+          row.stage_note_code = payload.stage_note_code;
+          row.stage_note_label = payload.stage_note_label;
+          row.stage_note_updated_at = payload.stage_note_updated_at;
+          row.status = stage;
+        }
+
+        populateFilterOptions(rawApplications);
+        applyFilters();
+        showToast("Stage note saved.", "success");
+        return true;
+      } catch (error) {
+        console.error("Failed to update stage note:", error);
+        showToast(`Failed to save stage note: ${error.message || "Unknown error"}`, "error");
+        return false;
+      }
+    }
+
+    /******************************************************************
+     * EVENT LISTENERS
+     ******************************************************************/
+    refreshBtn.addEventListener("click", fetchApplications);
+    logoutBtn.addEventListener("click", handleLogout);
+    clearFiltersBtn.addEventListener("click", clearFilters);
+    applyFiltersBtn.addEventListener("click", applyFilters);
+
+    searchInput.addEventListener("input", applyFilters);
+    statusFilter.addEventListener("change", applyFilters);
+    noteFilter.addEventListener("change", applyFilters);
+    sourceFilter.addEventListener("change", applyFilters);
+    recruiterFilter.addEventListener("change", applyFilters);
+
+    scrollToPipelineBtn.addEventListener("click", () => {
+      document.getElementById("pipelineSection")?.scrollIntoView({
+        behavior: "smooth",
+        block: "start"
       });
     });
+
+    /******************************************************************
+     * INIT
+     ******************************************************************/
+    async function init() {
+      const ok = await validateSession();
+      if (!ok) return;
+
+      await fetchApplications();
+    }
+
+    init();
   </script>
 </body>
 </html>
