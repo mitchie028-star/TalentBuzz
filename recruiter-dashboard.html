@@ -6,7 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta
     name="description"
-    content="TalentBuzz recruiter dashboard for managing candidates, stages, structured notes, and pipeline reporting."
+    content="TalentBuzz recruiter dashboard for managing candidate applications, statuses, and structured stage notes."
   />
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -334,7 +334,7 @@
       width: 100%;
       border-collapse: separate;
       border-spacing: 0;
-      min-width: 1550px;
+      min-width: 1450px;
     }
 
     thead th {
@@ -347,7 +347,7 @@
       font-size: 0.8rem;
       font-weight: 800;
       letter-spacing: 0.02em;
-      padding: 14px 14px;
+      padding: 14px;
       border-bottom: 1px solid var(--line);
       white-space: nowrap;
     }
@@ -365,7 +365,7 @@
     }
 
     .candidate-cell {
-      min-width: 260px;
+      min-width: 250px;
     }
 
     .candidate-name {
@@ -382,25 +382,10 @@
       word-break: break-word;
     }
 
-    .resume-link {
-      display: inline-flex;
-      align-items: center;
-      gap: 7px;
-      margin-top: 8px;
-      padding: 8px 12px;
-      border-radius: 999px;
-      background: var(--chip);
-      border: 1px solid #dbeafe;
-      color: var(--primary);
-      font-weight: 700;
-      font-size: 0.82rem;
-      white-space: nowrap;
-    }
-
     .job-title {
       font-weight: 700;
       line-height: 1.45;
-      min-width: 200px;
+      min-width: 190px;
     }
 
     .muted {
@@ -472,7 +457,7 @@
       display: flex;
       flex-direction: column;
       gap: 8px;
-      min-width: 140px;
+      min-width: 120px;
     }
 
     .row-btn {
@@ -649,7 +634,7 @@
           <div class="brand-mark">TB</div>
           <div class="brand-copy">
             <h1>Recruiter Dashboard</h1>
-            <p>Track candidates, update stages, and capture structured stage notes.</p>
+            <p>Update statuses and structured notes directly in the pipeline.</p>
           </div>
         </div>
 
@@ -668,11 +653,10 @@
       <section class="hero">
         <div class="hero-card">
           <div>
-            <h2>Structured stage notes for cleaner reporting</h2>
+            <h2>Structured stage notes for cleaner reports</h2>
             <p>
-              Recruiters can now select predefined notes per status instead of typing free-form remarks.
-              This makes it easier to quantify salary mismatch, no-shows, experience gaps, and other
-              stage-level reasons across the pipeline.
+              This dashboard uses dropdown-based notes per status so your team can quantify
+              salary mismatch, no-shows, experience gaps, client rejection reasons, and more.
             </p>
           </div>
 
@@ -692,19 +676,19 @@
           <div class="summary-card">
             <div class="summary-label">With Structured Notes</div>
             <div class="summary-value" id="withNotesValue">0</div>
-            <div class="summary-sub">Applications with stage note selected</div>
+            <div class="summary-sub">Applications with selected stage note</div>
           </div>
 
           <div class="summary-card">
             <div class="summary-label">Hired</div>
             <div class="summary-value" id="hiredValue">0</div>
-            <div class="summary-sub">Candidates marked as hired</div>
+            <div class="summary-sub">Candidates currently marked hired</div>
           </div>
 
           <div class="summary-card">
             <div class="summary-label">No-Shows</div>
             <div class="summary-value" id="noShowValue">0</div>
-            <div class="summary-sub">Across interview, assessment, and onboarding</div>
+            <div class="summary-sub">Interview, assessment, and onboarding no-shows</div>
           </div>
         </div>
       </section>
@@ -801,11 +785,9 @@
       </section>
 
       <div class="footer-note">
-        Notes:
-        This version assumes your <strong>applications</strong> table contains
-        <strong>stage_note_code</strong>, <strong>stage_note_label</strong>, and
-        <strong>stage_note_updated_at</strong>. It also assumes the dashboard can read
-        applicant data from a joined <strong>applicant_profiles</strong> relation.
+        Required columns in <strong>public.applications</strong>:
+        <strong>stage_note_code</strong>, <strong>stage_note_label</strong>,
+        and <strong>stage_note_updated_at</strong>.
       </div>
     </main>
   </div>
@@ -813,15 +795,6 @@
   <div id="statusBanner" class="status-banner info"></div>
 
   <script>
-    /******************************************************************
-     * TALENTBUZZ RECRUITER DASHBOARD
-     * Full version with structured stage-note dropdown per status
-     ******************************************************************/
-
-    /******************************************************************
-     * CONFIG
-     * Replace these if not already injected elsewhere.
-     ******************************************************************/
     const SUPABASE_URL =
       window.SUPABASE_URL ||
       window.__SUPABASE_URL__ ||
@@ -836,9 +809,6 @@
 
     const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-    /******************************************************************
-     * ALLOWED RECRUITERS
-     ******************************************************************/
     const ALLOWED_RECRUITERS = {
       "michelle.giray@talentbuzz.pro": "Michelle Giray",
       "angel.n@talentbuzz.pro": "Angelia Nerida",
@@ -848,9 +818,6 @@
       "mitchie028@gmail.com": "Mitchie"
     };
 
-    /******************************************************************
-     * STATUS OPTIONS
-     ******************************************************************/
     const STATUS_OPTIONS = [
       "submitted",
       "failed paper screening",
@@ -865,9 +832,6 @@
       "rejected"
     ];
 
-    /******************************************************************
-     * STRUCTURED STAGE NOTES
-     ******************************************************************/
     const STAGE_NOTE_OPTIONS = {
       "submitted": [
         { code: "meets_basic_requirements", label: "Meets basic requirements" },
@@ -879,107 +843,85 @@
       "failed paper screening": [
         { code: "failed_basic_qualification", label: "Failed basic qualification" },
         { code: "failed_experience_match", label: "Failed experience match" },
-        { code: "failed_education_requirement", label: "Failed education requirement" },
-        { code: "failed_language_requirement", label: "Failed language requirement" },
-        { code: "failed_shift_or_work_setup", label: "Failed shift or work setup" }
+        { code: "failed_education_requirement", label: "Failed education requirement" }
       ],
       "endorsed": [
         { code: "endorsed_to_client", label: "Endorsed to client" },
         { code: "shortlisted_for_next_step", label: "Shortlisted for next step" },
-        { code: "client_review_pending", label: "Client review pending" },
-        { code: "awaiting_client_feedback", label: "Awaiting client feedback" }
+        { code: "client_review_pending", label: "Client review pending" }
       ],
       "assessment": [
         { code: "assessment_sent", label: "Assessment sent" },
         { code: "assessment_passed", label: "Assessment passed" },
         { code: "assessment_failed", label: "Assessment failed" },
-        { code: "assessment_no_show", label: "Assessment no-show" },
-        { code: "assessment_pending_completion", label: "Assessment pending completion" }
+        { code: "assessment_no_show", label: "Assessment no-show" }
       ],
       "initial": [
         { code: "good_communication", label: "Good communication" },
         { code: "failed_initial_interview", label: "Failed initial interview" },
         { code: "initial_interview_no_show", label: "Initial interview no-show" },
-        { code: "for_final_interview", label: "For final interview" },
-        { code: "pending_initial_feedback", label: "Pending initial feedback" }
+        { code: "for_final_interview", label: "For final interview" }
       ],
       "final": [
         { code: "passed_final_interview", label: "Passed final interview" },
         { code: "rejected_by_client", label: "Rejected by client" },
         { code: "for_offer", label: "For offer" },
-        { code: "final_interview_no_show", label: "Final interview no-show" },
-        { code: "pending_final_feedback", label: "Pending final feedback" }
+        { code: "final_interview_no_show", label: "Final interview no-show" }
       ],
       "hired": [
         { code: "offer_accepted", label: "Offer accepted" },
         { code: "offer_declined", label: "Offer declined" },
-        { code: "pre_employment_in_progress", label: "Pre-employment in progress" },
-        { code: "start_date_confirmed", label: "Start date confirmed" }
+        { code: "pre_employment_in_progress", label: "Pre-employment in progress" }
       ],
       "onboarded": [
         { code: "completed_onboarding", label: "Completed onboarding" },
-        { code: "actively_deployed", label: "Actively deployed" },
+        { code: "day_1_no_show", label: "Day 1 no-show" },
         { code: "start_date_moved", label: "Start date moved" }
-      ],
-      "no-show (onboarding)": [
-        { code: "onboarding_no_show", label: "Onboarding no-show" },
-        { code: "unreachable_before_start", label: "Unreachable before start" },
-        { code: "backed_out_before_day_1", label: "Backed out before Day 1" }
       ],
       "withdrawn": [
         { code: "candidate_withdrew", label: "Candidate withdrew" },
         { code: "accepted_other_offer", label: "Accepted other offer" },
-        { code: "unresponsive", label: "Unresponsive" },
-        { code: "personal_reasons", label: "Personal reasons" }
+        { code: "unresponsive", label: "Unresponsive" }
       ],
       "rejected": [
         { code: "rejected_due_to_experience", label: "Rejected due to experience" },
         { code: "rejected_due_to_salary", label: "Rejected due to salary" },
         { code: "rejected_due_to_location", label: "Rejected due to location" },
-        { code: "rejected_due_to_comms", label: "Rejected due to communication" },
-        { code: "rejected_due_to_culture_fit", label: "Rejected due to culture fit" }
+        { code: "rejected_due_to_comms", label: "Rejected due to communication" }
+      ],
+      "no-show (onboarding)": [
+        { code: "onboarding_no_show", label: "Onboarding no-show" },
+        { code: "unreachable_before_start", label: "Unreachable before start" }
       ]
     };
 
-    /******************************************************************
-     * STATE
-     ******************************************************************/
-    let loggedInUser = null;
-    let recruiterEmail = "";
-    let recruiterName = "Recruiter";
     let rawApplications = [];
     let filteredApplications = [];
+    let recruiterEmail = "";
+    let recruiterName = "Recruiter";
     let toastTimer = null;
 
-    /******************************************************************
-     * DOM
-     ******************************************************************/
     const recruiterDisplay = document.getElementById("recruiterDisplay");
     const refreshBtn = document.getElementById("refreshBtn");
     const logoutBtn = document.getElementById("logoutBtn");
-    const scrollToPipelineBtn = document.getElementById("scrollToPipelineBtn");
-    const clearFiltersBtn = document.getElementById("clearFiltersBtn");
-    const applyFiltersBtn = document.getElementById("applyFiltersBtn");
-
     const searchInput = document.getElementById("searchInput");
     const statusFilter = document.getElementById("statusFilter");
     const noteFilter = document.getElementById("noteFilter");
     const sourceFilter = document.getElementById("sourceFilter");
     const recruiterFilter = document.getElementById("recruiterFilter");
-
+    const applyFiltersBtn = document.getElementById("applyFiltersBtn");
+    const clearFiltersBtn = document.getElementById("clearFiltersBtn");
+    const scrollToPipelineBtn = document.getElementById("scrollToPipelineBtn");
     const applicationsTableBody = document.getElementById("applicationsTableBody");
     const mobileCards = document.getElementById("mobileCards");
-    const statusBanner = document.getElementById("statusBanner");
     const lastUpdatedLabel = document.getElementById("lastUpdatedLabel");
+    const statusBanner = document.getElementById("statusBanner");
 
     const totalApplicationsValue = document.getElementById("totalApplicationsValue");
     const withNotesValue = document.getElementById("withNotesValue");
     const hiredValue = document.getElementById("hiredValue");
     const noShowValue = document.getElementById("noShowValue");
 
-    /******************************************************************
-     * HELPERS
-     ******************************************************************/
     function normalize(value) {
       return (value || "").toString().trim().toLowerCase();
     }
@@ -998,14 +940,14 @@
       return (value || "")
         .toString()
         .toLowerCase()
-        .replace(/\b\w/g, char => char.toUpperCase());
+        .replace(/\b\w/g, s => s.toUpperCase());
     }
 
     function formatDateTime(value) {
       if (!value) return "—";
-      const date = new Date(value);
-      if (Number.isNaN(date.getTime())) return "—";
-      return date.toLocaleString("en-PH", {
+      const d = new Date(value);
+      if (Number.isNaN(d.getTime())) return "—";
+      return d.toLocaleString("en-PH", {
         year: "numeric",
         month: "short",
         day: "numeric",
@@ -1016,9 +958,9 @@
 
     function formatDateShort(value) {
       if (!value) return "—";
-      const date = new Date(value);
-      if (Number.isNaN(date.getTime())) return "—";
-      return date.toLocaleDateString("en-PH", {
+      const d = new Date(value);
+      if (Number.isNaN(d.getTime())) return "—";
+      return d.toLocaleDateString("en-PH", {
         year: "numeric",
         month: "short",
         day: "numeric"
@@ -1026,11 +968,10 @@
     }
 
     function formatRecruiterName(email) {
-      const normalized = normalize(email);
-      if (ALLOWED_RECRUITERS[normalized]) return ALLOWED_RECRUITERS[normalized];
+      const key = normalize(email);
+      if (ALLOWED_RECRUITERS[key]) return ALLOWED_RECRUITERS[key];
       if (!email) return "Unassigned";
-      const local = email.split("@")[0] || "";
-      return titleCase(local.replace(/[._-]+/g, " "));
+      return titleCase((email.split("@")[0] || "").replace(/[._-]+/g, " "));
     }
 
     function statusChipClass(status) {
@@ -1046,35 +987,38 @@
       return STAGE_NOTE_OPTIONS[normalize(stage)] || [];
     }
 
-    function getNoteLabelByCode(stage, noteCode) {
-      const matched = getStageNoteOptions(stage).find(item => item.code === noteCode);
-      return matched ? matched.label : "";
-    }
-
-    function buildResumeUrl(row) {
-      const joinedProfile = row.applicant_profiles || {};
-      const resumeUrl = joinedProfile.resume_url || row.resume_url || "";
-      const resumePath = joinedProfile.resume_path || row.resume_path || "";
-
-      if (resumeUrl && resumeUrl.includes("/storage/v1/object/public/resumes/")) {
-        return resumeUrl;
-      }
-
-      if (resumePath) {
-        const { data } = supabase.storage.from("resumes").getPublicUrl(resumePath);
-        return data?.publicUrl || "";
-      }
-
-      return resumeUrl || "";
-    }
-
     function showToast(message, type = "info") {
       clearTimeout(toastTimer);
       statusBanner.className = `status-banner ${type} show`;
       statusBanner.textContent = message;
       toastTimer = setTimeout(() => {
         statusBanner.classList.remove("show");
-      }, 2600);
+      }, 2800);
+    }
+
+    function renderStatusOptions(selectedValue) {
+      const current = normalize(selectedValue);
+      return STATUS_OPTIONS.map(status => `
+        <option value="${escapeHtml(status)}" ${normalize(status) === current ? "selected" : ""}>
+          ${escapeHtml(titleCase(status))}
+        </option>
+      `).join("");
+    }
+
+    function renderStageNoteOptions(status, selectedCode) {
+      const options = getStageNoteOptions(status);
+      const current = normalize(selectedCode);
+      let html = `<option value="">Select note</option>`;
+
+      options.forEach(opt => {
+        html += `
+          <option value="${escapeHtml(opt.code)}" ${normalize(opt.code) === current ? "selected" : ""}>
+            ${escapeHtml(opt.label)}
+          </option>
+        `;
+      });
+
+      return html;
     }
 
     function setLoadingState() {
@@ -1086,11 +1030,27 @@
           </td>
         </tr>
       `;
-
       mobileCards.innerHTML = `
         <div class="loading-state">
           <strong>Loading applications...</strong>
           Please wait while we fetch the latest pipeline.
+        </div>
+      `;
+    }
+
+    function setErrorState(message) {
+      applicationsTableBody.innerHTML = `
+        <tr>
+          <td colspan="9" class="empty-state">
+            <strong>Failed to load applications.</strong>
+            ${escapeHtml(message)}
+          </td>
+        </tr>
+      `;
+      mobileCards.innerHTML = `
+        <div class="empty-state">
+          <strong>Failed to load applications.</strong>
+          ${escapeHtml(message)}
         </div>
       `;
     }
@@ -1104,7 +1064,6 @@
           </td>
         </tr>
       `;
-
       mobileCards.innerHTML = `
         <div class="empty-state">
           <strong>No applications found.</strong>
@@ -1113,56 +1072,317 @@
       `;
     }
 
-    /******************************************************************
-     * AUTH
-     ******************************************************************/
     async function validateSession() {
       try {
         const { data, error } = await supabase.auth.getUser();
         if (error) throw error;
 
-        const user = data?.user || null;
+        const user = data?.user;
         if (!user) {
           window.location.href = "login.html";
           return false;
         }
 
-        loggedInUser = user;
         recruiterEmail = normalize(user.email || "");
         recruiterName = formatRecruiterName(recruiterEmail);
-
         recruiterDisplay.textContent = recruiterName;
-
-        if (Object.keys(ALLOWED_RECRUITERS).length && !ALLOWED_RECRUITERS[recruiterEmail]) {
-          showToast("You are signed in, but this account is not in the recruiter allowlist.", "error");
-        }
-
         return true;
-      } catch (error) {
-        console.error("Session validation failed:", error);
-        showToast("Unable to validate session.", "error");
-        window.location.href = "login.html";
+      } catch (err) {
+        console.error("validateSession error:", err);
+        setErrorState(err.message || "Session validation failed");
         return false;
       }
     }
 
-    async function handleLogout() {
-      try {
-        await supabase.auth.signOut();
-      } catch (error) {
-        console.error("Logout failed:", error);
-      } finally {
-        window.location.href = "login.html";
-      }
+    function populateFilterOptions(rows) {
+      const statuses = [...new Set(STATUS_OPTIONS)];
+      const notes = [...new Set(rows.map(r => r.stage_note_label).filter(Boolean))].sort();
+      const sources = [...new Set(rows.map(r => r.application_source).filter(Boolean))].sort();
+      const recruiters = [...new Set(rows.map(r => r.recruiter_email).filter(Boolean))].sort();
+
+      statusFilter.innerHTML =
+        `<option value="">All statuses</option>` +
+        statuses.map(s => `<option value="${escapeHtml(s)}">${escapeHtml(titleCase(s))}</option>`).join("");
+
+      noteFilter.innerHTML =
+        `<option value="">All notes</option>` +
+        notes.map(n => `<option value="${escapeHtml(n)}">${escapeHtml(n)}</option>`).join("");
+
+      sourceFilter.innerHTML =
+        `<option value="">All sources</option>` +
+        sources.map(s => `<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`).join("");
+
+      recruiterFilter.innerHTML =
+        `<option value="">All recruiters</option>` +
+        recruiters.map(r => `<option value="${escapeHtml(r)}">${escapeHtml(formatRecruiterName(r))}</option>`).join("");
     }
 
-    /******************************************************************
-     * DATA LOAD
-     ******************************************************************/
+    function updateSummaryCards() {
+      totalApplicationsValue.textContent = filteredApplications.length;
+      withNotesValue.textContent = filteredApplications.filter(a => a.stage_note_code).length;
+      hiredValue.textContent = filteredApplications.filter(a => normalize(a.status) === "hired").length;
+      noShowValue.textContent = filteredApplications.filter(a => {
+        return normalize(a.status).includes("no-show") || normalize(a.stage_note_code).includes("no_show");
+      }).length;
+    }
+
+    function applyFilters() {
+      const q = normalize(searchInput.value);
+      const statusVal = normalize(statusFilter.value);
+      const noteVal = normalize(noteFilter.value);
+      const sourceVal = normalize(sourceFilter.value);
+      const recruiterVal = normalize(recruiterFilter.value);
+
+      filteredApplications = rawApplications.filter(row => {
+        const haystack = [
+          row.candidate_name,
+          row.email,
+          row.job_title,
+          row.recruiter_email,
+          row.recruiter_name,
+          row.stage_note_label,
+          row.application_source,
+          row.location,
+          row.phone
+        ].join(" ").toLowerCase();
+
+        return (!q || haystack.includes(q)) &&
+               (!statusVal || normalize(row.status) === statusVal) &&
+               (!noteVal || normalize(row.stage_note_label) === noteVal) &&
+               (!sourceVal || normalize(row.application_source) === sourceVal) &&
+               (!recruiterVal || normalize(row.recruiter_email) === recruiterVal);
+      });
+
+      renderApplications();
+      updateSummaryCards();
+    }
+
+    function renderApplications() {
+      if (!filteredApplications.length) {
+        setEmptyState();
+        return;
+      }
+
+      applicationsTableBody.innerHTML = filteredApplications.map(row => {
+        const statusClass = statusChipClass(row.status);
+        return `
+          <tr data-id="${row.id}">
+            <td class="candidate-cell">
+              <div class="candidate-name">${escapeHtml(row.candidate_name || "Unnamed Candidate")}</div>
+              <div class="candidate-meta">
+                ${escapeHtml(row.email || "—")}<br>
+                ${escapeHtml(row.phone || "—")}<br>
+                ${escapeHtml(titleCase(row.location || "—"))}
+              </div>
+            </td>
+            <td>
+              <div class="job-title">${escapeHtml(row.job_title || "Untitled Role")}</div>
+              <div class="muted">Job ID: ${escapeHtml(row.job_id || "—")}</div>
+            </td>
+            <td>
+              <div class="job-title">${escapeHtml(row.recruiter_name || "Unassigned")}</div>
+              <div class="muted">${escapeHtml(row.recruiter_email || "—")}</div>
+            </td>
+            <td><span class="chip chip-neutral">${escapeHtml(row.application_source || "—")}</span></td>
+            <td>${escapeHtml(formatDateShort(row.created_at))}</td>
+            <td>
+              <div class="inline-field">
+                <label>Status</label>
+                <select class="status-select" data-id="${row.id}">
+                  ${renderStatusOptions(row.status)}
+                </select>
+              </div>
+              <div class="small-meta">
+                <span class="chip ${statusClass}">${escapeHtml(titleCase(row.status || "Unknown"))}</span>
+              </div>
+            </td>
+            <td>
+              <div class="inline-field">
+                <label>Stage Note</label>
+                <select class="stage-note-select" data-id="${row.id}" ${getStageNoteOptions(row.status).length ? "" : "disabled"}>
+                  ${renderStageNoteOptions(row.status, row.stage_note_code)}
+                </select>
+              </div>
+              <div class="small-meta">${escapeHtml(row.stage_note_label || "No note selected")}</div>
+            </td>
+            <td>${escapeHtml(formatDateTime(row.stage_note_updated_at))}</td>
+            <td>
+              <div class="row-actions">
+                <button class="row-btn copy-email-btn" type="button" data-email="${escapeHtml(row.email || "")}">
+                  Copy Email
+                </button>
+              </div>
+            </td>
+          </tr>
+        `;
+      }).join("");
+
+      mobileCards.innerHTML = filteredApplications.map(row => {
+        const statusClass = statusChipClass(row.status);
+        return `
+          <div class="candidate-card" data-id="${row.id}">
+            <div class="candidate-card-head">
+              <div>
+                <div class="candidate-name">${escapeHtml(row.candidate_name || "Unnamed Candidate")}</div>
+                <div class="candidate-meta">
+                  ${escapeHtml(row.email || "—")}<br>
+                  ${escapeHtml(row.phone || "—")}<br>
+                  ${escapeHtml(titleCase(row.location || "—"))}
+                </div>
+              </div>
+              <span class="chip ${statusClass}">${escapeHtml(titleCase(row.status || "Unknown"))}</span>
+            </div>
+
+            <div class="card-grid">
+              <div class="card-block">
+                <div class="card-block-title">Job</div>
+                <div class="job-title">${escapeHtml(row.job_title || "Untitled Role")}</div>
+                <div class="muted">Applied: ${escapeHtml(formatDateShort(row.created_at))}</div>
+              </div>
+
+              <div class="card-block">
+                <div class="card-block-title">Recruiter</div>
+                <div>${escapeHtml(row.recruiter_name || "Unassigned")}</div>
+                <div class="muted">${escapeHtml(row.recruiter_email || "—")}</div>
+              </div>
+
+              <div class="card-block">
+                <div class="inline-field">
+                  <label>Status</label>
+                  <select class="status-select" data-id="${row.id}">
+                    ${renderStatusOptions(row.status)}
+                  </select>
+                </div>
+              </div>
+
+              <div class="card-block">
+                <div class="inline-field">
+                  <label>Stage Note</label>
+                  <select class="stage-note-select" data-id="${row.id}" ${getStageNoteOptions(row.status).length ? "" : "disabled"}>
+                    ${renderStageNoteOptions(row.status, row.stage_note_code)}
+                  </select>
+                </div>
+                <div class="small-meta">${escapeHtml(row.stage_note_label || "No note selected")}</div>
+              </div>
+
+              <div class="card-block">
+                <div class="card-block-title">Source</div>
+                <div>${escapeHtml(row.application_source || "—")}</div>
+                <div class="small-meta">Note updated: ${escapeHtml(formatDateTime(row.stage_note_updated_at))}</div>
+              </div>
+
+              <div class="card-block">
+                <button class="row-btn copy-email-btn" type="button" data-email="${escapeHtml(row.email || "")}">
+                  Copy Email
+                </button>
+              </div>
+            </div>
+          </div>
+        `;
+      }).join("");
+
+      bindDynamicEvents();
+    }
+
+    function bindDynamicEvents() {
+      document.querySelectorAll(".status-select").forEach(select => {
+        select.addEventListener("change", async e => {
+          const id = e.target.dataset.id;
+          const newStatus = e.target.value;
+
+          try {
+            const { error } = await supabase
+              .from("applications")
+              .update({
+                status: newStatus,
+                stage_note_code: null,
+                stage_note_label: null,
+                stage_note_updated_at: null
+              })
+              .eq("id", id);
+
+            if (error) throw error;
+
+            const row = rawApplications.find(r => String(r.id) === String(id));
+            if (row) {
+              row.status = newStatus;
+              row.stage_note_code = null;
+              row.stage_note_label = null;
+              row.stage_note_updated_at = null;
+            }
+
+            populateFilterOptions(rawApplications);
+            applyFilters();
+            showToast("Status updated.", "success");
+          } catch (err) {
+            console.error("status update error:", err);
+            alert("Failed to update status: " + (err.message || "Unknown error"));
+          }
+        });
+      });
+
+      document.querySelectorAll(".stage-note-select").forEach(select => {
+        select.addEventListener("change", async e => {
+          const id = e.target.dataset.id;
+          const row = rawApplications.find(r => String(r.id) === String(id));
+          if (!row) return;
+
+          const selectedCode = e.target.value;
+          const matched = getStageNoteOptions(row.status).find(n => n.code === selectedCode);
+
+          try {
+            const nowIso = matched ? new Date().toISOString() : null;
+
+            const { error } = await supabase
+              .from("applications")
+              .update({
+                stage_note_code: matched ? matched.code : null,
+                stage_note_label: matched ? matched.label : null,
+                stage_note_updated_at: nowIso
+              })
+              .eq("id", id);
+
+            if (error) throw error;
+
+            row.stage_note_code = matched ? matched.code : null;
+            row.stage_note_label = matched ? matched.label : null;
+            row.stage_note_updated_at = nowIso;
+
+            populateFilterOptions(rawApplications);
+            applyFilters();
+            showToast("Stage note saved.", "success");
+          } catch (err) {
+            console.error("stage note update error:", err);
+            alert("Failed to save stage note: " + (err.message || "Unknown error"));
+          }
+        });
+      });
+
+      document.querySelectorAll(".copy-email-btn").forEach(btn => {
+        btn.addEventListener("click", async () => {
+          const email = btn.dataset.email || "";
+          if (!email) {
+            showToast("No email found.", "error");
+            return;
+          }
+
+          try {
+            await navigator.clipboard.writeText(email);
+            showToast("Candidate email copied.", "success");
+          } catch (err) {
+            console.error("copy email error:", err);
+            showToast("Failed to copy email.", "error");
+          }
+        });
+      });
+    }
+
     async function fetchApplications() {
       setLoadingState();
 
       try {
+        console.log("Fetching applications...");
+
         const { data, error } = await supabase
           .from("applications")
           .select(`
@@ -1182,15 +1402,7 @@
             stage_note_code,
             stage_note_label,
             stage_note_updated_at,
-            created_at,
-            applicant_profiles (
-              id,
-              full_name,
-              phone,
-              location,
-              resume_url,
-              resume_path
-            )
+            created_at
           `)
           .order("created_at", { ascending: false });
 
@@ -1198,519 +1410,44 @@
 
         rawApplications = (data || []).map(row => ({
           ...row,
-          recruiter_name: formatRecruiterName(row.recruiter_email),
-          candidate_name: row.applicant_profiles?.full_name || "Unnamed Candidate",
-          phone: row.applicant_profiles?.phone || "",
-          location: row.applicant_profiles?.location || "",
-          resume_link: buildResumeUrl(row)
+          candidate_name: row.email || "Unnamed Candidate",
+          phone: "",
+          location: "",
+          recruiter_name: formatRecruiterName(row.recruiter_email)
         }));
+
+        console.log("Applications loaded:", rawApplications);
 
         populateFilterOptions(rawApplications);
         applyFilters();
         lastUpdatedLabel.textContent = `Last updated: ${formatDateTime(new Date().toISOString())}`;
-      } catch (error) {
-        console.error("Failed to fetch applications:", error);
-        applicationsTableBody.innerHTML = `
-          <tr>
-            <td colspan="9" class="empty-state">
-              <strong>Failed to load applications.</strong>
-              ${escapeHtml(error.message || "Please check your Supabase table and join configuration.")}
-            </td>
-          </tr>
-        `;
-        mobileCards.innerHTML = `
-          <div class="empty-state">
-            <strong>Failed to load applications.</strong>
-            ${escapeHtml(error.message || "Please check your Supabase table and join configuration.")}
-          </div>
-        `;
-        showToast("Failed to load applications.", "error");
+      } catch (err) {
+        console.error("fetchApplications error:", err);
+        setErrorState(err.message || "Unknown error while loading applications");
       }
     }
 
-    /******************************************************************
-     * FILTERS
-     ******************************************************************/
-    function populateFilterOptions(rows) {
-      const uniqueStatuses = [...new Set(STATUS_OPTIONS)];
-      const uniqueSources = [...new Set(rows.map(item => item.application_source).filter(Boolean))].sort();
-      const uniqueRecruiters = [...new Set(rows.map(item => item.recruiter_email).filter(Boolean))].sort();
-      const uniqueNotes = [...new Set(
-        rows
-          .map(item => item.stage_note_label || "")
-          .filter(Boolean)
-      )].sort();
-
-      statusFilter.innerHTML = `<option value="">All statuses</option>` +
-        uniqueStatuses.map(status => `<option value="${escapeHtml(status)}">${escapeHtml(titleCase(status))}</option>`).join("");
-
-      sourceFilter.innerHTML = `<option value="">All sources</option>` +
-        uniqueSources.map(source => `<option value="${escapeHtml(source)}">${escapeHtml(source)}</option>`).join("");
-
-      recruiterFilter.innerHTML = `<option value="">All recruiters</option>` +
-        uniqueRecruiters.map(email => `
-          <option value="${escapeHtml(email)}">${escapeHtml(formatRecruiterName(email))}</option>
-        `).join("");
-
-      noteFilter.innerHTML = `<option value="">All notes</option>` +
-        uniqueNotes.map(note => `<option value="${escapeHtml(note)}">${escapeHtml(note)}</option>`).join("");
+    async function handleLogout() {
+      try {
+        await supabase.auth.signOut();
+      } catch (err) {
+        console.error("logout error:", err);
+      }
+      window.location.href = "login.html";
     }
 
-    function applyFilters() {
-      const q = normalize(searchInput.value);
-      const statusValue = normalize(statusFilter.value);
-      const noteValue = normalize(noteFilter.value);
-      const sourceValue = normalize(sourceFilter.value);
-      const recruiterValue = normalize(recruiterFilter.value);
+    refreshBtn.addEventListener("click", fetchApplications);
+    logoutBtn.addEventListener("click", handleLogout);
+    applyFiltersBtn.addEventListener("click", applyFilters);
 
-      filteredApplications = rawApplications.filter(row => {
-        const haystack = [
-          row.candidate_name,
-          row.email,
-          row.job_title,
-          row.recruiter_email,
-          row.recruiter_name,
-          row.stage_note_label,
-          row.application_source,
-          row.location,
-          row.phone
-        ].join(" ").toLowerCase();
-
-        const matchesSearch = !q || haystack.includes(q);
-        const matchesStatus = !statusValue || normalize(row.status) === statusValue;
-        const matchesNote = !noteValue || normalize(row.stage_note_label) === noteValue;
-        const matchesSource = !sourceValue || normalize(row.application_source) === sourceValue;
-        const matchesRecruiter = !recruiterValue || normalize(row.recruiter_email) === recruiterValue;
-
-        return matchesSearch && matchesStatus && matchesNote && matchesSource && matchesRecruiter;
-      });
-
-      renderApplications();
-      updateSummaryCards();
-    }
-
-    function clearFilters() {
+    clearFiltersBtn.addEventListener("click", () => {
       searchInput.value = "";
       statusFilter.value = "";
       noteFilter.value = "";
       sourceFilter.value = "";
       recruiterFilter.value = "";
       applyFilters();
-    }
-
-    /******************************************************************
-     * SUMMARY
-     ******************************************************************/
-    function updateSummaryCards() {
-      const total = filteredApplications.length;
-      const withNotes = filteredApplications.filter(item => !!item.stage_note_code).length;
-      const hiredCount = filteredApplications.filter(item => normalize(item.status) === "hired").length;
-      const noShowCount = filteredApplications.filter(item => {
-        const code = normalize(item.stage_note_code);
-        const status = normalize(item.status);
-        return code.includes("no_show") || status.includes("no-show");
-      }).length;
-
-      totalApplicationsValue.textContent = total;
-      withNotesValue.textContent = withNotes;
-      hiredValue.textContent = hiredCount;
-      noShowValue.textContent = noShowCount;
-    }
-
-    /******************************************************************
-     * RENDER
-     ******************************************************************/
-    function renderApplications() {
-      if (!filteredApplications.length) {
-        setEmptyState();
-        return;
-      }
-
-      applicationsTableBody.innerHTML = filteredApplications.map(renderTableRow).join("");
-      mobileCards.innerHTML = filteredApplications.map(renderMobileCard).join("");
-
-      bindDynamicEvents();
-    }
-
-    function renderStatusOptions(selectedValue) {
-      const current = normalize(selectedValue);
-      return STATUS_OPTIONS.map(status => `
-        <option value="${escapeHtml(status)}" ${normalize(status) === current ? "selected" : ""}>
-          ${escapeHtml(titleCase(status))}
-        </option>
-      `).join("");
-    }
-
-    function renderStageNoteOptions(status, selectedCode) {
-      const currentCode = normalize(selectedCode);
-      const options = getStageNoteOptions(status);
-      let html = `<option value="">Select note</option>`;
-
-      options.forEach(option => {
-        html += `
-          <option value="${escapeHtml(option.code)}" ${normalize(option.code) === currentCode ? "selected" : ""}>
-            ${escapeHtml(option.label)}
-          </option>
-        `;
-      });
-
-      return html;
-    }
-
-    function renderTableRow(row) {
-      const candidateName = escapeHtml(row.candidate_name || "Unnamed Candidate");
-      const candidateEmail = escapeHtml(row.email || "—");
-      const phone = escapeHtml(row.phone || "—");
-      const location = escapeHtml(titleCase(row.location || "—"));
-      const resumeLink = row.resume_link;
-      const jobTitle = escapeHtml(row.job_title || "Untitled Role");
-      const recruiterNameDisplay = escapeHtml(row.recruiter_name || "Unassigned");
-      const recruiterEmailDisplay = escapeHtml(row.recruiter_email || "—");
-      const source = escapeHtml(row.application_source || "—");
-      const createdAt = formatDateShort(row.created_at);
-      const noteUpdatedAt = formatDateTime(row.stage_note_updated_at);
-      const statusClass = statusChipClass(row.status);
-
-      return `
-        <tr data-application-id="${row.id}">
-          <td class="candidate-cell">
-            <div class="candidate-name">${candidateName}</div>
-            <div class="candidate-meta">
-              ${candidateEmail}<br />
-              ${phone}<br />
-              ${location}
-            </div>
-            ${resumeLink ? `<a class="resume-link" href="${resumeLink}" target="_blank" rel="noopener noreferrer">View Resume</a>` : ""}
-          </td>
-
-          <td>
-            <div class="job-title">${jobTitle}</div>
-            <div class="muted">Job ID: ${escapeHtml(row.job_id || "—")}</div>
-          </td>
-
-          <td>
-            <div class="job-title">${recruiterNameDisplay}</div>
-            <div class="muted">${recruiterEmailDisplay}</div>
-          </td>
-
-          <td>
-            <span class="chip chip-neutral">${source}</span>
-          </td>
-
-          <td>
-            <div>${escapeHtml(createdAt)}</div>
-            <div class="small-meta">Application received</div>
-          </td>
-
-          <td>
-            <div class="inline-field">
-              <label>Status</label>
-              <select
-                class="status-select"
-                data-application-id="${row.id}"
-                data-current-status="${escapeHtml(row.status || "")}"
-              >
-                ${renderStatusOptions(row.status)}
-              </select>
-            </div>
-            <div class="small-meta">
-              <span class="chip ${statusClass}">${escapeHtml(titleCase(row.status || "Unknown"))}</span>
-            </div>
-          </td>
-
-          <td>
-            <div class="inline-field">
-              <label>Stage Note</label>
-              <select
-                class="stage-note-select"
-                data-application-id="${row.id}"
-                data-current-note-code="${escapeHtml(row.stage_note_code || "")}"
-                ${getStageNoteOptions(row.status).length ? "" : "disabled"}
-              >
-                ${renderStageNoteOptions(row.status, row.stage_note_code)}
-              </select>
-            </div>
-            <div class="small-meta">${escapeHtml(row.stage_note_label || "No note selected")}</div>
-          </td>
-
-          <td>
-            <div>${escapeHtml(noteUpdatedAt)}</div>
-            <div class="small-meta">Most recent note update</div>
-          </td>
-
-          <td>
-            <div class="row-actions">
-              ${resumeLink ? `
-                <a class="row-btn" href="${resumeLink}" target="_blank" rel="noopener noreferrer">Open Resume</a>
-              ` : `<button class="row-btn" type="button" disabled>No Resume</button>`}
-              <button class="row-btn copy-email-btn" type="button" data-email="${escapeHtml(row.email || "")}">
-                Copy Email
-              </button>
-            </div>
-          </td>
-        </tr>
-      `;
-    }
-
-    function renderMobileCard(row) {
-      const candidateName = escapeHtml(row.candidate_name || "Unnamed Candidate");
-      const candidateEmail = escapeHtml(row.email || "—");
-      const phone = escapeHtml(row.phone || "—");
-      const location = escapeHtml(titleCase(row.location || "—"));
-      const resumeLink = row.resume_link;
-      const statusClass = statusChipClass(row.status);
-
-      return `
-        <div class="candidate-card" data-application-id="${row.id}">
-          <div class="candidate-card-head">
-            <div>
-              <div class="candidate-name">${candidateName}</div>
-              <div class="candidate-meta">
-                ${candidateEmail}<br />
-                ${phone}<br />
-                ${location}
-              </div>
-            </div>
-            <span class="chip ${statusClass}">${escapeHtml(titleCase(row.status || "Unknown"))}</span>
-          </div>
-
-          <div class="card-grid">
-            <div class="card-block">
-              <div class="card-block-title">Job</div>
-              <div class="job-title">${escapeHtml(row.job_title || "Untitled Role")}</div>
-              <div class="muted">Applied: ${escapeHtml(formatDateShort(row.created_at))}</div>
-            </div>
-
-            <div class="card-block">
-              <div class="card-block-title">Recruiter</div>
-              <div>${escapeHtml(row.recruiter_name || "Unassigned")}</div>
-              <div class="muted">${escapeHtml(row.recruiter_email || "—")}</div>
-            </div>
-
-            <div class="card-block">
-              <div class="inline-field">
-                <label>Status</label>
-                <select
-                  class="status-select"
-                  data-application-id="${row.id}"
-                  data-current-status="${escapeHtml(row.status || "")}"
-                >
-                  ${renderStatusOptions(row.status)}
-                </select>
-              </div>
-            </div>
-
-            <div class="card-block">
-              <div class="inline-field">
-                <label>Stage Note</label>
-                <select
-                  class="stage-note-select"
-                  data-application-id="${row.id}"
-                  data-current-note-code="${escapeHtml(row.stage_note_code || "")}"
-                  ${getStageNoteOptions(row.status).length ? "" : "disabled"}
-                >
-                  ${renderStageNoteOptions(row.status, row.stage_note_code)}
-                </select>
-              </div>
-              <div class="small-meta">${escapeHtml(row.stage_note_label || "No note selected")}</div>
-            </div>
-
-            <div class="card-block">
-              <div class="card-block-title">Source</div>
-              <div>${escapeHtml(row.application_source || "—")}</div>
-              <div class="small-meta">Note updated: ${escapeHtml(formatDateTime(row.stage_note_updated_at))}</div>
-            </div>
-
-            <div class="card-block">
-              ${resumeLink ? `<a class="row-btn" href="${resumeLink}" target="_blank" rel="noopener noreferrer">Open Resume</a>` : `<button class="row-btn" type="button" disabled>No Resume</button>`}
-              <button class="row-btn copy-email-btn" type="button" data-email="${escapeHtml(row.email || "")}" style="margin-top:8px;">
-                Copy Email
-              </button>
-            </div>
-          </div>
-        </div>
-      `;
-    }
-
-    function bindDynamicEvents() {
-      document.querySelectorAll(".status-select").forEach(select => {
-        select.addEventListener("change", async event => {
-          const applicationId = event.target.dataset.applicationId;
-          const newStatus = event.target.value;
-          const currentStatus = event.target.dataset.currentStatus || "";
-
-          if (!applicationId) return;
-          if (normalize(newStatus) === normalize(currentStatus)) {
-            refreshNoteDropdownForApplication(applicationId, newStatus, "");
-            return;
-          }
-
-          const ok = await updateApplicationStatus(applicationId, newStatus);
-          if (!ok) {
-            event.target.value = currentStatus;
-            return;
-          }
-
-          event.target.dataset.currentStatus = newStatus;
-          refreshNoteDropdownForApplication(applicationId, newStatus, "");
-        });
-      });
-
-      document.querySelectorAll(".stage-note-select").forEach(select => {
-        select.addEventListener("change", async event => {
-          const applicationId = event.target.dataset.applicationId;
-          if (!applicationId) return;
-
-          const rowContainer =
-            event.target.closest("tr[data-application-id]") ||
-            event.target.closest(".candidate-card[data-application-id]");
-
-          const statusSelect = rowContainer?.querySelector(".status-select");
-          const selectedStatus = statusSelect?.value || "";
-          const noteCode = event.target.value || "";
-
-          const ok = await updateApplicationStageNote(applicationId, selectedStatus, noteCode);
-          if (!ok) {
-            event.target.value = event.target.dataset.currentNoteCode || "";
-            return;
-          }
-
-          event.target.dataset.currentNoteCode = noteCode;
-        });
-      });
-
-      document.querySelectorAll(".copy-email-btn").forEach(btn => {
-        btn.addEventListener("click", async () => {
-          const email = btn.dataset.email || "";
-          if (!email) {
-            showToast("No email found for this candidate.", "error");
-            return;
-          }
-
-          try {
-            await navigator.clipboard.writeText(email);
-            showToast("Candidate email copied.", "success");
-          } catch (error) {
-            console.error("Failed to copy email:", error);
-            showToast("Failed to copy email.", "error");
-          }
-        });
-      });
-    }
-
-    function refreshNoteDropdownForApplication(applicationId, status, selectedCode = "") {
-      document.querySelectorAll(`[data-application-id="${applicationId}"].stage-note-select`).forEach(select => {
-        const options = getStageNoteOptions(status);
-        select.innerHTML = renderStageNoteOptions(status, selectedCode);
-        select.disabled = options.length === 0;
-        select.dataset.currentNoteCode = selectedCode || "";
-      });
-
-      const targets = document.querySelectorAll(`[data-application-id="${applicationId}"]`);
-      targets.forEach(container => {
-        const noteMeta = container.querySelector?.(".small-meta");
-        if (noteMeta && noteMeta.textContent?.includes("No note selected")) {
-          noteMeta.textContent = "No note selected";
-        }
-      });
-
-      const item = rawApplications.find(app => String(app.id) === String(applicationId));
-      if (item) {
-        item.status = status;
-        item.stage_note_code = selectedCode || null;
-        item.stage_note_label = selectedCode ? getNoteLabelByCode(status, selectedCode) : null;
-        item.stage_note_updated_at = selectedCode ? new Date().toISOString() : null;
-      }
-
-      applyFilters();
-    }
-
-    /******************************************************************
-     * SAVE ACTIONS
-     ******************************************************************/
-    async function updateApplicationStatus(applicationId, newStatus) {
-      try {
-        const payload = {
-          status: newStatus,
-          stage_note_code: null,
-          stage_note_label: null,
-          stage_note_updated_at: null
-        };
-
-        const { error } = await supabase
-          .from("applications")
-          .update(payload)
-          .eq("id", applicationId);
-
-        if (error) throw error;
-
-        const row = rawApplications.find(item => String(item.id) === String(applicationId));
-        if (row) {
-          row.status = newStatus;
-          row.stage_note_code = null;
-          row.stage_note_label = null;
-          row.stage_note_updated_at = null;
-        }
-
-        populateFilterOptions(rawApplications);
-        applyFilters();
-        showToast("Candidate status updated.", "success");
-        return true;
-      } catch (error) {
-        console.error("Failed to update application status:", error);
-        showToast(`Failed to update status: ${error.message || "Unknown error"}`, "error");
-        return false;
-      }
-    }
-
-    async function updateApplicationStageNote(applicationId, stage, noteCode) {
-      try {
-        const matched = getStageNoteOptions(stage).find(item => item.code === noteCode);
-        const payload = {
-          stage_note_code: matched ? matched.code : null,
-          stage_note_label: matched ? matched.label : null,
-          stage_note_updated_at: matched ? new Date().toISOString() : null
-        };
-
-        const { error } = await supabase
-          .from("applications")
-          .update(payload)
-          .eq("id", applicationId);
-
-        if (error) throw error;
-
-        const row = rawApplications.find(item => String(item.id) === String(applicationId));
-        if (row) {
-          row.stage_note_code = payload.stage_note_code;
-          row.stage_note_label = payload.stage_note_label;
-          row.stage_note_updated_at = payload.stage_note_updated_at;
-          row.status = stage;
-        }
-
-        populateFilterOptions(rawApplications);
-        applyFilters();
-        showToast("Stage note saved.", "success");
-        return true;
-      } catch (error) {
-        console.error("Failed to update stage note:", error);
-        showToast(`Failed to save stage note: ${error.message || "Unknown error"}`, "error");
-        return false;
-      }
-    }
-
-    /******************************************************************
-     * EVENT LISTENERS
-     ******************************************************************/
-    refreshBtn.addEventListener("click", fetchApplications);
-    logoutBtn.addEventListener("click", handleLogout);
-    clearFiltersBtn.addEventListener("click", clearFilters);
-    applyFiltersBtn.addEventListener("click", applyFilters);
-
-    searchInput.addEventListener("input", applyFilters);
-    statusFilter.addEventListener("change", applyFilters);
-    noteFilter.addEventListener("change", applyFilters);
-    sourceFilter.addEventListener("change", applyFilters);
-    recruiterFilter.addEventListener("change", applyFilters);
+    });
 
     scrollToPipelineBtn.addEventListener("click", () => {
       document.getElementById("pipelineSection")?.scrollIntoView({
@@ -1719,14 +1456,30 @@
       });
     });
 
-    /******************************************************************
-     * INIT
-     ******************************************************************/
-    async function init() {
-      const ok = await validateSession();
-      if (!ok) return;
+    searchInput.addEventListener("input", applyFilters);
+    statusFilter.addEventListener("change", applyFilters);
+    noteFilter.addEventListener("change", applyFilters);
+    sourceFilter.addEventListener("change", applyFilters);
+    recruiterFilter.addEventListener("change", applyFilters);
 
-      await fetchApplications();
+    async function init() {
+      try {
+        if (!SUPABASE_URL || SUPABASE_URL === "YOUR_SUPABASE_URL") {
+          throw new Error("SUPABASE_URL is not set");
+        }
+
+        if (!SUPABASE_ANON_KEY || SUPABASE_ANON_KEY === "YOUR_SUPABASE_ANON_KEY") {
+          throw new Error("SUPABASE_ANON_KEY is not set");
+        }
+
+        const ok = await validateSession();
+        if (!ok) return;
+
+        await fetchApplications();
+      } catch (err) {
+        console.error("init error:", err);
+        setErrorState(err.message || "Dashboard failed to initialize");
+      }
     }
 
     init();
