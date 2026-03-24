@@ -223,7 +223,7 @@
     table {
       width: 100%;
       border-collapse: collapse;
-      min-width: 1940px;
+      min-width: 2020px;
       background: white;
     }
 
@@ -400,7 +400,7 @@
       <div>
         <h1>Recruiter Dashboard</h1>
         <p class="subtitle">
-          Manage candidates, update statuses, assign recruiters, track application sources, and capture notes.
+          Manage candidates, update statuses, assign recruiters, track application sources, and capture stage-based notes.
         </p>
       </div>
 
@@ -564,21 +564,79 @@
         "rejected"
       ];
 
-      const NOTE_OPTIONS = [
-        { code: "", label: "Select note" },
-        { code: "strong_fit", label: "Strong fit" },
-        { code: "salary_not_aligned", label: "Salary not aligned" },
-        { code: "location_not_aligned", label: "Location not aligned" },
-        { code: "experience_not_aligned", label: "Experience not aligned" },
-        { code: "no_show", label: "No-show" },
-        { code: "client_rejected", label: "Client rejected" },
-        { code: "awaiting_feedback", label: "Awaiting feedback" }
-      ];
-
-      const NOTE_LABEL_BY_CODE = NOTE_OPTIONS.reduce((acc, item) => {
-        acc[item.code] = item.label;
-        return acc;
-      }, {});
+      const STAGE_NOTE_OPTIONS = {
+        "submitted": [
+          { code: "", label: "Select note" },
+          { code: "strong_fit", label: "Strong fit" },
+          { code: "salary_not_aligned", label: "Salary not aligned" },
+          { code: "location_not_aligned", label: "Location not aligned" },
+          { code: "experience_not_aligned", label: "Experience not aligned" }
+        ],
+        "failed paper screening": [
+          { code: "", label: "Select note" },
+          { code: "failed_basic_qualification", label: "Failed basic qualification" },
+          { code: "failed_experience_match", label: "Failed experience match" },
+          { code: "failed_education_requirement", label: "Failed education requirement" },
+          { code: "failed_language_requirement", label: "Failed language requirement" }
+        ],
+        "endorsed": [
+          { code: "", label: "Select note" },
+          { code: "endorsed_to_client", label: "Endorsed to client" },
+          { code: "awaiting_client_feedback", label: "Awaiting client feedback" },
+          { code: "shortlisted_for_next_step", label: "Shortlisted for next step" }
+        ],
+        "assessment": [
+          { code: "", label: "Select note" },
+          { code: "assessment_sent", label: "Assessment sent" },
+          { code: "assessment_passed", label: "Assessment passed" },
+          { code: "assessment_failed", label: "Assessment failed" },
+          { code: "assessment_no_show", label: "Assessment no-show" }
+        ],
+        "initial": [
+          { code: "", label: "Select note" },
+          { code: "good_communication", label: "Good communication" },
+          { code: "failed_initial_interview", label: "Failed initial interview" },
+          { code: "initial_interview_no_show", label: "Initial interview no-show" },
+          { code: "for_final_interview", label: "For final interview" }
+        ],
+        "final": [
+          { code: "", label: "Select note" },
+          { code: "passed_final_interview", label: "Passed final interview" },
+          { code: "client_rejected", label: "Client rejected" },
+          { code: "for_offer", label: "For offer" },
+          { code: "final_interview_no_show", label: "Final interview no-show" }
+        ],
+        "hired": [
+          { code: "", label: "Select note" },
+          { code: "offer_accepted", label: "Offer accepted" },
+          { code: "offer_declined", label: "Offer declined" },
+          { code: "pre_employment_in_progress", label: "Pre-employment in progress" }
+        ],
+        "onboarded": [
+          { code: "", label: "Select note" },
+          { code: "completed_onboarding", label: "Completed onboarding" },
+          { code: "day_1_no_show", label: "Day 1 no-show" },
+          { code: "start_date_moved", label: "Start date moved" }
+        ],
+        "no-show (onboarding)": [
+          { code: "", label: "Select note" },
+          { code: "onboarding_no_show", label: "Onboarding no-show" },
+          { code: "unreachable_before_start", label: "Unreachable before start" }
+        ],
+        "withdrawn": [
+          { code: "", label: "Select note" },
+          { code: "candidate_withdrew", label: "Candidate withdrew" },
+          { code: "accepted_other_offer", label: "Accepted other offer" },
+          { code: "unresponsive", label: "Unresponsive" }
+        ],
+        "rejected": [
+          { code: "", label: "Select note" },
+          { code: "rejected_due_to_experience", label: "Rejected due to experience" },
+          { code: "rejected_due_to_salary", label: "Rejected due to salary" },
+          { code: "rejected_due_to_location", label: "Rejected due to location" },
+          { code: "rejected_due_to_comms", label: "Rejected due to communication" }
+        ]
+      };
 
       const REJECTED_STATUSES = ["failed paper screening", "withdrawn", "rejected", "no-show (onboarding)"];
       const INTERVIEWED_STATUSES = ["assessment", "initial", "final"];
@@ -689,6 +747,23 @@
         } catch {
           return "";
         }
+      }
+
+      function getStageNoteOptions(status) {
+        return STAGE_NOTE_OPTIONS[normalizeText(status)] || [{ code: "", label: "Select note" }];
+      }
+
+      function getStageNoteLabel(status, code) {
+        const matched = getStageNoteOptions(status).find(item => item.code === code);
+        return matched ? matched.label : null;
+      }
+
+      function renderNoteOptionsByStatus(status, selectedCode) {
+        const current = String(selectedCode || "");
+        return getStageNoteOptions(status).map(option => {
+          const selected = option.code === current ? "selected" : "";
+          return `<option value="${escapeHtml(option.code)}" ${selected}>${escapeHtml(option.label)}</option>`;
+        }).join("");
       }
 
       async function getResumeUrl(app) {
@@ -829,14 +904,6 @@
         els.statHired.textContent = filtered.filter(a => HIRED_STATUSES.includes(normalizeText(a.status))).length;
       }
 
-      function renderNoteOptions(selectedCode) {
-        const current = String(selectedCode || "");
-        return NOTE_OPTIONS.map(option => {
-          const selected = option.code === current ? "selected" : "";
-          return `<option value="${escapeHtml(option.code)}" ${selected}>${escapeHtml(option.label)}</option>`;
-        }).join("");
-      }
-
       async function renderTable() {
         const filtered = getFilteredApplications();
 
@@ -914,7 +981,7 @@
                 </td>
                 <td>
                   <select class="table-select note-select" data-id="${escapeHtml(app.id)}">
-                    ${renderNoteOptions(noteCode)}
+                    ${renderNoteOptionsByStatus(currentStatus, noteCode)}
                   </select>
                   <div class="table-note-meta">
                     ${escapeHtml(noteLabel || "No note selected")}
@@ -980,7 +1047,12 @@
 
         const { error } = await supabaseClient
           .from("applications")
-          .update({ status: newStatus })
+          .update({
+            status: newStatus,
+            stage_note_code: null,
+            stage_note_label: null,
+            stage_note_updated_at: null
+          })
           .eq("id", applicationId);
 
         if (error) {
@@ -1013,7 +1085,9 @@
       }
 
       async function updateApplicationNote(applicationId, noteCode) {
-        const label = NOTE_LABEL_BY_CODE[noteCode] || null;
+        const application = state.allApplications.find(app => String(app.id) === String(applicationId));
+        const currentStatus = application?.status || "submitted";
+        const label = noteCode ? getStageNoteLabel(currentStatus, noteCode) : null;
         const updatedAt = noteCode ? new Date().toISOString() : null;
 
         const { error } = await supabaseClient
