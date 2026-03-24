@@ -145,6 +145,7 @@
       font-weight:700;
       display:none;
       line-height:1.5;
+      white-space:pre-line;
     }
 
     .msg.show{display:block}
@@ -233,6 +234,7 @@
     const forgotPasswordLink = document.getElementById("forgotPasswordLink");
 
     let isSubmitting = false;
+    let isSendingReset = false;
 
     function normalizeEmail(value) {
       return String(value || "").trim().toLowerCase();
@@ -286,36 +288,6 @@
       return data[0];
     }
 
-    async function verifyRecruiterEmailForReset(email) {
-      const cleanEmail = normalizeEmail(email);
-
-      if (!cleanEmail) {
-        throw new Error("Recruiter email is missing.");
-      }
-
-      const { data, error } = await supabaseClient
-        .from("recruiters")
-        .select("email, active")
-        .eq("email", cleanEmail)
-        .eq("active", true);
-
-      console.log("verifyRecruiterEmailForReset:", { cleanEmail, data, error });
-
-      if (error) {
-        throw error;
-      }
-
-      if (!Array.isArray(data) || data.length === 0) {
-        throw new Error(`This recruiter email is not active in the recruiters table: ${cleanEmail}`);
-      }
-
-      if (data.length > 1) {
-        throw new Error(`Duplicate recruiter records found for ${cleanEmail}. Please clean up the recruiters table.`);
-      }
-
-      return data[0];
-    }
-
     async function redirectIfAlreadyLoggedIn() {
       const {
         data: { session }
@@ -360,7 +332,7 @@
           const raw = String(error.message || "").toLowerCase();
 
           if (raw.includes("invalid login credentials")) {
-            throw new Error("Invalid recruiter email or password. If this is your first login, click Forgot password to set your password first.");
+            throw new Error("Invalid recruiter email or password.\n\nIf this is your first login, click Forgot password to set your password first.");
           }
 
           if (raw.includes("email rate limit exceeded") || raw.includes("rate limit")) {
@@ -397,6 +369,8 @@
 
     forgotPasswordLink.addEventListener("click", async (e) => {
       e.preventDefault();
+      if (isSendingReset) return;
+
       clearMessage();
 
       const email = normalizeEmail(emailInput.value);
@@ -406,27 +380,33 @@
         return;
       }
 
-      try {
-        await verifyRecruiterEmailForReset(email);
+      isSendingReset = true;
+      forgotPasswordLink.style.pointerEvents = "none";
+      forgotPasswordLink.style.opacity = "0.6";
 
-        const { error: resetError } = await supabaseClient.auth.resetPasswordForEmail(email, {
+      try {
+        const { error } = await supabaseClient.auth.resetPasswordForEmail(email, {
           redirectTo: `${window.location.origin}/reset-password.html`
         });
 
-        if (resetError) {
-          const raw = String(resetError.message || "").toLowerCase();
+        if (error) {
+          const raw = String(error.message || "").toLowerCase();
 
           if (raw.includes("rate limit")) {
             throw new Error("Too many reset attempts. Please wait a bit before trying again.");
           }
 
-          throw resetError;
+          throw error;
         }
 
-        showMessage("Password reset email sent. Please check your inbox.", "success");
+        showMessage("Password reset email sent.\n\nPlease check your inbox and spam folder, then open the link to set your password.", "success");
       } catch (error) {
         console.error("Forgot password error:", error);
         showMessage(error.message || "Failed to send password reset email.");
+      } finally {
+        isSendingReset = false;
+        forgotPasswordLink.style.pointerEvents = "";
+        forgotPasswordLink.style.opacity = "";
       }
     });
 
