@@ -185,7 +185,7 @@
 
     .filters-grid {
       display: grid;
-      grid-template-columns: 1.6fr 1fr 1fr 1fr 1fr auto;
+      grid-template-columns: 1.6fr 1fr 1fr 1fr 1fr 1fr auto;
       gap: 14px;
       align-items: end;
     }
@@ -223,7 +223,7 @@
     table {
       width: 100%;
       border-collapse: collapse;
-      min-width: 2020px;
+      min-width: 2160px;
       background: white;
     }
 
@@ -441,6 +441,11 @@
         </div>
 
         <div class="field">
+          <label for="clientFilter">Client Name</label>
+          <select id="clientFilter"><option value="">All clients</option></select>
+        </div>
+
+        <div class="field">
           <label for="statusFilter">Application Status</label>
           <select id="statusFilter">
             <option value="">All statuses</option>
@@ -488,6 +493,7 @@
             <tr>
               <th>Candidate</th>
               <th>Job</th>
+              <th>Client</th>
               <th>Status</th>
               <th>Recruiter</th>
               <th>Source</th>
@@ -503,7 +509,7 @@
             </tr>
           </thead>
           <tbody id="applicationsTable">
-            <tr><td colspan="14" class="empty">Loading candidates...</td></tr>
+            <tr><td colspan="15" class="empty">Loading candidates...</td></tr>
           </tbody>
         </table>
       </div>
@@ -650,6 +656,7 @@
       const els = {
         applicationsTable: document.getElementById("applicationsTable"),
         jobFilter: document.getElementById("jobFilter"),
+        clientFilter: document.getElementById("clientFilter"),
         statusFilter: document.getElementById("statusFilter"),
         recruiterFilter: document.getElementById("recruiterFilter"),
         sourceFilter: document.getElementById("sourceFilter"),
@@ -866,12 +873,18 @@
         const urlParams = new URLSearchParams(window.location.search);
         const selectedJobFromUrl = normalizeText(urlParams.get("job"));
         const currentRecruiterValue = els.recruiterFilter.value;
+        const currentClientValue = els.clientFilter.value;
+
         const jobsMap = new Map();
+        const clientsMap = new Map();
 
         state.allApplications.forEach(app => {
           const title = app.jobs?.title || app.job_title || "";
           const slug = app.jobs?.slug || title;
+          const clientName = app.jobs?.client_name || "";
+
           if (title) jobsMap.set(String(slug), String(title));
+          if (clientName) clientsMap.set(String(clientName), String(clientName));
         });
 
         const jobsOptions = Array.from(jobsMap.entries())
@@ -883,6 +896,16 @@
           .join("");
 
         els.jobFilter.innerHTML = `<option value="">All jobs</option>${jobsOptions}`;
+
+        const clientOptions = Array.from(clientsMap.entries())
+          .sort((a, b) => a[1].localeCompare(b[1]))
+          .map(([clientName]) => {
+            const selected = normalizeText(clientName) === normalizeText(currentClientValue) ? "selected" : "";
+            return `<option value="${escapeHtml(clientName)}" ${selected}>${escapeHtml(clientName)}</option>`;
+          })
+          .join("");
+
+        els.clientFilter.innerHTML = `<option value="">All clients</option>${clientOptions}`;
 
         const recruiterOptions = Object.entries(RECRUITERS)
           .map(([email, name]) => `<option value="${escapeHtml(email)}">${escapeHtml(name)}</option>`)
@@ -898,6 +921,7 @@
       function getFilteredApplications() {
         const search = normalizeText(els.searchInput.value);
         const selectedJobSlug = normalizeText(els.jobFilter.value);
+        const selectedClient = normalizeText(els.clientFilter.value);
         const selectedStatus = normalizeText(els.statusFilter.value);
         const selectedRecruiter = normalizeText(els.recruiterFilter.value);
         const selectedSource = normalizeText(els.sourceFilter.value);
@@ -907,6 +931,7 @@
           const candidateName = normalizeText(profile?.full_name);
           const candidateEmail = normalizeText(app.email);
           const jobSlug = normalizeText(app.jobs?.slug || app.job_title);
+          const clientName = normalizeText(app.jobs?.client_name);
           const status = normalizeText(app.status || "submitted");
           const recruiter = normalizeText(app.recruiter_email);
           const source = normalizeText(app.application_source);
@@ -914,6 +939,7 @@
           return (
             (!search || candidateName.includes(search) || candidateEmail.includes(search)) &&
             (!selectedJobSlug || jobSlug === selectedJobSlug) &&
+            (!selectedClient || clientName === selectedClient) &&
             (!selectedStatus || status === selectedStatus) &&
             (!selectedRecruiter || recruiter === selectedRecruiter) &&
             (!selectedSource || source === selectedSource)
@@ -934,7 +960,7 @@
         const filtered = getFilteredApplications();
 
         if (!filtered.length) {
-          els.applicationsTable.innerHTML = '<tr><td colspan="14" class="empty">No candidates found.</td></tr>';
+          els.applicationsTable.innerHTML = '<tr><td colspan="15" class="empty">No candidates found.</td></tr>';
           return;
         }
 
@@ -944,6 +970,7 @@
             const candidateName = escapeHtml(profile?.full_name || "Unnamed");
             const candidateEmail = escapeHtml(app.email || "-");
             const jobTitle = escapeHtml(app.jobs?.title || app.job_title || "-");
+            const clientName = escapeHtml(app.jobs?.client_name || "-");
             const currentStatus = String(app.status || "submitted");
             const safeStatus = escapeHtml(currentStatus);
             const recruiterName = escapeHtml(getRecruiterName(app.recruiter_email));
@@ -986,6 +1013,7 @@
                   <div class="small">${candidateEmail}</div>
                 </td>
                 <td>${jobTitle}</td>
+                <td>${clientName}</td>
                 <td><span class="status-pill ${getStatusClass(currentStatus)}">${safeStatus}</span></td>
                 <td>${recruiterName}</td>
                 <td>${source}</td>
@@ -1087,26 +1115,11 @@
         }
 
         const newStatusNormalized = normalizeText(newStatus);
-
-        if (
-          newStatusNormalized === "rejected" &&
-          application &&
-          application.rejection_email_status !== "sent"
-        ) {
-          try {
-            const sent = await sendRejectionEmail(application);
-            if (sent) {
-              showNotice("Status updated and rejection email sent.", "success");
-            } else {
-              showNotice("Status updated, but rejection email failed.", "error");
-            }
-          } catch {
-            showNotice("Status updated, but rejection email failed.", "error");
-          }
-        } else {
-          showNotice("Application status updated.", "success");
+        if (application && newStatusNormalized === "rejected") {
+          await sendRejectionEmail(application);
         }
 
+        showNotice("Application status updated.", "success");
         await loadApplications();
       }
 
@@ -1171,7 +1184,7 @@
         clearNotice();
         els.refreshBtn.disabled = true;
         els.refreshBtn.textContent = "Refreshing...";
-        els.applicationsTable.innerHTML = '<tr><td colspan="14" class="empty loading">Loading candidates...</td></tr>';
+        els.applicationsTable.innerHTML = '<tr><td colspan="15" class="empty loading">Loading candidates...</td></tr>';
 
         const { data, error } = await supabaseClient
           .from("applications")
@@ -1191,7 +1204,7 @@
             stage_note_label,
             stage_note_updated_at,
             created_at,
-            jobs(id, title, slug),
+            jobs(id, title, slug, client_name),
             applicant_profiles(id, full_name, phone, location, years_of_experience, current_title, skills, resume_url, resume_path)
           `)
           .order("created_at", { ascending: false });
@@ -1200,7 +1213,7 @@
         els.refreshBtn.textContent = "Refresh";
 
         if (error) {
-          els.applicationsTable.innerHTML = `<tr><td colspan="14" class="empty">${escapeHtml(error.message)}</td></tr>`;
+          els.applicationsTable.innerHTML = `<tr><td colspan="15" class="empty">${escapeHtml(error.message)}</td></tr>`;
           return;
         }
 
@@ -1228,7 +1241,7 @@
         handleFilterChange();
       });
 
-      [els.statusFilter, els.recruiterFilter, els.sourceFilter].forEach(el => {
+      [els.clientFilter, els.statusFilter, els.recruiterFilter, els.sourceFilter].forEach(el => {
         el.addEventListener("change", handleFilterChange);
       });
 
