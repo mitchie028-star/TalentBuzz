@@ -6,7 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta
     name="description"
-    content="Manage candidates, applications, recruiter assignments, hiring progress, and resume previews in TalentBuzz."
+    content="Manage candidates, applications, recruiter assignments, hiring progress, notes, and resume previews in TalentBuzz."
   />
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -223,7 +223,7 @@
     table {
       width: 100%;
       border-collapse: collapse;
-      min-width: 1780px;
+      min-width: 1940px;
       background: white;
     }
 
@@ -267,6 +267,13 @@
       font: inherit;
       background: white;
       outline: none;
+    }
+
+    .table-note-meta {
+      margin-top: 6px;
+      font-size: 0.78rem;
+      color: var(--muted);
+      line-height: 1.4;
     }
 
     .notice {
@@ -393,7 +400,7 @@
       <div>
         <h1>Recruiter Dashboard</h1>
         <p class="subtitle">
-          Manage candidates, update statuses, assign recruiters, and track application sources.
+          Manage candidates, update statuses, assign recruiters, track application sources, and capture notes.
         </p>
       </div>
 
@@ -490,12 +497,13 @@
               <th>Experience</th>
               <th>Resume</th>
               <th>Update Status</th>
+              <th>Notes</th>
               <th>Assign Recruiter</th>
               <th>Actions</th>
             </tr>
           </thead>
           <tbody id="applicationsTable">
-            <tr><td colspan="13" class="empty">Loading candidates...</td></tr>
+            <tr><td colspan="14" class="empty">Loading candidates...</td></tr>
           </tbody>
         </table>
       </div>
@@ -541,6 +549,7 @@
       };
 
       const ALLOWED_RECRUITER_EMAILS = Object.keys(RECRUITERS).concat(["mitchie028@gmail.com"]);
+
       const STATUS_OPTIONS = [
         "submitted",
         "failed paper screening",
@@ -554,6 +563,22 @@
         "withdrawn",
         "rejected"
       ];
+
+      const NOTE_OPTIONS = [
+        { code: "", label: "Select note" },
+        { code: "strong_fit", label: "Strong fit" },
+        { code: "salary_not_aligned", label: "Salary not aligned" },
+        { code: "location_not_aligned", label: "Location not aligned" },
+        { code: "experience_not_aligned", label: "Experience not aligned" },
+        { code: "no_show", label: "No-show" },
+        { code: "client_rejected", label: "Client rejected" },
+        { code: "awaiting_feedback", label: "Awaiting feedback" }
+      ];
+
+      const NOTE_LABEL_BY_CODE = NOTE_OPTIONS.reduce((acc, item) => {
+        acc[item.code] = item.label;
+        return acc;
+      }, {});
 
       const REJECTED_STATUSES = ["failed paper screening", "withdrawn", "rejected", "no-show (onboarding)"];
       const INTERVIEWED_STATUSES = ["assessment", "initial", "final"];
@@ -607,6 +632,19 @@
           year: "numeric",
           month: "short",
           day: "numeric"
+        });
+      }
+
+      function formatDateTime(dateString) {
+        if (!dateString) return "";
+        const date = new Date(dateString);
+        if (Number.isNaN(date.getTime())) return "";
+        return date.toLocaleString(undefined, {
+          year: "numeric",
+          month: "short",
+          day: "numeric",
+          hour: "numeric",
+          minute: "2-digit"
         });
       }
 
@@ -791,11 +829,19 @@
         els.statHired.textContent = filtered.filter(a => HIRED_STATUSES.includes(normalizeText(a.status))).length;
       }
 
+      function renderNoteOptions(selectedCode) {
+        const current = String(selectedCode || "");
+        return NOTE_OPTIONS.map(option => {
+          const selected = option.code === current ? "selected" : "";
+          return `<option value="${escapeHtml(option.code)}" ${selected}>${escapeHtml(option.label)}</option>`;
+        }).join("");
+      }
+
       async function renderTable() {
         const filtered = getFilteredApplications();
 
         if (!filtered.length) {
-          els.applicationsTable.innerHTML = '<tr><td colspan="13" class="empty">No candidates found.</td></tr>';
+          els.applicationsTable.innerHTML = '<tr><td colspan="14" class="empty">No candidates found.</td></tr>';
           return;
         }
 
@@ -818,6 +864,10 @@
               profile?.years_of_experience !== ""
                 ? `${escapeHtml(profile.years_of_experience)} yr${Number(profile.years_of_experience) === 1 ? "" : "s"}`
                 : "-";
+
+            const noteCode = app.stage_note_code || "";
+            const noteLabel = app.stage_note_label || "";
+            const noteUpdated = app.stage_note_updated_at ? formatDateTime(app.stage_note_updated_at) : "";
 
             const resumeUrl = await getResumeUrl(app);
             const safeResumeUrl = resumeUrl ? escapeHtml(resumeUrl) : "";
@@ -861,6 +911,15 @@
                   <select class="table-select status-select" data-id="${escapeHtml(app.id)}">
                     ${statusOptions}
                   </select>
+                </td>
+                <td>
+                  <select class="table-select note-select" data-id="${escapeHtml(app.id)}">
+                    ${renderNoteOptions(noteCode)}
+                  </select>
+                  <div class="table-note-meta">
+                    ${escapeHtml(noteLabel || "No note selected")}
+                    ${noteUpdated ? `<br>Updated: ${escapeHtml(noteUpdated)}` : ""}
+                  </div>
                 </td>
                 <td>
                   <select class="table-select recruiter-select" data-id="${escapeHtml(app.id)}">
@@ -917,7 +976,7 @@
       }
 
       async function updateApplicationStatus(applicationId, newStatus) {
-        const application = state.allApplications.find(app => app.id === applicationId);
+        const application = state.allApplications.find(app => String(app.id) === String(applicationId));
 
         const { error } = await supabaseClient
           .from("applications")
@@ -950,6 +1009,28 @@
           showNotice("Application status updated.", "success");
         }
 
+        await loadApplications();
+      }
+
+      async function updateApplicationNote(applicationId, noteCode) {
+        const label = NOTE_LABEL_BY_CODE[noteCode] || null;
+        const updatedAt = noteCode ? new Date().toISOString() : null;
+
+        const { error } = await supabaseClient
+          .from("applications")
+          .update({
+            stage_note_code: noteCode || null,
+            stage_note_label: label,
+            stage_note_updated_at: updatedAt
+          })
+          .eq("id", applicationId);
+
+        if (error) {
+          showNotice(error.message || "Failed to save note.", "error");
+          return;
+        }
+
+        showNotice("Note updated.", "success");
         await loadApplications();
       }
 
@@ -990,7 +1071,7 @@
         clearNotice();
         els.refreshBtn.disabled = true;
         els.refreshBtn.textContent = "Refreshing...";
-        els.applicationsTable.innerHTML = '<tr><td colspan="13" class="empty loading">Loading candidates...</td></tr>';
+        els.applicationsTable.innerHTML = '<tr><td colspan="14" class="empty loading">Loading candidates...</td></tr>';
 
         const { data, error } = await supabaseClient
           .from("applications")
@@ -1006,6 +1087,9 @@
             application_source,
             confirmation_email_status,
             rejection_email_status,
+            stage_note_code,
+            stage_note_label,
+            stage_note_updated_at,
             created_at,
             jobs(id, title, slug),
             applicant_profiles(id, full_name, phone, location, years_of_experience, current_title, skills, resume_url, resume_path)
@@ -1016,7 +1100,7 @@
         els.refreshBtn.textContent = "Refresh";
 
         if (error) {
-          els.applicationsTable.innerHTML = `<tr><td colspan="13" class="empty">${escapeHtml(error.message)}</td></tr>`;
+          els.applicationsTable.innerHTML = `<tr><td colspan="14" class="empty">${escapeHtml(error.message)}</td></tr>`;
           return;
         }
 
@@ -1056,6 +1140,11 @@
 
         if (target.classList.contains("status-select")) {
           await updateApplicationStatus(target.dataset.id, target.value);
+          return;
+        }
+
+        if (target.classList.contains("note-select")) {
+          await updateApplicationNote(target.dataset.id, target.value);
           return;
         }
 
