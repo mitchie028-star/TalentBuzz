@@ -6,7 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta
     name="description"
-    content="Manage candidates, applications, recruiter assignments, hiring progress, notes, and resume previews in TalentBuzz."
+    content="Manage candidates, applications, recruiter assignments, endorsements, notes, and resume previews in TalentBuzz."
   />
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -43,10 +43,8 @@
       line-height: 1.6;
     }
 
-    a { color: inherit; }
-
     .container {
-      max-width: 1440px;
+      max-width: 1480px;
       margin: 0 auto;
       padding: 24px 20px 44px;
     }
@@ -135,7 +133,7 @@
 
     .stats-grid {
       display: grid;
-      grid-template-columns: repeat(5, minmax(0, 1fr));
+      grid-template-columns: repeat(6, minmax(0, 1fr));
       gap: 16px;
       margin-bottom: 20px;
     }
@@ -185,7 +183,7 @@
 
     .filters-grid {
       display: grid;
-      grid-template-columns: 1.6fr 1fr 1fr 1fr 1fr 1fr auto;
+      grid-template-columns: 1.6fr 1fr 1fr 1fr 1fr 1fr 1fr auto;
       gap: 14px;
       align-items: end;
     }
@@ -198,7 +196,8 @@
     }
 
     .field input,
-    .field select {
+    .field select,
+    .field textarea {
       width: 100%;
       padding: 12px;
       border-radius: 12px;
@@ -209,7 +208,8 @@
     }
 
     .field input:focus,
-    .field select:focus {
+    .field select:focus,
+    .field textarea:focus {
       border-color: #93c5fd;
       box-shadow: 0 0 0 3px rgba(147, 197, 253, 0.25);
     }
@@ -223,7 +223,7 @@
     table {
       width: 100%;
       border-collapse: collapse;
-      min-width: 2160px;
+      min-width: 2500px;
       background: white;
     }
 
@@ -303,7 +303,8 @@
       text-transform: capitalize;
     }
 
-    .status-submitted { background: #dbeafe; color: #1d4ed8; }
+    .status-submitted,
+    .status-draft-ready { background: #dbeafe; color: #1d4ed8; }
     .status-failed-paper-screening,
     .status-withdrawn,
     .status-rejected,
@@ -311,9 +312,14 @@
     .status-endorsed,
     .status-assessment,
     .status-initial,
-    .status-final { background: #fef3c7; color: #b45309; }
+    .status-final,
+    .status-sent { background: #fef3c7; color: #b45309; }
     .status-hired,
-    .status-onboarded { background: #dcfce7; color: #166534; }
+    .status-onboarded,
+    .status-completed,
+    .status-on-track { background: #dcfce7; color: #166534; }
+    .status-overdue { background: #fee2e2; color: #b91c1c; }
+    .status-due-soon { background: #fef3c7; color: #b45309; }
 
     .modal {
       display: none;
@@ -381,7 +387,7 @@
       background: white;
     }
 
-    @media (max-width: 1200px) {
+    @media (max-width: 1280px) {
       .stats-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
       .filters-grid { grid-template-columns: 1fr 1fr; }
     }
@@ -400,7 +406,7 @@
       <div>
         <h1>Recruiter Dashboard</h1>
         <p class="subtitle">
-          Manage candidates, update statuses, assign recruiters, track application sources, and capture stage-based notes.
+          Manage candidates, update statuses, assign recruiters, send endorsements, and monitor SLA.
         </p>
       </div>
 
@@ -419,6 +425,7 @@
       <div class="stat-card"><div class="stat-label">Rejected</div><div class="stat-value" id="statRejected">0</div></div>
       <div class="stat-card"><div class="stat-label">Interviewed</div><div class="stat-value" id="statInterviewed">0</div></div>
       <div class="stat-card"><div class="stat-label">Hired</div><div class="stat-value" id="statHired">0</div></div>
+      <div class="stat-card"><div class="stat-label">Overdue SLA</div><div class="stat-value" id="statOverdue">0</div></div>
     </div>
 
     <div class="action-row">
@@ -472,12 +479,24 @@
           <label for="sourceFilter">Application Source</label>
           <select id="sourceFilter">
             <option value="">All sources</option>
+            <option value="career_page">Career Page</option>
             <option value="facebook">Facebook</option>
             <option value="linkedin">LinkedIn</option>
             <option value="website">Website</option>
             <option value="indeed">Indeed</option>
             <option value="referral">Referral</option>
             <option value="other">Other</option>
+          </select>
+        </div>
+
+        <div class="field">
+          <label for="slaFilter">SLA</label>
+          <select id="slaFilter">
+            <option value="">All SLA</option>
+            <option value="on_track">On Track</option>
+            <option value="due_soon">Due Soon</option>
+            <option value="overdue">Overdue</option>
+            <option value="completed">Completed</option>
           </select>
         </div>
 
@@ -502,6 +521,8 @@
               <th>Location</th>
               <th>Experience</th>
               <th>Resume</th>
+              <th>Endorsement</th>
+              <th>SLA</th>
               <th>Update Status</th>
               <th>Notes</th>
               <th>Assign Recruiter</th>
@@ -509,9 +530,44 @@
             </tr>
           </thead>
           <tbody id="applicationsTable">
-            <tr><td colspan="15" class="empty">Loading candidates...</td></tr>
+            <tr><td colspan="17" class="empty">Loading candidates...</td></tr>
           </tbody>
         </table>
+      </div>
+    </div>
+  </div>
+
+  <div id="endorseModal" class="modal" aria-hidden="true">
+    <div class="modal-content" style="max-width:760px;height:auto;max-height:90vh;">
+      <div class="modal-header">
+        <h3>Endorse Candidate</h3>
+        <div class="modal-actions">
+          <button id="closeEndorseModal" class="modal-close" type="button" aria-label="Close">&times;</button>
+        </div>
+      </div>
+
+      <div class="modal-body" style="padding:18px;background:#fff;overflow:auto;">
+        <div id="endorseSummary" class="small" style="margin-bottom:14px;color:#475569;"></div>
+
+        <div class="field" style="margin-bottom:14px;">
+          <label for="endorseSubject">Subject</label>
+          <input id="endorseSubject" type="text" />
+        </div>
+
+        <div class="field" style="margin-bottom:14px;">
+          <label for="endorseBody">Email Body</label>
+          <textarea id="endorseBody" rows="14"></textarea>
+        </div>
+
+        <div class="field" style="margin-bottom:18px;">
+          <label for="endorseRecipient">Recipient Email</label>
+          <input id="endorseRecipient" type="email" readonly />
+        </div>
+
+        <div style="display:flex;gap:10px;flex-wrap:wrap;">
+          <button id="saveEndorseBtn" class="btn btn-outline" type="button">Save Draft Record</button>
+          <button id="sendEndorseBtn" class="btn btn-primary" type="button">Send Endorsement</button>
+        </div>
       </div>
     </div>
   </div>
@@ -551,10 +607,11 @@
         "angel.n@talentbuzz.pro": "Angelia Nerida",
         "jercey.cayetano@talentbuzz.pro": "Jercey Cayetano",
         "jayson.c@talentbuzz.pro": "Jayson Cornejo",
-        "xyrene.e@talentbuzz.pro": "Xyrene Ellsworth"
+        "xyrene.e@talentbuzz.pro": "Xyrene Ellsworth",
+        "mitchie028@gmail.com": "Mitchie"
       };
 
-      const ALLOWED_RECRUITER_EMAILS = Object.keys(RECRUITERS).concat(["mitchie028@gmail.com"]);
+      const ALLOWED_RECRUITER_EMAILS = Object.keys(RECRUITERS);
 
       const STATUS_OPTIONS = [
         "submitted",
@@ -650,7 +707,8 @@
 
       const state = {
         allApplications: [],
-        currentUser: null
+        currentUser: null,
+        selectedEndorsementApp: null
       };
 
       const els = {
@@ -660,6 +718,7 @@
         statusFilter: document.getElementById("statusFilter"),
         recruiterFilter: document.getElementById("recruiterFilter"),
         sourceFilter: document.getElementById("sourceFilter"),
+        slaFilter: document.getElementById("slaFilter"),
         searchInput: document.getElementById("searchInput"),
         notice: document.getElementById("notice"),
         helloRecruiter: document.getElementById("helloRecruiter"),
@@ -670,10 +729,21 @@
         statRejected: document.getElementById("statRejected"),
         statInterviewed: document.getElementById("statInterviewed"),
         statHired: document.getElementById("statHired"),
+        statOverdue: document.getElementById("statOverdue"),
+
         resumeModal: document.getElementById("resumeModal"),
         resumeFrame: document.getElementById("resumeFrame"),
         closeModal: document.getElementById("closeModal"),
-        downloadResumeBtn: document.getElementById("downloadResumeBtn")
+        downloadResumeBtn: document.getElementById("downloadResumeBtn"),
+
+        endorseModal: document.getElementById("endorseModal"),
+        closeEndorseModal: document.getElementById("closeEndorseModal"),
+        endorseSummary: document.getElementById("endorseSummary"),
+        endorseSubject: document.getElementById("endorseSubject"),
+        endorseBody: document.getElementById("endorseBody"),
+        endorseRecipient: document.getElementById("endorseRecipient"),
+        saveEndorseBtn: document.getElementById("saveEndorseBtn"),
+        sendEndorseBtn: document.getElementById("sendEndorseBtn")
       };
 
       function escapeHtml(value) {
@@ -711,6 +781,22 @@
           hour: "numeric",
           minute: "2-digit"
         });
+      }
+
+      function computeSlaStatus(app) {
+        const stored = normalizeText(app.sla_status);
+        if (stored) return stored;
+
+        const dueAt = app.sla_due_at ? new Date(app.sla_due_at).getTime() : null;
+        if (!dueAt) return "on_track";
+
+        const now = Date.now();
+        if (now > dueAt) return "overdue";
+
+        const hoursLeft = (dueAt - now) / (1000 * 60 * 60);
+        if (hoursLeft <= 12) return "due_soon";
+
+        return "on_track";
       }
 
       function showNotice(message, type = "success") {
@@ -773,6 +859,109 @@
         }).join("");
       }
 
+      function buildCandidateSummary(app) {
+        const profile = getProfileFromApplication(app);
+        const parts = [];
+
+        if (profile?.current_title) parts.push(`Current title: ${profile.current_title}`);
+        if (profile?.years_of_experience || profile?.years_of_experience === 0) {
+          parts.push(`Experience: ${profile.years_of_experience} year(s)`);
+        }
+        if (profile?.location) parts.push(`Location: ${profile.location}`);
+        if (profile?.skills) parts.push(`Skills: ${profile.skills}`);
+
+        return parts.join("\n");
+      }
+
+      function buildEndorsementSubject(app) {
+        const profile = getProfileFromApplication(app);
+        const candidateName = profile?.full_name || "Candidate";
+        const jobTitle = app.jobs?.title || app.job_title || "Role";
+        return `Candidate Endorsement | ${candidateName} | ${jobTitle}`;
+      }
+
+      function buildEndorsementBody(app) {
+        const profile = getProfileFromApplication(app);
+        const recruiterName = getRecruiterName(state.currentUser?.email || "");
+        const clientName = app.jobs?.client_name || "your team";
+        const candidateName = profile?.full_name || "Candidate";
+        const jobTitle = app.jobs?.title || app.job_title || "Role";
+
+        const summaryLines = [];
+        if (profile?.current_title) summaryLines.push(`- Current title: ${profile.current_title}`);
+        if (profile?.years_of_experience || profile?.years_of_experience === 0) summaryLines.push(`- Experience: ${profile.years_of_experience} year(s)`);
+        if (profile?.location) summaryLines.push(`- Location: ${profile.location}`);
+        if (profile?.skills) summaryLines.push(`- Skills: ${profile.skills}`);
+
+        return `Hi ${clientName} Team,
+
+I’d like to endorse ${candidateName} for the ${jobTitle} role.
+
+Candidate snapshot:
+${summaryLines.length ? summaryLines.join("\n") : "- Profile details available in ATS"}
+
+Why we’re endorsing this candidate:
+This profile appears aligned with the role requirements based on experience, background, and overall fit.
+
+Please review and let us know if you would like us to proceed with the next step.
+
+Best,
+${recruiterName}
+TalentBuzz`;
+      }
+
+      function openEndorseModal(app) {
+        state.selectedEndorsementApp = app;
+
+        const profile = getProfileFromApplication(app);
+        const candidateName = profile?.full_name || "Unnamed";
+        const jobTitle = app.jobs?.title || app.job_title || "-";
+        const clientName = app.jobs?.client_name || "-";
+
+        els.endorseSummary.innerHTML = `
+          <strong>Candidate:</strong> ${escapeHtml(candidateName)}<br>
+          <strong>Role:</strong> ${escapeHtml(jobTitle)}<br>
+          <strong>Client:</strong> ${escapeHtml(clientName)}
+        `;
+
+        els.endorseSubject.value = buildEndorsementSubject(app);
+        els.endorseBody.value = buildEndorsementBody(app);
+        els.endorseRecipient.value = "";
+
+        els.endorseModal.classList.add("show");
+        els.endorseModal.setAttribute("aria-hidden", "false");
+        document.body.style.overflow = "hidden";
+      }
+
+      function closeEndorseModal() {
+        state.selectedEndorsementApp = null;
+        els.endorseSubject.value = "";
+        els.endorseBody.value = "";
+        els.endorseRecipient.value = "";
+        els.endorseSummary.innerHTML = "";
+        els.endorseModal.classList.remove("show");
+        els.endorseModal.setAttribute("aria-hidden", "true");
+        document.body.style.overflow = "";
+      }
+
+      async function fetchClientRecipient(clientUuid) {
+        if (!clientUuid) return "";
+
+        const { data, error } = await supabaseClient
+          .from("client_users")
+          .select("email")
+          .eq("client_id", clientUuid)
+          .eq("active", true)
+          .limit(1);
+
+        if (error) {
+          console.error("Failed to fetch client recipient:", error);
+          return "";
+        }
+
+        return data?.[0]?.email || "";
+      }
+
       async function getResumeUrl(app) {
         const profile = getProfileFromApplication(app);
         if (!profile) return "";
@@ -781,6 +970,10 @@
         const rawResumeUrl = String(profile.resume_url || "").trim();
 
         if (rawResumeUrl && rawResumeUrl.includes("/storage/v1/object/sign/")) {
+          return rawResumeUrl;
+        }
+
+        if (rawResumeUrl && rawResumeUrl.includes("/storage/v1/object/public/")) {
           return rawResumeUrl;
         }
 
@@ -796,24 +989,9 @@
             .from("resumes")
             .createSignedUrl(cleanedPath, 3600);
 
-          if (error) {
-            console.error("createSignedUrl error:", {
-              applicationId: app.id,
-              candidate: profile?.full_name,
-              cleanedPath,
-              error
-            });
-            return "";
-          }
-
+          if (error) return "";
           return data?.signedUrl || "";
-        } catch (err) {
-          console.error("getResumeUrl exception:", {
-            applicationId: app.id,
-            candidate: profile?.full_name,
-            cleanedPath,
-            err
-          });
+        } catch {
           return "";
         }
       }
@@ -845,13 +1023,85 @@
         document.body.style.overflow = "";
       }
 
+      async function saveEndorsementRecord({ app, recipientEmail, markAsSent = false }) {
+        const nowIso = new Date().toISOString();
+        const recruiterEmail = state.currentUser?.email || null;
+
+        if (!app.jobs?.client_uuid) {
+          throw new Error("This job is not linked to a client profile yet.");
+        }
+
+        const { error: endorsementError } = await supabaseClient
+          .from("application_endorsements")
+          .upsert([{
+            application_id: app.id,
+            client_id: app.jobs.client_uuid,
+            job_id: app.jobs?.id || app.job_id || null,
+            candidate_summary: buildCandidateSummary(app),
+            endorsement_status: markAsSent ? "sent" : "draft_ready",
+            sent_at: markAsSent ? nowIso : null,
+            sent_by: recruiterEmail,
+            client_response_status: null,
+            client_response_notes: null
+          }], { onConflict: "application_id,client_id" });
+
+        if (endorsementError) throw endorsementError;
+
+        const updatePayload = {
+          endorsement_status: markAsSent ? "sent" : "draft_ready",
+          endorsed_by: recruiterEmail
+        };
+
+        if (markAsSent) {
+          updatePayload.endorsement_sent_at = nowIso;
+          updatePayload.endorsement_sent_to = recipientEmail || null;
+          updatePayload.last_status_change_at = nowIso;
+          updatePayload.sla_status = "on_track";
+          updatePayload.sla_due_at = new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString();
+        }
+
+        const { error: appUpdateError } = await supabaseClient
+          .from("applications")
+          .update(updatePayload)
+          .eq("id", app.id);
+
+        if (appUpdateError) throw appUpdateError;
+      }
+
+      async function sendEndorsementEmail({ app, subject, body, recipientEmail }) {
+        if (!recipientEmail) {
+          throw new Error("No client recipient email found.");
+        }
+
+        const profile = getProfileFromApplication(app);
+        const resumeUrl = await getResumeUrl(app);
+
+        const { data, error } = await supabaseClient.functions.invoke(
+          "send-endorsement-email",
+          {
+            body: {
+              to: recipientEmail,
+              subject,
+              body,
+              candidate_name: profile?.full_name || "Candidate",
+              job_title: app.jobs?.title || app.job_title || "Role",
+              resume_url: resumeUrl || null
+            }
+          }
+        );
+
+        if (error || !data?.success) {
+          throw new Error(error?.message || data?.error || "Failed to send endorsement email.");
+        }
+      }
+
       async function protectRecruiterPage() {
         const {
           data: { session }
         } = await supabaseClient.auth.getSession();
 
         if (!session || !session.user) {
-          window.location.href = "login.html?redirect=recruiter-dashboard.html";
+          window.location.href = "recruiter-login.html";
           return null;
         }
 
@@ -860,7 +1110,8 @@
 
         if (!allowedEmails.includes(email)) {
           alert("Access denied.");
-          window.location.href = "dashboard.html";
+          await supabaseClient.auth.signOut();
+          window.location.href = "recruiter-login.html";
           return null;
         }
 
@@ -870,8 +1121,6 @@
       }
 
       function populateFilters() {
-        const urlParams = new URLSearchParams(window.location.search);
-        const selectedJobFromUrl = normalizeText(urlParams.get("job"));
         const currentRecruiterValue = els.recruiterFilter.value;
         const currentClientValue = els.clientFilter.value;
 
@@ -889,20 +1138,14 @@
 
         const jobsOptions = Array.from(jobsMap.entries())
           .sort((a, b) => a[1].localeCompare(b[1]))
-          .map(([slug, title]) => {
-            const selected = normalizeText(slug) === selectedJobFromUrl ? "selected" : "";
-            return `<option value="${escapeHtml(slug)}" ${selected}>${escapeHtml(title)}</option>`;
-          })
+          .map(([slug, title]) => `<option value="${escapeHtml(slug)}">${escapeHtml(title)}</option>`)
           .join("");
 
         els.jobFilter.innerHTML = `<option value="">All jobs</option>${jobsOptions}`;
 
         const clientOptions = Array.from(clientsMap.entries())
           .sort((a, b) => a[1].localeCompare(b[1]))
-          .map(([clientName]) => {
-            const selected = normalizeText(clientName) === normalizeText(currentClientValue) ? "selected" : "";
-            return `<option value="${escapeHtml(clientName)}" ${selected}>${escapeHtml(clientName)}</option>`;
-          })
+          .map(([clientName]) => `<option value="${escapeHtml(clientName)}">${escapeHtml(clientName)}</option>`)
           .join("");
 
         els.clientFilter.innerHTML = `<option value="">All clients</option>${clientOptions}`;
@@ -913,9 +1156,8 @@
 
         els.recruiterFilter.innerHTML = `<option value="">All recruiters</option>${recruiterOptions}`;
 
-        if (currentRecruiterValue) {
-          els.recruiterFilter.value = currentRecruiterValue;
-        }
+        if (currentRecruiterValue) els.recruiterFilter.value = currentRecruiterValue;
+        if (currentClientValue) els.clientFilter.value = currentClientValue;
       }
 
       function getFilteredApplications() {
@@ -925,6 +1167,7 @@
         const selectedStatus = normalizeText(els.statusFilter.value);
         const selectedRecruiter = normalizeText(els.recruiterFilter.value);
         const selectedSource = normalizeText(els.sourceFilter.value);
+        const selectedSla = normalizeText(els.slaFilter.value);
 
         return state.allApplications.filter(app => {
           const profile = getProfileFromApplication(app);
@@ -935,6 +1178,7 @@
           const status = normalizeText(app.status || "submitted");
           const recruiter = normalizeText(app.recruiter_email);
           const source = normalizeText(app.application_source);
+          const slaStatus = computeSlaStatus(app);
 
           return (
             (!search || candidateName.includes(search) || candidateEmail.includes(search)) &&
@@ -942,7 +1186,8 @@
             (!selectedClient || clientName === selectedClient) &&
             (!selectedStatus || status === selectedStatus) &&
             (!selectedRecruiter || recruiter === selectedRecruiter) &&
-            (!selectedSource || source === selectedSource)
+            (!selectedSource || source === selectedSource) &&
+            (!selectedSla || slaStatus === selectedSla)
           );
         });
       }
@@ -954,13 +1199,14 @@
         els.statRejected.textContent = filtered.filter(a => REJECTED_STATUSES.includes(normalizeText(a.status))).length;
         els.statInterviewed.textContent = filtered.filter(a => INTERVIEWED_STATUSES.includes(normalizeText(a.status))).length;
         els.statHired.textContent = filtered.filter(a => HIRED_STATUSES.includes(normalizeText(a.status))).length;
+        els.statOverdue.textContent = filtered.filter(a => computeSlaStatus(a) === "overdue").length;
       }
 
       async function renderTable() {
         const filtered = getFilteredApplications();
 
         if (!filtered.length) {
-          els.applicationsTable.innerHTML = '<tr><td colspan="15" class="empty">No candidates found.</td></tr>';
+          els.applicationsTable.innerHTML = '<tr><td colspan="17" class="empty">No candidates found.</td></tr>';
           return;
         }
 
@@ -991,6 +1237,9 @@
 
             const resumeUrl = await getResumeUrl(app);
             const safeResumeUrl = resumeUrl ? escapeHtml(resumeUrl) : "";
+            const endorsementStatus = app.endorsement_status || "not_sent";
+            const safeEndorsementStatus = escapeHtml(endorsementStatus);
+            const slaStatus = computeSlaStatus(app);
 
             const statusOptions = STATUS_OPTIONS.map(option => {
               const selected = normalizeText(option) === normalizeText(currentStatus) ? "selected" : "";
@@ -1029,6 +1278,18 @@
                   }
                 </td>
                 <td>
+                  <span class="status-pill ${getStatusClass(endorsementStatus)}">${safeEndorsementStatus}</span>
+                  <div class="small" style="margin-top:6px;">
+                    ${app.endorsement_sent_at ? `Sent: ${escapeHtml(formatDateTime(app.endorsement_sent_at))}` : 'Not yet sent'}
+                  </div>
+                </td>
+                <td>
+                  <span class="status-pill ${getStatusClass(slaStatus)}">${escapeHtml(slaStatus)}</span>
+                  <div class="small" style="margin-top:6px;">
+                    ${app.sla_due_at ? `Due: ${escapeHtml(formatDateTime(app.sla_due_at))}` : '-'}
+                  </div>
+                </td>
+                <td>
                   <select class="table-select status-select" data-id="${escapeHtml(app.id)}">
                     ${statusOptions}
                   </select>
@@ -1049,6 +1310,9 @@
                 </td>
                 <td>
                   <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                    <button class="btn btn-primary table-btn endorse-btn" type="button" data-id="${escapeHtml(app.id)}">
+                      ${normalizeText(app.endorsement_status) === "sent" ? "Re-Endorse" : "Endorse"}
+                    </button>
                     <button class="btn btn-outline table-btn edit-btn" type="button" data-id="${escapeHtml(app.id)}">Edit</button>
                     <button class="btn btn-danger table-btn btn-delete" type="button" data-id="${escapeHtml(app.id)}">Remove</button>
                   </div>
@@ -1062,33 +1326,12 @@
       }
 
       async function sendRejectionEmail(application) {
-        if (!application?.id || !application?.email) return false;
-
-        const currentEmailStatus = normalizeText(application.rejection_email_status);
-
-        if (currentEmailStatus === "sent" || currentEmailStatus === "sending") {
-          console.log("Rejection email already handled. Skipping.", application.id);
-          return false;
-        }
-
         const profile = getProfileFromApplication(application);
 
-        const { data: lockedRows, error: lockError } = await supabaseClient
+        await supabaseClient
           .from("applications")
           .update({ rejection_email_status: "sending" })
-          .eq("id", application.id)
-          .not("rejection_email_status", "in", '("sent","sending")')
-          .select("id");
-
-        if (lockError) {
-          console.error("Failed to lock rejection email:", lockError);
-          return false;
-        }
-
-        if (!lockedRows || !lockedRows.length) {
-          console.log("Another request already processed this rejection email. Skipping.", application.id);
-          return false;
-        }
+          .eq("id", application.id);
 
         const { data, error } = await supabaseClient.functions.invoke(
           "send-rejection-email",
@@ -1102,13 +1345,10 @@
         );
 
         if (error || !data?.success) {
-          console.error("send-rejection-email failed:", error || data);
-
           await supabaseClient
             .from("applications")
             .update({ rejection_email_status: "failed" })
             .eq("id", application.id);
-
           return false;
         }
 
@@ -1122,9 +1362,6 @@
 
       async function updateApplicationStatus(applicationId, newStatus) {
         const application = state.allApplications.find(app => String(app.id) === String(applicationId));
-        const oldStatus = normalizeText(application?.status);
-        const newStatusNormalized = normalizeText(newStatus);
-        const currentEmailStatus = normalizeText(application?.rejection_email_status);
 
         const { error } = await supabaseClient
           .from("applications")
@@ -1132,7 +1369,8 @@
             status: newStatus,
             stage_note_code: null,
             stage_note_label: null,
-            stage_note_updated_at: null
+            stage_note_updated_at: null,
+            last_status_change_at: new Date().toISOString()
           })
           .eq("id", applicationId);
 
@@ -1141,25 +1379,12 @@
           return;
         }
 
-        const shouldSendRejectionEmail =
-          application &&
-          oldStatus !== "rejected" &&
-          newStatusNormalized === "rejected" &&
-          currentEmailStatus !== "sent" &&
-          currentEmailStatus !== "sending";
-
-        if (shouldSendRejectionEmail) {
-          const sent = await sendRejectionEmail(application);
-
-          if (sent) {
-            showNotice("Application status updated and rejection email sent.", "success");
-          } else {
-            showNotice("Application status updated. Rejection email was skipped or failed.", "info");
-          }
-        } else {
-          showNotice("Application status updated.", "success");
+        const newStatusNormalized = normalizeText(newStatus);
+        if (application && newStatusNormalized === "rejected") {
+          await sendRejectionEmail(application);
         }
 
+        showNotice("Application status updated.", "success");
         await loadApplications();
       }
 
@@ -1224,7 +1449,7 @@
         clearNotice();
         els.refreshBtn.disabled = true;
         els.refreshBtn.textContent = "Refreshing...";
-        els.applicationsTable.innerHTML = '<tr><td colspan="15" class="empty loading">Loading candidates...</td></tr>';
+        els.applicationsTable.innerHTML = '<tr><td colspan="17" class="empty loading">Loading candidates...</td></tr>';
 
         const { data, error } = await supabaseClient
           .from("applications")
@@ -1243,8 +1468,15 @@
             stage_note_code,
             stage_note_label,
             stage_note_updated_at,
+            endorsement_status,
+            endorsement_sent_at,
+            endorsement_sent_to,
+            endorsed_by,
+            sla_status,
+            sla_due_at,
+            last_status_change_at,
             created_at,
-            jobs(id, title, slug, client_name),
+            jobs(id, title, slug, client_name, client_uuid),
             applicant_profiles(id, full_name, phone, location, years_of_experience, current_title, skills, resume_url, resume_path)
           `)
           .order("created_at", { ascending: false });
@@ -1253,7 +1485,7 @@
         els.refreshBtn.textContent = "Refresh";
 
         if (error) {
-          els.applicationsTable.innerHTML = `<tr><td colspan="15" class="empty">${escapeHtml(error.message)}</td></tr>`;
+          els.applicationsTable.innerHTML = `<tr><td colspan="17" class="empty">${escapeHtml(error.message)}</td></tr>`;
           return;
         }
 
@@ -1263,25 +1495,13 @@
         await renderTable();
       }
 
-      function syncJobFilterToUrl() {
-        const selectedSlug = els.jobFilter.value;
-        const url = new URL(window.location.href);
-        if (selectedSlug) url.searchParams.set("job", selectedSlug);
-        else url.searchParams.delete("job");
-        window.history.replaceState({}, "", url.toString());
-      }
-
       function handleFilterChange() {
         renderStats();
         renderTable();
       }
 
-      els.jobFilter.addEventListener("change", () => {
-        syncJobFilterToUrl();
-        handleFilterChange();
-      });
-
-      [els.clientFilter, els.statusFilter, els.recruiterFilter, els.sourceFilter].forEach(el => {
+      els.jobFilter.addEventListener("change", handleFilterChange);
+      [els.clientFilter, els.statusFilter, els.recruiterFilter, els.sourceFilter, els.slaFilter].forEach(el => {
         el.addEventListener("change", handleFilterChange);
       });
 
@@ -1314,6 +1534,19 @@
           return;
         }
 
+        if (target.classList.contains("endorse-btn")) {
+          const app = state.allApplications.find(item => String(item.id) === String(target.dataset.id));
+          if (!app) {
+            showNotice("Application not found.", "error");
+            return;
+          }
+
+          const recipient = await fetchClientRecipient(app.jobs?.client_uuid);
+          openEndorseModal(app);
+          els.endorseRecipient.value = recipient || "";
+          return;
+        }
+
         if (target.classList.contains("edit-btn")) {
           window.location.href = `recruiter-add-candidate.html?id=${encodeURIComponent(target.dataset.id)}`;
           return;
@@ -1334,9 +1567,92 @@
         });
       }
 
+      if (els.closeEndorseModal) {
+        els.closeEndorseModal.addEventListener("click", closeEndorseModal);
+      }
+
+      if (els.endorseModal) {
+        els.endorseModal.addEventListener("click", event => {
+          if (event.target === els.endorseModal) closeEndorseModal();
+        });
+      }
+
+      if (els.saveEndorseBtn) {
+        els.saveEndorseBtn.addEventListener("click", async () => {
+          const app = state.selectedEndorsementApp;
+          if (!app) return;
+
+          try {
+            els.saveEndorseBtn.disabled = true;
+
+            await saveEndorsementRecord({
+              app,
+              recipientEmail: els.endorseRecipient.value.trim(),
+              markAsSent: false
+            });
+
+            showNotice("Endorsement draft saved.", "success");
+            closeEndorseModal();
+            await loadApplications();
+          } catch (error) {
+            showNotice(error.message || "Failed to save endorsement draft.", "error");
+          } finally {
+            els.saveEndorseBtn.disabled = false;
+          }
+        });
+      }
+
+      if (els.sendEndorseBtn) {
+        els.sendEndorseBtn.addEventListener("click", async () => {
+          const app = state.selectedEndorsementApp;
+          if (!app) return;
+
+          try {
+            els.sendEndorseBtn.disabled = true;
+            els.sendEndorseBtn.textContent = "Sending...";
+
+            const subject = els.endorseSubject.value.trim();
+            const body = els.endorseBody.value.trim();
+            const recipientEmail = els.endorseRecipient.value.trim();
+
+            if (!recipientEmail) {
+              throw new Error("No client recipient email found for this client.");
+            }
+
+            await sendEndorsementEmail({
+              app,
+              subject,
+              body,
+              recipientEmail
+            });
+
+            await saveEndorsementRecord({
+              app,
+              recipientEmail,
+              markAsSent: true
+            });
+
+            showNotice("Endorsement email sent successfully.", "success");
+            closeEndorseModal();
+            await loadApplications();
+          } catch (error) {
+            showNotice(error.message || "Failed to send endorsement email.", "error");
+          } finally {
+            els.sendEndorseBtn.disabled = false;
+            els.sendEndorseBtn.textContent = "Send Endorsement";
+          }
+        });
+      }
+
       document.addEventListener("keydown", event => {
-        if (els.resumeModal && event.key === "Escape" && els.resumeModal.classList.contains("show")) {
+        if (event.key !== "Escape") return;
+
+        if (els.resumeModal && els.resumeModal.classList.contains("show")) {
           closeResumeModal();
+        }
+
+        if (els.endorseModal && els.endorseModal.classList.contains("show")) {
+          closeEndorseModal();
         }
       });
 
@@ -1345,14 +1661,14 @@
           try {
             await supabaseClient.auth.signOut();
           } finally {
-            window.location.href = "login.html";
+            window.location.href = "recruiter-login.html";
           }
         });
       }
 
       supabaseClient.auth.onAuthStateChange((event, session) => {
         if (event === "SIGNED_OUT" || !session?.user) {
-          window.location.href = "login.html?redirect=recruiter-dashboard.html";
+          window.location.href = "recruiter-login.html";
         }
       });
 
