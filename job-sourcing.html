@@ -1,114 +1,806 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8" />
-<title>Job Sourcing | TalentBuzz</title>
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <meta charset="UTF-8" />
+  <title>Job Sourcing | TalentBuzz</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta
+    name="description"
+    content="Find and review prospects for a specific role using TalentBuzz sourcing."
+  />
 
-<style>
-body { font-family: Arial; padding:20px; background:#f5f7fb; }
-input, select, button { padding:10px; margin:5px; }
-table { width:100%; border-collapse:collapse; margin-top:20px; background:white; }
-th, td { padding:10px; border:1px solid #ddd; text-align:left; }
-button { cursor:pointer; }
-</style>
-</head>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap"
+    rel="stylesheet"
+  />
 
-<body>
-
-<h2>Job Sourcing</h2>
-
-<input id="title" placeholder="Job Title">
-<input id="country" placeholder="Country">
-<input id="state" placeholder="State">
-<input id="city" placeholder="City">
-
-<button onclick="search()">Search & Source</button>
-
-<table>
-<thead>
-<tr>
-<th>Name</th>
-<th>Title</th>
-<th>Company</th>
-<th>Location</th>
-<th>Score</th>
-<th>Action</th>
-</tr>
-</thead>
-<tbody id="table"></tbody>
-</table>
-
-<script>
-const supabase = window.supabase.createClient(
-  "https://dilalntcxmvdcmwxjcct.supabase.co",
-  "YOUR_ANON_KEY"
-);
-
-async function search(){
-  const payload = {
-    title: document.getElementById("title").value,
-    country: document.getElementById("country").value,
-    state: document.getElementById("state").value,
-    city: document.getElementById("city").value
-  };
-
-  console.log("Payload:", payload);
-
-  const { data, error } = await supabase.functions.invoke(
-    "source-prospects-v2",
-    {
-      body: JSON.stringify(payload),
-      headers: { "Content-Type": "application/json" }
+  <style>
+    :root {
+      --blue: #1e3a8a;
+      --blue-light: #2563eb;
+      --text: #0f172a;
+      --muted: #64748b;
+      --line: #e2e8f0;
+      --bg: #f8fbff;
+      --white: #ffffff;
+      --success: #166534;
+      --error: #b91c1c;
+      --warning: #b45309;
+      --info: #4338ca;
+      --shadow-soft: 0 10px 30px rgba(30, 58, 138, 0.06), 0 2px 10px rgba(15, 23, 42, 0.03);
     }
-  );
 
-  console.log("Response:", data, error);
+    * { box-sizing: border-box; }
 
-  if(error){
-    alert(error.message);
-    return;
-  }
+    body {
+      margin: 0;
+      font-family: "Manrope", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+    }
 
-  render(data.data);
-}
+    .container {
+      max-width: 1360px;
+      margin: 0 auto;
+      padding: 24px 20px 40px;
+    }
 
-function render(rows){
-  const table = document.getElementById("table");
+    .topbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-bottom: 20px;
+    }
 
-  table.innerHTML = rows.map(r => `
-    <tr>
-      <td>${r.full_name}</td>
-      <td>${r.current_title}</td>
-      <td>${r.current_company}</td>
-      <td>${r.location}</td>
-      <td>${r.match_score}</td>
-      <td><button onclick='save(${JSON.stringify(r)})'>Save</button></td>
-    </tr>
-  `).join("");
-}
+    h1 {
+      margin: 0 0 6px;
+      color: var(--blue);
+      font-size: 2rem;
+      letter-spacing: -0.03em;
+    }
 
-async function save(candidate){
-  const { error } = await supabase
-    .from("pipeline")
-    .insert([{
-      full_name: candidate.full_name,
-      title: candidate.current_title,
-      company: candidate.current_company,
-      location: candidate.location,
-      email: candidate.email,
-      linkedin_url: candidate.linkedin_url,
-      stage: "Leads"
-    }]);
+    h2 {
+      margin: 0 0 14px;
+      color: var(--blue);
+      font-size: 1.2rem;
+      letter-spacing: -0.02em;
+    }
 
-  if(error){
-    alert("Save failed: " + error.message);
-  } else {
-    alert("Saved to pipeline ✅");
-  }
-}
-</script>
+    .subtitle {
+      margin: 0;
+      color: var(--muted);
+    }
 
+    .panel {
+      background: var(--white);
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      box-shadow: var(--shadow-soft);
+      padding: 22px;
+      margin-bottom: 20px;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 16px;
+    }
+
+    .full {
+      grid-column: 1 / -1;
+    }
+
+    .meta-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .meta-card {
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 12px;
+      background: #fafcff;
+    }
+
+    .meta-label {
+      font-size: 0.78rem;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      font-weight: 800;
+      margin-bottom: 4px;
+    }
+
+    .meta-value {
+      font-size: 0.98rem;
+      font-weight: 700;
+      color: var(--text);
+      word-break: break-word;
+    }
+
+    .field label {
+      display: block;
+      margin-bottom: 6px;
+      font-size: 0.9rem;
+      font-weight: 700;
+    }
+
+    .field input,
+    .field textarea,
+    .field select {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 12px;
+      font: inherit;
+      background: #fff;
+      outline: none;
+      color: var(--text);
+    }
+
+    .field input:focus,
+    .field textarea:focus,
+    .field select:focus {
+      border-color: #93c5fd;
+      box-shadow: 0 0 0 3px rgba(147, 197, 253, 0.2);
+    }
+
+    .field textarea {
+      min-height: 100px;
+      resize: vertical;
+    }
+
+    .helper {
+      margin-top: 6px;
+      color: var(--muted);
+      font-size: 0.84rem;
+      line-height: 1.5;
+    }
+
+    .actions {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-top: 18px;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 12px;
+      border: 1px solid transparent;
+      padding: 11px 14px;
+      font-weight: 800;
+      font-size: 0.92rem;
+      cursor: pointer;
+      text-decoration: none;
+      transition: 0.18s ease;
+      font-family: inherit;
+    }
+
+    .btn:hover { transform: translateY(-1px); }
+    .btn:disabled { opacity: 0.65; cursor: not-allowed; transform: none; }
+
+    .btn-primary {
+      background: linear-gradient(135deg, var(--blue), var(--blue-light));
+      color: white;
+    }
+
+    .btn-outline {
+      background: white;
+      color: var(--blue);
+      border-color: var(--line);
+    }
+
+    .notice {
+      display: none;
+      margin-bottom: 18px;
+      padding: 12px 14px;
+      border-radius: 12px;
+      font-size: 0.92rem;
+      font-weight: 700;
+      line-height: 1.5;
+    }
+
+    .notice.show { display: block; }
+    .notice.success { background: #ecfdf5; color: var(--success); border: 1px solid #bbf7d0; }
+    .notice.error { background: #fef2f2; color: var(--error); border: 1px solid #fecaca; }
+    .notice.warning { background: #fff7ed; color: var(--warning); border: 1px solid #fed7aa; }
+    .notice.info { background: #eef2ff; color: var(--info); border: 1px solid #c7d2fe; }
+
+    .table-wrap {
+      overflow-x: auto;
+      border: 1px solid var(--line);
+      border-radius: 16px;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      min-width: 1400px;
+      background: white;
+    }
+
+    th, td {
+      border-bottom: 1px solid var(--line);
+      padding: 12px 10px;
+      text-align: left;
+      vertical-align: top;
+      font-size: 0.9rem;
+    }
+
+    th {
+      background: #f8fbff;
+      color: var(--muted);
+      font-size: 0.76rem;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+
+    tr:last-child td { border-bottom: none; }
+
+    .name {
+      font-weight: 800;
+      color: var(--blue);
+      margin-bottom: 2px;
+    }
+
+    .small {
+      color: var(--muted);
+      font-size: 0.82rem;
+      line-height: 1.5;
+    }
+
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      padding: 6px 10px;
+      border-radius: 999px;
+      font-weight: 800;
+      font-size: 0.75rem;
+      line-height: 1;
+      border: 1px solid transparent;
+      white-space: nowrap;
+    }
+
+    .chip-indigo {
+      background: #eef2ff;
+      color: #4338ca;
+      border-color: #c7d2fe;
+    }
+
+    .chip-green {
+      background: #ecfdf5;
+      color: #166534;
+      border-color: #bbf7d0;
+    }
+
+    .chip-amber {
+      background: #fff7ed;
+      color: #b45309;
+      border-color: #fed7aa;
+    }
+
+    .chip-gray {
+      background: #f1f5f9;
+      color: #475569;
+      border-color: #e2e8f0;
+    }
+
+    .empty {
+      color: var(--muted);
+      font-size: 0.95rem;
+    }
+
+    .inline-link {
+      color: var(--blue-light);
+      font-weight: 700;
+      text-decoration: none;
+    }
+
+    .inline-link:hover { text-decoration: underline; }
+
+    .muted-box {
+      margin-top: 14px;
+      border: 1px dashed #cbd5e1;
+      background: #f8fafc;
+      border-radius: 12px;
+      padding: 12px 14px;
+      color: var(--muted);
+      font-size: 0.88rem;
+      line-height: 1.55;
+    }
+
+    @media (max-width: 1100px) {
+      .grid { grid-template-columns: 1fr 1fr; }
+      .meta-grid { grid-template-columns: 1fr 1fr; }
+    }
+
+    @media (max-width: 760px) {
+      .container { padding: 18px 14px 30px; }
+      .grid, .meta-grid { grid-template-columns: 1fr; }
+      h1 { font-size: 1.7rem; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="topbar">
+      <div>
+        <h1>Job Sourcing</h1>
+        <p class="subtitle">Search and review prospects for a selected role.</p>
+      </div>
+
+      <div class="actions" style="margin-top:0;">
+        <a href="client-roles-input.html" class="btn btn-outline">Back to Roles</a>
+        <a href="recruiter-dashboard.html" class="btn btn-outline">Recruiter Dashboard</a>
+      </div>
+    </div>
+
+    <div id="notice" class="notice"></div>
+
+    <div class="panel">
+      <h2>Role Summary</h2>
+      <div class="meta-grid">
+        <div class="meta-card">
+          <div class="meta-label">Job ID</div>
+          <div class="meta-value" id="jobId">-</div>
+        </div>
+        <div class="meta-card">
+          <div class="meta-label">Title</div>
+          <div class="meta-value" id="jobTitle">-</div>
+        </div>
+        <div class="meta-card">
+          <div class="meta-label">Suggested Sourcing Title</div>
+          <div class="meta-value" id="jobSuggestedTitle">-</div>
+        </div>
+        <div class="meta-card">
+          <div class="meta-label">Client</div>
+          <div class="meta-value" id="jobClient">-</div>
+        </div>
+        <div class="meta-card">
+          <div class="meta-label">Work Setup</div>
+          <div class="meta-value" id="jobWorkSetup">-</div>
+        </div>
+        <div class="meta-card">
+          <div class="meta-label">Country</div>
+          <div class="meta-value" id="jobCountry">-</div>
+        </div>
+        <div class="meta-card">
+          <div class="meta-label">State / Region</div>
+          <div class="meta-value" id="jobState">-</div>
+        </div>
+        <div class="meta-card">
+          <div class="meta-label">City</div>
+          <div class="meta-value" id="jobCity">-</div>
+        </div>
+        <div class="meta-card full" style="grid-column: 1 / -1;">
+          <div class="meta-label">Keywords</div>
+          <div class="meta-value" id="jobKeywords">-</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>Search Filters</h2>
+
+      <div class="grid">
+        <div class="field">
+          <label for="title">Target Title</label>
+          <input id="title" type="text" placeholder="e.g. Content Moderator" />
+          <div class="helper">Auto-cleaned from the job title so sourcing is broader and more usable.</div>
+        </div>
+
+        <div class="field">
+          <label for="country">Country</label>
+          <input id="country" type="text" placeholder="e.g. Philippines" />
+          <div class="helper">Hard blocker in edge function.</div>
+        </div>
+
+        <div class="field">
+          <label for="state">State / Region</label>
+          <input id="state" type="text" placeholder="e.g. Metro Manila" />
+          <div class="helper">Hard blocker in edge function.</div>
+        </div>
+
+        <div class="field">
+          <label for="city">City</label>
+          <input id="city" type="text" placeholder="e.g. Quezon City" />
+          <div class="helper">Soft preference for ranking unless you make it strict later.</div>
+        </div>
+
+        <div class="field">
+          <label for="minYears">Minimum Years Experience</label>
+          <input id="minYears" type="number" min="0" step="1" placeholder="e.g. 1" />
+        </div>
+
+        <div class="field">
+          <label for="companies">Current Companies</label>
+          <input id="companies" type="text" placeholder="Comma-separated company names" />
+        </div>
+
+        <div class="field full">
+          <label for="keywords">Keywords</label>
+          <textarea id="keywords" placeholder="Comma-separated keywords from the JD"></textarea>
+          <div class="helper">These are sent to the edge function and help ranking. Use concise keywords, not long sentences.</div>
+        </div>
+      </div>
+
+      <div class="muted-box">
+        Recommended setup: keep <strong>Target Title</strong> broad, keep <strong>Country</strong> and <strong>State / Region</strong> strict, and let <strong>City</strong> help ranking. This gives better volume without letting non-target locations slip in.
+      </div>
+
+      <div class="actions">
+        <button id="searchBtn" class="btn btn-primary" type="button">Search Prospects</button>
+        <button id="resetFiltersBtn" class="btn btn-outline" type="button">Reset Filters</button>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>Prospects</h2>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Prospect</th>
+              <th>Current Title</th>
+              <th>Company</th>
+              <th>Location</th>
+              <th>Years</th>
+              <th>Match Score</th>
+              <th>Location Match</th>
+              <th>Source</th>
+              <th>Email</th>
+              <th>Phone</th>
+              <th>Education</th>
+              <th>Skills</th>
+              <th>LinkedIn</th>
+            </tr>
+          </thead>
+          <tbody id="prospectsTable">
+            <tr><td colspan="13" class="empty">Click Search Prospects to load data.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    document.addEventListener("DOMContentLoaded", async () => {
+      const SUPABASE_URL = "https://dilalntcxmvdcmwxjcct.supabase.co";
+      const SUPABASE_ANON_KEY = "sb_publishable_HrLVIUwnaRo54yijtrbWBQ_1aeb4ezs";
+      const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+      let currentJob = null;
+      let currentUser = null;
+
+      const noticeEl = document.getElementById("notice");
+      const prospectsTable = document.getElementById("prospectsTable");
+      const searchBtn = document.getElementById("searchBtn");
+      const resetFiltersBtn = document.getElementById("resetFiltersBtn");
+
+      function normalizeEmail(value) {
+        return String(value || "").trim().toLowerCase();
+      }
+
+      function escapeHtml(value) {
+        return String(value ?? "")
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;")
+          .replace(/'/g, "&#039;");
+      }
+
+      function showNotice(message, type = "success", duration = 5000) {
+        noticeEl.innerHTML = message;
+        noticeEl.className = `notice show ${type}`;
+        window.clearTimeout(showNotice._timer);
+        showNotice._timer = window.setTimeout(() => {
+          noticeEl.className = "notice";
+          noticeEl.innerHTML = "";
+        }, duration);
+      }
+
+      function clearNotice() {
+        noticeEl.className = "notice";
+        noticeEl.innerHTML = "";
+      }
+
+      function isUuid(value) {
+        return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(value || ""));
+      }
+
+      function normalizeCompaniesInput(value) {
+        return String(value || "")
+          .split(",")
+          .map(item => item.trim())
+          .filter(Boolean);
+      }
+
+      function safeNumber(value) {
+        const n = Number(value);
+        return Number.isFinite(n) ? n : 0;
+      }
+
+      function getSuggestedSourcingTitle(title) {
+        const raw = String(title || "").trim();
+        if (!raw) return "";
+
+        return raw
+          .replace(/\s*-\s*.*$/g, "")
+          .replace(/\(.*?\)/g, "")
+          .replace(/\s{2,}/g, " ")
+          .trim();
+      }
+
+      function getLocationMatchLabel(rank) {
+        const n = Number(rank || 0);
+        if (n === 1) return "Exact City Match";
+        if (n === 2) return "State Match";
+        if (n === 3) return "Country Match";
+        if (n === 99) return "Outside PH Target";
+        return "Outside Target Area";
+      }
+
+      function getLocationChipClass(rank) {
+        const n = Number(rank || 0);
+        if (n === 1 || n === 2) return "chip chip-green";
+        if (n === 3) return "chip chip-amber";
+        return "chip chip-gray";
+      }
+
+      function getEmailValue(prospect) {
+        return prospect.work_email || prospect.personal_email || "-";
+      }
+
+      function getLinkedInValue(url) {
+        if (!url) return "-";
+        return `<a class="inline-link" href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">Open</a>`;
+      }
+
+      async function verifyRecruiterAccess(email) {
+        const cleanEmail = normalizeEmail(email);
+        if (!cleanEmail) throw new Error("Recruiter email is missing.");
+
+        const { data, error } = await supabaseClient
+          .from("recruiters")
+          .select("id, email, full_name, active")
+          .eq("email", cleanEmail)
+          .eq("active", true);
+
+        if (error) throw error;
+
+        if (!Array.isArray(data) || data.length === 0) {
+          throw new Error(`This account is not authorized for recruiter access. Logged in as: ${cleanEmail}`);
+        }
+
+        if (data.length > 1) {
+          throw new Error(`Duplicate recruiter records found for ${cleanEmail}. Please clean up the recruiters table.`);
+        }
+
+        return data[0];
+      }
+
+      async function protectPage() {
+        const { data: { session } } = await supabaseClient.auth.getSession();
+
+        if (!session?.user) {
+          window.location.href = "recruiter-login.html";
+          return false;
+        }
+
+        try {
+          await verifyRecruiterAccess(session.user.email);
+          currentUser = session.user;
+          return true;
+        } catch (error) {
+          alert(error.message || "Unauthorized recruiter account.");
+          await supabaseClient.auth.signOut();
+          window.location.href = "recruiter-login.html";
+          return false;
+        }
+      }
+
+      function getJobIdFromUrl() {
+        const url = new URL(window.location.href);
+        return url.searchParams.get("job_id");
+      }
+
+      async function loadJob() {
+        clearNotice();
+
+        const jobId = getJobIdFromUrl();
+        if (!jobId || !isUuid(jobId)) {
+          showNotice("Missing or invalid job ID. Open this page from the Source button in Roles.", "error");
+          return;
+        }
+
+        const { data, error } = await supabaseClient
+          .from("jobs")
+          .select("id, title, client_name, country, state, city, location, work_setup, keywords")
+          .eq("id", jobId)
+          .single();
+
+        if (error || !data) {
+          showNotice(error?.message || "Unable to load job.", "error");
+          return;
+        }
+
+        currentJob = data;
+
+        document.getElementById("jobId").textContent = data.id || "-";
+        document.getElementById("jobTitle").textContent = data.title || "-";
+        document.getElementById("jobSuggestedTitle").textContent = getSuggestedSourcingTitle(data.title || "") || "-";
+        document.getElementById("jobClient").textContent = data.client_name || "-";
+        document.getElementById("jobWorkSetup").textContent = data.work_setup || "-";
+        document.getElementById("jobCountry").textContent = data.country || "-";
+        document.getElementById("jobState").textContent = data.state || "-";
+        document.getElementById("jobCity").textContent = data.city || "-";
+        document.getElementById("jobKeywords").textContent = data.keywords || "-";
+
+        resetFilters();
+      }
+
+      function renderProspects(rows) {
+        if (!Array.isArray(rows) || !rows.length) {
+          prospectsTable.innerHTML = '<tr><td colspan="13" class="empty">No prospects found.</td></tr>';
+          return;
+        }
+
+        prospectsTable.innerHTML = rows.map(row => {
+          const p = row.prospects || {};
+          const email = getEmailValue(p);
+          const linkedin = getLinkedInValue(p.linkedin_url);
+          const years = safeNumber(p.years_experience);
+
+          return `
+            <tr>
+              <td>
+                <div class="name">${escapeHtml(p.full_name || "-")}</div>
+                <div class="small">${escapeHtml(p.location || "-")}</div>
+              </td>
+              <td>${escapeHtml(p.current_title || "-")}</td>
+              <td>${escapeHtml(p.current_company || "-")}</td>
+              <td>${escapeHtml(p.location || "-")}</td>
+              <td><span class="chip chip-gray">${escapeHtml(String(years))}</span></td>
+              <td><span class="chip chip-indigo">${escapeHtml(String(row.match_score ?? 0))}</span></td>
+              <td><span class="${getLocationChipClass(row.location_rank)}">${escapeHtml(getLocationMatchLabel(row.location_rank))}</span></td>
+              <td><span class="chip chip-gray">${escapeHtml(p.source || "-")}</span></td>
+              <td>${escapeHtml(email)}</td>
+              <td>${escapeHtml(p.phone || "-")}</td>
+              <td>${escapeHtml(p.education || "-")}</td>
+              <td>${escapeHtml(p.skills || "-")}</td>
+              <td>${linkedin}</td>
+            </tr>
+          `;
+        }).join("");
+      }
+
+      async function searchProspects() {
+        clearNotice();
+
+        if (!currentJob) {
+          showNotice("Job not loaded yet.", "error");
+          return;
+        }
+
+        if (!currentJob?.id) {
+          showNotice("Job ID missing. Please reload the page and try again.", "error");
+          return;
+        }
+
+        if (!isUuid(currentJob.id)) {
+          showNotice("Invalid job ID. Please reopen the sourcing page from the Source button.", "error");
+          return;
+        }
+
+        const body = {
+          job_id: currentJob.id,
+          recruiter_email: currentUser?.email || null,
+          title: document.getElementById("title").value.trim(),
+          country: document.getElementById("country").value.trim(),
+          state: document.getElementById("state").value.trim(),
+          city: document.getElementById("city").value.trim(),
+          keywords: document.getElementById("keywords").value.trim(),
+          current_companies: normalizeCompaniesInput(document.getElementById("companies").value),
+          min_years_experience: document.getElementById("minYears").value
+            ? Number(document.getElementById("minYears").value)
+            : null
+        };
+
+        console.log("Sending payload to source-prospects-v2:", body);
+
+        if (!body.title) {
+          showNotice("Target title is required.", "error");
+          return;
+        }
+
+        if (!body.country) {
+          showNotice("Country is required.", "error");
+          return;
+        }
+
+        if (!body.state) {
+          showNotice("State / Region is required for strict location targeting.", "error");
+          return;
+        }
+
+        searchBtn.disabled = true;
+        resetFiltersBtn.disabled = true;
+        searchBtn.textContent = "Searching...";
+        prospectsTable.innerHTML = '<tr><td colspan="13">Searching...</td></tr>';
+
+        try {
+          const { data, error } = await supabaseClient.functions.invoke("source-prospects-v2", {
+            body
+          });
+
+          console.log("source-prospects-v2 response:", { data, error });
+
+          if (error) {
+            throw new Error(error.message || "Search failed.");
+          }
+
+          if (!data?.success) {
+            prospectsTable.innerHTML = '<tr><td colspan="13">No prospects found.</td></tr>';
+            showNotice(
+              typeof data?.error === "string"
+                ? data.error
+                : (data?.error?.message || "Search returned no matches."),
+              "warning",
+              7000
+            );
+            return;
+          }
+
+          renderProspects(data.data || []);
+          showNotice(`Loaded ${data.count || 0} prospect(s). Saved to pipeline automatically.`, "success");
+        } catch (error) {
+          prospectsTable.innerHTML = '<tr><td colspan="13">Unable to load prospects.</td></tr>';
+          showNotice(error.message || "Search failed.", "error", 7000);
+        } finally {
+          searchBtn.disabled = false;
+          resetFiltersBtn.disabled = false;
+          searchBtn.textContent = "Search Prospects";
+        }
+      }
+
+      function resetFilters() {
+        if (currentJob) {
+          document.getElementById("title").value = getSuggestedSourcingTitle(currentJob.title || "");
+          document.getElementById("country").value = currentJob.country || "";
+          document.getElementById("state").value = currentJob.state || "";
+          document.getElementById("city").value = currentJob.city || "";
+          document.getElementById("keywords").value = currentJob.keywords || "";
+        } else {
+          document.getElementById("title").value = "";
+          document.getElementById("country").value = "";
+          document.getElementById("state").value = "";
+          document.getElementById("city").value = "";
+          document.getElementById("keywords").value = "";
+        }
+
+        document.getElementById("companies").value = "";
+        document.getElementById("minYears").value = "";
+      }
+
+      searchBtn.addEventListener("click", searchProspects);
+      resetFiltersBtn.addEventListener("click", resetFilters);
+
+      const allowed = await protectPage();
+      if (!allowed) return;
+
+      await loadJob();
+    });
+  </script>
 </body>
 </html>
