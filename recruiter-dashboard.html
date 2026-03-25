@@ -2196,6 +2196,124 @@ TalentBuzz`;
       }
       document.body.style.overflow = "";
       resetInterviewNotesForm();
+    function openScreeningModal() {
+  if (!els.screeningModal) return;
+  els.screeningModal.classList.add("show");
+  els.screeningModal.setAttribute("aria-hidden", "false");
+  document.body.style.overflow = "hidden";
+}
+
+function closeScreeningModal() {
+  if (!els.screeningModal) return;
+  els.screeningModal.classList.remove("show");
+  els.screeningModal.setAttribute("aria-hidden", "true");
+  document.body.style.overflow = "";
+}
+
+async function loadScreeningResponses(applicationId) {
+  const { data, error } = await supabaseClient
+    .from("application_screening_responses")
+    .select("*")
+    .eq("application_id", applicationId)
+    .order("created_at", { ascending: true });
+
+  if (error) throw error;
+  return data || [];
+}
+
+async function loadScreeningReview(applicationId) {
+  const { data, error } = await supabaseClient
+    .from("application_screening_reviews")
+    .select("*")
+    .eq("application_id", applicationId)
+    .maybeSingle();
+
+  if (error) throw error;
+  return data || null;
+}
+
+function renderScreeningResponses(responses) {
+  if (!els.screeningContainer) return;
+
+  if (!responses.length) {
+    els.screeningContainer.innerHTML = `
+      <div class="empty">No screening responses found for this application.</div>
+    `;
+    return;
+  }
+
+  els.screeningContainer.innerHTML = responses.map((r, index) => `
+    <div class="panel" style="margin-bottom:14px;">
+      <div style="font-weight:800;color:#1e3a8a;margin-bottom:8px;">Question ${index + 1}</div>
+      <div style="margin-bottom:10px;"><strong>${escapeHtml(r.question_text || "-")}</strong></div>
+
+      <div class="field" style="margin-bottom:10px;">
+        <label>Candidate Answer</label>
+        <textarea
+          class="screening-answer"
+          data-id="${escapeHtml(r.id)}"
+          rows="4"
+          placeholder="Type candidate answer here"
+        >${escapeHtml(r.candidate_answer || "")}</textarea>
+      </div>
+
+      <div class="notes-grid">
+        <div class="field">
+          <label>Score</label>
+          <select class="screening-score" data-id="${escapeHtml(r.id)}">
+            <option value="">Select score</option>
+            <option value="1" ${Number(r.recruiter_score) === 1 ? "selected" : ""}>1</option>
+            <option value="2" ${Number(r.recruiter_score) === 2 ? "selected" : ""}>2</option>
+            <option value="3" ${Number(r.recruiter_score) === 3 ? "selected" : ""}>3</option>
+            <option value="4" ${Number(r.recruiter_score) === 4 ? "selected" : ""}>4</option>
+            <option value="5" ${Number(r.recruiter_score) === 5 ? "selected" : ""}>5</option>
+          </select>
+        </div>
+
+        <div class="field">
+          <label>Question Type</label>
+          <input value="${escapeHtml(r.question_type || "-")}" readonly />
+        </div>
+      </div>
+    </div>
+  `).join("");
+}
+
+function fillScreeningReviewFields(review) {
+  if (!review) {
+    if (els.screeningStrengths) els.screeningStrengths.value = "";
+    if (els.screeningRisks) els.screeningRisks.value = "";
+    if (els.screeningSummary) els.screeningSummary.value = "";
+    if (els.screeningDecision) els.screeningDecision.value = "";
+    return;
+  }
+
+  if (els.screeningStrengths) els.screeningStrengths.value = review.strengths || "";
+  if (els.screeningRisks) els.screeningRisks.value = review.risks || "";
+  if (els.screeningSummary) els.screeningSummary.value = review.summary || "";
+  if (els.screeningDecision) els.screeningDecision.value = review.recommended_decision || "";
+}
+
+function buildScreeningNarrative(responses) {
+  const strengths = [];
+  const risks = [];
+
+  responses.forEach(r => {
+    const score = Number(r.recruiter_score || 0);
+    const question = r.question_text || "question";
+
+    if (score >= 4) strengths.push(`Strong response to: ${question}`);
+    if (score > 0 && score <= 2) risks.push(`Weak response to: ${question}`);
+  });
+
+  return {
+    strengths: strengths.length ? strengths.map(x => `• ${x}`).join("\n") : "• No major strengths captured yet.",
+    risks: risks.length ? risks.map(x => `• ${x}`).join("\n") : "• No major risks captured yet.",
+    summary: strengths.length
+      ? "Candidate shows solid screening alignment based on current responses."
+      : "Candidate shows baseline alignment, but more validation is needed."
+  };
+}  
     }
 
     async function saveInterviewNotes() {
