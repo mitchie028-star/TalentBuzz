@@ -2,9 +2,9 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Recruiter Dashboard | TalentBuzz</title>
+  <title>BuzzHire | TalentBuzz</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="description" content="TalentBuzz recruiter dashboard." />
+  <meta name="description" content="BuzzHire recruiter workspace by TalentBuzz." />
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -52,7 +52,40 @@
       margin-bottom: 20px;
     }
 
-    .topbar h1 {
+    .brand-wrap {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 4px;
+    }
+
+    .brand-logo {
+      width: 48px;
+      height: 48px;
+      object-fit: contain;
+      border-radius: 12px;
+      background: #fff;
+      border: 1px solid var(--border);
+      box-shadow: var(--shadow);
+      padding: 6px;
+      flex-shrink: 0;
+    }
+
+    .brand-logo-fallback {
+      width: 48px;
+      height: 48px;
+      border-radius: 12px;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      font-weight: 800;
+      color: white;
+      background: linear-gradient(135deg, var(--primary), var(--primary-2));
+      box-shadow: var(--shadow);
+      flex-shrink: 0;
+    }
+
+    .brand-text h1 {
       margin: 0 0 6px;
       color: var(--primary);
       font-size: 2rem;
@@ -400,7 +433,10 @@
 
     @media (max-width: 760px) {
       .stats-grid, .filters-grid { grid-template-columns: 1fr; }
-      .topbar h1 { font-size: 1.7rem; }
+      .brand-wrap { align-items: flex-start; }
+      .brand-text h1 { font-size: 1.7rem; }
+      .brand-logo,
+      .brand-logo-fallback { width: 42px; height: 42px; }
       .container { padding: 18px 14px 34px; }
       .modal-content { height: 90vh; }
     }
@@ -410,8 +446,20 @@
   <div class="container">
     <div class="topbar">
       <div>
-        <h1>Recruiter Dashboard</h1>
-        <p class="subtitle">Manage candidates, endorsements, recruiters, and SLA.</p>
+        <div class="brand-wrap">
+          <img
+            src="talentbuzz-logo.png"
+            alt="TalentBuzz Logo"
+            class="brand-logo"
+            onerror="this.style.display='none';this.nextElementSibling.style.display='flex';"
+          />
+          <div class="brand-logo-fallback">TB</div>
+
+          <div class="brand-text">
+            <h1>BuzzHire</h1>
+            <p class="subtitle">Manage candidates, endorsements, recruiters, and SLA.</p>
+          </div>
+        </div>
       </div>
 
       <div class="top-right">
@@ -436,7 +484,9 @@
       <a href="recruiter-add-candidate.html" class="btn btn-primary">Add Candidate</a>
       <a href="recruiter-productivity.html" class="btn btn-outline">Recruiter Productivity</a>
       <a href="client-roles-input.html" class="btn btn-outline">Client Status / Open Roles</a>
+      <a href="sourced-candidates.html" class="btn btn-outline">Sourced Candidates</a>
       <button id="openInviteRecruiterBtn" class="btn btn-outline" type="button">Invite Recruiter</button>
+      <button id="refreshBtn" class="btn btn-outline" type="button">Refresh</button>
     </div>
 
     <div class="panel">
@@ -505,7 +555,7 @@
           </select>
         </div>
 
-        <button id="refreshBtn" class="btn btn-outline" type="button">Refresh</button>
+        <div></div>
       </div>
     </div>
 
@@ -974,8 +1024,6 @@ TalentBuzz`;
           .eq("email", cleanEmail)
           .eq("active", true);
 
-        console.log("verifyRecruiterAccess(dashboard):", { cleanEmail, data, error });
-
         if (error) throw error;
         if (!Array.isArray(data) || data.length === 0) {
           throw new Error(`This account is not authorized for recruiter access. Logged in as: ${cleanEmail}`);
@@ -1005,9 +1053,7 @@ TalentBuzz`;
       }
 
       async function protectRecruiterPage() {
-        const {
-          data: { session }
-        } = await supabaseClient.auth.getSession();
+        const { data: { session } } = await supabaseClient.auth.getSession();
 
         if (!session?.user) {
           window.location.href = "recruiter-login.html";
@@ -1200,13 +1246,8 @@ TalentBuzz`;
         const nowIso = new Date().toISOString();
         const recruiterEmail = state.currentUser?.email || null;
 
-        if (!app?.id) {
-          throw new Error("Application record is missing.");
-        }
-
-        if (!app.jobs?.client_uuid) {
-          throw new Error("This job is not linked to a client profile yet.");
-        }
+        if (!app?.id) throw new Error("Application record is missing.");
+        if (!app.jobs?.client_uuid) throw new Error("This job is not linked to a client profile yet.");
 
         const endorsementPayload = {
           application_id: app.id,
@@ -1238,10 +1279,10 @@ TalentBuzz`;
 
         if (markAsSent) {
           updatePayload.endorsement_sent_at = nowIso;
-          updatePayload.endorsement_sent_to = recipientEmail || null;
           updatePayload.last_status_change_at = nowIso;
           updatePayload.sla_status = "on_track";
           updatePayload.sla_due_at = new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString();
+          updatePayload.endorsement_sent_to = recipientEmail || null;
         }
 
         const { error: appUpdateError } = await supabaseClient
@@ -1257,24 +1298,14 @@ TalentBuzz`;
         if (!recipientEmail) throw new Error("No client recipient email found.");
         if (!subject?.trim()) throw new Error("Email subject is required.");
         if (!body?.trim()) throw new Error("Email body is required.");
-
-        if (!app.jobs?.title && !app.job_title) {
-          throw new Error("Job title is missing.");
-        }
-
-        if (!app.jobs?.client_uuid) {
-          throw new Error("Client is not linked to this job yet.");
-        }
+        if (!app.jobs?.title && !app.job_title) throw new Error("Job title is missing.");
+        if (!app.jobs?.client_uuid) throw new Error("Client is not linked to this job yet.");
 
         const profile = getProfileFromApplication(app);
-        if (!profile?.full_name) {
-          throw new Error("Candidate name is missing.");
-        }
+        if (!profile?.full_name) throw new Error("Candidate name is missing.");
 
         const resumeUrl = await getResumeUrl(app);
-        if (!resumeUrl) {
-          throw new Error("Resume file is missing. Please upload a resume before endorsing.");
-        }
+        if (!resumeUrl) throw new Error("Resume file is missing. Please upload a resume before endorsing.");
 
         const { data, error } = await supabaseClient.functions.invoke("send-endorsement-email", {
           body: {
@@ -1298,10 +1329,7 @@ TalentBuzz`;
           throw new Error(error?.message || data?.error || "Failed to send endorsement email.");
         }
 
-        return {
-          success: true,
-          resumeUrl
-        };
+        return { success: true, resumeUrl };
       }
 
       async function sendRejectionEmail(application) {
@@ -1563,8 +1591,7 @@ TalentBuzz`;
           return;
         }
 
-        const newStatusNormalized = normalizeText(newStatus);
-        if (application && newStatusNormalized === "rejected") {
+        if (application && normalizeText(newStatus) === "rejected") {
           await sendRejectionEmail(application);
         }
 
@@ -1632,46 +1659,70 @@ TalentBuzz`;
       }
 
       async function loadApplications() {
-        clearNotice();
-        els.refreshBtn.disabled = true;
-        els.refreshBtn.textContent = "Refreshing...";
         els.applicationsTable.innerHTML = '<tr><td colspan="17" class="empty loading">Loading candidates...</td></tr>';
+
+        if (els.refreshBtn) {
+          els.refreshBtn.disabled = true;
+          els.refreshBtn.textContent = "Refreshing...";
+        }
 
         const { data, error } = await supabaseClient
           .from("applications")
           .select(`
             id,
-            applicant_profile_id,
             email,
             job_id,
-            job_id_uuid,
             job_title,
             status,
             recruiter_email,
             application_source,
             confirmation_email_status,
             rejection_email_status,
+            screening_result,
+            screening_score,
+            auto_disposition_reason,
+            created_at,
+            applicant_profile_id,
             stage_note_code,
             stage_note_label,
             stage_note_updated_at,
             endorsement_status,
             endorsement_sent_at,
-            endorsement_sent_to,
             endorsed_by,
+            endorsement_sent_to,
             sla_status,
             sla_due_at,
             last_status_change_at,
-            created_at,
-            jobs(id, title, slug, client_name, client_uuid),
-            applicant_profiles(id, full_name, phone, location, years_of_experience, current_title, skills, resume_url, resume_path)
+            applicant_profiles (
+              id,
+              full_name,
+              email,
+              phone,
+              location,
+              resume_url,
+              resume_path,
+              current_title,
+              years_of_experience,
+              skills
+            ),
+            jobs (
+              id,
+              title,
+              slug,
+              client_name,
+              client_uuid
+            )
           `)
           .order("created_at", { ascending: false });
 
-        els.refreshBtn.disabled = false;
-        els.refreshBtn.textContent = "Refresh";
+        if (els.refreshBtn) {
+          els.refreshBtn.disabled = false;
+          els.refreshBtn.textContent = "Refresh";
+        }
 
         if (error) {
-          els.applicationsTable.innerHTML = `<tr><td colspan="17" class="empty">${escapeHtml(error.message)}</td></tr>`;
+          console.error("Failed to load applications:", error);
+          els.applicationsTable.innerHTML = `<tr><td colspan="17" class="empty">${escapeHtml(error.message || "Failed to load candidates.")}</td></tr>`;
           return;
         }
 
@@ -1681,17 +1732,56 @@ TalentBuzz`;
         await renderTable();
       }
 
-      function handleFilterChange() {
-        renderStats();
-        renderTable();
+      async function refreshAll() {
+        await loadRecruitersMap();
+        await loadApplications();
       }
 
-      els.jobFilter.addEventListener("change", handleFilterChange);
-      [els.clientFilter, els.statusFilter, els.recruiterFilter, els.sourceFilter, els.slaFilter].forEach(el => {
-        el.addEventListener("change", handleFilterChange);
+      els.searchInput.addEventListener("input", async () => {
+        renderStats();
+        await renderTable();
       });
-      els.searchInput.addEventListener("input", handleFilterChange);
-      els.refreshBtn.addEventListener("click", loadApplications);
+
+      els.jobFilter.addEventListener("change", async () => {
+        renderStats();
+        await renderTable();
+      });
+
+      els.clientFilter.addEventListener("change", async () => {
+        renderStats();
+        await renderTable();
+      });
+
+      els.statusFilter.addEventListener("change", async () => {
+        renderStats();
+        await renderTable();
+      });
+
+      els.recruiterFilter.addEventListener("change", async () => {
+        renderStats();
+        await renderTable();
+      });
+
+      els.sourceFilter.addEventListener("change", async () => {
+        renderStats();
+        await renderTable();
+      });
+
+      els.slaFilter.addEventListener("change", async () => {
+        renderStats();
+        await renderTable();
+      });
+
+      if (els.refreshBtn) {
+        els.refreshBtn.addEventListener("click", refreshAll);
+      }
+
+      if (els.logoutBtn) {
+        els.logoutBtn.addEventListener("click", async () => {
+          await supabaseClient.auth.signOut();
+          window.location.href = "recruiter-login.html";
+        });
+      }
 
       els.applicationsTable.addEventListener("change", async event => {
         const target = event.target;
@@ -1707,7 +1797,7 @@ TalentBuzz`;
         }
 
         if (target.classList.contains("recruiter-select")) {
-          await updateRecruiter(target.dataset.id, target.value || null);
+          await updateRecruiter(target.dataset.id, target.value);
         }
       });
 
@@ -1827,6 +1917,7 @@ TalentBuzz`;
 
           try {
             els.saveEndorseBtn.disabled = true;
+            els.saveEndorseBtn.textContent = "Saving...";
 
             const resumeUrl = await getResumeUrl(app);
 
@@ -1846,6 +1937,7 @@ TalentBuzz`;
             showNotice(error.message || "Failed to save endorsement draft.", "error");
           } finally {
             els.saveEndorseBtn.disabled = false;
+            els.saveEndorseBtn.textContent = "Save Draft Record";
           }
         });
       }
@@ -1859,15 +1951,11 @@ TalentBuzz`;
             els.sendEndorseBtn.disabled = true;
             els.sendEndorseBtn.textContent = "Sending...";
 
+            const recipientEmail = els.endorseRecipient.value.trim();
             const subject = els.endorseSubject.value.trim();
             const body = els.endorseBody.value.trim();
-            const recipientEmail = els.endorseRecipient.value.trim();
 
-            if (!recipientEmail) {
-              throw new Error("No client recipient email found for this client.");
-            }
-
-            const sendResult = await sendEndorsementEmail({
+            const result = await sendEndorsementEmail({
               app,
               subject,
               body,
@@ -1879,7 +1967,7 @@ TalentBuzz`;
               recipientEmail,
               subject,
               body,
-              resumeUrl: sendResult.resumeUrl,
+              resumeUrl: result.resumeUrl,
               markAsSent: true
             });
 
@@ -1887,23 +1975,7 @@ TalentBuzz`;
             closeEndorseModal();
             await loadApplications();
           } catch (error) {
-            try {
-              if (app?.id) {
-                await saveEndorsementRecord({
-                  app,
-                  recipientEmail: els.endorseRecipient.value.trim(),
-                  subject: els.endorseSubject.value.trim(),
-                  body: els.endorseBody.value.trim(),
-                  resumeUrl: null,
-                  markAsSent: false,
-                  errorMessage: error.message || "Unknown send error"
-                });
-              }
-            } catch (saveError) {
-              console.error("Failed to save failed endorsement state:", saveError);
-            }
-
-            showNotice(error.message || "Failed to send endorsement email.", "error");
+            showNotice(error.message || "Failed to send endorsement.", "error");
           } finally {
             els.sendEndorseBtn.disabled = false;
             els.sendEndorseBtn.textContent = "Send Endorsement";
@@ -1911,35 +1983,13 @@ TalentBuzz`;
         });
       }
 
-      document.addEventListener("keydown", event => {
-        if (event.key !== "Escape") return;
-
-        if (els.resumeModal?.classList.contains("show")) closeResumeModal();
-        if (els.endorseModal?.classList.contains("show")) closeEndorseModal();
-        if (els.inviteRecruiterModal?.classList.contains("show")) closeInviteRecruiterModal();
-      });
-
-      if (els.logoutBtn) {
-        els.logoutBtn.addEventListener("click", async () => {
-          try {
-            await supabaseClient.auth.signOut();
-          } finally {
-            window.location.href = "recruiter-login.html";
-          }
-        });
-      }
-
-      supabaseClient.auth.onAuthStateChange((event, session) => {
-        if (event === "SIGNED_OUT" || !session?.user) {
-          window.location.href = "recruiter-login.html";
-        }
-      });
-
-      protectRecruiterPage().then(async user => {
+      (async function init() {
+        const user = await protectRecruiterPage();
         if (!user) return;
+
         await loadRecruitersMap();
         await loadApplications();
-      });
+      })();
     });
   </script>
 </body>
