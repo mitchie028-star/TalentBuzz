@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Clients | BuzzHire</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;800&display=swap" rel="stylesheet">
+
+  <style>
+    body {
+      font-family: 'Manrope', sans-serif;
+      margin: 0;
+      background: #f8fbff;
+    }
+
+    .container {
+      max-width: 1200px;
+      margin: auto;
+      padding: 30px 20px;
+    }
+
+    h1 {
+      color: #1e3a8a;
+    }
+
+    .card {
+      background: white;
+      padding: 20px;
+      border-radius: 12px;
+      margin-bottom: 20px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+    }
+
+    input, select {
+      width: 100%;
+      padding: 10px;
+      margin-top: 5px;
+      margin-bottom: 10px;
+      border-radius: 8px;
+      border: 1px solid #ccc;
+    }
+
+    button {
+      background: #1e3a8a;
+      color: white;
+      padding: 10px 15px;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      font-weight: 600;
+    }
+
+    .secondary {
+      background: #64748b;
+    }
+
+    .contact-box {
+      border: 1px solid #ddd;
+      padding: 10px;
+      border-radius: 8px;
+      margin-bottom: 10px;
+    }
+
+    .row {
+      display: flex;
+      gap: 10px;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    th, td {
+      padding: 10px;
+      border-bottom: 1px solid #eee;
+      text-align: left;
+    }
+
+    .tag {
+      background: #e0f2fe;
+      padding: 5px 8px;
+      border-radius: 6px;
+      font-size: 12px;
+      margin-right: 5px;
+    }
+
+  </style>
+</head>
+<body>
+
+<div class="container">
+
+  <h1>Clients Management</h1>
+
+  <!-- ADD CLIENT -->
+  <div class="card">
+    <h3>Add Client</h3>
+
+    <input id="client_name" placeholder="Client Name" />
+    <input id="client_code" placeholder="Client Code (optional)" />
+
+    <h4>Endorsement Contacts</h4>
+    <div id="contacts_container"></div>
+    <button type="button" onclick="addContact()">+ Add Contact</button>
+
+    <h4>Client Portal User</h4>
+    <input id="client_user_name" placeholder="Full Name" />
+    <input id="client_user_email" placeholder="Email" />
+
+    <br><br>
+    <button onclick="saveClient()">Save Client</button>
+
+    <div id="status"></div>
+  </div>
+
+  <!-- CLIENT LIST -->
+  <div class="card">
+    <h3>Existing Clients</h3>
+
+    <table>
+      <thead>
+        <tr>
+          <th>Client</th>
+          <th>Contacts</th>
+          <th>Portal Users</th>
+        </tr>
+      </thead>
+      <tbody id="client_table"></tbody>
+    </table>
+  </div>
+
+</div>
+
+<script>
+const supabase = supabase.createClient(
+  "https://YOUR-PROJECT.supabase.co",
+  "YOUR-ANON-KEY"
+);
+
+function addContact(name = "", email = "") {
+  const div = document.createElement("div");
+  div.className = "contact-box";
+
+  div.innerHTML = `
+    <div class="row">
+      <input class="contact_name" placeholder="Contact Name" value="${name}" />
+      <input class="contact_email" placeholder="Contact Email" value="${email}" />
+    </div>
+  `;
+
+  document.getElementById("contacts_container").appendChild(div);
+}
+
+async function saveClient() {
+  const name = document.getElementById("client_name").value;
+  const code = document.getElementById("client_code").value;
+
+  if (!name) {
+    alert("Client name required");
+    return;
+  }
+
+  // 1. Insert client
+  const { data: client, error } = await supabase
+    .from("clients")
+    .insert([{ client_name: name, client_code: code }])
+    .select()
+    .single();
+
+  if (error) {
+    alert(error.message);
+    return;
+  }
+
+  // 2. Insert contacts
+  const contactBlocks = document.querySelectorAll(".contact-box");
+
+  for (let block of contactBlocks) {
+    const cname = block.querySelector(".contact_name").value;
+    const cemail = block.querySelector(".contact_email").value;
+
+    if (cname && cemail) {
+      await supabase.from("client_contacts").insert([{
+        client_id: client.id,
+        contact_name: cname,
+        contact_email: cemail
+      }]);
+    }
+  }
+
+  // 3. Insert client portal user
+  const userName = document.getElementById("client_user_name").value;
+  const userEmail = document.getElementById("client_user_email").value;
+
+  if (userEmail) {
+    await supabase.from("client_users").insert([{
+      client_id: client.id,
+      full_name: userName,
+      email: userEmail
+    }]);
+  }
+
+  document.getElementById("status").innerText = "Client saved successfully!";
+  location.reload();
+}
+
+async function loadClients() {
+  const { data: clients } = await supabase.from("clients").select("*");
+  const { data: contacts } = await supabase.from("client_contacts").select("*");
+  const { data: users } = await supabase.from("client_users").select("*");
+
+  const table = document.getElementById("client_table");
+  table.innerHTML = "";
+
+  clients.forEach(client => {
+
+    const clientContacts = contacts.filter(c => c.client_id === client.id);
+    const clientUsers = users.filter(u => u.client_id === client.id);
+
+    const tr = document.createElement("tr");
+
+    tr.innerHTML = `
+      <td><strong>${client.client_name}</strong></td>
+      <td>
+        ${clientContacts.map(c => `<span class="tag">${c.contact_name}</span>`).join("")}
+      </td>
+      <td>
+        ${clientUsers.map(u => `<span class="tag">${u.email}</span>`).join("")}
+      </td>
+    `;
+
+    table.appendChild(tr);
+  });
+}
+
+addContact();
+loadClients();
+</script>
+
+</body>
+</html>
