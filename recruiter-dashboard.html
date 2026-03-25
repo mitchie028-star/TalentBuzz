@@ -2192,251 +2192,239 @@ TalentBuzz`;
       });
 
       els.applicationsTable.addEventListener("click", async event => {
-        const target = event.target;
+  const target = event.target;
 
-        if (target.classList.contains("view-resume-btn")) {
-          const app = state.allApplications.find(item => String(item.id) === String(target.dataset.id));
-          if (!app) {
-            showNotice("Application not found.", "error");
-            return;
-          }
+  // ===============================
+  // 🔥 SCREENING REVIEW (NEW)
+  // ===============================
+  if (target.classList.contains("review-screening-btn")) {
+    const app = state.allApplications.find(item => String(item.id) === String(target.dataset.id));
+    if (!app) {
+      showNotice("Application not found.", "error");
+      return;
+    }
 
-          target.disabled = true;
-          const originalText = target.textContent;
-          target.textContent = "Opening...";
+    try {
+      state.currentScreeningAppId = app.id;
 
-          try {
-            const resumeUrl = await getResumeUrl(app);
-            if (!resumeUrl) {
-              showNotice("Resume not available.", "error");
-              return;
-            }
-            openResumeModal(resumeUrl);
-          } catch (err) {
-            console.error("Failed to open resume:", err);
-            showNotice("Failed to open resume.", "error");
-          } finally {
-            target.disabled = false;
-            target.textContent = originalText;
-          }
-          return;
-        }
+      const { data } = await supabaseClient
+        .from("application_screening_responses")
+        .select("*")
+        .eq("application_id", app.id);
 
-        if (target.classList.contains("interview-notes-btn")) {
-          const app = state.allApplications.find(item => String(item.id) === String(target.dataset.id));
-          if (!app) {
-            showNotice("Application not found.", "error");
-            return;
-          }
+      state.currentScreeningResponses = data || [];
 
-          await openInterviewNotesModal(app);
-          return;
-        }
+      const container = document.getElementById("screeningContainer");
 
-        if (target.classList.contains("endorse-btn")) {
-          const app = state.allApplications.find(item => String(item.id) === String(target.dataset.id));
-          if (!app) {
-            showNotice("Application not found.", "error");
-            return;
-          }
+      container.innerHTML = state.currentScreeningResponses.map(r => `
+        <div class="panel">
+          <strong>${r.question_text}</strong>
 
-          const recipient = await fetchClientRecipient(app.jobs?.client_uuid);
-          await openEndorseModal(app);
-          els.endorseRecipient.value = recipient || "";
+          <textarea 
+            class="screening-answer" 
+            data-id="${r.id}"
+            placeholder="Candidate answer"
+          >${r.candidate_answer || ""}</textarea>
 
-          if (!recipient) {
-            showNotice("No active client email found for this job's client.", "info");
-          }
-          return;
-        }
+          <select class="screening-score" data-id="${r.id}">
+            <option value="">Score</option>
+            ${[1,2,3,4,5].map(n => `
+              <option value="${n}" ${Number(r.recruiter_score) === n ? "selected" : ""}>
+                ${n}
+              </option>
+            `).join("")}
+          </select>
+        </div>
+      `).join("");
 
-        if (target.classList.contains("edit-btn")) {
-          window.location.href = `recruiter-add-candidate.html?id=${encodeURIComponent(target.dataset.id)}`;
-          return;
-        }
+      document.getElementById("screeningModal").classList.add("show");
 
-        if (target.classList.contains("btn-delete")) {
-          await deleteApplication(target.dataset.id);
-        }
-      });
+    } catch (err) {
+      console.error(err);
+      showNotice("Failed to load screening.", "error");
+    }
 
-      if (els.openInviteRecruiterBtn) {
-        els.openInviteRecruiterBtn.addEventListener("click", openInviteRecruiterModal);
+    return;
+  }
+
+  // ===============================
+  // 📄 VIEW RESUME
+  // ===============================
+  if (target.classList.contains("view-resume-btn")) {
+    const app = state.allApplications.find(item => String(item.id) === String(target.dataset.id));
+    if (!app) {
+      showNotice("Application not found.", "error");
+      return;
+    }
+
+    target.disabled = true;
+    const originalText = target.textContent;
+    target.textContent = "Opening...";
+
+    try {
+      const resumeUrl = await getResumeUrl(app);
+      if (!resumeUrl) {
+        showNotice("Resume not available.", "error");
+        return;
+      }
+      openResumeModal(resumeUrl);
+    } catch (err) {
+      console.error("Failed to open resume:", err);
+      showNotice("Failed to open resume.", "error");
+    } finally {
+      target.disabled = false;
+      target.textContent = originalText;
+    }
+    return;
+  }
+
+  // ===============================
+  // 📝 INTERVIEW NOTES
+  // ===============================
+  if (target.classList.contains("interview-notes-btn")) {
+    const app = state.allApplications.find(item => String(item.id) === String(target.dataset.id));
+    if (!app) {
+      showNotice("Application not found.", "error");
+      return;
+    }
+
+    await openInterviewNotesModal(app);
+    return;
+  }
+
+  // ===============================
+  // 📧 ENDORSEMENT (UPDATED)
+  // ===============================
+  if (target.classList.contains("endorse-btn")) {
+    const app = state.allApplications.find(item => String(item.id) === String(target.dataset.id));
+    if (!app) {
+      showNotice("Application not found.", "error");
+      return;
+    }
+
+    try {
+      const notes = await getInterviewNotesByApplicationId(app.id);
+
+      const recipient = await fetchClientRecipient(app.jobs?.client_uuid);
+      await openEndorseModal(app);
+
+      els.endorseRecipient.value = recipient || "";
+
+      // 🔥 AUTO-GENERATE EMAIL DRAFT
+      els.endorseSubject.value = `Candidate Endorsement - ${app.job_title}`;
+
+      els.endorseBody.value = `
+Hi,
+
+We are pleased to endorse this candidate for ${app.job_title}.
+
+${notes?.optimized_notes || notes?.interview_summary || "Candidate shows good alignment based on evaluation."}
+
+Please find the resume attached.
+
+Best regards,
+TalentBuzz
+`;
+
+      if (!recipient) {
+        showNotice("No active client email found for this job's client.", "info");
       }
 
-      if (els.closeInviteRecruiterModal) {
-        els.closeInviteRecruiterModal.addEventListener("click", closeInviteRecruiterModal);
-      }
+    } catch (err) {
+      console.error(err);
+      showNotice("Failed to prepare endorsement.", "error");
+    }
 
-      if (els.inviteRecruiterModal) {
-        els.inviteRecruiterModal.addEventListener("click", event => {
-          if (event.target === els.inviteRecruiterModal) closeInviteRecruiterModal();
-        });
-      }
+    return;
+  }
 
-      if (els.sendInviteRecruiterBtn) {
-        els.sendInviteRecruiterBtn.addEventListener("click", async () => {
-          try {
-            els.sendInviteRecruiterBtn.disabled = true;
-            els.sendInviteRecruiterBtn.textContent = "Sending...";
-            await inviteRecruiter();
-            showNotice("Recruiter invited successfully. A password setup email has been sent.", "success");
-            closeInviteRecruiterModal();
-          } catch (error) {
-            showNotice(error.message || "Failed to invite recruiter.", "error");
-          } finally {
-            els.sendInviteRecruiterBtn.disabled = false;
-            els.sendInviteRecruiterBtn.textContent = "Send Invite";
-          }
-        });
-      }
+  // ===============================
+  // ✏️ EDIT
+  // ===============================
+  if (target.classList.contains("edit-btn")) {
+    window.location.href = `recruiter-add-candidate.html?id=${encodeURIComponent(target.dataset.id)}`;
+    return;
+  }
 
-      if (els.closeModal) {
-        els.closeModal.addEventListener("click", closeResumeModal);
-      }
+  // ===============================
+  // 🗑 DELETE
+  // ===============================
+  if (target.classList.contains("btn-delete")) {
+    await deleteApplication(target.dataset.id);
+  }
+});
 
-      if (els.resumeModal) {
-        els.resumeModal.addEventListener("click", event => {
-          if (event.target === els.resumeModal) closeResumeModal();
-        });
-      }
 
-      if (els.closeEndorseModal) {
-        els.closeEndorseModal.addEventListener("click", closeEndorseModal);
-      }
+// ===================================
+// 🔥 SCREENING ACTIONS (NEW)
+// ===================================
 
-      if (els.endorseModal) {
-        els.endorseModal.addEventListener("click", event => {
-          if (event.target === els.endorseModal) closeEndorseModal();
-        });
-      }
+// Save answer + score live
+document.addEventListener("change", async e => {
+  if (e.target.classList.contains("screening-score")) {
+    const id = e.target.dataset.id;
 
-      if (els.closeInterviewNotesModal) {
-        els.closeInterviewNotesModal.addEventListener("click", closeInterviewNotesModal);
-      }
+    await supabaseClient
+      .from("application_screening_responses")
+      .update({
+        recruiter_score: Number(e.target.value)
+      })
+      .eq("id", id);
+  }
+});
 
-      if (els.interviewNotesModal) {
-        els.interviewNotesModal.addEventListener("click", event => {
-          if (event.target === els.interviewNotesModal) closeInterviewNotesModal();
-        });
-      }
+document.addEventListener("blur", async e => {
+  if (e.target.classList.contains("screening-answer")) {
+    const id = e.target.dataset.id;
 
-      if (els.refreshOptimizedNotesBtn) {
-        els.refreshOptimizedNotesBtn.addEventListener("click", () => {
-          generateOptimizedNotesPreview();
-          showNotesSaveMessage("Optimized notes refreshed.", "success");
-        });
-      }
+    await supabaseClient
+      .from("application_screening_responses")
+      .update({
+        candidate_answer: e.target.value
+      })
+      .eq("id", id);
+  }
+}, true);
 
-      if (els.saveInterviewNotesBtn) {
-        els.saveInterviewNotesBtn.addEventListener("click", async () => {
-          try {
-            els.saveInterviewNotesBtn.disabled = true;
-            els.saveInterviewNotesBtn.textContent = "Saving...";
-            await saveInterviewNotes();
-          } finally {
-            els.saveInterviewNotesBtn.disabled = false;
-            els.saveInterviewNotesBtn.textContent = "Save Interview Notes";
-          }
-        });
-      }
 
-      [els.notesStrengths, els.notesRisks, els.notesSummary, els.notesDecisionStatus].forEach(field => {
-        if (!field) return;
-        field.addEventListener("input", generateOptimizedNotesPreview);
-        field.addEventListener("change", generateOptimizedNotesPreview);
-      });
+// Generate summary
+document.getElementById("generateScreeningBtn")?.addEventListener("click", () => {
+  const responses = state.currentScreeningResponses || [];
 
-      if (els.saveEndorseBtn) {
-        els.saveEndorseBtn.addEventListener("click", async () => {
-          const app = state.selectedEndorsementApp;
-          if (!app) return;
+  const strengths = [];
+  const risks = [];
 
-          try {
-            els.saveEndorseBtn.disabled = true;
-            els.saveEndorseBtn.textContent = "Saving...";
+  responses.forEach(r => {
+    const score = Number(r.recruiter_score || 0);
 
-            const resumeUrl = await getResumeUrl(app);
+    if (score >= 4) strengths.push(`Strong response: ${r.question_text}`);
+    if (score <= 2 && score > 0) risks.push(`Weak response: ${r.question_text}`);
+  });
 
-            await saveEndorsementRecord({
-              app,
-              recipientEmail: els.endorseRecipient.value.trim(),
-              subject: els.endorseSubject.value.trim(),
-              body: els.endorseBody.value.trim(),
-              resumeUrl,
-              markAsSent: false
-            });
+  screeningStrengths.value = strengths.map(s => "• " + s).join("\n");
+  screeningRisks.value = risks.map(s => "• " + s).join("\n");
 
-            showNotice("Endorsement draft saved.", "success");
-            closeEndorseModal();
-            await loadApplications();
-          } catch (error) {
-            showNotice(error.message || "Failed to save endorsement draft.", "error");
-          } finally {
-            els.saveEndorseBtn.disabled = false;
-            els.saveEndorseBtn.textContent = "Save Draft Record";
-          }
-        });
-      }
+  screeningSummary.value = "Candidate completed screening and shows " +
+    (strengths.length ? "strong alignment" : "baseline fit");
+});
 
-      if (els.sendEndorseBtn) {
-        els.sendEndorseBtn.addEventListener("click", async () => {
-          const app = state.selectedEndorsementApp;
-          if (!app) return;
 
-          try {
-            els.sendEndorseBtn.disabled = true;
-            els.sendEndorseBtn.textContent = "Sending...";
+// Push to interview notes
+document.getElementById("pushToInterviewNotesBtn")?.addEventListener("click", async () => {
+  const appId = state.currentScreeningAppId;
 
-            const recipientEmail = els.endorseRecipient.value.trim();
-            const subject = els.endorseSubject.value.trim();
-            const body = els.endorseBody.value.trim();
-
-            const result = await sendEndorsementEmail({
-              app,
-              subject,
-              body,
-              recipientEmail
-            });
-
-            await saveEndorsementRecord({
-              app,
-              recipientEmail,
-              subject,
-              body,
-              resumeUrl: result.resumeUrl,
-              markAsSent: true
-            });
-
-            showNotice("Endorsement email sent successfully.", "success");
-            closeEndorseModal();
-            await loadApplications();
-          } catch (error) {
-            showNotice(error.message || "Failed to send endorsement.", "error");
-          } finally {
-            els.sendEndorseBtn.disabled = false;
-            els.sendEndorseBtn.textContent = "Send Endorsement";
-          }
-        });
-      }
-
-      window.addEventListener("keydown", event => {
-        if (event.key === "Escape") {
-          closeResumeModal();
-          closeEndorseModal();
-          closeInviteRecruiterModal();
-          closeInterviewNotesModal();
-        }
-      });
-
-      (async function init() {
-        const user = await protectRecruiterPage();
-        if (!user) return;
-
-        await loadRecruitersMap();
-        await loadApplications();
-      })();
+  try {
+    await supabaseClient.from("interview_notes").upsert({
+      application_id: appId,
+      strengths: screeningStrengths.value,
+      risks: screeningRisks.value,
+      interview_summary: screeningSummary.value
     });
-  </script>
-</body>
-</html>
+
+    showNotice("Screening pushed to Interview Notes.", "success");
+
+  } catch (err) {
+    console.error(err);
+    showNotice("Failed to push screening.", "error");
+  }
+});
