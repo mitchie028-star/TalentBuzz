@@ -217,7 +217,7 @@
     table {
       width: 100%;
       border-collapse: collapse;
-      min-width: 2600px;
+      min-width: 2550px;
       background: white;
     }
 
@@ -299,7 +299,9 @@
 
     .status-submitted,
     .status-draft_ready,
-    .status-draft-ready { background: #dbeafe; color: #1d4ed8; }
+    .status-draft-ready,
+    .status-not_sent,
+    .status-not-sent { background: #dbeafe; color: #1d4ed8; }
 
     .status-failed-paper-screening,
     .status-withdrawn,
@@ -621,6 +623,8 @@
     document.addEventListener("DOMContentLoaded", () => {
       const SUPABASE_URL = "https://dilalntcxmvdcmwxjcct.supabase.co";
       const SUPABASE_ANON_KEY = "sb_publishable_HrLVIUwnaRo54yijtrbWBQ_1aeb4ezs";
+      const RESUME_BUCKET = "resumes";
+
       const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
       const STATUS_OPTIONS = [
@@ -884,6 +888,21 @@
         }
       }
 
+      function hasResumeFile(app) {
+        const profile = getProfileFromApplication(app);
+        return !!(
+          String(profile?.resume_path || "").trim() ||
+          String(profile?.resume_url || "").trim()
+        );
+      }
+
+      function cleanResumePath(path) {
+        return String(path || "")
+          .trim()
+          .replace(/^\/+/, "")
+          .replace(/^resumes\//i, "");
+      }
+
       function buildCandidateSummary(app) {
         const profile = getProfileFromApplication(app);
         const parts = [];
@@ -955,21 +974,12 @@ TalentBuzz`;
           .eq("email", cleanEmail)
           .eq("active", true);
 
-        console.log("verifyRecruiterAccess(dashboard):", {
-          cleanEmail,
-          data,
-          error
-        });
+        console.log("verifyRecruiterAccess(dashboard):", { cleanEmail, data, error });
 
-        if (error) {
-          console.error("verifyRecruiterAccess error:", error);
-          throw error;
-        }
-
+        if (error) throw error;
         if (!Array.isArray(data) || data.length === 0) {
           throw new Error(`This account is not authorized for recruiter access. Logged in as: ${cleanEmail}`);
         }
-
         if (data.length > 1) {
           throw new Error(`Duplicate recruiter records found for ${cleanEmail}. Please clean up the recruiters table.`);
         }
@@ -999,9 +1009,6 @@ TalentBuzz`;
           data: { session }
         } = await supabaseClient.auth.getSession();
 
-        console.log("Session:", session);
-        console.log("Session email:", session?.user?.email);
-
         if (!session?.user) {
           window.location.href = "recruiter-login.html";
           return null;
@@ -1021,6 +1028,43 @@ TalentBuzz`;
         }
       }
 
+      async function getResumeUrl(app) {
+        const profile = getProfileFromApplication(app);
+        if (!profile) return "";
+
+        const rawResumePath = String(profile.resume_path || "").trim();
+        const rawResumeUrl = String(profile.resume_url || "").trim();
+
+        if (rawResumeUrl && !rawResumePath) {
+          return rawResumeUrl;
+        }
+
+        if (!rawResumePath) {
+          return rawResumeUrl || "";
+        }
+
+        const cleanedPath = cleanResumePath(rawResumePath);
+        if (!cleanedPath) {
+          return rawResumeUrl || "";
+        }
+
+        try {
+          const { data, error } = await supabaseClient.storage
+            .from(RESUME_BUCKET)
+            .createSignedUrl(cleanedPath, 3600);
+
+          if (error) {
+            console.warn("createSignedUrl failed:", error.message, { cleanedPath });
+            return rawResumeUrl || "";
+          }
+
+          return data?.signedUrl || rawResumeUrl || "";
+        } catch (err) {
+          console.error("getResumeUrl failed:", err);
+          return rawResumeUrl || "";
+        }
+      }
+
       function openResumeModal(url) {
         if (!url) return;
 
@@ -1029,9 +1073,12 @@ TalentBuzz`;
 
         els.downloadResumeBtn.href = url;
         els.downloadResumeBtn.style.display = "inline-flex";
-        els.resumeFrame.src = isPdf
-          ? url
-          : `https://docs.google.com/gview?url=${encodeURIComponent(url)}&embedded=true`;
+
+        if (isPdf) {
+          els.resumeFrame.src = url;
+        } else {
+          els.resumeFrame.src = `https://docs.google.com/gview?url=${encodeURIComponent(url)}&embedded=true`;
+        }
 
         els.resumeModal.classList.add("show");
         els.resumeModal.setAttribute("aria-hidden", "false");
@@ -1139,44 +1186,6 @@ TalentBuzz`;
         }
 
         return data?.[0]?.email || "";
-      }
-
-      async function getResumeUrl(app) {
-        const profile = getProfileFromApplication(app);
-        if (!profile) return "";
-
-        const rawResumePath = String(profile.resume_path || "").trim();
-        const rawResumeUrl = String(profile.resume_url || "").trim();
-
-        if (
-          rawResumeUrl &&
-          (rawResumeUrl.includes("/storage/v1/object/sign/") ||
-            rawResumeUrl.includes("/storage/v1/object/public/"))
-        ) {
-          return rawResumeUrl;
-        }
-
-        if (!rawResumePath) return "";
-
-        const cleanedPath = rawResumePath
-          .replace(/^\/+/, "")
-          .replace(/^resumes\//i, "");
-
-        try {
-          const { data, error } = await supabaseClient.storage
-            .from("resumes")
-            .createSignedUrl(cleanedPath, 3600);
-
-          if (error) {
-            console.error("createSignedUrl error:", error);
-            return "";
-          }
-
-          return data?.signedUrl || "";
-        } catch (err) {
-          console.error("getResumeUrl error:", err);
-          return "";
-        }
       }
 
       async function saveEndorsementRecord({
@@ -1423,117 +1432,114 @@ TalentBuzz`;
           return;
         }
 
-        const rows = await Promise.all(
-          filtered.map(async app => {
-            const profile = getProfileFromApplication(app);
-            const candidateName = escapeHtml(profile?.full_name || "Unnamed");
-            const candidateEmail = escapeHtml(app.email || "-");
-            const jobTitle = escapeHtml(app.jobs?.title || app.job_title || "-");
-            const clientName = escapeHtml(app.jobs?.client_name || "-");
-            const currentStatus = String(app.status || "submitted");
-            const safeStatus = escapeHtml(currentStatus);
-            const recruiterName = escapeHtml(getRecruiterName(app.recruiter_email));
-            const source = escapeHtml(app.application_source || "-");
-            const appliedDate = escapeHtml(formatDate(app.created_at));
-            const phone = escapeHtml(profile?.phone || "-");
-            const location = escapeHtml(profile?.location || "-");
-            const yearsOfExperience =
-              profile?.years_of_experience !== null &&
-              profile?.years_of_experience !== undefined &&
-              profile?.years_of_experience !== ""
-                ? `${escapeHtml(profile.years_of_experience)} yr${Number(profile.years_of_experience) === 1 ? "" : "s"}`
-                : "-";
+        const rows = filtered.map(app => {
+          const profile = getProfileFromApplication(app);
+          const candidateName = escapeHtml(profile?.full_name || "Unnamed");
+          const candidateEmail = escapeHtml(app.email || "-");
+          const jobTitle = escapeHtml(app.jobs?.title || app.job_title || "-");
+          const clientName = escapeHtml(app.jobs?.client_name || "-");
+          const currentStatus = String(app.status || "submitted");
+          const safeStatus = escapeHtml(currentStatus);
+          const recruiterName = escapeHtml(getRecruiterName(app.recruiter_email));
+          const source = escapeHtml(app.application_source || "-");
+          const appliedDate = escapeHtml(formatDate(app.created_at));
+          const phone = escapeHtml(profile?.phone || "-");
+          const location = escapeHtml(profile?.location || "-");
+          const yearsOfExperience =
+            profile?.years_of_experience !== null &&
+            profile?.years_of_experience !== undefined &&
+            profile?.years_of_experience !== ""
+              ? `${escapeHtml(profile.years_of_experience)} yr${Number(profile.years_of_experience) === 1 ? "" : "s"}`
+              : "-";
 
-            const noteCode = app.stage_note_code || "";
-            const noteLabel = app.stage_note_label || "";
-            const noteUpdated = app.stage_note_updated_at ? formatDateTime(app.stage_note_updated_at) : "";
+          const noteCode = app.stage_note_code || "";
+          const noteLabel = app.stage_note_label || "";
+          const noteUpdated = app.stage_note_updated_at ? formatDateTime(app.stage_note_updated_at) : "";
 
-            const resumeUrl = await getResumeUrl(app);
-            const safeResumeUrl = resumeUrl ? escapeHtml(resumeUrl) : "";
-            const endorsementStatus = app.endorsement_status || "not_sent";
-            const safeEndorsementStatus = escapeHtml(endorsementStatus);
-            const slaStatus = computeSlaStatus(app);
+          const endorsementStatus = app.endorsement_status || "not_sent";
+          const safeEndorsementStatus = escapeHtml(endorsementStatus);
+          const slaStatus = computeSlaStatus(app);
+          const hasResume = hasResumeFile(app);
 
-            const statusOptions = STATUS_OPTIONS.map(option => {
-              const selected = normalizeText(option) === normalizeText(currentStatus) ? "selected" : "";
-              return `<option value="${escapeHtml(option)}" ${selected}>${escapeHtml(option)}</option>`;
-            }).join("");
+          const statusOptions = STATUS_OPTIONS.map(option => {
+            const selected = normalizeText(option) === normalizeText(currentStatus) ? "selected" : "";
+            return `<option value="${escapeHtml(option)}" ${selected}>${escapeHtml(option)}</option>`;
+          }).join("");
 
-            const recruiterOptions =
-              `<option value="">Unassigned</option>` +
-              Object.entries(state.allRecruitersMap || {})
-                .map(([email, name]) => {
-                  const selected = normalizeText(app.recruiter_email) === normalizeText(email) ? "selected" : "";
-                  return `<option value="${escapeHtml(email)}" ${selected}>${escapeHtml(name)}</option>`;
-                })
-                .join("");
+          const recruiterOptions =
+            `<option value="">Unassigned</option>` +
+            Object.entries(state.allRecruitersMap || {})
+              .map(([email, name]) => {
+                const selected = normalizeText(app.recruiter_email) === normalizeText(email) ? "selected" : "";
+                return `<option value="${escapeHtml(email)}" ${selected}>${escapeHtml(name)}</option>`;
+              })
+              .join("");
 
-            return `
-              <tr>
-                <td>
-                  <div class="candidate-name">${candidateName}</div>
-                  <div class="small">${candidateEmail}</div>
-                </td>
-                <td>${jobTitle}</td>
-                <td>${clientName}</td>
-                <td><span class="status-pill ${getStatusClass(currentStatus)}">${safeStatus}</span></td>
-                <td>${recruiterName}</td>
-                <td>${source}</td>
-                <td>${appliedDate}</td>
-                <td>${phone}</td>
-                <td>${location}</td>
-                <td>${yearsOfExperience}</td>
-                <td>
-                  ${
-                    safeResumeUrl
-                      ? `<button class="btn btn-outline table-btn view-resume-btn" type="button" data-url="${safeResumeUrl}">View Resume</button>`
-                      : `<span class="small">No resume</span>`
-                  }
-                </td>
-                <td>
-                  <span class="status-pill ${getStatusClass(endorsementStatus)}">${safeEndorsementStatus}</span>
-                  <div class="small" style="margin-top:6px;">
-                    ${app.endorsement_sent_at ? `Sent: ${escapeHtml(formatDateTime(app.endorsement_sent_at))}` : "Not yet sent"}
-                  </div>
-                </td>
-                <td>
-                  <span class="status-pill ${getStatusClass(slaStatus)}">${escapeHtml(slaStatus)}</span>
-                  <div class="small" style="margin-top:6px;">
-                    ${app.sla_due_at ? `Due: ${escapeHtml(formatDateTime(app.sla_due_at))}` : "-"}
-                  </div>
-                </td>
-                <td>
-                  <select class="table-select status-select" data-id="${escapeHtml(app.id)}">
-                    ${statusOptions}
-                  </select>
-                </td>
-                <td>
-                  <select class="table-select note-select" data-id="${escapeHtml(app.id)}">
-                    ${renderNoteOptionsByStatus(currentStatus, noteCode)}
-                  </select>
-                  <div class="table-note-meta">
-                    ${escapeHtml(noteLabel || "No note selected")}
-                    ${noteUpdated ? `<br>Updated: ${escapeHtml(noteUpdated)}` : ""}
-                  </div>
-                </td>
-                <td>
-                  <select class="table-select recruiter-select" data-id="${escapeHtml(app.id)}">
-                    ${recruiterOptions}
-                  </select>
-                </td>
-                <td>
-                  <div style="display:flex;gap:8px;flex-wrap:wrap;">
-                    <button class="btn btn-primary table-btn endorse-btn" type="button" data-id="${escapeHtml(app.id)}">
-                      ${normalizeText(app.endorsement_status) === "sent" ? "Re-Endorse" : "Endorse"}
-                    </button>
-                    <button class="btn btn-outline table-btn edit-btn" type="button" data-id="${escapeHtml(app.id)}">Edit</button>
-                    <button class="btn btn-danger table-btn btn-delete" type="button" data-id="${escapeHtml(app.id)}">Remove</button>
-                  </div>
-                </td>
-              </tr>
-            `;
-          })
-        );
+          return `
+            <tr>
+              <td>
+                <div class="candidate-name">${candidateName}</div>
+                <div class="small">${candidateEmail}</div>
+              </td>
+              <td>${jobTitle}</td>
+              <td>${clientName}</td>
+              <td><span class="status-pill ${getStatusClass(currentStatus)}">${safeStatus}</span></td>
+              <td>${recruiterName}</td>
+              <td>${source}</td>
+              <td>${appliedDate}</td>
+              <td>${phone}</td>
+              <td>${location}</td>
+              <td>${yearsOfExperience}</td>
+              <td>
+                ${
+                  hasResume
+                    ? `<button class="btn btn-outline table-btn view-resume-btn" type="button" data-id="${escapeHtml(app.id)}">View Resume</button>`
+                    : `<span class="small">No resume</span>`
+                }
+              </td>
+              <td>
+                <span class="status-pill ${getStatusClass(endorsementStatus)}">${safeEndorsementStatus}</span>
+                <div class="small" style="margin-top:6px;">
+                  ${app.endorsement_sent_at ? `Sent: ${escapeHtml(formatDateTime(app.endorsement_sent_at))}` : "Not yet sent"}
+                </div>
+              </td>
+              <td>
+                <span class="status-pill ${getStatusClass(slaStatus)}">${escapeHtml(slaStatus)}</span>
+                <div class="small" style="margin-top:6px;">
+                  ${app.sla_due_at ? `Due: ${escapeHtml(formatDateTime(app.sla_due_at))}` : "-"}
+                </div>
+              </td>
+              <td>
+                <select class="table-select status-select" data-id="${escapeHtml(app.id)}">
+                  ${statusOptions}
+                </select>
+              </td>
+              <td>
+                <select class="table-select note-select" data-id="${escapeHtml(app.id)}">
+                  ${renderNoteOptionsByStatus(currentStatus, noteCode)}
+                </select>
+                <div class="table-note-meta">
+                  ${escapeHtml(noteLabel || "No note selected")}
+                  ${noteUpdated ? `<br>Updated: ${escapeHtml(noteUpdated)}` : ""}
+                </div>
+              </td>
+              <td>
+                <select class="table-select recruiter-select" data-id="${escapeHtml(app.id)}">
+                  ${recruiterOptions}
+                </select>
+              </td>
+              <td>
+                <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                  <button class="btn btn-primary table-btn endorse-btn" type="button" data-id="${escapeHtml(app.id)}">
+                    ${normalizeText(app.endorsement_status) === "sent" ? "Re-Endorse" : "Endorse"}
+                  </button>
+                  <button class="btn btn-outline table-btn edit-btn" type="button" data-id="${escapeHtml(app.id)}">Edit</button>
+                  <button class="btn btn-danger table-btn btn-delete" type="button" data-id="${escapeHtml(app.id)}">Remove</button>
+                </div>
+              </td>
+            </tr>
+          `;
+        });
 
         els.applicationsTable.innerHTML = rows.join("");
       }
@@ -1709,7 +1715,30 @@ TalentBuzz`;
         const target = event.target;
 
         if (target.classList.contains("view-resume-btn")) {
-          openResumeModal(target.dataset.url);
+          const app = state.allApplications.find(item => String(item.id) === String(target.dataset.id));
+          if (!app) {
+            showNotice("Application not found.", "error");
+            return;
+          }
+
+          target.disabled = true;
+          const originalText = target.textContent;
+          target.textContent = "Opening...";
+
+          try {
+            const resumeUrl = await getResumeUrl(app);
+            if (!resumeUrl) {
+              showNotice("Resume not available.", "error");
+              return;
+            }
+            openResumeModal(resumeUrl);
+          } catch (err) {
+            console.error("Failed to open resume:", err);
+            showNotice("Failed to open resume.", "error");
+          } finally {
+            target.disabled = false;
+            target.textContent = originalText;
+          }
           return;
         }
 
