@@ -879,12 +879,12 @@
         const rawResumePath = String(profile.resume_path || "").trim();
         const rawResumeUrl = String(profile.resume_url || "").trim();
 
-        if (rawResumeUrl && rawResumeUrl.includes("/storage/v1/object/sign/")) {
+        if (rawResumeUrl.startsWith("http")) {
           return rawResumeUrl;
         }
 
-        if (rawResumeUrl && rawResumeUrl.includes("/storage/v1/object/public/")) {
-          return rawResumeUrl;
+        if (rawResumePath.startsWith("http")) {
+          return rawResumePath;
         }
 
         if (!rawResumePath) return "";
@@ -901,12 +901,18 @@
             .from(RESUME_BUCKET)
             .createSignedUrl(cleanedPath, 3600);
 
-          if (error) {
-            console.error("createSignedUrl error:", error, "path:", cleanedPath);
-            return "";
+          if (!error && data?.signedUrl) {
+            return data.signedUrl;
           }
 
-          return data?.signedUrl || "";
+          console.error("createSignedUrl failed:", error, "path:", cleanedPath);
+
+          const { data: publicData } = supabaseClient
+            .storage
+            .from(RESUME_BUCKET)
+            .getPublicUrl(cleanedPath);
+
+          return publicData?.publicUrl || "";
         } catch (err) {
           console.error("getResumeUrl error:", err);
           return "";
