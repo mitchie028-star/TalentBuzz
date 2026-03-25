@@ -252,4 +252,63 @@
         els.tableBody.innerHTML=rows.map(row=>{
           const linkedin=row.linkedin_url?`<a href="${escapeHtml(row.linkedin_url)}" target="_blank" class="inline-link" rel="noopener noreferrer">Open</a>`:"-";
           const statusOptions=STATUS_OPTIONS.map(opt=>`<option value="${escapeHtml(opt)}" ${normalizeText(row.status)===normalizeText(opt)?"selected":""}>${escapeHtml(opt)}</option>`).join("");
-          return `<tr
+          return `<tr>
+            <td><div class="candidate-name">${escapeHtml(row.full_name||"-")}</div><div class="small">${escapeHtml(row.location||"-")}</div></td>
+            <td>${escapeHtml(row.current_title||"-")}</td>
+            <td>${escapeHtml(row.current_company||"-")}</td>
+            <td>${escapeHtml(row.job_title||"-")}</td>
+            <td>${escapeHtml(row.client_name||"-")}</td>
+            <td><span class="status-pill ${getStatusClass(row.status)}">${escapeHtml(row.status||"-")}</span></td>
+            <td><span class="chip chip-gray">${escapeHtml(String(row.match_score??0))}</span></td>
+            <td><span class="chip chip-gray">${escapeHtml(getLocationLabel(row.location_rank))}</span></td>
+            <td>${escapeHtml(row.email||"-")}</td>
+            <td>${linkedin}</td>
+            <td>${escapeHtml(row.notes||"-")}</td>
+            <td><select class="table-select status-select" data-id="${escapeHtml(row.id)}">${statusOptions}</select></td>
+          </tr>`;
+        }).join("");
+      }
+
+      async function loadData(){
+        els.tableBody.innerHTML=`<tr><td colspan="12" class="empty loading">Loading sourced candidates...</td></tr>`;
+        const { data, error }=await supabase.from("prospect_pipeline").select(`
+          id, prospect_id, job_id, status, recruiter_email, notes, source, match_score, location_rank, created_at, updated_at,
+          prospects (id, full_name, current_title, current_company, location, linkedin_url, work_email, personal_email),
+          jobs (id, title, client_name)
+        `).order("created_at",{ascending:false});
+
+        if(error){ els.tableBody.innerHTML=`<tr><td colspan="12" class="empty">${escapeHtml(error.message)}</td></tr>`; showNotice(error.message||"Failed to load sourced candidates.","error"); return; }
+
+        state.rows=(data||[]).map(r=>{
+          const p=Array.isArray(r.prospects)?(r.prospects[0]||{}):(r.prospects||{}); 
+          const j=Array.isArray(r.jobs)?(r.jobs[0]||{}):(r.jobs||{});
+          return { 
+            id:r.id, status:r.status, notes:r.notes, source:r.source, match_score:r.match_score, location_rank:r.location_rank,
+            full_name:p.full_name||"", current_title:p.current_title||"", current_company:p.current_company||"", location:p.location||"", linkedin_url:p.linkedin_url||"", email:p.personal_email||p.work_email||"", job_title:j.title||"", client_name:j.client_name||""
+          };
+        });
+
+        populateFilters(state.rows);
+        applyFilters();
+      }
+
+      async function updateStatus(id,status){
+        const { error } = await supabase.from("prospect_pipeline").update({status, updated_at:new Date().toISOString()}).eq("id",id);
+        if(error){ showNotice(error.message||"Failed to update status.","error"); return; }
+        showNotice("Candidate status updated.","success"); await loadData();
+      }
+
+      els.searchInput.addEventListener("input", applyFilters);
+      els.jobFilter.addEventListener("change", applyFilters);
+      els.clientFilter.addEventListener("change", applyFilters);
+      els.statusFilter.addEventListener("change", applyFilters);
+      els.clearFiltersBtn.addEventListener("click",()=>{ els.searchInput.value=""; els.jobFilter.value=""; els.clientFilter.value=""; els.statusFilter.value=""; applyFilters(); });
+      els.refreshBtn.addEventListener("click", loadData);
+      els.logoutBtn.addEventListener("click",async()=>{ await supabase.auth.signOut(); window.location.href="recruiter-login.html"; });
+      els.tableBody.addEventListener("change",async(e)=>{ const t=e.target; if(t.classList.contains("status-select")) await updateStatus(t.dataset.id,t.value); });
+
+      const allowed=await protectPage(); if(!allowed) return; await loadData();
+    });
+  </script>
+</body>
+</html>
