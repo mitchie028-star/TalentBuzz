@@ -4,237 +4,110 @@
 <meta charset="UTF-8" />
 <title>Job Sourcing | TalentBuzz</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
 <style>
-body { font-family: Arial; padding:20px; background:#f8fbff; }
-.container { max-width:1200px; margin:auto; }
-h1 { color:#1e3a8a; }
-
-.filters { display:flex; gap:10px; margin-bottom:20px; flex-wrap:wrap; }
-input, select, button {
-  padding:10px;
-  border-radius:8px;
-  border:1px solid #ccc;
-}
-
-button {
-  background:#2563eb;
-  color:white;
-  cursor:pointer;
-}
-
-table {
-  width:100%;
-  border-collapse:collapse;
-  background:white;
-}
-
-th, td {
-  padding:10px;
-  border-bottom:1px solid #eee;
-}
-
-th { background:#f1f5f9; }
-
-.chip { padding:4px 8px; border-radius:999px; font-size:12px; }
-.green { background:#dcfce7; }
-.orange { background:#ffedd5; }
-.gray { background:#e5e7eb; }
-
-.notice {
-  display:none;
-  padding:10px;
-  margin-bottom:10px;
-  border-radius:8px;
-}
-
-.error { background:#fee2e2; }
-.success { background:#dcfce7; }
+body { font-family: Arial; padding:20px; background:#f5f7fb; }
+input, select, button { padding:10px; margin:5px; }
+table { width:100%; border-collapse:collapse; margin-top:20px; background:white; }
+th, td { padding:10px; border:1px solid #ddd; text-align:left; }
+button { cursor:pointer; }
 </style>
 </head>
 
 <body>
-<div class="container">
 
-<h1>Job Sourcing</h1>
+<h2>Job Sourcing</h2>
 
-<div id="notice" class="notice"></div>
+<input id="title" placeholder="Job Title">
+<input id="country" placeholder="Country">
+<input id="state" placeholder="State">
+<input id="city" placeholder="City">
 
-<div class="filters">
-  <input id="titleFilter" placeholder="Job Title" />
-
-  <select id="countryFilter">
-    <option>Loading...</option>
-  </select>
-
-  <select id="stateFilter">
-    <option>Select country first</option>
-  </select>
-
-  <input id="cityFilter" placeholder="City (optional)" />
-
-  <button id="searchBtn">Search</button>
-</div>
+<button onclick="search()">Search & Source</button>
 
 <table>
 <thead>
 <tr>
-  <th>Name</th>
-  <th>Title</th>
-  <th>Company</th>
-  <th>Location</th>
-  <th>Score</th>
-  <th>Location Match</th>
-  <th>Email</th>
-  <th>LinkedIn</th>
+<th>Name</th>
+<th>Title</th>
+<th>Company</th>
+<th>Location</th>
+<th>Score</th>
+<th>Action</th>
 </tr>
 </thead>
-<tbody id="prospectsTable">
-<tr><td colspan="8">Click search to load data</td></tr>
-</tbody>
+<tbody id="table"></tbody>
 </table>
 
-</div>
-
 <script>
-document.addEventListener("DOMContentLoaded", async () => {
+const supabase = window.supabase.createClient(
+  "https://dilalntcxmvdcmwxjcct.supabase.co",
+  "YOUR_ANON_KEY"
+);
 
-const SUPABASE_URL = "https://dilalntcxmvdcmwxjcct.supabase.co";
-const SUPABASE_KEY = "sb_publishable_HrLVIUwnaRo54yijtrbWBQ_1aeb4ezs";
+async function search(){
+  const payload = {
+    title: document.getElementById("title").value,
+    country: document.getElementById("country").value,
+    state: document.getElementById("state").value,
+    city: document.getElementById("city").value
+  };
 
-// ✅ FIXED CLIENT
-const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+  console.log("Payload:", payload);
 
-const els = {
-  title: document.getElementById("titleFilter"),
-  country: document.getElementById("countryFilter"),
-  state: document.getElementById("stateFilter"),
-  city: document.getElementById("cityFilter"),
-  searchBtn: document.getElementById("searchBtn"),
-  table: document.getElementById("prospectsTable"),
-  notice: document.getElementById("notice")
-};
+  const { data, error } = await supabase.functions.invoke(
+    "source-prospects-v2",
+    {
+      body: JSON.stringify(payload),
+      headers: { "Content-Type": "application/json" }
+    }
+  );
 
-function showNotice(msg,type="error"){
-  els.notice.className = "notice " + type;
-  els.notice.innerText = msg;
-  els.notice.style.display = "block";
-  setTimeout(()=> els.notice.style.display="none",3000);
-}
+  console.log("Response:", data, error);
 
-// ✅ DROPDOWN LOGIC (SUPABASE + FALLBACK)
-async function populateCountryState() {
-  try {
-    const { data, error } = await supabaseClient
-      .from('locations')
-      .select('country, state');
-
-    if (error) throw error;
-    if (!data || data.length === 0) throw "No data";
-
-    const map = {};
-
-    data.forEach(row => {
-      if (!map[row.country]) map[row.country] = new Set();
-      if (row.state) map[row.country].add(row.state);
-    });
-
-    const countries = Object.keys(map).sort();
-
-    els.country.innerHTML =
-      `<option value="">Select Country</option>` +
-      countries.map(c => `<option value="${c}">${c}</option>`).join("");
-
-    els.country.addEventListener("change", () => {
-      const states = Array.from(map[els.country.value] || []);
-      els.state.innerHTML =
-        `<option value="">Select State</option>` +
-        states.map(s => `<option value="${s}">${s}</option>`).join("");
-    });
-
-  } catch (err) {
-    console.log("Using fallback", err);
-
-    const fallback = {
-      "Philippines": ["Metro Manila","Cebu","Davao"],
-      "Malaysia": ["Kuala Lumpur","Selangor"],
-      "Singapore": ["Singapore"]
-    };
-
-    els.country.innerHTML =
-      `<option value="">Select Country</option>` +
-      Object.keys(fallback).map(c => `<option value="${c}">${c}</option>`).join("");
-
-    els.country.addEventListener("change", () => {
-      const states = fallback[els.country.value] || [];
-      els.state.innerHTML =
-        `<option value="">Select State</option>` +
-        states.map(s => `<option value="${s}">${s}</option>`).join("");
-    });
-  }
-}
-
-// ✅ TABLE RENDER
-function render(rows){
-  if(!rows.length){
-    els.table.innerHTML = `<tr><td colspan="8">No results</td></tr>`;
+  if(error){
+    alert(error.message);
     return;
   }
 
-  els.table.innerHTML = rows.map(r => `
+  render(data.data);
+}
+
+function render(rows){
+  const table = document.getElementById("table");
+
+  table.innerHTML = rows.map(r => `
     <tr>
-      <td>${r.full_name || "-"}</td>
-      <td>${r.current_title || "-"}</td>
-      <td>${r.current_company || "-"}</td>
-      <td>${r.location || "-"}</td>
-      <td><span class="chip ${r.match_score>=75?'green':r.match_score>=50?'orange':'gray'}">${r.match_score}</span></td>
-      <td>${r.location_rank}</td>
-      <td>${r.email || "-"}</td>
-      <td>${r.linkedin_url ? `<a href="${r.linkedin_url}" target="_blank">View</a>` : "-"}</td>
+      <td>${r.full_name}</td>
+      <td>${r.current_title}</td>
+      <td>${r.current_company}</td>
+      <td>${r.location}</td>
+      <td>${r.match_score}</td>
+      <td><button onclick='save(${JSON.stringify(r)})'>Save</button></td>
     </tr>
   `).join("");
 }
 
-// ✅ SEARCH
-async function search(){
-  try {
-    els.searchBtn.disabled = true;
+async function save(candidate){
+  const { error } = await supabase
+    .from("pipeline")
+    .insert([{
+      full_name: candidate.full_name,
+      title: candidate.current_title,
+      company: candidate.current_company,
+      location: candidate.location,
+      email: candidate.email,
+      linkedin_url: candidate.linkedin_url,
+      stage: "Leads"
+    }]);
 
-    const payload = {
-      title: els.title.value,
-      country: els.country.value,
-      state: els.state.value,
-      city: els.city.value
-    };
-
-    console.log("Sending:", payload);
-
-    const { data, error } = await supabaseClient.functions.invoke("source-prospects-v2", {
-      body: payload
-    });
-
-    console.log("Response:", data, error);
-
-    if(error) throw error;
-
-    render(data.data || []);
-
-  } catch (err) {
-    console.error(err);
-    showNotice("Failed to call Edge Function");
-  } finally {
-    els.searchBtn.disabled = false;
+  if(error){
+    alert("Save failed: " + error.message);
+  } else {
+    alert("Saved to pipeline ✅");
   }
 }
-
-els.searchBtn.addEventListener("click", search);
-
-// INIT
-await populateCountryState();
-
-});
 </script>
 
 </body>
