@@ -41,7 +41,7 @@
     }
 
     .container {
-      max-width: 1500px;
+      max-width: 1540px;
       margin: 0 auto;
       padding: 24px 20px 44px;
     }
@@ -139,7 +139,7 @@
 
     .stats-grid {
       display: grid;
-      grid-template-columns: repeat(4, minmax(0, 1fr));
+      grid-template-columns: repeat(6, minmax(0, 1fr));
       gap: 14px;
       margin-bottom: 20px;
     }
@@ -233,7 +233,7 @@
     table {
       width: 100%;
       border-collapse: collapse;
-      min-width: 1440px;
+      min-width: 1460px;
       background: white;
     }
 
@@ -342,7 +342,7 @@
     .inline-link:hover { text-decoration: underline; }
 
     .table-select {
-      min-width: 160px;
+      min-width: 170px;
       padding: 9px 10px;
       border-radius: 10px;
       border: 1px solid var(--border);
@@ -414,9 +414,12 @@
       gap: 14px;
     }
 
+    @media (max-width: 1400px) {
+      .stats-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    }
+
     @media (max-width: 1200px) {
       .filters-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-      .stats-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     }
 
     @media (max-width: 760px) {
@@ -433,7 +436,7 @@
     <div class="topbar">
       <div>
         <h1>Recruiter Dashboard</h1>
-        <p class="subtitle">Manage applicants, sourced prospects, recruiter assignments, and endorsements.</p>
+        <p class="subtitle">Manage applications, sourced prospects, recruiter assignments, and endorsements.</p>
       </div>
 
       <div class="top-right">
@@ -448,20 +451,28 @@
 
     <div class="stats-grid">
       <div class="stat-card">
+        <div class="stat-label">Pipeline View</div>
+        <div class="stat-value" id="pipelineViewCount">0</div>
+      </div>
+      <div class="stat-card">
         <div class="stat-label">Applications</div>
         <div class="stat-value" id="applicationsCount">0</div>
       </div>
       <div class="stat-card">
-        <div class="stat-label">Endorsed</div>
-        <div class="stat-value" id="endorsedCount">0</div>
+        <div class="stat-label">Submitted</div>
+        <div class="stat-value" id="submittedCount">0</div>
       </div>
       <div class="stat-card">
-        <div class="stat-label">Pipeline Prospects</div>
-        <div class="stat-value" id="pipelineCount">0</div>
+        <div class="stat-label">Rejected</div>
+        <div class="stat-value" id="rejectedCount">0</div>
       </div>
       <div class="stat-card">
-        <div class="stat-label">Shortlisted / Contacted</div>
-        <div class="stat-value" id="pipelineActiveCount">0</div>
+        <div class="stat-label">Prospects</div>
+        <div class="stat-value" id="prospectsCount">0</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Hired</div>
+        <div class="stat-value" id="hiredCount">0</div>
       </div>
     </div>
 
@@ -675,10 +686,12 @@
         refreshAllBtn: document.getElementById("refreshAllBtn"),
         logoutBtn: document.getElementById("logoutBtn"),
 
+        pipelineViewCount: document.getElementById("pipelineViewCount"),
         applicationsCount: document.getElementById("applicationsCount"),
-        endorsedCount: document.getElementById("endorsedCount"),
-        pipelineCount: document.getElementById("pipelineCount"),
-        pipelineActiveCount: document.getElementById("pipelineActiveCount"),
+        submittedCount: document.getElementById("submittedCount"),
+        rejectedCount: document.getElementById("rejectedCount"),
+        prospectsCount: document.getElementById("prospectsCount"),
+        hiredCount: document.getElementById("hiredCount"),
 
         searchInput: document.getElementById("searchInput"),
         statusFilter: document.getElementById("statusFilter"),
@@ -793,17 +806,20 @@
 
       function updateStats() {
         const applications = state.allApplications.length;
-        const endorsed = state.allApplications.filter(a => normalizeText(a.status) === "endorsed").length;
-        const pipeline = state.allProspectPipeline.length;
-        const pipelineActive = state.allProspectPipeline.filter(row => {
-          const s = normalizeText(row.status);
-          return s === "shortlisted" || s === "contacted";
-        }).length;
+        const submitted = state.allApplications.filter(a => normalizeText(a.status) === "submitted").length;
+        const rejected = state.allApplications.filter(a => normalizeText(a.status) === "rejected").length;
+        const hired = state.allApplications.filter(a => normalizeText(a.status) === "hired").length;
+        const prospects = state.allProspectPipeline.length;
+        const pipelineView = state.allProspectPipeline.filter(row =>
+          ["sourced", "reviewing", "shortlisted", "contacted"].includes(normalizeText(row.status))
+        ).length;
 
+        els.pipelineViewCount.textContent = String(pipelineView);
         els.applicationsCount.textContent = String(applications);
-        els.endorsedCount.textContent = String(endorsed);
-        els.pipelineCount.textContent = String(pipeline);
-        els.pipelineActiveCount.textContent = String(pipelineActive);
+        els.submittedCount.textContent = String(submitted);
+        els.rejectedCount.textContent = String(rejected);
+        els.prospectsCount.textContent = String(prospects);
+        els.hiredCount.textContent = String(hired);
       }
 
       async function verifyRecruiterAccess(email) {
@@ -883,9 +899,7 @@
 
         els.statusFilter.innerHTML =
           `<option value="">All statuses</option>` +
-          APPLICATION_STATUS_OPTIONS
-            .map(item => `<option value="${escapeHtml(item.value)}">${escapeHtml(item.label)}</option>`)
-            .join("");
+          APPLICATION_STATUS_OPTIONS.map(item => `<option value="${escapeHtml(item.value)}">${escapeHtml(item.label)}</option>`).join("");
 
         els.jobFilter.innerHTML =
           `<option value="">All jobs</option>` +
@@ -959,6 +973,7 @@
           const profile = getProfileFromApplication(app);
           const recruiterName = getRecruiterName(app.recruiter_email);
           const resumeUrl = buildResumeUrl(profile);
+
           const recruiterOptions = Object.entries(state.allRecruitersMap)
             .map(([email, name]) => `
               <option value="${escapeHtml(email)}" ${normalizeEmail(app.recruiter_email) === normalizeEmail(email) ? "selected" : ""}>
@@ -1042,9 +1057,7 @@
 
         els.prospectStatusFilter.innerHTML =
           `<option value="">All statuses</option>` +
-          PROSPECT_STATUS_OPTIONS
-            .map(item => `<option value="${escapeHtml(item.value)}">${escapeHtml(item.label)}</option>`)
-            .join("");
+          PROSPECT_STATUS_OPTIONS.map(item => `<option value="${escapeHtml(item.value)}">${escapeHtml(item.label)}</option>`).join("");
 
         els.prospectRecruiterFilter.innerHTML =
           `<option value="">All recruiters</option>` +
