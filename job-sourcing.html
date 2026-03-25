@@ -34,6 +34,8 @@ body{margin:0;font-family:"Manrope",sans-serif;background:var(--bg);color:var(--
 .notice.show{display:block;}
 .notice.success{background:#ecfdf5;color:var(--success);border:1px solid #bbf7d0;}
 .notice.error{background:#fef2f2;color:var(--danger);border:1px solid #fecaca;}
+.notice.warning{background:#fff7ed;color:var(--warning);border:1px solid #fed7aa;}
+.notice.info{background:#eef2ff;color:var(--info);border:1px solid #c7d2fe;}
 .panel{background:var(--white);border:1px solid var(--border);border-radius:var(--radius-lg);box-shadow:var(--shadow);padding:22px;margin-bottom:20px;}
 .filters-grid{display:grid;grid-template-columns:1.4fr 1fr 1fr 1fr auto;gap:12px;align-items:end;margin-bottom:16px;}
 .field label{display:block;margin-bottom:6px;font-size:0.88rem;font-weight:700;color:var(--text);}
@@ -53,8 +55,8 @@ tr:last-child td{border-bottom:none;}
 .inline-link{color:var(--primary-2);font-weight:700;text-decoration:none;}
 .inline-link:hover{text-decoration:underline;}
 .empty{color:var(--muted);font-size:0.95rem;padding:12px;text-align:center;}
-@media(max-width:1200px){.filters-grid{grid-template-columns:repeat(2,minmax(0,1fr));}}
-@media(max-width:760px){.container{padding:18px 14px 34px;}.topbar h1{font-size:1.7rem;}.filters-grid{grid-template-columns:1fr;}}
+@media (max-width:1200px){.filters-grid{grid-template-columns:repeat(2,minmax(0,1fr));}}
+@media (max-width:760px){.container{padding:18px 14px 34px;}.topbar h1{font-size:1.7rem;}.filters-grid{grid-template-columns:1fr;}}
 </style>
 </head>
 <body>
@@ -79,22 +81,10 @@ tr:last-child td{border-bottom:none;}
   <div class="panel">
     <h2>Search Filters</h2>
     <div class="filters-grid">
-      <div class="field">
-        <label for="titleFilter">Title</label>
-        <input id="titleFilter" placeholder="Target title"/>
-      </div>
-      <div class="field">
-        <label for="countryFilter">Country</label>
-        <select id="countryFilter"><option value="">Select Country</option></select>
-      </div>
-      <div class="field">
-        <label for="stateFilter">State</label>
-        <select id="stateFilter"><option value="">Select State</option></select>
-      </div>
-      <div class="field">
-        <label for="cityFilter">City</label>
-        <input id="cityFilter" placeholder="City (optional)"/>
-      </div>
+      <div class="field"><label for="titleFilter">Title</label><input id="titleFilter" placeholder="Target title"/></div>
+      <div class="field"><label for="countryFilter">Country</label><select id="countryFilter"><option value="">Loading...</option></select></div>
+      <div class="field"><label for="stateFilter">State</label><select id="stateFilter"><option value="">Select country first</option></select></div>
+      <div class="field"><label for="cityFilter">City</label><input id="cityFilter" placeholder="City (optional)"/></div>
       <button id="searchBtn" class="btn btn-primary">Search & Source</button>
     </div>
   </div>
@@ -153,21 +143,6 @@ document.addEventListener("DOMContentLoaded", async () => {
     return true;
   }
 
-  // COUNTRY / STATE DROPDOWN DATA
-  const countryStateData = {
-    "Malaysia": ["Kuala Lumpur", "Selangor", "Penang", "Johor"],
-    "Philippines": ["Metro Manila", "Cebu", "Davao"],
-    "Singapore": ["Singapore"]
-  };
-  function populateCountryState(){
-    els.country.innerHTML = `<option value="">Select Country</option>` + Object.keys(countryStateData).map(c=>`<option value="${c}">${c}</option>`).join("");
-    els.state.innerHTML = `<option value="">Select State</option>`;
-    els.country.addEventListener("change",()=>{
-      const states = countryStateData[els.country.value]||[];
-      els.state.innerHTML = `<option value="">Select State</option>` + states.map(s=>`<option value="${s}">${s}</option>`).join("");
-    });
-  }
-
   function getLocationLabel(rank){ if(rank===1) return "Exact City"; if(rank===2) return "State"; if(rank===3) return "Country"; if(rank===99) return "Outside Target"; return "-"; }
   function getScoreChip(score){ if(score>=75) return "chip chip-green"; if(score>=50) return "chip chip-amber"; return "chip chip-gray"; }
 
@@ -188,6 +163,40 @@ document.addEventListener("DOMContentLoaded", async () => {
     }).join("");
   }
 
+  // ✅ Dynamic Country & State
+  async function populateCountryState() {
+    // Fetch distinct countries
+    const { data: countriesData, error: countryErr } = await supabase
+      .from('locations')
+      .select('country')
+      .distinct()
+      .order('country', { ascending: true });
+
+    if(countryErr) { console.error(countryErr); return; }
+
+    const countries = countriesData.map(c=>c.country);
+    els.country.innerHTML = `<option value="">Select Country</option>` + countries.map(c=>`<option value="${c}">${c}</option>`).join("");
+    els.state.innerHTML = `<option value="">Select country first</option>`;
+
+    // On country change, fetch states
+    els.country.addEventListener("change", async ()=>{
+      const selectedCountry = els.country.value;
+      if(!selectedCountry){
+        els.state.innerHTML = `<option value="">Select country first</option>`;
+        return;
+      }
+      const { data: statesData, error: stateErr } = await supabase
+        .from('locations')
+        .select('state')
+        .eq('country', selectedCountry)
+        .order('state', { ascending:true });
+
+      if(stateErr){ console.error(stateErr); els.state.innerHTML=`<option value="">Select country first</option>`; return; }
+      const states = statesData.map(s=>s.state);
+      els.state.innerHTML = `<option value="">Select State</option>` + states.map(s=>`<option value="${s}">${s}</option>`).join("");
+    });
+  }
+
   async function searchProspects(){
     try{
       els.searchBtn.disabled=true; els.searchBtn.textContent="Sourcing...";
@@ -198,24 +207,18 @@ document.addEventListener("DOMContentLoaded", async () => {
         city: els.city.value.trim()
       };
       const { data, error } = await supabase.functions.invoke("source-prospects-v2",{ body: payload });
-      console.log(data,error);
       if(error) throw error;
-      renderProspects(data?.data||[]);
-    } catch(err){
-      console.error(err);
-      showNotice(err.message||"Failed to source prospects","error");
-    } finally{
-      els.searchBtn.disabled=false; els.searchBtn.textContent="Search & Source";
-    }
+      renderProspects(data.data||[]);
+    } catch(err){ showNotice(err.message||"Failed to source prospects","error"); }
+    finally{ els.searchBtn.disabled=false; els.searchBtn.textContent="Search & Source"; }
   }
 
   els.searchBtn.addEventListener("click", searchProspects);
   els.refreshBtn.addEventListener("click", searchProspects);
   els.logoutBtn.addEventListener("click", async()=>{ await supabase.auth.signOut(); window.location.href="recruiter-login.html"; });
 
-  populateCountryState();
   const allowed = await protectPage();
-  if(allowed) searchProspects();
+  if(allowed) await populateCountryState().then(searchProspects);
 });
 </script>
 </body>
