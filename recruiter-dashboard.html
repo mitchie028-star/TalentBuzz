@@ -8,7 +8,10 @@
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap"
+    rel="stylesheet"
+  />
 
   <style>
     :root {
@@ -230,7 +233,7 @@
     table {
       width: 100%;
       border-collapse: collapse;
-      min-width: 1400px;
+      min-width: 1440px;
       background: white;
     }
 
@@ -339,18 +342,12 @@
     .inline-link:hover { text-decoration: underline; }
 
     .table-select {
-      min-width: 140px;
+      min-width: 160px;
       padding: 9px 10px;
       border-radius: 10px;
       border: 1px solid var(--border);
       font: inherit;
       background: white;
-    }
-
-    .actions-inline {
-      display: flex;
-      gap: 8px;
-      flex-wrap: wrap;
     }
 
     .empty {
@@ -436,7 +433,7 @@
     <div class="topbar">
       <div>
         <h1>Recruiter Dashboard</h1>
-        <p class="subtitle">Manage applicants, sourcing pipeline, recruiter assignments, and endorsements.</p>
+        <p class="subtitle">Manage applicants, sourced prospects, recruiter assignments, and endorsements.</p>
       </div>
 
       <div class="top-right">
@@ -557,13 +554,6 @@
           <label for="prospectStatusFilter">Pipeline Status</label>
           <select id="prospectStatusFilter">
             <option value="">All statuses</option>
-            <option value="sourced">Sourced</option>
-            <option value="reviewing">Reviewing</option>
-            <option value="shortlisted">Shortlisted</option>
-            <option value="contacted">Contacted</option>
-            <option value="endorsed">Endorsed</option>
-            <option value="rejected">Rejected</option>
-            <option value="archived">Archived</option>
           </select>
         </div>
 
@@ -646,28 +636,28 @@
       const SUPABASE_ANON_KEY = "sb_publishable_HrLVIUwnaRo54yijtrbWBQ_1aeb4ezs";
       const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-      const STATUS_OPTIONS = [
-        "submitted",
-        "failed paper screening",
-        "endorsed",
-        "assessment",
-        "initial",
-        "final",
-        "hired",
-        "onboarded",
-        "no-show (Onboarding)",
-        "withdrawn",
-        "rejected"
+      const APPLICATION_STATUS_OPTIONS = [
+        { value: "submitted", label: "Submitted" },
+        { value: "failed paper screening", label: "Failed Paper Screening" },
+        { value: "endorsed", label: "Endorsed" },
+        { value: "assessment", label: "Assessment" },
+        { value: "initial", label: "Initial" },
+        { value: "final", label: "Final" },
+        { value: "hired", label: "Hired" },
+        { value: "onboarded", label: "Onboarded" },
+        { value: "no-show (onboarding)", label: "No-Show (Onboarding)" },
+        { value: "withdrawn", label: "Withdrawn" },
+        { value: "rejected", label: "Rejected" }
       ];
 
       const PROSPECT_STATUS_OPTIONS = [
-        "sourced",
-        "reviewing",
-        "shortlisted",
-        "contacted",
-        "endorsed",
-        "rejected",
-        "archived"
+        { value: "sourced", label: "Sourced" },
+        { value: "reviewing", label: "Reviewing" },
+        { value: "shortlisted", label: "Shortlisted" },
+        { value: "contacted", label: "Contacted" },
+        { value: "endorsed", label: "Endorsed" },
+        { value: "rejected", label: "Rejected" },
+        { value: "archived", label: "Archived" }
       ];
 
       const state = {
@@ -743,6 +733,17 @@
         });
       }
 
+      function formatStatusLabel(value, options) {
+        const clean = normalizeText(value);
+        const match = options.find(item => normalizeText(item.value) === clean);
+        if (match) return match.label;
+        if (!clean) return "-";
+        return clean
+          .split(" ")
+          .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+          .join(" ");
+      }
+
       function showNotice(message, type = "success") {
         els.notice.textContent = message;
         els.notice.className = `notice show ${type}`;
@@ -774,11 +775,11 @@
 
       function getProspectLocationLabel(rank) {
         const n = Number(rank || 0);
-        if (n === 1) return "Exact city match";
-        if (n === 2) return "State match";
-        if (n === 3) return "Country match";
-        if (n === 99) return "Outside PH target";
-        return "Outside target area";
+        if (n === 1) return "Exact City Match";
+        if (n === 2) return "State Match";
+        if (n === 3) return "Country Match";
+        if (n === 99) return "Outside PH Target";
+        return "Outside Target Area";
       }
 
       function buildResumeUrl(profile) {
@@ -870,13 +871,11 @@
         const currentClient = els.clientFilter.value;
         const currentRecruiter = els.recruiterFilter.value;
 
-        const statuses = new Set();
         const jobs = new Map();
         const clients = new Map();
         const recruiters = new Map();
 
         state.allApplications.forEach(app => {
-          if (app.status) statuses.add(app.status);
           if (app.jobs?.title) jobs.set(app.jobs.id || app.jobs.title, app.jobs.title);
           if (app.jobs?.client_name) clients.set(app.jobs.client_name, app.jobs.client_name);
           if (app.recruiter_email) recruiters.set(app.recruiter_email, getRecruiterName(app.recruiter_email));
@@ -884,8 +883,8 @@
 
         els.statusFilter.innerHTML =
           `<option value="">All statuses</option>` +
-          [...new Set([...STATUS_OPTIONS, ...Array.from(statuses)])]
-            .map(status => `<option value="${escapeHtml(status)}">${escapeHtml(status)}</option>`)
+          APPLICATION_STATUS_OPTIONS
+            .map(item => `<option value="${escapeHtml(item.value)}">${escapeHtml(item.label)}</option>`)
             .join("");
 
         els.jobFilter.innerHTML =
@@ -968,9 +967,9 @@
             `)
             .join("");
 
-          const statusOptions = STATUS_OPTIONS.map(status => `
-            <option value="${escapeHtml(status)}" ${normalizeText(app.status) === normalizeText(status) ? "selected" : ""}>
-              ${escapeHtml(status)}
+          const statusOptions = APPLICATION_STATUS_OPTIONS.map(item => `
+            <option value="${escapeHtml(item.value)}" ${normalizeText(app.status) === normalizeText(item.value) ? "selected" : ""}>
+              ${escapeHtml(item.label)}
             </option>
           `).join("");
 
@@ -983,7 +982,7 @@
               </td>
               <td>${escapeHtml(app.jobs?.title || app.job_title || "-")}</td>
               <td>${escapeHtml(app.jobs?.client_name || "-")}</td>
-              <td><span class="status-pill ${getStatusClass(app.status)}">${escapeHtml(app.status || "-")}</span></td>
+              <td><span class="status-pill ${getStatusClass(app.status)}">${escapeHtml(formatStatusLabel(app.status, APPLICATION_STATUS_OPTIONS))}</span></td>
               <td>${escapeHtml(recruiterName)}</td>
               <td>${escapeHtml(app.application_source || "-")}</td>
               <td>${escapeHtml(formatDate(app.created_at))}</td>
@@ -1014,6 +1013,7 @@
       function populateProspectFilters() {
         const currentJob = els.prospectJobFilter.value;
         const currentClient = els.prospectClientFilter.value;
+        const currentStatus = els.prospectStatusFilter.value;
         const currentRecruiter = els.prospectRecruiterFilter.value;
 
         const jobs = new Map();
@@ -1040,6 +1040,12 @@
             .map(([value, label]) => `<option value="${escapeHtml(value)}">${escapeHtml(label)}</option>`)
             .join("");
 
+        els.prospectStatusFilter.innerHTML =
+          `<option value="">All statuses</option>` +
+          PROSPECT_STATUS_OPTIONS
+            .map(item => `<option value="${escapeHtml(item.value)}">${escapeHtml(item.label)}</option>`)
+            .join("");
+
         els.prospectRecruiterFilter.innerHTML =
           `<option value="">All recruiters</option>` +
           Array.from(recruiters.entries())
@@ -1049,6 +1055,7 @@
 
         if (currentJob) els.prospectJobFilter.value = currentJob;
         if (currentClient) els.prospectClientFilter.value = currentClient;
+        if (currentStatus) els.prospectStatusFilter.value = currentStatus;
         if (currentRecruiter) els.prospectRecruiterFilter.value = currentRecruiter;
       }
 
@@ -1096,9 +1103,9 @@
             ? `<a class="inline-link" href="${escapeHtml(p.linkedin_url)}" target="_blank" rel="noopener noreferrer">Open</a>`
             : "-";
 
-          const statusOptions = PROSPECT_STATUS_OPTIONS.map(status => `
-            <option value="${escapeHtml(status)}" ${normalizeText(row.status) === normalizeText(status) ? "selected" : ""}>
-              ${escapeHtml(status)}
+          const statusOptions = PROSPECT_STATUS_OPTIONS.map(item => `
+            <option value="${escapeHtml(item.value)}" ${normalizeText(row.status) === normalizeText(item.value) ? "selected" : ""}>
+              ${escapeHtml(item.label)}
             </option>
           `).join("");
 
@@ -1112,7 +1119,7 @@
               <td>${escapeHtml(p.current_company || "-")}</td>
               <td>${escapeHtml(row.jobs?.title || "-")}</td>
               <td>${escapeHtml(row.jobs?.client_name || "-")}</td>
-              <td><span class="status-pill ${getStatusClass(row.status)}">${escapeHtml(row.status || "sourced")}</span></td>
+              <td><span class="status-pill ${getStatusClass(row.status)}">${escapeHtml(formatStatusLabel(row.status, PROSPECT_STATUS_OPTIONS))}</span></td>
               <td>${escapeHtml(recruiterName)}</td>
               <td><span class="chip chip-gray">${escapeHtml(String(row.match_score ?? 0))}</span></td>
               <td><span class="chip chip-gray">${escapeHtml(getProspectLocationLabel(row.location_rank))}</span></td>
@@ -1247,9 +1254,7 @@
       }
 
       async function assignRecruiter(applicationId, recruiterEmail) {
-        const payload = {
-          recruiter_email: recruiterEmail || null
-        };
+        const payload = { recruiter_email: recruiterEmail || null };
 
         const { error } = await supabaseClient
           .from("applications")
@@ -1480,11 +1485,6 @@ TalentBuzz`;
         if (!user) return;
 
         await loadRecruitersMap();
-
-        els.statusFilter.innerHTML =
-          `<option value="">All statuses</option>` +
-          STATUS_OPTIONS.map(status => `<option value="${escapeHtml(status)}">${escapeHtml(status)}</option>`).join("");
-
         await loadApplications();
         await loadProspectPipeline();
       })();
