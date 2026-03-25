@@ -1,0 +1,860 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Sourced Candidates | TalentBuzz</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="TalentBuzz sourced candidates pipeline." />
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap"
+    rel="stylesheet"
+  />
+
+  <style>
+    :root {
+      --primary: #1e3a8a;
+      --primary-2: #2563eb;
+      --text: #0f172a;
+      --muted: #64748b;
+      --border: #e2e8f0;
+      --bg: #f8fbff;
+      --white: #ffffff;
+      --success: #166534;
+      --danger: #b91c1c;
+      --warning: #b45309;
+      --info: #4338ca;
+      --shadow: 0 12px 30px rgba(30, 58, 138, 0.06), 0 2px 10px rgba(15, 23, 42, 0.04);
+      --radius-lg: 18px;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: "Manrope", sans-serif;
+      background: linear-gradient(180deg, #f8fbff 0%, #f4f8ff 100%);
+      color: var(--text);
+      line-height: 1.6;
+    }
+
+    .container {
+      max-width: 1540px;
+      margin: 0 auto;
+      padding: 24px 20px 44px;
+    }
+
+    .topbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 16px;
+      flex-wrap: wrap;
+      margin-bottom: 20px;
+    }
+
+    .topbar h1 {
+      margin: 0 0 6px;
+      color: var(--primary);
+      font-size: 2rem;
+      line-height: 1.1;
+      letter-spacing: -0.03em;
+    }
+
+    .subtitle {
+      margin: 0;
+      color: var(--muted);
+      font-size: 0.95rem;
+    }
+
+    .top-right {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .hello {
+      background: var(--white);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 10px 14px;
+      font-weight: 700;
+      box-shadow: var(--shadow);
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 11px 14px;
+      border-radius: 12px;
+      border: 1px solid transparent;
+      text-decoration: none;
+      font-weight: 800;
+      font-size: 0.92rem;
+      cursor: pointer;
+      font-family: inherit;
+      transition: 0.18s ease;
+      background: white;
+      white-space: nowrap;
+    }
+
+    .btn:hover { transform: translateY(-1px); }
+    .btn:disabled { opacity: 0.65; cursor: not-allowed; transform: none; }
+
+    .btn-primary {
+      background: linear-gradient(135deg, var(--primary), var(--primary-2));
+      color: white;
+    }
+
+    .btn-outline {
+      border-color: var(--border);
+      color: var(--primary);
+      background: white;
+    }
+
+    .btn-danger {
+      border-color: #fecaca;
+      color: var(--danger);
+      background: white;
+    }
+
+    .notice {
+      display: none;
+      margin-bottom: 18px;
+      padding: 12px 14px;
+      border-radius: 14px;
+      font-weight: 700;
+      font-size: 0.92rem;
+    }
+
+    .notice.show { display: block; }
+    .notice.success { background: #ecfdf5; color: var(--success); border: 1px solid #bbf7d0; }
+    .notice.error { background: #fef2f2; color: var(--danger); border: 1px solid #fecaca; }
+    .notice.warning { background: #fff7ed; color: var(--warning); border: 1px solid #fed7aa; }
+    .notice.info { background: #eef2ff; color: var(--info); border: 1px solid #c7d2fe; }
+
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 14px;
+      margin-bottom: 20px;
+    }
+
+    .stat-card {
+      background: var(--white);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 18px;
+      box-shadow: var(--shadow);
+    }
+
+    .stat-label {
+      color: var(--muted);
+      font-weight: 700;
+      font-size: 0.88rem;
+      margin-bottom: 6px;
+    }
+
+    .stat-value {
+      color: var(--primary);
+      font-size: 1.8rem;
+      font-weight: 800;
+      line-height: 1;
+    }
+
+    .panel {
+      background: var(--white);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow);
+      padding: 22px;
+      margin-bottom: 20px;
+    }
+
+    .panel h2 {
+      margin: 0 0 14px;
+      color: var(--primary);
+      font-size: 1.2rem;
+      line-height: 1.2;
+      letter-spacing: -0.02em;
+    }
+
+    .filters-grid {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 12px;
+      align-items: end;
+      margin-bottom: 16px;
+    }
+
+    .field label {
+      display: block;
+      margin-bottom: 6px;
+      font-size: 0.88rem;
+      font-weight: 700;
+      color: var(--text);
+    }
+
+    .field input,
+    .field select,
+    .field textarea {
+      width: 100%;
+      padding: 11px 12px;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      outline: none;
+      font: inherit;
+      background: white;
+      color: var(--text);
+    }
+
+    .field input:focus,
+    .field select:focus,
+    .field textarea:focus {
+      border-color: #93c5fd;
+      box-shadow: 0 0 0 3px rgba(147, 197, 253, 0.25);
+    }
+
+    .table-wrap {
+      overflow: auto;
+      border: 1px solid var(--border);
+      border-radius: 16px;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      min-width: 1400px;
+      background: white;
+    }
+
+    th, td {
+      padding: 12px 10px;
+      border-bottom: 1px solid var(--border);
+      text-align: left;
+      vertical-align: top;
+      font-size: 0.9rem;
+    }
+
+    th {
+      background: #f8fbff;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      font-size: 0.76rem;
+      font-weight: 800;
+    }
+
+    tr:last-child td { border-bottom: none; }
+
+    .candidate-name {
+      font-weight: 800;
+      color: var(--primary);
+      margin-bottom: 2px;
+    }
+
+    .small {
+      color: var(--muted);
+      font-size: 0.82rem;
+      line-height: 1.5;
+    }
+
+    .chip,
+    .status-pill {
+      display: inline-flex;
+      align-items: center;
+      padding: 6px 10px;
+      border-radius: 999px;
+      font-size: 0.75rem;
+      font-weight: 800;
+      line-height: 1;
+      border: 1px solid transparent;
+    }
+
+    .chip-gray,
+    .status-default {
+      background: #f1f5f9;
+      color: #475569;
+      border-color: #e2e8f0;
+    }
+
+    .status-sourced,
+    .status-reviewing {
+      background: #eef2ff;
+      color: #4338ca;
+      border-color: #c7d2fe;
+    }
+
+    .status-shortlisted,
+    .status-contacted,
+    .status-endorsed {
+      background: #ecfdf5;
+      color: #166534;
+      border-color: #bbf7d0;
+    }
+
+    .status-rejected,
+    .status-archived {
+      background: #fef2f2;
+      color: #b91c1c;
+      border-color: #fecaca;
+    }
+
+    .inline-link {
+      color: var(--primary-2);
+      font-weight: 700;
+      text-decoration: none;
+    }
+
+    .inline-link:hover { text-decoration: underline; }
+
+    .table-select {
+      min-width: 170px;
+      padding: 9px 10px;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      font: inherit;
+      background: white;
+    }
+
+    .empty {
+      color: var(--muted);
+      font-size: 0.95rem;
+      padding: 12px;
+    }
+
+    .loading {
+      color: var(--muted);
+    }
+
+    @media (max-width: 1200px) {
+      .filters-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+      .stats-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+
+    @media (max-width: 760px) {
+      .container { padding: 18px 14px 34px; }
+      .topbar h1 { font-size: 1.7rem; }
+      .filters-grid,
+      .stats-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="topbar">
+      <div>
+        <h1>Sourced Candidates</h1>
+        <p class="subtitle">View and manage sourced candidates separately from the main recruiter dashboard.</p>
+      </div>
+
+      <div class="top-right">
+        <div class="hello" id="helloRecruiter">Hello</div>
+        <a href="recruiter-dashboard.html" class="btn btn-outline">Back to Dashboard</a>
+        <a href="client-roles-input.html" class="btn btn-outline">Manage Roles</a>
+        <button id="refreshBtn" class="btn btn-primary" type="button">Refresh</button>
+        <button id="logoutBtn" class="btn btn-danger" type="button">Logout</button>
+      </div>
+    </div>
+
+    <div id="notice" class="notice"></div>
+
+    <div class="stats-grid">
+      <div class="stat-card">
+        <div class="stat-label">Total Prospects</div>
+        <div class="stat-value" id="prospectsCount">0</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Active Pipeline</div>
+        <div class="stat-value" id="pipelineViewCount">0</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Contacted</div>
+        <div class="stat-value" id="contactedCount">0</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Endorsed</div>
+        <div class="stat-value" id="endorsedCount">0</div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>Prospect Pipeline</h2>
+
+      <div class="filters-grid">
+        <div class="field">
+          <label for="prospectSearchInput">Search</label>
+          <input id="prospectSearchInput" type="text" placeholder="Name, company, email" />
+        </div>
+
+        <div class="field">
+          <label for="prospectJobFilter">Job Title</label>
+          <select id="prospectJobFilter">
+            <option value="">All jobs</option>
+          </select>
+        </div>
+
+        <div class="field">
+          <label for="prospectClientFilter">Client</label>
+          <select id="prospectClientFilter">
+            <option value="">All clients</option>
+          </select>
+        </div>
+
+        <div class="field">
+          <label for="prospectStatusFilter">Pipeline Status</label>
+          <select id="prospectStatusFilter">
+            <option value="">All statuses</option>
+          </select>
+        </div>
+
+        <div class="field">
+          <label for="prospectRecruiterFilter">Recruiter</label>
+          <select id="prospectRecruiterFilter">
+            <option value="">All recruiters</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Prospect</th>
+              <th>Title</th>
+              <th>Company</th>
+              <th>Job</th>
+              <th>Client</th>
+              <th>Status</th>
+              <th>Recruiter</th>
+              <th>Match</th>
+              <th>Location Match</th>
+              <th>Email</th>
+              <th>Phone</th>
+              <th>LinkedIn</th>
+              <th>Notes</th>
+              <th>Update</th>
+            </tr>
+          </thead>
+          <tbody id="prospectPipelineTable">
+            <tr><td colspan="14" class="empty loading">Loading sourced prospects...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    document.addEventListener("DOMContentLoaded", () => {
+      const SUPABASE_URL = "https://dilalntcxmvdcmwxjcct.supabase.co";
+      const SUPABASE_ANON_KEY = "sb_publishable_HrLVIUwnaRo54yijtrbWBQ_1aeb4ezs";
+      const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+      const PROSPECT_STATUS_OPTIONS = [
+        { value: "sourced", label: "Sourced" },
+        { value: "reviewing", label: "Reviewing" },
+        { value: "shortlisted", label: "Shortlisted" },
+        { value: "contacted", label: "Contacted" },
+        { value: "endorsed", label: "Endorsed" },
+        { value: "rejected", label: "Rejected" },
+        { value: "archived", label: "Archived" }
+      ];
+
+      const state = {
+        currentUser: null,
+        currentRecruiterRecord: null,
+        allRecruitersMap: {},
+        allProspectPipeline: []
+      };
+
+      const els = {
+        helloRecruiter: document.getElementById("helloRecruiter"),
+        notice: document.getElementById("notice"),
+        refreshBtn: document.getElementById("refreshBtn"),
+        logoutBtn: document.getElementById("logoutBtn"),
+
+        prospectsCount: document.getElementById("prospectsCount"),
+        pipelineViewCount: document.getElementById("pipelineViewCount"),
+        contactedCount: document.getElementById("contactedCount"),
+        endorsedCount: document.getElementById("endorsedCount"),
+
+        prospectSearchInput: document.getElementById("prospectSearchInput"),
+        prospectJobFilter: document.getElementById("prospectJobFilter"),
+        prospectClientFilter: document.getElementById("prospectClientFilter"),
+        prospectStatusFilter: document.getElementById("prospectStatusFilter"),
+        prospectRecruiterFilter: document.getElementById("prospectRecruiterFilter"),
+        prospectPipelineTable: document.getElementById("prospectPipelineTable")
+      };
+
+      function normalizeText(value) {
+        return String(value || "").trim().toLowerCase();
+      }
+
+      function normalizeEmail(value) {
+        return String(value || "").trim().toLowerCase();
+      }
+
+      function escapeHtml(value) {
+        return String(value ?? "")
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;")
+          .replace(/'/g, "&#039;");
+      }
+
+      function showNotice(message, type = "success") {
+        els.notice.textContent = message;
+        els.notice.className = `notice show ${type}`;
+        window.clearTimeout(showNotice._timer);
+        showNotice._timer = window.setTimeout(() => {
+          els.notice.className = "notice";
+          els.notice.textContent = "";
+        }, 4000);
+      }
+
+      function formatStatusLabel(value, options) {
+        const clean = normalizeText(value);
+        const match = options.find(item => normalizeText(item.value) === clean);
+        if (match) return match.label;
+        if (!clean) return "-";
+        return clean
+          .split(" ")
+          .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+          .join(" ");
+      }
+
+      function getStatusClass(status) {
+        return (
+          "status-" +
+          String(status || "default")
+            .toLowerCase()
+            .replace(/\s+/g, "-")
+            .replace(/[()]/g, "")
+        );
+      }
+
+      function getRecruiterName(email) {
+        const clean = normalizeEmail(email);
+        return state.allRecruitersMap[clean] || email || "-";
+      }
+
+      function getProspectLocationLabel(rank) {
+        const n = Number(rank || 0);
+        if (n === 1) return "Exact City Match";
+        if (n === 2) return "State Match";
+        if (n === 3) return "Country Match";
+        if (n === 99) return "Outside PH Target";
+        return "Outside Target Area";
+      }
+
+      async function verifyRecruiterAccess(email) {
+        const cleanEmail = normalizeEmail(email);
+        if (!cleanEmail) throw new Error("Recruiter email is missing.");
+
+        const { data, error } = await supabaseClient
+          .from("recruiters")
+          .select("id, email, full_name, active")
+          .eq("email", cleanEmail)
+          .eq("active", true);
+
+        if (error) throw error;
+        if (!Array.isArray(data) || data.length === 0) {
+          throw new Error(`This account is not authorized for recruiter access. Logged in as: ${cleanEmail}`);
+        }
+        if (data.length > 1) {
+          throw new Error(`Duplicate recruiter records found for ${cleanEmail}. Please clean up the recruiters table.`);
+        }
+        return data[0];
+      }
+
+      async function loadRecruitersMap() {
+        const { data, error } = await supabaseClient
+          .from("recruiters")
+          .select("email, full_name")
+          .eq("active", true);
+
+        if (error) {
+          state.allRecruitersMap = {};
+          return;
+        }
+
+        state.allRecruitersMap = Object.fromEntries(
+          (data || []).map(row => [normalizeEmail(row.email), row.full_name || row.email])
+        );
+      }
+
+      async function protectRecruiterPage() {
+        const { data: { session } } = await supabaseClient.auth.getSession();
+
+        if (!session?.user) {
+          window.location.href = "recruiter-login.html";
+          return null;
+        }
+
+        state.currentUser = session.user;
+
+        try {
+          const recruiterRecord = await verifyRecruiterAccess(session.user.email);
+          state.currentRecruiterRecord = recruiterRecord;
+          els.helloRecruiter.textContent = `Hello, ${recruiterRecord.full_name || recruiterRecord.email}`;
+          return session.user;
+        } catch (error) {
+          alert(error.message || "Unauthorized recruiter account.");
+          await supabaseClient.auth.signOut();
+          window.location.href = "recruiter-login.html";
+          return null;
+        }
+      }
+
+      function updateStats() {
+        const prospects = state.allProspectPipeline.length;
+        const activePipeline = state.allProspectPipeline.filter(row =>
+          ["sourced", "reviewing", "shortlisted", "contacted"].includes(normalizeText(row.status))
+        ).length;
+        const contacted = state.allProspectPipeline.filter(row => normalizeText(row.status) === "contacted").length;
+        const endorsed = state.allProspectPipeline.filter(row => normalizeText(row.status) === "endorsed").length;
+
+        els.prospectsCount.textContent = String(prospects);
+        els.pipelineViewCount.textContent = String(activePipeline);
+        els.contactedCount.textContent = String(contacted);
+        els.endorsedCount.textContent = String(endorsed);
+      }
+
+      function populateProspectFilters() {
+        const currentJob = els.prospectJobFilter.value;
+        const currentClient = els.prospectClientFilter.value;
+        const currentStatus = els.prospectStatusFilter.value;
+        const currentRecruiter = els.prospectRecruiterFilter.value;
+
+        const jobs = new Map();
+        const clients = new Map();
+        const recruiters = new Map();
+
+        state.allProspectPipeline.forEach(row => {
+          if (row.jobs?.title) jobs.set(row.jobs.id || row.jobs.title, row.jobs.title);
+          if (row.jobs?.client_name) clients.set(row.jobs.client_name, row.jobs.client_name);
+          if (row.recruiter_email) recruiters.set(row.recruiter_email, getRecruiterName(row.recruiter_email));
+        });
+
+        els.prospectJobFilter.innerHTML =
+          `<option value="">All jobs</option>` +
+          Array.from(jobs.entries())
+            .sort((a, b) => a[1].localeCompare(b[1]))
+            .map(([value, label]) => `<option value="${escapeHtml(value)}">${escapeHtml(label)}</option>`)
+            .join("");
+
+        els.prospectClientFilter.innerHTML =
+          `<option value="">All clients</option>` +
+          Array.from(clients.entries())
+            .sort((a, b) => a[1].localeCompare(b[1]))
+            .map(([value, label]) => `<option value="${escapeHtml(value)}">${escapeHtml(label)}</option>`)
+            .join("");
+
+        els.prospectStatusFilter.innerHTML =
+          `<option value="">All statuses</option>` +
+          PROSPECT_STATUS_OPTIONS.map(item => `<option value="${escapeHtml(item.value)}">${escapeHtml(item.label)}</option>`).join("");
+
+        els.prospectRecruiterFilter.innerHTML =
+          `<option value="">All recruiters</option>` +
+          Array.from(recruiters.entries())
+            .sort((a, b) => a[1].localeCompare(b[1]))
+            .map(([value, label]) => `<option value="${escapeHtml(value)}">${escapeHtml(label)}</option>`)
+            .join("");
+
+        if (currentJob) els.prospectJobFilter.value = currentJob;
+        if (currentClient) els.prospectClientFilter.value = currentClient;
+        if (currentStatus) els.prospectStatusFilter.value = currentStatus;
+        if (currentRecruiter) els.prospectRecruiterFilter.value = currentRecruiter;
+      }
+
+      function getFilteredProspectPipeline() {
+        const search = normalizeText(els.prospectSearchInput.value);
+        const job = normalizeText(els.prospectJobFilter.value);
+        const client = normalizeText(els.prospectClientFilter.value);
+        const status = normalizeText(els.prospectStatusFilter.value);
+        const recruiter = normalizeText(els.prospectRecruiterFilter.value);
+
+        return state.allProspectPipeline.filter(row => {
+          const p = row.prospects || {};
+          const name = normalizeText(p.full_name);
+          const company = normalizeText(p.current_company);
+          const email = normalizeText(p.personal_email || p.work_email);
+          const jobTitle = normalizeText(row.jobs?.title);
+          const jobId = normalizeText(row.jobs?.id || "");
+          const clientName = normalizeText(row.jobs?.client_name);
+          const pipelineStatus = normalizeText(row.status);
+          const pipelineRecruiter = normalizeText(row.recruiter_email);
+
+          const matchesSearch = !search || name.includes(search) || company.includes(search) || email.includes(search);
+          const matchesJob = !job || jobId === job || jobTitle === job;
+          const matchesClient = !client || clientName === client;
+          const matchesStatus = !status || pipelineStatus === status;
+          const matchesRecruiter = !recruiter || pipelineRecruiter === recruiter;
+
+          return matchesSearch && matchesJob && matchesClient && matchesStatus && matchesRecruiter;
+        });
+      }
+
+      function renderProspectPipelineTable() {
+        const rows = getFilteredProspectPipeline();
+
+        if (!rows.length) {
+          els.prospectPipelineTable.innerHTML = `<tr><td colspan="14" class="empty">No sourced prospects found.</td></tr>`;
+          return;
+        }
+
+        els.prospectPipelineTable.innerHTML = rows.map(row => {
+          const p = row.prospects || {};
+          const recruiterName = getRecruiterName(row.recruiter_email);
+          const email = p.personal_email || p.work_email || "-";
+          const linkedin = p.linkedin_url
+            ? `<a class="inline-link" href="${escapeHtml(p.linkedin_url)}" target="_blank" rel="noopener noreferrer">Open</a>`
+            : "-";
+
+          const statusOptions = PROSPECT_STATUS_OPTIONS.map(item => `
+            <option value="${escapeHtml(item.value)}" ${normalizeText(row.status) === normalizeText(item.value) ? "selected" : ""}>
+              ${escapeHtml(item.label)}
+            </option>
+          `).join("");
+
+          return `
+            <tr>
+              <td>
+                <div class="candidate-name">${escapeHtml(p.full_name || "-")}</div>
+                <div class="small">${escapeHtml(p.location || "-")}</div>
+              </td>
+              <td>${escapeHtml(p.current_title || "-")}</td>
+              <td>${escapeHtml(p.current_company || "-")}</td>
+              <td>${escapeHtml(row.jobs?.title || "-")}</td>
+              <td>${escapeHtml(row.jobs?.client_name || "-")}</td>
+              <td><span class="status-pill ${getStatusClass(row.status)}">${escapeHtml(formatStatusLabel(row.status, PROSPECT_STATUS_OPTIONS))}</span></td>
+              <td>${escapeHtml(recruiterName)}</td>
+              <td><span class="chip chip-gray">${escapeHtml(String(row.match_score ?? 0))}</span></td>
+              <td><span class="chip chip-gray">${escapeHtml(getProspectLocationLabel(row.location_rank))}</span></td>
+              <td>${escapeHtml(email)}</td>
+              <td>${escapeHtml(p.phone || "-")}</td>
+              <td>${linkedin}</td>
+              <td>${escapeHtml(row.notes || "-")}</td>
+              <td>
+                <select class="table-select prospect-status-select" data-id="${escapeHtml(row.id)}">
+                  ${statusOptions}
+                </select>
+              </td>
+            </tr>
+          `;
+        }).join("");
+      }
+
+      async function loadProspectPipeline() {
+        els.prospectPipelineTable.innerHTML = `<tr><td colspan="14" class="empty loading">Loading sourced prospects...</td></tr>`;
+
+        const { data, error } = await supabaseClient
+          .from("prospect_pipeline")
+          .select(`
+            id,
+            prospect_id,
+            job_id,
+            status,
+            recruiter_email,
+            notes,
+            source,
+            match_score,
+            location_rank,
+            created_at,
+            updated_at,
+            prospects (
+              id,
+              full_name,
+              current_title,
+              current_company,
+              location,
+              linkedin_url,
+              work_email,
+              personal_email,
+              phone,
+              education,
+              skills,
+              source
+            ),
+            jobs (
+              id,
+              title,
+              client_name
+            )
+          `)
+          .order("created_at", { ascending: false });
+
+        if (error) {
+          els.prospectPipelineTable.innerHTML = `<tr><td colspan="14" class="empty">${escapeHtml(error.message)}</td></tr>`;
+          return;
+        }
+
+        state.allProspectPipeline = data || [];
+        populateProspectFilters();
+        renderProspectPipelineTable();
+        updateStats();
+      }
+
+      async function updateProspectPipelineStatus(pipelineId, newStatus) {
+        const { error } = await supabaseClient
+          .from("prospect_pipeline")
+          .update({
+            status: newStatus,
+            updated_at: new Date().toISOString()
+          })
+          .eq("id", pipelineId);
+
+        if (error) {
+          showNotice(error.message || "Failed to update prospect status.", "error");
+          return;
+        }
+
+        showNotice("Prospect pipeline status updated.", "success");
+        await loadProspectPipeline();
+      }
+
+      async function refreshAll() {
+        els.refreshBtn.disabled = true;
+        els.refreshBtn.textContent = "Refreshing...";
+        await loadRecruitersMap();
+        await loadProspectPipeline();
+        els.refreshBtn.disabled = false;
+        els.refreshBtn.textContent = "Refresh";
+      }
+
+      els.prospectSearchInput.addEventListener("input", renderProspectPipelineTable);
+      els.prospectJobFilter.addEventListener("change", renderProspectPipelineTable);
+      els.prospectClientFilter.addEventListener("change", renderProspectPipelineTable);
+      els.prospectStatusFilter.addEventListener("change", renderProspectPipelineTable);
+      els.prospectRecruiterFilter.addEventListener("change", renderProspectPipelineTable);
+
+      els.prospectPipelineTable.addEventListener("change", async (event) => {
+        const target = event.target;
+        if (target.classList.contains("prospect-status-select")) {
+          await updateProspectPipelineStatus(target.dataset.id, target.value);
+        }
+      });
+
+      els.refreshBtn.addEventListener("click", refreshAll);
+
+      els.logoutBtn.addEventListener("click", async () => {
+        await supabaseClient.auth.signOut();
+        window.location.href = "recruiter-login.html";
+      });
+
+      (async function init() {
+        const user = await protectRecruiterPage();
+        if (!user) return;
+
+        await loadRecruitersMap();
+        await loadProspectPipeline();
+      })();
+    });
+  </script>
+</body>
+</html>
