@@ -2142,6 +2142,90 @@ TalentBuzz`;
       }
       return optimized;
     }
+    async function saveSingleScreeningAnswer(responseId, payload) {
+  const { error } = await supabaseClient
+    .from("application_screening_responses")
+    .update({
+      ...payload,
+      updated_at: new Date().toISOString()
+    })
+    .eq("id", responseId);
+
+  if (error) throw error;
+}
+
+async function saveScreeningReview() {
+  if (!state.currentScreeningAppId) {
+    throw new Error("No screening application selected.");
+  }
+
+  const payload = {
+    application_id: state.currentScreeningAppId,
+    strengths: getSafeValue(els.screeningStrengths),
+    risks: getSafeValue(els.screeningRisks),
+    summary: getSafeValue(els.screeningSummary),
+    recommended_decision: getSafeValue(els.screeningDecision),
+    updated_at: new Date().toISOString()
+  };
+
+  const { error } = await supabaseClient
+    .from("application_screening_reviews")
+    .upsert(payload, { onConflict: "application_id" });
+
+  if (error) throw error;
+}
+
+async function pushScreeningToInterviewNotes() {
+  if (!state.currentScreeningAppId) {
+    throw new Error("No screening application selected.");
+  }
+
+  const app = state.currentScreeningApplication;
+  if (!app) {
+    throw new Error("Application not loaded.");
+  }
+
+  const existing = await getInterviewNotesByApplicationId(state.currentScreeningAppId);
+
+  const strengths = getSafeValue(els.screeningStrengths);
+  const risks = getSafeValue(els.screeningRisks);
+  const summary = getSafeValue(els.screeningSummary);
+  const decision = getSafeValue(els.screeningDecision);
+
+  const optimized = buildOptimizedInterviewNotes({
+    candidateName: app.applicant_profiles?.full_name || app.email || "Candidate",
+    jobTitle: app.jobs?.title || app.job_title || "Role",
+    strengths,
+    risks,
+    summary,
+    decisionStatus: decision
+  });
+
+  const payload = {
+    application_id: state.currentScreeningAppId,
+    applicant_profile_id: app.applicant_profile_id || null,
+    job_id: app.job_id_uuid || app.job_id || null,
+    recruiter_email: app.recruiter_email || state.currentUser?.email || null,
+    candidate_name: app.applicant_profiles?.full_name || null,
+    job_title: app.jobs?.title || app.job_title || null,
+    strengths: existing?.strengths ? `${existing.strengths}\n\n${strengths}` : strengths,
+    risks: existing?.risks ? `${existing.risks}\n\n${risks}` : risks,
+    interview_summary: existing?.interview_summary ? `${existing.interview_summary}\n\n${summary}` : summary,
+    decision_status: existing?.decision_status || decision || null,
+    optimized_notes: existing?.optimized_notes ? `${existing.optimized_notes}\n\n${optimized}` : optimized,
+    include_strengths_in_endorsement: true,
+    include_risks_in_endorsement: true,
+    include_summary_in_endorsement: true,
+    include_decision_in_endorsement: true,
+    updated_at: new Date().toISOString()
+  };
+
+  const { error } = await supabaseClient
+    .from("interview_notes")
+    .upsert(payload, { onConflict: "application_id" });
+
+  if (error) throw error;
+}
 function openScreeningModal() {
   if (!els.screeningModal) return;
   els.screeningModal.classList.add("show");
