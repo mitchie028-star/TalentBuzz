@@ -8,10 +8,7 @@
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link
-    href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap"
-    rel="stylesheet"
-  />
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
 
   <style>
     :root {
@@ -283,7 +280,7 @@
     table {
       width: 100%;
       border-collapse: collapse;
-      min-width: 1460px;
+      min-width: 1480px;
       background: white;
     }
 
@@ -669,32 +666,15 @@
       <div class="modal-header" style="display:flex;justify-content:space-between;align-items:center;gap:12px;">
         <h3 class="modal-title">Resume Preview</h3>
         <div style="display:flex;align-items:center;gap:10px;">
-          <a
-            id="downloadResumeBtn"
-            href="#"
-            target="_blank"
-            rel="noopener noreferrer"
-            class="btn btn-outline"
-            style="display:none;"
-          >
+          <a id="downloadResumeBtn" href="#" target="_blank" rel="noopener noreferrer" class="btn btn-outline" style="display:none;">
             Open in New Tab
           </a>
-          <button
-            id="closeResumeModalBtn"
-            type="button"
-            class="btn btn-outline"
-          >
-            Close
-          </button>
+          <button id="closeResumeModalBtn" type="button" class="btn btn-outline">Close</button>
         </div>
       </div>
 
       <div class="modal-body" style="flex:1;padding:0;background:#f8fafc;">
-        <iframe
-          id="resumeFrame"
-          src=""
-          style="width:100%;height:100%;border:none;background:white;"
-        ></iframe>
+        <iframe id="resumeFrame" src="" style="width:100%;height:100%;border:none;background:white;"></iframe>
       </div>
     </div>
   </div>
@@ -740,6 +720,7 @@
     document.addEventListener("DOMContentLoaded", () => {
       const SUPABASE_URL = "https://dilalntcxmvdcmwxjcct.supabase.co";
       const SUPABASE_ANON_KEY = "sb_publishable_HrLVIUwnaRo54yijtrbWBQ_1aeb4ezs";
+      const RESUME_BUCKET = "resumes";
       const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
       const APPLICATION_STATUS_OPTIONS = [
@@ -766,7 +747,7 @@
         { value: "archived", label: "Archived" }
       ];
 
-      const state = {
+      const appState = {
         currentUser: null,
         currentRecruiterRecord: null,
         allRecruitersMap: {},
@@ -851,10 +832,7 @@
         const match = options.find(item => normalizeText(item.value) === clean);
         if (match) return match.label;
         if (!clean) return "-";
-        return clean
-          .split(" ")
-          .map(word => word.charAt(0).toUpperCase() + word.slice(1))
-          .join(" ");
+        return clean.split(" ").map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(" ");
       }
 
       function showNotice(message, type = "success") {
@@ -869,7 +847,7 @@
 
       function getRecruiterName(email) {
         const clean = normalizeEmail(email);
-        return state.allRecruitersMap[clean] || email || "-";
+        return appState.allRecruitersMap[clean] || email || "-";
       }
 
       function getProfileFromApplication(app) {
@@ -901,30 +879,30 @@
         const rawResumePath = String(profile.resume_path || "").trim();
         const rawResumeUrl = String(profile.resume_url || "").trim();
 
-        if (
-          rawResumeUrl &&
-          (
-            rawResumeUrl.includes("/storage/v1/object/sign/") ||
-            rawResumeUrl.includes("/storage/v1/object/public/")
-          )
-        ) {
+        if (rawResumeUrl && rawResumeUrl.includes("/storage/v1/object/sign/")) {
+          return rawResumeUrl;
+        }
+
+        if (rawResumeUrl && rawResumeUrl.includes("/storage/v1/object/public/")) {
           return rawResumeUrl;
         }
 
         if (!rawResumePath) return "";
 
-        const cleanedPath = rawResumePath
-          .replace(/^\/+/, "")
-          .replace(/^resumes\//i, "");
+        let cleanedPath = rawResumePath.replace(/^\/+/, "");
+
+        if (cleanedPath.startsWith(`${RESUME_BUCKET}/`)) {
+          cleanedPath = cleanedPath.slice(`${RESUME_BUCKET}/`.length);
+        }
 
         try {
           const { data, error } = await supabaseClient
             .storage
-            .from("resumes")
+            .from(RESUME_BUCKET)
             .createSignedUrl(cleanedPath, 3600);
 
           if (error) {
-            console.error("createSignedUrl error:", error);
+            console.error("createSignedUrl error:", error, "path:", cleanedPath);
             return "";
           }
 
@@ -973,12 +951,12 @@
       }
 
       function updateStats() {
-        const applications = state.allApplications.length;
-        const submitted = state.allApplications.filter(a => normalizeText(a.status) === "submitted").length;
-        const rejected = state.allApplications.filter(a => normalizeText(a.status) === "rejected").length;
-        const hired = state.allApplications.filter(a => normalizeText(a.status) === "hired").length;
-        const prospects = state.allProspectPipeline.length;
-        const pipelineView = state.allProspectPipeline.filter(row =>
+        const applications = appState.allApplications.length;
+        const submitted = appState.allApplications.filter(a => normalizeText(a.status) === "submitted").length;
+        const rejected = appState.allApplications.filter(a => normalizeText(a.status) === "rejected").length;
+        const hired = appState.allApplications.filter(a => normalizeText(a.status) === "hired").length;
+        const prospects = appState.allProspectPipeline.length;
+        const pipelineView = appState.allProspectPipeline.filter(row =>
           ["sourced", "reviewing", "shortlisted", "contacted"].includes(normalizeText(row.status))
         ).length;
 
@@ -1017,11 +995,11 @@
           .eq("active", true);
 
         if (error) {
-          state.allRecruitersMap = {};
+          appState.allRecruitersMap = {};
           return;
         }
 
-        state.allRecruitersMap = Object.fromEntries(
+        appState.allRecruitersMap = Object.fromEntries(
           (data || []).map(row => [normalizeEmail(row.email), row.full_name || row.email])
         );
       }
@@ -1034,11 +1012,11 @@
           return null;
         }
 
-        state.currentUser = session.user;
+        appState.currentUser = session.user;
 
         try {
           const recruiterRecord = await verifyRecruiterAccess(session.user.email);
-          state.currentRecruiterRecord = recruiterRecord;
+          appState.currentRecruiterRecord = recruiterRecord;
           els.helloRecruiter.textContent = `Hello, ${recruiterRecord.full_name || recruiterRecord.email}`;
           return session.user;
         } catch (error) {
@@ -1059,7 +1037,7 @@
         const clients = new Map();
         const recruiters = new Map();
 
-        state.allApplications.forEach(app => {
+        appState.allApplications.forEach(app => {
           if (app.jobs?.title) jobs.set(app.jobs.id || app.jobs.title, app.jobs.title);
           if (app.jobs?.client_name) clients.set(app.jobs.client_name, app.jobs.client_name);
           if (app.recruiter_email) recruiters.set(app.recruiter_email, getRecruiterName(app.recruiter_email));
@@ -1103,7 +1081,7 @@
         const client = normalizeText(els.clientFilter.value);
         const recruiter = normalizeText(els.recruiterFilter.value);
 
-        return state.allApplications.filter(app => {
+        return appState.allApplications.filter(app => {
           const profile = getProfileFromApplication(app);
           const candidateName = normalizeText(profile.full_name);
           const candidateEmail = normalizeText(app.email || profile.email);
@@ -1143,7 +1121,7 @@
           const resumeUrl = await getResumeUrl(profile);
           const safeResumeUrl = resumeUrl ? escapeHtml(resumeUrl) : "";
 
-          const recruiterOptions = Object.entries(state.allRecruitersMap)
+          const recruiterOptions = Object.entries(appState.allRecruitersMap)
             .map(([email, name]) => `
               <option value="${escapeHtml(email)}" ${normalizeEmail(app.recruiter_email) === normalizeEmail(email) ? "selected" : ""}>
                 ${escapeHtml(name)}
@@ -1210,7 +1188,7 @@
         const clients = new Map();
         const recruiters = new Map();
 
-        state.allProspectPipeline.forEach(row => {
+        appState.allProspectPipeline.forEach(row => {
           if (row.jobs?.title) jobs.set(row.jobs.id || row.jobs.title, row.jobs.title);
           if (row.jobs?.client_name) clients.set(row.jobs.client_name, row.jobs.client_name);
           if (row.recruiter_email) recruiters.set(row.recruiter_email, getRecruiterName(row.recruiter_email));
@@ -1254,7 +1232,7 @@
         const status = normalizeText(els.prospectStatusFilter.value);
         const recruiter = normalizeText(els.prospectRecruiterFilter.value);
 
-        return state.allProspectPipeline.filter(row => {
+        return appState.allProspectPipeline.filter(row => {
           const p = row.prospects || {};
           const name = normalizeText(p.full_name);
           const company = normalizeText(p.current_company);
@@ -1370,7 +1348,7 @@
           return;
         }
 
-        state.allApplications = data || [];
+        appState.allApplications = data || [];
         populateApplicationFilters();
         await renderApplicationsTable();
         updateStats();
@@ -1420,7 +1398,7 @@
           return;
         }
 
-        state.allProspectPipeline = data || [];
+        appState.allProspectPipeline = data || [];
         populateProspectFilters();
         renderProspectPipelineTable();
         updateStats();
@@ -1442,11 +1420,9 @@
       }
 
       async function assignRecruiter(applicationId, recruiterEmail) {
-        const payload = { recruiter_email: recruiterEmail || null };
-
         const { error } = await supabaseClient
           .from("applications")
-          .update(payload)
+          .update({ recruiter_email: recruiterEmail || null })
           .eq("id", applicationId);
 
         if (error) {
@@ -1479,8 +1455,8 @@
       function buildEndorsementBody(app) {
         const profile = getProfileFromApplication(app);
         const recruiterName =
-          state.currentRecruiterRecord?.full_name ||
-          state.currentUser?.email ||
+          appState.currentRecruiterRecord?.full_name ||
+          appState.currentUser?.email ||
           "TalentBuzz";
         const clientName = app.jobs?.client_name || "Hiring Team";
         const candidateName = profile?.full_name || "Candidate";
@@ -1513,7 +1489,7 @@ TalentBuzz`;
       }
 
       function openEndorsementModal(app) {
-        state.selectedApplicationForEndorsement = app;
+        appState.selectedApplicationForEndorsement = app;
         const subject = `Candidate Endorsement - ${app.jobs?.title || app.job_title || "Role"} - ${getProfileFromApplication(app).full_name || app.email || "Candidate"}`;
 
         els.endorseTo.value = "";
@@ -1524,12 +1500,12 @@ TalentBuzz`;
       }
 
       function closeEndorsementModal() {
-        state.selectedApplicationForEndorsement = null;
+        appState.selectedApplicationForEndorsement = null;
         els.endorsementModal.classList.remove("show");
       }
 
       async function sendEndorsement() {
-        const app = state.selectedApplicationForEndorsement;
+        const app = appState.selectedApplicationForEndorsement;
         if (!app) {
           showNotice("No application selected.", "error");
           return;
@@ -1574,7 +1550,7 @@ TalentBuzz`;
               candidate_email: app.email,
               job_title: app.jobs?.title || app.job_title || null,
               client_name: app.jobs?.client_name || null,
-              recruiter_email: state.currentUser?.email || null,
+              recruiter_email: appState.currentUser?.email || null,
               resume_url: resumeUrl || null
             }
           });
@@ -1644,7 +1620,7 @@ TalentBuzz`;
 
         if (target.classList.contains("open-endorsement-btn")) {
           const appId = target.dataset.id;
-          const app = state.allApplications.find(item => String(item.id) === String(appId));
+          const app = appState.allApplications.find(item => String(item.id) === String(appId));
           if (!app) {
             showNotice("Application not found.", "error");
             return;
