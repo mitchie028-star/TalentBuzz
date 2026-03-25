@@ -159,6 +159,7 @@
       margin-top: 6px;
       color: var(--muted);
       font-size: 0.84rem;
+      line-height: 1.5;
     }
 
     .actions {
@@ -222,7 +223,7 @@
     table {
       width: 100%;
       border-collapse: collapse;
-      min-width: 1320px;
+      min-width: 1400px;
       background: white;
     }
 
@@ -266,6 +267,7 @@
       font-size: 0.75rem;
       line-height: 1;
       border: 1px solid transparent;
+      white-space: nowrap;
     }
 
     .chip-indigo {
@@ -278,6 +280,12 @@
       background: #ecfdf5;
       color: #166534;
       border-color: #bbf7d0;
+    }
+
+    .chip-amber {
+      background: #fff7ed;
+      color: #b45309;
+      border-color: #fed7aa;
     }
 
     .chip-gray {
@@ -298,6 +306,17 @@
     }
 
     .inline-link:hover { text-decoration: underline; }
+
+    .muted-box {
+      margin-top: 14px;
+      border: 1px dashed #cbd5e1;
+      background: #f8fafc;
+      border-radius: 12px;
+      padding: 12px 14px;
+      color: var(--muted);
+      font-size: 0.88rem;
+      line-height: 1.55;
+    }
 
     @media (max-width: 1100px) {
       .grid { grid-template-columns: 1fr 1fr; }
@@ -339,6 +358,10 @@
           <div class="meta-value" id="jobTitle">-</div>
         </div>
         <div class="meta-card">
+          <div class="meta-label">Suggested Sourcing Title</div>
+          <div class="meta-value" id="jobSuggestedTitle">-</div>
+        </div>
+        <div class="meta-card">
           <div class="meta-label">Client</div>
           <div class="meta-value" id="jobClient">-</div>
         </div>
@@ -358,7 +381,7 @@
           <div class="meta-label">City</div>
           <div class="meta-value" id="jobCity">-</div>
         </div>
-        <div class="meta-card">
+        <div class="meta-card full" style="grid-column: 1 / -1;">
           <div class="meta-label">Keywords</div>
           <div class="meta-value" id="jobKeywords">-</div>
         </div>
@@ -372,21 +395,25 @@
         <div class="field">
           <label for="title">Target Title</label>
           <input id="title" type="text" placeholder="e.g. Content Moderator" />
+          <div class="helper">Auto-cleaned from the job title so sourcing is broader and more usable.</div>
         </div>
 
         <div class="field">
           <label for="country">Country</label>
           <input id="country" type="text" placeholder="e.g. Philippines" />
+          <div class="helper">Hard blocker in edge function.</div>
         </div>
 
         <div class="field">
           <label for="state">State / Region</label>
           <input id="state" type="text" placeholder="e.g. Metro Manila" />
+          <div class="helper">Hard blocker in edge function.</div>
         </div>
 
         <div class="field">
           <label for="city">City</label>
           <input id="city" type="text" placeholder="e.g. Quezon City" />
+          <div class="helper">Soft preference for ranking unless you make it strict later.</div>
         </div>
 
         <div class="field">
@@ -402,8 +429,12 @@
         <div class="field full">
           <label for="keywords">Keywords</label>
           <textarea id="keywords" placeholder="Comma-separated keywords from the JD"></textarea>
-          <div class="helper">These are sent to the edge function and improve ranking.</div>
+          <div class="helper">These are sent to the edge function and help ranking. Use concise keywords, not long sentences.</div>
         </div>
+      </div>
+
+      <div class="muted-box">
+        Recommended setup: keep <strong>Target Title</strong> broad, keep <strong>Country</strong> and <strong>State / Region</strong> strict, and let <strong>City</strong> help ranking. This gives better volume without letting non-target locations slip in.
       </div>
 
       <div class="actions">
@@ -469,28 +500,19 @@
           .replace(/'/g, "&#039;");
       }
 
-      function showNotice(message, type = "success") {
-        noticeEl.textContent = message;
+      function showNotice(message, type = "success", duration = 5000) {
+        noticeEl.innerHTML = message;
         noticeEl.className = `notice show ${type}`;
         window.clearTimeout(showNotice._timer);
         showNotice._timer = window.setTimeout(() => {
           noticeEl.className = "notice";
-          noticeEl.textContent = "";
-        }, 4000);
+          noticeEl.innerHTML = "";
+        }, duration);
       }
 
       function clearNotice() {
         noticeEl.className = "notice";
-        noticeEl.textContent = "";
-      }
-
-      function getLocationMatchLabel(rank) {
-        const n = Number(rank || 0);
-        if (n === 1) return "Exact City Match";
-        if (n === 2) return "State Match";
-        if (n === 3) return "Country Match";
-        if (n === 99) return "Outside PH Target";
-        return "Outside Target Area";
+        noticeEl.innerHTML = "";
       }
 
       function isUuid(value) {
@@ -504,6 +526,47 @@
           .filter(Boolean);
       }
 
+      function safeNumber(value) {
+        const n = Number(value);
+        return Number.isFinite(n) ? n : 0;
+      }
+
+      function getSuggestedSourcingTitle(title) {
+        const raw = String(title || "").trim();
+        if (!raw) return "";
+
+        return raw
+          .replace(/\s*-\s*.*$/g, "")
+          .replace(/\(.*?\)/g, "")
+          .replace(/\s{2,}/g, " ")
+          .trim();
+      }
+
+      function getLocationMatchLabel(rank) {
+        const n = Number(rank || 0);
+        if (n === 1) return "Exact City Match";
+        if (n === 2) return "State Match";
+        if (n === 3) return "Country Match";
+        if (n === 99) return "Outside PH Target";
+        return "Outside Target Area";
+      }
+
+      function getLocationChipClass(rank) {
+        const n = Number(rank || 0);
+        if (n === 1 || n === 2) return "chip chip-green";
+        if (n === 3) return "chip chip-amber";
+        return "chip chip-gray";
+      }
+
+      function getEmailValue(prospect) {
+        return prospect.work_email || prospect.personal_email || "-";
+      }
+
+      function getLinkedInValue(url) {
+        if (!url) return "-";
+        return `<a class="inline-link" href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">Open</a>`;
+      }
+
       async function verifyRecruiterAccess(email) {
         const cleanEmail = normalizeEmail(email);
         if (!cleanEmail) throw new Error("Recruiter email is missing.");
@@ -515,12 +578,15 @@
           .eq("active", true);
 
         if (error) throw error;
+
         if (!Array.isArray(data) || data.length === 0) {
           throw new Error(`This account is not authorized for recruiter access. Logged in as: ${cleanEmail}`);
         }
+
         if (data.length > 1) {
           throw new Error(`Duplicate recruiter records found for ${cleanEmail}. Please clean up the recruiters table.`);
         }
+
         return data[0];
       }
 
@@ -573,6 +639,7 @@
 
         document.getElementById("jobId").textContent = data.id || "-";
         document.getElementById("jobTitle").textContent = data.title || "-";
+        document.getElementById("jobSuggestedTitle").textContent = getSuggestedSourcingTitle(data.title || "") || "-";
         document.getElementById("jobClient").textContent = data.client_name || "-";
         document.getElementById("jobWorkSetup").textContent = data.work_setup || "-";
         document.getElementById("jobCountry").textContent = data.country || "-";
@@ -591,10 +658,9 @@
 
         prospectsTable.innerHTML = rows.map(row => {
           const p = row.prospects || {};
-          const email = p.work_email || p.personal_email || "-";
-          const linkedin = p.linkedin_url
-            ? `<a class="inline-link" href="${escapeHtml(p.linkedin_url)}" target="_blank" rel="noopener noreferrer">Open</a>`
-            : "-";
+          const email = getEmailValue(p);
+          const linkedin = getLinkedInValue(p.linkedin_url);
+          const years = safeNumber(p.years_experience);
 
           return `
             <tr>
@@ -605,9 +671,9 @@
               <td>${escapeHtml(p.current_title || "-")}</td>
               <td>${escapeHtml(p.current_company || "-")}</td>
               <td>${escapeHtml(p.location || "-")}</td>
-              <td><span class="chip chip-gray">${escapeHtml(String(p.years_experience ?? 0))}</span></td>
+              <td><span class="chip chip-gray">${escapeHtml(String(years))}</span></td>
               <td><span class="chip chip-indigo">${escapeHtml(String(row.match_score ?? 0))}</span></td>
-              <td><span class="chip chip-green">${escapeHtml(getLocationMatchLabel(row.location_rank))}</span></td>
+              <td><span class="${getLocationChipClass(row.location_rank)}">${escapeHtml(getLocationMatchLabel(row.location_rank))}</span></td>
               <td><span class="chip chip-gray">${escapeHtml(p.source || "-")}</span></td>
               <td>${escapeHtml(email)}</td>
               <td>${escapeHtml(p.phone || "-")}</td>
@@ -663,7 +729,13 @@
           return;
         }
 
+        if (!body.state) {
+          showNotice("State / Region is required for strict location targeting.", "error");
+          return;
+        }
+
         searchBtn.disabled = true;
+        resetFiltersBtn.disabled = true;
         searchBtn.textContent = "Searching...";
         prospectsTable.innerHTML = '<tr><td colspan="13">Searching...</td></tr>';
 
@@ -674,7 +746,9 @@
 
           console.log("source-prospects-v2 response:", { data, error });
 
-          if (error) throw new Error(error.message || "Search failed.");
+          if (error) {
+            throw new Error(error.message || "Search failed.");
+          }
 
           if (!data?.success) {
             prospectsTable.innerHTML = '<tr><td colspan="13">No prospects found.</td></tr>';
@@ -682,7 +756,8 @@
               typeof data?.error === "string"
                 ? data.error
                 : (data?.error?.message || "Search returned no matches."),
-              "warning"
+              "warning",
+              7000
             );
             return;
           }
@@ -691,16 +766,17 @@
           showNotice(`Loaded ${data.count || 0} prospect(s). Saved to pipeline automatically.`, "success");
         } catch (error) {
           prospectsTable.innerHTML = '<tr><td colspan="13">Unable to load prospects.</td></tr>';
-          showNotice(error.message || "Search failed.", "error");
+          showNotice(error.message || "Search failed.", "error", 7000);
         } finally {
           searchBtn.disabled = false;
+          resetFiltersBtn.disabled = false;
           searchBtn.textContent = "Search Prospects";
         }
       }
 
       function resetFilters() {
         if (currentJob) {
-          document.getElementById("title").value = currentJob.title || "";
+          document.getElementById("title").value = getSuggestedSourcingTitle(currentJob.title || "");
           document.getElementById("country").value = currentJob.country || "";
           document.getElementById("state").value = currentJob.state || "";
           document.getElementById("city").value = currentJob.city || "";
