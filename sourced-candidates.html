@@ -1,117 +1,95 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <title>TalentBuzz | Job Sourcing</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="description" content="TalentBuzz job sourcing pipeline." />
+<meta charset="UTF-8" />
+<title>Job Sourcing | TalentBuzz</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="description" content="Search and review sourced prospects for a selected role." />
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
 
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-
-  <style>
-    :root {
-      --primary: #1e3a8a;
-      --primary-2: #2563eb;
-      --text: #0f172a;
-      --muted: #64748b;
-      --border: #e2e8f0;
-      --bg: #f8fbff;
-      --white: #ffffff;
-      --success: #166534;
-      --danger: #b91c1c;
-      --warning: #b45309;
-      --info: #4338ca;
-      --shadow: 0 12px 30px rgba(30, 58, 138, 0.06), 0 2px 10px rgba(15, 23, 42, 0.04);
-      --radius-lg: 18px;
-    }
-
-    * { box-sizing: border-box; }
-    body { margin:0; font-family:"Manrope",sans-serif; background:var(--bg); color:var(--text); line-height:1.6; }
-    .container { max-width:1600px; margin:0 auto; padding:24px 20px 44px; }
-
-    .topbar { display:flex; justify-content:space-between; align-items:flex-start; gap:16px; flex-wrap:wrap; margin-bottom:20px; }
-    .topbar h1 { margin:0 0 6px; color:var(--primary); font-size:2rem; line-height:1.1; }
-    .subtitle { margin:0; color:var(--muted); font-size:0.95rem; }
-    .top-right { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
-    .hello { background: var(--white); border:1px solid var(--border); border-radius:12px; padding:10px 14px; font-weight:700; box-shadow:var(--shadow); }
-    .btn { display:inline-flex; align-items:center; justify-content:center; padding:11px 14px; border-radius:12px; border:1px solid transparent; text-decoration:none; font-weight:800; font-size:0.92rem; cursor:pointer; font-family:inherit; transition:0.18s ease; background:white; white-space:nowrap; color:var(--primary); }
-    .btn:hover { transform:translateY(-1px); }
-    .btn:disabled { opacity:0.65; cursor:not-allowed; transform:none; }
-    .btn-primary { background: linear-gradient(135deg, var(--primary), var(--primary-2)); color:white; }
-    .btn-outline { border-color: var(--border); color: var(--primary); background: white; }
-    .notice { display:none; margin-bottom:18px; padding:12px 14px; border-radius:14px; font-weight:700; font-size:0.92rem; }
-    .notice.show { display:block; }
-    .notice.success { background:#ecfdf5; color:var(--success); border:1px solid #bbf7d0; }
-    .notice.error { background:#fef2f2; color:var(--danger); border:1px solid #fecaca; }
-    .notice.warning { background:#fff7ed; color:var(--warning); border:1px solid #fed7aa; }
-
-    .panel { background:var(--white); border:1px solid var(--border); border-radius:var(--radius-lg); box-shadow:var(--shadow); padding:22px; margin-bottom:20px; }
-    .filters-grid { display:grid; grid-template-columns:1.4fr 1fr 1fr 1fr auto; gap:12px; align-items:end; margin-bottom:16px; }
-    .field label { display:block; margin-bottom:6px; font-size:0.88rem; font-weight:700; color:var(--text); }
-    .field input, .field select { width:100%; padding:11px 12px; border:1px solid var(--border); border-radius:12px; outline:none; font:inherit; background:white; color:var(--text); }
-    .field input:focus, .field select:focus { border-color:#93c5fd; box-shadow:0 0 0 3px rgba(147,197,253,0.25); }
-
-    .pipeline-tracker { display:flex; gap:16px; flex-wrap:wrap; margin-bottom:16px; }
-    .tracker-card { flex:1; min-width:120px; background:var(--white); border:1px solid var(--border); border-radius:12px; padding:14px; text-align:center; box-shadow:var(--shadow); }
-    .tracker-card h3 { margin:0; font-size:1.2rem; color:var(--primary); }
-    .tracker-card p { margin:4px 0 0; color:var(--muted); font-weight:700; }
-
-    .table-wrap { overflow-x:auto; border:1px solid var(--border); border-radius:16px; max-height:700px; }
-    table { width:100%; border-collapse:collapse; background:white; min-width:1500px; }
-    th, td { padding:12px 10px; border-bottom:1px solid var(--border); text-align:left; vertical-align:top; font-size:0.9rem; }
-    th { background:#f8fbff; color:var(--muted); text-transform:uppercase; letter-spacing:0.06em; font-size:0.76rem; font-weight:800; }
-    tr:last-child td { border-bottom:none; }
-    .candidate-name { font-weight:800; color:var(--primary); margin-bottom:2px; }
-    .small { color:var(--muted); font-size:0.82rem; line-height:1.5; }
-    .chip { display:inline-flex; align-items:center; padding:6px 10px; border-radius:999px; font-size:0.75rem; font-weight:800; line-height:1; border:1px solid transparent; }
-    .chip-gray { background:#f1f5f9; color:#475569; border-color:#e2e8f0; }
-    .chip-green { background:#ecfdf5; color:#166534; border-color:#bbf7d0; }
-    .chip-amber { background:#ffedd5; color:#b45309; border-color:#fed7aa; }
-    .inline-link { color: var(--primary-2); font-weight:700; text-decoration:none; }
-    .inline-link:hover { text-decoration:underline; }
-    .table-select { min-width:150px; padding:9px 10px; border-radius:10px; border:1px solid var(--border); font:inherit; background:white; }
-    .empty { color:var(--muted); font-size:0.95rem; padding:12px; text-align:center; }
-    .loading { color:var(--muted); }
-  </style>
+<style>
+:root {
+  --primary: #1e3a8a; --primary-2: #2563eb; --text: #0f172a; --muted: #64748b;
+  --border: #e2e8f0; --bg: #f8fbff; --white: #ffffff; --success: #166534; --danger: #b91c1c;
+  --warning: #b45309; --info: #4338ca; --shadow: 0 12px 30px rgba(30,58,138,0.06), 0 2px 10px rgba(15,23,42,0.04);
+  --radius-lg: 18px;
+}
+* { box-sizing:border-box; }
+body { margin:0; font-family:"Manrope",sans-serif; background:var(--bg); color:var(--text); line-height:1.6; }
+.container { max-width:1600px; margin:0 auto; padding:24px 20px 44px; }
+.topbar { display:flex; justify-content:space-between; align-items:flex-start; gap:16px; flex-wrap:wrap; margin-bottom:20px; }
+.topbar h1 { margin:0 0 6px; color:var(--primary); font-size:2rem; line-height:1.1; }
+.subtitle { margin:0; color:var(--muted); font-size:0.95rem; }
+.top-right { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+.hello { background:var(--white); border:1px solid var(--border); border-radius:12px; padding:10px 14px; font-weight:700; box-shadow:var(--shadow); }
+.btn { display:inline-flex; align-items:center; justify-content:center; padding:11px 14px; border-radius:12px; border:1px solid transparent; text-decoration:none; font-weight:800; font-size:0.92rem; cursor:pointer; font-family:inherit; transition:0.18s ease; background:white; white-space:nowrap; color:var(--primary); }
+.btn:hover { transform:translateY(-1px); }
+.btn:disabled { opacity:0.65; cursor:not-allowed; transform:none; }
+.btn-primary { background:linear-gradient(135deg,var(--primary),var(--primary-2)); color:white; }
+.btn-outline { border-color:var(--border); color:var(--primary); background:white; }
+.btn-danger { border-color:#fecaca; color:var(--danger); background:white; }
+.notice { display:none; margin-bottom:18px; padding:12px 14px; border-radius:14px; font-weight:700; font-size:0.92rem; }
+.notice.show { display:block; }
+.notice.success { background:#ecfdf5; color:var(--success); border:1px solid #bbf7d0; }
+.notice.error { background:#fef2f2; color:var(--danger); border:1px solid #fecaca; }
+.notice.warning { background:#fff7ed; color:var(--warning); border:1px solid #fed7aa; }
+.notice.info { background:#eef2ff; color:var(--info); border:1px solid #c7d2fe; }
+.panel { background:var(--white); border:1px solid var(--border); border-radius:var(--radius-lg); box-shadow:var(--shadow); padding:22px; margin-bottom:20px; }
+.filters-grid { display:grid; grid-template-columns:1.4fr 1fr 1fr 1fr auto; gap:12px; align-items:end; margin-bottom:16px; }
+.field label { display:block; margin-bottom:6px; font-size:0.88rem; font-weight:700; color:var(--text); }
+.field input, .field select { width:100%; padding:11px 12px; border:1px solid var(--border); border-radius:12px; outline:none; font:inherit; background:white; color:var(--text); }
+.field input:focus, .field select:focus { border-color:#93c5fd; box-shadow:0 0 0 3px rgba(147,197,253,0.25); }
+.table-wrap { overflow-x:auto; border:1px solid var(--border); border-radius:16px; max-height:700px; }
+table { width:100%; border-collapse:collapse; background:white; min-width:1500px; }
+th, td { padding:12px 10px; border-bottom:1px solid var(--border); text-align:left; vertical-align:top; font-size:0.9rem; }
+th { background:#f8fbff; color:var(--muted); text-transform:uppercase; letter-spacing:0.06em; font-size:0.76rem; font-weight:800; }
+tr:last-child td { border-bottom:none; }
+.candidate-name { font-weight:800; color:var(--primary); margin-bottom:2px; }
+.small { color:var(--muted); font-size:0.82rem; line-height:1.5; }
+.chip { display:inline-flex; align-items:center; padding:6px 10px; border-radius:999px; font-size:0.75rem; font-weight:800; line-height:1; border:1px solid transparent; }
+.chip-gray { background:#f1f5f9; color:#475569; border-color:#e2e8f0; }
+.chip-green { background:#ecfdf5; color:#166534; border-color:#bbf7d0; }
+.chip-amber { background:#fff7ed; color:#b45309; border-color:#fed7aa; }
+.inline-link { color:var(--primary-2); font-weight:700; text-decoration:none; }
+.inline-link:hover { text-decoration:underline; }
+.empty { color:var(--muted); font-size:0.95rem; padding:12px; text-align:center; }
+@media (max-width:1200px){ .filters-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+@media (max-width:760px){ .container{padding:18px 14px 34px;} .topbar h1{font-size:1.7rem;} .filters-grid{grid-template-columns:1fr;} }
+</style>
 </head>
-
 <body>
 <div class="container">
   <div class="topbar">
     <div>
       <h1>Job Sourcing</h1>
-      <p class="subtitle">Search and review prospects for a selected role.</p>
+      <p class="subtitle">Search and review sourced prospects for a selected role.</p>
     </div>
     <div class="top-right">
       <div class="hello" id="helloRecruiter">Hello</div>
       <a href="recruiter-dashboard.html" class="btn btn-outline">Dashboard</a>
       <a href="client-roles-input.html" class="btn btn-outline">Roles</a>
-      <button id="searchBtn" class="btn btn-primary">Search & Source</button>
+      <button id="refreshBtn" class="btn btn-primary">Refresh</button>
       <button id="logoutBtn" class="btn btn-danger">Logout</button>
     </div>
   </div>
 
   <div id="notice" class="notice"></div>
 
-  <div class="pipeline-tracker">
-    <div class="tracker-card"><h3 id="countSourced">0</h3><p>Sourced</p></div>
-    <div class="tracker-card"><h3 id="countShortlisted">0</h3><p>Shortlisted</p></div>
-    <div class="tracker-card"><h3 id="countInterview">0</h3><p>Interview</p></div>
-  </div>
-
+  <!-- Filters -->
   <div class="panel">
-    <h2>Filters</h2>
+    <h2>Search Filters</h2>
     <div class="filters-grid">
-      <div class="field"><label for="title">Title</label><input id="title" type="text" /></div>
-      <div class="field"><label for="country">Country</label><input id="country" type="text" /></div>
-      <div class="field"><label for="state">State</label><input id="state" type="text" /></div>
-      <div class="field"><label for="city">City</label><input id="city" type="text" /></div>
-      <div class="field"><label>&nbsp;</label><button id="resetFiltersBtn" class="btn btn-outline">Reset</button></div>
+      <div class="field"><label for="titleFilter">Title</label><input id="titleFilter" placeholder="Target title"/></div>
+      <div class="field"><label for="countryFilter">Country</label><input id="countryFilter" placeholder="Country"/></div>
+      <div class="field"><label for="stateFilter">State</label><input id="stateFilter" placeholder="State"/></div>
+      <div class="field"><label for="cityFilter">City</label><input id="cityFilter" placeholder="City (optional)"/></div>
+      <button id="searchBtn" class="btn btn-primary">Search & Source</button>
     </div>
   </div>
 
+  <!-- Prospects Table -->
   <div class="panel">
     <h2>Prospects</h2>
     <div class="table-wrap">
@@ -121,14 +99,15 @@
             <th>Prospect</th>
             <th>Title</th>
             <th>Company</th>
-            <th>Match</th>
             <th>Location</th>
+            <th>Match Score</th>
+            <th>Location Match</th>
             <th>Email</th>
             <th>LinkedIn</th>
           </tr>
         </thead>
         <tbody id="prospectsTable">
-          <tr><td colspan="7" class="empty">Click "Search & Source" to load prospects.</td></tr>
+          <tr><td colspan="8" class="empty">Click Search & Source to load prospects.</td></tr>
         </tbody>
       </table>
     </div>
@@ -138,106 +117,74 @@
 <script>
 document.addEventListener("DOMContentLoaded", async () => {
   const SUPABASE_URL = "https://dilalntcxmvdcmwxjcct.supabase.co";
-  const SUPABASE_ANON_KEY = "sb_publishable_HrLVIUwnaRo54yijtrbWBQ_1aeb4ezs";
-  const supabase = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  const SUPABASE_KEY = "sb_publishable_HrLVIUwnaRo54yijtrbWBQ_1aeb4ezs";
+  const supabase = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
   const els = {
     hello: document.getElementById("helloRecruiter"),
-    notice: document.getElementById("notice"),
-    title: document.getElementById("title"),
-    country: document.getElementById("country"),
-    state: document.getElementById("state"),
-    city: document.getElementById("city"),
+    title: document.getElementById("titleFilter"),
+    country: document.getElementById("countryFilter"),
+    state: document.getElementById("stateFilter"),
+    city: document.getElementById("cityFilter"),
     searchBtn: document.getElementById("searchBtn"),
-    resetBtn: document.getElementById("resetFiltersBtn"),
     prospectsTable: document.getElementById("prospectsTable"),
-    countSourced: document.getElementById("countSourced"),
-    countShortlisted: document.getElementById("countShortlisted"),
-    countInterview: document.getElementById("countInterview"),
-    logoutBtn: document.getElementById("logoutBtn"),
+    notice: document.getElementById("notice"),
+    refreshBtn: document.getElementById("refreshBtn"),
+    logoutBtn: document.getElementById("logoutBtn")
   };
 
-  let currentUser = null;
-  let allProspects = [];
-
-  const nearbyCities = { "metro manila": ["makati","taguig","quezon city","pasig","mandaluyong","parañaque","pasay","manila"] };
-
-  function escapeHtml(value){ return String(value||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
+  function escapeHtml(value){return String(value||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#039;");}
   function showNotice(msg,type="success"){ els.notice.textContent=msg; els.notice.className=`notice show ${type}`; window.clearTimeout(showNotice._timer); showNotice._timer=setTimeout(()=>{ els.notice.className="notice"; els.notice.textContent=""; },4000); }
-  function normalizeText(value){ return String(value||"").trim().toLowerCase(); }
 
   async function protectPage(){
-    const { data:{session} } = await supabase.auth.getSession();
+    const { data:{ session } } = await supabase.auth.getSession();
     if(!session?.user){ window.location.href="recruiter-login.html"; return false; }
-    currentUser = session.user; els.hello.textContent = `Hello, ${currentUser.email||"Recruiter"}`; return true;
+    els.hello.textContent = `Hello, ${session.user.email || "Recruiter"}`;
+    return true;
   }
 
-  function computeLocationScore(prospect) {
-    const targetCountry = normalizeText(els.country.value);
-    const targetState = normalizeText(els.state.value);
-    const targetCity = normalizeText(els.city.value);
-
-    const pCountry = normalizeText(prospect.country);
-    const pState = normalizeText(prospect.state);
-    const pCity = normalizeText(prospect.city);
-
-    if(pCountry !== targetCountry) return 0;
-    if(pCity && pCity === targetCity) return 30;
-    if(targetState in nearbyCities && nearbyCities[targetState].includes(pCity)) return 25;
-    if(pState === targetState) return 20;
-    return 10;
-  }
-
-  function computeMatchScore(prospect){
-    const locationScore = computeLocationScore(prospect);
-    // placeholder for title/skills match: assume 0–70 random for demo
-    const otherScore = Math.floor(Math.random()*70);
-    return locationScore + otherScore;
-  }
+  function getLocationLabel(rank){ if(rank===1) return "Exact City"; if(rank===2) return "State"; if(rank===3) return "Country"; if(rank===99) return "Outside Target"; return "-"; }
+  function getScoreChip(score){ if(score>=75) return "chip chip-green"; if(score>=50) return "chip chip-amber"; return "chip chip-gray"; }
 
   function renderProspects(rows){
-    allProspects = rows || [];
-    if(!rows.length){ els.prospectsTable.innerHTML='<tr><td colspan="7" class="empty">No prospects found.</td></tr>'; return; }
-
-    els.prospectsTable.innerHTML = rows.map(p=>{
-      const score = computeMatchScore(p);
+    if(!rows.length){ els.prospectsTable.innerHTML=`<tr><td colspan="8" class="empty">No prospects found.</td></tr>`; return; }
+    els.prospectsTable.innerHTML = rows.map(r=>{
+      const linkedin = r.linkedin_url?`<a class="inline-link" href="${escapeHtml(r.linkedin_url)}" target="_blank" rel="noopener noreferrer">Open</a>`:"-";
       return `<tr>
-        <td><div class="candidate-name">${escapeHtml(p.full_name||"-")}</div><div class="small">${escapeHtml(p.location||"-")}</div></td>
-        <td>${escapeHtml(p.current_title||"-")}</td>
-        <td>${escapeHtml(p.current_company||"-")}</td>
-        <td><span class="chip chip-gray">${score}</span></td>
-        <td><span class="chip ${score>=50?'chip-green':'chip-amber'}">${escapeHtml(p.city || p.state || p.country)}</span></td>
-        <td>${escapeHtml(p.email||"-")}</td>
-        <td>${p.linkedin_url?`<a href="${escapeHtml(p.linkedin_url)}" target="_blank" class="inline-link">Open</a>`:"-"}</td>
+        <td><div class="candidate-name">${escapeHtml(r.full_name)}</div><div class="small">${escapeHtml(r.location)}</div></td>
+        <td>${escapeHtml(r.current_title)}</td>
+        <td>${escapeHtml(r.current_company)}</td>
+        <td>${escapeHtml(r.location)}</td>
+        <td><span class="${getScoreChip(r.match_score)}">${r.match_score}</span></td>
+        <td><span class="chip chip-gray">${getLocationLabel(r.location_rank)}</span></td>
+        <td>${escapeHtml(r.email||"-")}</td>
+        <td>${linkedin}</td>
       </tr>`;
     }).join("");
   }
 
   async function searchProspects(){
-    showNotice("Sourcing candidates...","info");
-    els.searchBtn.disabled = true;
     try{
-      const { data, error } = await supabase.functions.invoke("source-prospects-v2", {
-        body: {
-          recruiter_email: currentUser?.email||null,
-          title: els.title.value,
-          country: els.country.value,
-          state: els.state.value,
-          city: els.city.value
-        }
-      });
+      els.searchBtn.disabled=true; els.searchBtn.textContent="Sourcing...";
+      const payload = {
+        title: els.title.value.trim(),
+        country: els.country.value.trim(),
+        state: els.state.value.trim(),
+        city: els.city.value.trim()
+      };
+      const { data, error } = await supabase.functions.invoke("source-prospects-v2",{ body: payload });
       if(error) throw error;
       renderProspects(data.data||[]);
-      showNotice(`Loaded ${data.data?.length||0} prospect(s).`, "success");
-    }catch(err){ showNotice(err.message||"Failed to source.","error"); }
-    els.searchBtn.disabled = false;
+    } catch(err){ showNotice(err.message||"Failed to source prospects","error"); }
+    finally{ els.searchBtn.disabled=false; els.searchBtn.textContent="Search & Source"; }
   }
 
   els.searchBtn.addEventListener("click", searchProspects);
-  els.resetBtn.addEventListener("click",()=>{ els.title.value=""; els.country.value=""; els.state.value=""; els.city.value=""; });
-  els.logoutBtn.addEventListener("click", async ()=>{ await supabase.auth.signOut(); window.location.href="recruiter-login.html"; });
+  els.refreshBtn.addEventListener("click", searchProspects);
+  els.logoutBtn.addEventListener("click", async()=>{ await supabase.auth.signOut(); window.location.href="recruiter-login.html"; });
 
-  const allowed = await protectPage(); if(!allowed) return;
+  const allowed = await protectPage();
+  if(allowed) searchProspects();
 });
 </script>
 </body>
