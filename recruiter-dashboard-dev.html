@@ -1238,519 +1238,192 @@ function renderStats(list) {
   ).length;
 }
   /* =========================================================
-BLOCK 11: CLIENT + ENDORSEMENT HELPERS
-Identifier: ENDORSEMENT_ENGINE
-Purpose: Prepare endorsement summary and recipient details
+BLOCK 11: LOAD RECRUITERS
+Identifier: LOAD_RECRUITERS
+Purpose: Fetch recruiters for dropdown + mapping
 ========================================================= */
-async function fetchClientRecipient(clientName) {
-  const normalizedClient = normalizeText(clientName);
-  if (!normalizedClient) return "";
-
-  const { data, error } = await supabaseClient
-    .from("clients")
-    .select("client_name, endorsement_emails")
-    .ilike("client_name", normalizedClient)
-    .maybeSingle();
-
-  if (error) {
-    console.error("Client lookup error:", error);
-    return "";
-  }
-
-  if (!data) return "";
-
-  const emails = parseMaybeJson(data.endorsement_emails);
-  if (Array.isArray(emails)) {
-    return emails.filter(Boolean).join(", ");
-  }
-
-  return normalizeText(data.endorsement_emails);
-}
-
-function buildCandidateSummary(app) {
-  const profile = getProfileFromApplication(app);
-  const job = getJobFromApplication(app);
-
-  const pieces = [
-    profile.full_name || app.email,
-    app.job_title || job.title,
-    getClientName(app),
-    profile.location || "",
-    profile.phone || ""
-  ].filter(Boolean);
-
-  return safeJoin(pieces);
-}
-
-async function buildEndorsementSubject(app) {
-  const candidateName = getProfileFromApplication(app).full_name || app.email || "Candidate";
-  const jobTitle = app.job_title || getJobFromApplication(app).title || "Open Role";
-  const clientName = getClientName(app);
-  return `Candidate Endorsement: ${candidateName} for ${jobTitle}${clientName !== "-" ? ` | ${clientName}` : ""}`;
-}
-
-async function buildEndorsementBody(app) {
-  const profile = getProfileFromApplication(app);
-  const candidateName = profile.full_name || app.email || "Candidate";
-  const jobTitle = app.job_title || getJobFromApplication(app).title || "the role";
-
-  const notesPreview = buildOptimizedInterviewNotes({
-    strengths: els.notesStrengths.value,
-    risks: els.notesRisks.value,
-    summary: els.notesSummary.value,
-    decisionStatus: els.notesDecisionStatus.value,
-    candidateName,
-    jobTitle
-  });
-
-  return [
-    `Hi,`,
-    ``,
-    `Please see below the endorsement details for ${candidateName} for the ${jobTitle} role.`,
-    ``,
-    notesPreview || `The candidate has been reviewed and is being endorsed for your consideration.`,
-    ``,
-    `Best regards,`,
-    state.currentRecruiterRecord?.full_name || "TalentBuzz",
-    `TalentBuzz`
-  ].join("\n");
-}
-
-async function openEndorseModalByAppId(applicationId) {
-  const app = state.allApplications.find(item => item.id === applicationId);
-  if (!app) return;
-
-  state.selectedEndorsementApp = app;
-
-  els.endorseSummary.textContent = buildCandidateSummary(app);
-  els.endorseSubject.value = await buildEndorsementSubject(app);
-  els.endorseBody.value = await buildEndorsementBody(app);
-  els.endorseRecipient.value = await fetchClientRecipient(getClientName(app));
-
-  els.endorseModal.classList.add("show");
-  els.endorseModal.setAttribute("aria-hidden", "false");
-}
-
-function closeEndorseModal() {
-  state.selectedEndorsementApp = null;
-  els.endorseSummary.textContent = "";
-  els.endorseSubject.value = "";
-  els.endorseBody.value = "";
-  els.endorseRecipient.value = "";
-  els.endorseModal.classList.remove("show");
-  els.endorseModal.setAttribute("aria-hidden", "true");
-}
-  /* =========================================================
-BLOCK 12: INVITE RECRUITER
-Identifier: RECRUITER_INVITE
-Purpose: Add recruiter record and optionally trigger invite flow
-========================================================= */
-function openInviteRecruiterModal() {
-  els.inviteRecruiterName.value = "";
-  els.inviteRecruiterEmail.value = "";
-  els.inviteRecruiterModal.classList.add("show");
-  els.inviteRecruiterModal.setAttribute("aria-hidden", "false");
-}
-
-function closeInviteRecruiterModal() {
-  els.inviteRecruiterModal.classList.remove("show");
-  els.inviteRecruiterModal.setAttribute("aria-hidden", "true");
-}
-
-async function inviteRecruiter() {
-  const fullName = normalizeText(els.inviteRecruiterName.value);
-  const email = normalizeEmail(els.inviteRecruiterEmail.value);
-
-  if (!fullName || !email) {
-    showNotice("Please enter recruiter name and email.", "error");
-    return;
-  }
-
-  els.sendInviteRecruiterBtn.disabled = true;
-  els.sendInviteRecruiterBtn.textContent = "Sending...";
-
+async function loadRecruiters() {
   try {
-    const { error } = await supabaseClient
+    const { data, error } = await supabaseClient
       .from("recruiters")
-      .upsert(
-        [{ full_name: fullName, email, active: true }],
-        { onConflict: "email" }
-      );
+      .select("id, full_name, email, active")
+      .eq("active", true);
 
     if (error) throw error;
 
-    await loadRecruitersMap();
-    populateRecruiterFilter();
-    showNotice(`Recruiter record saved for ${email}.`, "success");
-    closeInviteRecruiterModal();
-  } catch (err) {
-    console.error(err);
-    showNotice(err.message || "Failed to invite recruiter.", "error");
-  } finally {
-    els.sendInviteRecruiterBtn.disabled = false;
-    els.sendInviteRecruiterBtn.textContent = "Send Invite";
-  }
-}
-  /* =========================================================
-BLOCK 13: INTERVIEW NOTES MODAL LOGIC
-Identifier: NOTES_MODAL
-Purpose: Open, load, save, and manage structured interview notes
-========================================================= */
-async function openInterviewNotesModalByAppId(applicationId) {
-  const app = state.allApplications.find(item => item.id === applicationId);
-  if (!app) return;
+    state.recruitersList = data || [];
 
-  resetInterviewNotesForm();
-  state.currentInterviewNotesApp = app;
-
-  const profile = getProfileFromApplication(app);
-  const job = getJobFromApplication(app);
-
-  els.notesApplicationId.value = app.id || "";
-  els.notesApplicantProfileId.value = profile.id || app.applicant_profile_id || "";
-  els.notesJobId.value = app.job_id || job.id || "";
-  els.notesRecruiterEmail.value = app.recruiter_email || state.currentUser?.email || "";
-  els.notesCandidateName.value = profile.full_name || "";
-  els.notesJobTitle.value = app.job_title || job.title || "";
-
-  els.interviewNotesTitle.textContent = `Interview Notes - ${profile.full_name || app.email || "Candidate"}`;
-  els.interviewNotesContext.textContent = safeJoin([
-    profile.full_name || app.email,
-    app.job_title || job.title,
-    getClientName(app)
-  ]);
-
-  els.interviewNotesModal.classList.add("show");
-  els.interviewNotesModal.setAttribute("aria-hidden", "false");
-}
-
-function closeInterviewNotesModal() {
-  state.currentInterviewNotesApp = null;
-  els.interviewNotesModal.classList.remove("show");
-  els.interviewNotesModal.setAttribute("aria-hidden", "true");
-}
-
-async function saveInterviewNotes() {
-  const payload = {
-    application_id: els.notesApplicationId.value || null,
-    applicant_profile_id: els.notesApplicantProfileId.value || null,
-    job_id: els.notesJobId.value || null,
-    recruiter_email: normalizeEmail(els.notesRecruiterEmail.value),
-    strengths: normalizeText(els.notesStrengths.value),
-    risks: normalizeText(els.notesRisks.value),
-    summary: normalizeText(els.notesSummary.value),
-    decision_status: normalizeText(els.notesDecisionStatus.value),
-    optimized_notes: normalizeText(els.notesOptimizedPreview.value),
-    updated_at: new Date().toISOString()
-  };
-
-  if (!payload.application_id) {
-    showNotesSaveMessage("Missing application ID.", "error");
-    return;
-  }
-
-  try {
-    refreshOptimizedNotesPreview();
-
-    const { error } = await supabaseClient
-      .from("interview_notes")
-      .upsert(payload, { onConflict: "application_id" });
-
-    if (error) throw error;
-
-    showNotesSaveMessage("Interview notes saved successfully.", "success");
-    await loadApplications();
-  } catch (err) {
-    console.error(err);
-    showNotesSaveMessage(err.message || "Failed to save interview notes.", "error");
-  }
-}
-/* =========================================================
-BLOCK 14: SCREENING REVIEW MODAL
-Identifier: SCREENING_MODAL
-Purpose: Review screening responses and push into notes
-========================================================= */
-function normalizeScreeningResponses(rawValue) {
-  const parsed = parseMaybeJson(rawValue);
-
-  if (!parsed) return [];
-
-  if (Array.isArray(parsed)) {
-    return parsed.map((item, index) => {
-      if (typeof item === "string") {
-        return {
-          question: `Question ${index + 1}`,
-          answer: item
-        };
-      }
-
-      return {
-        question:
-          item.question ||
-          item.label ||
-          item.prompt ||
-          `Question ${index + 1}`,
-        answer:
-          item.answer ??
-          item.response ??
-          item.value ??
-          item.selected_option ??
-          item.selectedAnswer ??
-          "-"
-      };
+    state.recruitersMap = {};
+    state.recruitersList.forEach(rec => {
+      state.recruitersMap[normalizeEmail(rec.email)] = rec.full_name;
     });
-  }
 
-  if (typeof parsed === "object") {
-    return Object.entries(parsed).map(([key, value], index) => ({
-      question: key || `Question ${index + 1}`,
-      answer: typeof value === "object"
-        ? JSON.stringify(value)
-        : String(value ?? "-")
-    }));
+  } catch (err) {
+    console.error("loadRecruiters error:", err);
+    showNotice("Failed to load recruiters.", "error");
   }
-
-  return [];
 }
 
-function renderScreeningResponses(responses) {
-  if (!responses.length) {
-    return `
-      <div class="empty">
-        No screening questions or answers were found for this application.
-      </div>
-    `;
-  }
 
-  return responses.map((item, index) => `
-    <div class="panel" style="padding:14px;margin-bottom:12px;">
-      <div style="font-weight:800;color:var(--primary);margin-bottom:6px;">
-        Question ${index + 1}
-      </div>
-      <div style="margin-bottom:6px;">
-        ${escapeHtml(item.question || "-")}
-      </div>
-      <div class="small">
-        <strong>Answer:</strong> ${escapeHtml(item.answer || "-")}
-      </div>
-    </div>
-  `).join("");
-}
-
-function closeScreeningModal() {
-  state.currentScreeningAppId = null;
-  state.currentScreeningResponses = [];
-  els.screeningContainer.innerHTML = "";
-  els.screeningStrengths.value = "";
-  els.screeningRisks.value = "";
-  els.screeningSummary.value = "";
-  els.screeningDecision.value = "";
-  els.screeningModal.classList.remove("show");
-  els.screeningModal.setAttribute("aria-hidden", "true");
-}
-
-async function openScreeningModalByAppId(applicationId) {
-  const app = state.allApplications.find(item => item.id === applicationId);
-  if (!app) return;
-
-  state.currentScreeningAppId = applicationId;
-
-  const profile = getProfileFromApplication(app);
-
-  els.screeningTitle.textContent = `Screening Review - ${profile.full_name || app.email || "Candidate"}`;
-  els.screeningContext.textContent = safeJoin([
-    profile.full_name || app.email,
-    app.job_title || "",
-    getClientName(app)
-  ]);
-
-  const responsesFromAnswers = normalizeScreeningResponses(app.screening_answers);
-  const responsesFromResponses = normalizeScreeningResponses(app.screening_responses);
-
-  const responses = responsesFromAnswers.length
-    ? responsesFromAnswers
-    : responsesFromResponses;
-
-  state.currentScreeningResponses = responses;
-
-  els.screeningContainer.innerHTML = renderScreeningResponses(responses);
-
-  els.screeningStrengths.value = normalizeText(app.screening_review_strengths);
-  els.screeningRisks.value = normalizeText(app.screening_review_risks);
-  els.screeningSummary.value = normalizeText(app.screening_review_summary);
-  els.screeningDecision.value = normalizeText(app.screening_review_decision);
-
-  console.log("Screening modal app data:", app);
-  console.log("Parsed screening responses:", responses);
-
-  els.screeningModal.classList.add("show");
-  els.screeningModal.setAttribute("aria-hidden", "false");
-}
-
-async function generateScreeningSummary() {
-  const responses = state.currentScreeningResponses || [];
-
-  if (!responses.length) {
-    showNotice("No screening responses available for this application.", "error");
-    return;
-  }
-
-  const strengths = [];
-  const risks = [];
-
-  responses.forEach(item => {
-    const q = normalizeText(item.question).toLowerCase();
-    const a = normalizeText(item.answer);
-
-    if (a && a !== "-") {
-      strengths.push(`${item.question}: ${a}`);
-    } else {
-      risks.push(`${item.question}: No answer provided`);
-    }
-
-    if (q.includes("salary") || q.includes("compensation")) {
-      risks.push(`Validate compensation alignment: ${a || "No answer provided"}`);
-    }
-
-    if (q.includes("notice period") || q.includes("start date")) {
-      risks.push(`Check availability/start timeline: ${a || "No answer provided"}`);
-    }
-
-    if (
-      q.includes("experience") ||
-      q.includes("tools") ||
-      q.includes("skills") ||
-      q.includes("qualification")
-    ) {
-      strengths.push(`Relevant qualification response: ${a || "No answer provided"}`);
-    }
-  });
-
-  els.screeningStrengths.value = strengths.length
-    ? strengths.join("\n")
-    : "Candidate provided screening responses for recruiter review.";
-
-  els.screeningRisks.value = risks.length
-    ? risks.join("\n")
-    : "No major screening risks identified from the submitted responses.";
-
-  els.screeningSummary.value = responses.map((item, index) => {
-    return `Q${index + 1}: ${item.question}\nA: ${item.answer || "-"}`;
-  }).join("\n\n");
-}
-
-async function saveScreeningReview() {
-  if (!state.currentScreeningAppId) {
-    showNotice("No screening application selected.", "error");
-    return;
-  }
-
+/* =========================================================
+BLOCK 12: LOAD CLIENTS
+Identifier: LOAD_CLIENTS
+Purpose: Fetch clients for filter dropdown
+========================================================= */
+async function loadClients() {
   try {
-    const { error } = await supabaseClient
-      .from("applications")
-      .update({
-        screening_review_strengths: normalizeText(els.screeningStrengths.value),
-        screening_review_risks: normalizeText(els.screeningRisks.value),
-        screening_review_summary: normalizeText(els.screeningSummary.value),
-        screening_review_decision: normalizeText(els.screeningDecision.value)
-      })
-      .eq("id", state.currentScreeningAppId);
+    const { data, error } = await supabaseClient
+      .from("clients")
+      .select("id, client_name");
 
     if (error) throw error;
 
-    showNotice("Screening review saved.", "success");
-    await loadApplications();
+    state.clientsMap = {};
+    (data || []).forEach(c => {
+      state.clientsMap[c.client_name] = true;
+    });
+
   } catch (err) {
-    console.error(err);
-    showNotice(err.message || "Failed to save screening review.", "error");
+    console.error("loadClients error:", err);
   }
 }
 
-function pushScreeningToInterviewNotes() {
-  els.notesStrengths.value = normalizeText(els.screeningStrengths.value);
-  els.notesRisks.value = normalizeText(els.screeningRisks.value);
-  els.notesSummary.value = normalizeText(els.screeningSummary.value);
-  els.notesDecisionStatus.value = normalizeText(els.screeningDecision.value);
-  refreshOptimizedNotesPreview();
-  closeScreeningModal();
-  showNotice("Screening review pushed to interview notes fields.", "success");
-}
-  /* =========================================================
-BLOCK 15: FILTER HELPERS
-Identifier: FILTER_ENGINE
-Purpose: Build dropdown filters and apply search/filter logic
+
+/* =========================================================
+BLOCK 13: POPULATE FILTER DROPDOWNS
+Identifier: FILTER_DROPDOWNS
+Purpose: Fill Job / Client / Recruiter filters
 ========================================================= */
-function populateSelect(selectEl, values, defaultLabel) {
-  if (!selectEl) return;
-  const currentValue = selectEl.value;
-  selectEl.innerHTML = `<option value="">${defaultLabel}</option>` + values.map(value => `
-    <option value="${escapeHtml(value)}">${escapeHtml(value)}</option>
-  `).join("");
-  selectEl.value = values.includes(currentValue) ? currentValue : "";
-}
-
 function populateJobFilter() {
-  const jobs = [...new Set(
-    state.allApplications
-      .map(app => normalizeText(app.job_title || getJobFromApplication(app).title))
-      .filter(Boolean)
-  )].sort((a, b) => a.localeCompare(b));
+  if (!els.jobFilter) return;
 
-  populateSelect(els.jobFilter, jobs, "All jobs");
+  const jobs = [...new Set(
+    state.allApplications.map(a => a.job_title).filter(Boolean)
+  )];
+
+  els.jobFilter.innerHTML =
+    `<option value="">All jobs</option>` +
+    jobs.map(j => `<option value="${escapeHtml(j)}">${escapeHtml(j)}</option>`).join("");
 }
 
 function populateClientFilter() {
-  const clients = [...new Set(
-    state.allApplications
-      .map(app => normalizeText(getClientName(app)))
-      .filter(value => value && value !== "-")
-  )].sort((a, b) => a.localeCompare(b));
+  if (!els.clientFilter) return;
 
-  populateSelect(els.clientFilter, clients, "All clients");
+  const clients = [...new Set(
+    state.allApplications.map(a => getClientName(a)).filter(Boolean)
+  )];
+
+  els.clientFilter.innerHTML =
+    `<option value="">All clients</option>` +
+    clients.map(c => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join("");
 }
 
 function populateRecruiterFilter() {
-  const recruiters = [...new Set(
-    state.allApplications
-      .map(app => normalizeText(app.recruiter_email))
-      .filter(Boolean)
-  )].sort((a, b) => a.localeCompare(b));
+  if (!els.recruiterFilter) return;
 
-  els.recruiterFilter.innerHTML = `<option value="">All recruiters</option>` + recruiters.map(email => `
-    <option value="${escapeHtml(email)}">${escapeHtml(getRecruiterName(email))}</option>
-  `).join("");
+  els.recruiterFilter.innerHTML =
+    `<option value="">All recruiters</option>` +
+    state.recruitersList.map(rec =>
+      `<option value="${escapeHtml(rec.email)}">${escapeHtml(rec.full_name)}</option>`
+    ).join("");
 }
 
-function getFilteredApplications() {
-  const search = normalizeText(els.searchInput.value).toLowerCase();
-  const job = normalizeText(els.jobFilter.value);
-  const client = normalizeText(els.clientFilter.value);
-  const status = normalizeText(els.statusFilter.value).toLowerCase();
-  const recruiter = normalizeText(els.recruiterFilter.value).toLowerCase();
-  const source = normalizeText(els.sourceFilter.value).toLowerCase();
-  const sla = normalizeText(els.slaFilter.value).toLowerCase();
 
-  return state.allApplications.filter(app => {
-    const profile = getProfileFromApplication(app);
-    const fullName = normalizeText(profile.full_name).toLowerCase();
-    const email = normalizeText(app.email || profile.email).toLowerCase();
-    const jobTitle = normalizeText(app.job_title || getJobFromApplication(app).title);
-    const clientName = normalizeText(getClientName(app));
-    const recruiterEmail = normalizeText(app.recruiter_email).toLowerCase();
-    const sourceValue = normalizeText(app.application_source).toLowerCase();
-    const slaValue = computeSlaStatus(app).toLowerCase();
-    const statusValue = normalizeText(app.status).toLowerCase();
+/* =========================================================
+BLOCK 14: SAFE TABLE RESET
+Identifier: TABLE_RESET
+Purpose: Prevent stuck loading state
+========================================================= */
+function showLoadingState() {
+  if (!els.applicationsTable) return;
 
-    const matchesSearch = !search || fullName.includes(search) || email.includes(search);
-    const matchesJob = !job || jobTitle === job;
-    const matchesClient = !client || clientName === client;
-    const matchesStatus = !status || statusValue === status;
-    const matchesRecruiter = !recruiter || recruiterEmail === recruiter;
-    const matchesSource = !source || sourceValue === source;
-    const matchesSla = !sla || slaValue === sla;
+  els.applicationsTable.innerHTML =
+    `<tr><td colspan="18" class="empty loading">Loading candidates...</td></tr>`;
+}
 
-    return matchesSearch && matchesJob && matchesClient && matchesStatus && matchesRecruiter && matchesSource && matchesSla;
-  });
+function showErrorState(message = "Failed to load candidates.") {
+  if (!els.applicationsTable) return;
+
+  els.applicationsTable.innerHTML =
+    `<tr><td colspan="18" class="empty">${escapeHtml(message)}</td></tr>`;
+}
+
+
+/* =========================================================
+BLOCK 15: DATA LOADER (CRITICAL FIX)
+Identifier: DATA_FETCHER
+Purpose: Load applications safely (NO MORE STUCK LOADING)
+========================================================= */
+async function loadApplications() {
+  try {
+    clearNotice();
+    showLoadingState();
+
+    if (els.refreshBtn) {
+      els.refreshBtn.disabled = true;
+      els.refreshBtn.textContent = "Refreshing...";
+    }
+
+    const { data, error } = await supabaseClient
+      .from("applications")
+      .select(`
+        id,
+        email,
+        job_id,
+        job_title,
+        status,
+        created_at,
+        recruiter_email,
+        application_source,
+        screening_result,
+        screening_score,
+        stage_note_code,
+        stage_note_label,
+        endorsement_status,
+        sla_status,
+        applicant_profiles (
+          id,
+          full_name,
+          email,
+          phone,
+          location,
+          experience_summary,
+          experience_years,
+          total_experience,
+          resume_url,
+          resume_path
+        ),
+        jobs (
+          id,
+          title,
+          client_name
+        )
+      `)
+      .order("created_at", { ascending: false });
+
+    if (error) throw error;
+
+    // 🔥 SAFETY: always assign array
+    state.allApplications = Array.isArray(data) ? data : [];
+
+    // Populate dropdowns
+    populateJobFilter();
+    populateClientFilter();
+    populateRecruiterFilter();
+
+    // Render table
+    renderTable();
+
+  } catch (err) {
+    console.error("loadApplications error:", err);
+    showNotice(err.message || "Failed to load applications.", "error");
+    showErrorState();
+  } finally {
+    if (els.refreshBtn) {
+      els.refreshBtn.disabled = false;
+      els.refreshBtn.textContent = "Refresh";
+    }
+  }
 }
   /* =========================================================
 BLOCK 16: STATS RENDERING
