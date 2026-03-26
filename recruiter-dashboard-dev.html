@@ -860,3 +860,227 @@
   </div>
 </div>
 <script>
+/* =========================================================
+BLOCK 01: APP INITIALIZATION
+Identifier: APP_BOOT
+Purpose: Start BuzzHire after the page fully loads
+========================================================= */
+document.addEventListener("DOMContentLoaded", () => {
+  console.log("✅ BuzzHire script started");
+
+  /* =========================================================
+  BLOCK 02: SUPABASE CONFIGURATION
+  Identifier: SUPABASE_CONFIG
+  Purpose: Connect the dashboard to Supabase
+  ========================================================= */
+  const SUPABASE_URL = "https://dilalntcxmvdcmwxjcct.supabase.co";
+  const SUPABASE_ANON_KEY = "YeyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRpbGFsbnRjeG12ZGNtd3hqY2N0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM4OTk4NTQsImV4cCI6MjA4OTQ3NTg1NH0.nlltxL-K-b0tsge2UR3VPPE0ZBPADuCY8pU_G_Ygmkw";
+  const RESUME_BUCKET = "resumes";
+
+  const supabaseClient = supabase.createClient(
+    SUPABASE_URL,
+    SUPABASE_ANON_KEY
+  );
+
+  /* =========================================================
+  BLOCK 03: STATIC CONFIG / ENUMS
+  Identifier: APP_ENUMS
+  Purpose: Central source for statuses and reusable lists
+  ========================================================= */
+  const STATUS_OPTIONS = [
+    "submitted",
+    "failed paper screening",
+    "endorsed",
+    "assessment",
+    "initial",
+    "final",
+    "hired",
+    "onboarded",
+    "no-show (onboarding)",
+    "withdrawn",
+    "rejected"
+  ];
+
+  const REJECTED_STATUSES = [
+    "failed paper screening",
+    "withdrawn",
+    "rejected",
+    "no-show (onboarding)"
+  ];
+
+  const INTERVIEWED_STATUSES = [
+    "assessment",
+    "initial",
+    "final",
+    "endorsed"
+  ];
+
+  const HIRED_STATUSES = [
+    "hired",
+    "onboarded"
+  ];
+
+  const STAGE_NOTE_OPTIONS = {
+    submitted: [
+      { code: "", label: "Select note" },
+      { code: "new_application", label: "New application received" },
+      { code: "for_review", label: "For recruiter review" },
+      { code: "shortlisted", label: "Shortlisted for screening" }
+    ],
+    "failed paper screening": [
+      { code: "", label: "Select note" },
+      { code: "not_qualified", label: "Did not meet role requirements" },
+      { code: "insufficient_experience", label: "Insufficient relevant experience" },
+      { code: "profile_mismatch", label: "Profile mismatch" }
+    ],
+    endorsed: [
+      { code: "", label: "Select note" },
+      { code: "endorsed_to_client", label: "Endorsed to client" },
+      { code: "awaiting_client_feedback", label: "Awaiting client feedback" },
+      { code: "for_client_review", label: "For client review" }
+    ],
+    assessment: [
+      { code: "", label: "Select note" },
+      { code: "assessment_pending", label: "Assessment pending" },
+      { code: "assessment_scheduled", label: "Assessment scheduled" },
+      { code: "assessment_completed", label: "Assessment completed" }
+    ],
+    initial: [
+      { code: "", label: "Select note" },
+      { code: "initial_pending", label: "Initial interview pending" },
+      { code: "initial_scheduled", label: "Initial interview scheduled" },
+      { code: "initial_completed", label: "Initial interview completed" }
+    ],
+    final: [
+      { code: "", label: "Select note" },
+      { code: "final_pending", label: "Final interview pending" },
+      { code: "final_scheduled", label: "Final interview scheduled" },
+      { code: "final_completed", label: "Final interview completed" }
+    ],
+    hired: [
+      { code: "", label: "Select note" },
+      { code: "offer_accepted", label: "Offer accepted" },
+      { code: "for_preemployment", label: "For pre-employment requirements" }
+    ],
+    onboarded: [
+      { code: "", label: "Select note" },
+      { code: "joined_successfully", label: "Joined successfully" },
+      { code: "onboarding_completed", label: "Onboarding completed" }
+    ],
+    "no-show (onboarding)": [
+      { code: "", label: "Select note" },
+      { code: "did_not_start", label: "Did not start on onboarding date" }
+    ],
+    withdrawn: [
+      { code: "", label: "Select note" },
+      { code: "candidate_withdrew", label: "Candidate withdrew application" }
+    ],
+    rejected: [
+      { code: "", label: "Select note" },
+      { code: "client_rejected", label: "Rejected by client" },
+      { code: "recruiter_rejected", label: "Rejected after internal review" }
+    ]
+  };
+
+  /* =========================================================
+  BLOCK 04: GLOBAL STATE
+  Identifier: APP_STATE
+  Purpose: Store runtime data
+  ========================================================= */
+  const state = {
+    allApplications: [],
+    filteredApplications: [],
+    recruitersList: [],
+    allRecruitersMap: {},
+    clientsList: [],
+    currentUser: null,
+    currentRecruiterRecord: null,
+    selectedEndorsementApp: null,
+    currentScreeningAppId: null,
+    currentScreeningResponses: [],
+    currentInterviewNotesApp: null
+  };
+
+  /* =========================================================
+  BLOCK 05: DOM REFERENCES
+  Identifier: DOM_CACHE
+  Purpose: Cache all HTML elements
+  ========================================================= */
+  const els = {
+    helloRecruiter: document.getElementById("helloRecruiter"),
+    logoutBtn: document.getElementById("logoutBtn"),
+    notice: document.getElementById("notice"),
+
+    statTotal: document.getElementById("statTotal"),
+    statEndorsed: document.getElementById("statEndorsed"),
+    statRejected: document.getElementById("statRejected"),
+    statInterviewed: document.getElementById("statInterviewed"),
+    statHired: document.getElementById("statHired"),
+    statOverdue: document.getElementById("statOverdue"),
+
+    searchInput: document.getElementById("searchInput"),
+    jobFilter: document.getElementById("jobFilter"),
+    clientFilter: document.getElementById("clientFilter"),
+    statusFilter: document.getElementById("statusFilter"),
+    recruiterFilter: document.getElementById("recruiterFilter"),
+    sourceFilter: document.getElementById("sourceFilter"),
+    slaFilter: document.getElementById("slaFilter"),
+
+    applicationsTable: document.getElementById("applicationsTable"),
+    refreshBtn: document.getElementById("refreshBtn"),
+
+    inviteRecruiterModal: document.getElementById("inviteRecruiterModal"),
+    openInviteRecruiterBtn: document.getElementById("openInviteRecruiterBtn"),
+    closeInviteRecruiterModal: document.getElementById("closeInviteRecruiterModal"),
+    inviteRecruiterName: document.getElementById("inviteRecruiterName"),
+    inviteRecruiterEmail: document.getElementById("inviteRecruiterEmail"),
+    sendInviteRecruiterBtn: document.getElementById("sendInviteRecruiterBtn"),
+
+    endorseModal: document.getElementById("endorseModal"),
+    closeEndorseModal: document.getElementById("closeEndorseModal"),
+    endorseSummary: document.getElementById("endorseSummary"),
+    endorseSubject: document.getElementById("endorseSubject"),
+    endorseBody: document.getElementById("endorseBody"),
+    endorseRecipient: document.getElementById("endorseRecipient"),
+    saveEndorseBtn: document.getElementById("saveEndorseBtn"),
+    sendEndorseBtn: document.getElementById("sendEndorseBtn"),
+
+    resumeModal: document.getElementById("resumeModal"),
+    closeModal: document.getElementById("closeModal"),
+    resumeFrame: document.getElementById("resumeFrame"),
+    downloadResumeBtn: document.getElementById("downloadResumeBtn"),
+
+    interviewNotesModal: document.getElementById("interviewNotesModal"),
+    closeInterviewNotesModal: document.getElementById("closeInterviewNotesModal"),
+    interviewNotesTitle: document.getElementById("interviewNotesTitle"),
+    interviewNotesContext: document.getElementById("interviewNotesContext"),
+    notesApplicationId: document.getElementById("notesApplicationId"),
+    notesApplicantProfileId: document.getElementById("notesApplicantProfileId"),
+    notesJobId: document.getElementById("notesJobId"),
+    notesRecruiterEmail: document.getElementById("notesRecruiterEmail"),
+    notesCandidateName: document.getElementById("notesCandidateName"),
+    notesJobTitle: document.getElementById("notesJobTitle"),
+    notesStrengths: document.getElementById("notesStrengths"),
+    notesRisks: document.getElementById("notesRisks"),
+    notesSummary: document.getElementById("notesSummary"),
+    notesDecisionStatus: document.getElementById("notesDecisionStatus"),
+    notesOptimizedPreview: document.getElementById("notesOptimizedPreview"),
+    notesSaveMessage: document.getElementById("notesSaveMessage"),
+    refreshOptimizedNotesBtn: document.getElementById("refreshOptimizedNotesBtn"),
+    saveInterviewNotesBtn: document.getElementById("saveInterviewNotesBtn"),
+
+    screeningModal: document.getElementById("screeningModal"),
+    closeScreeningModal: document.getElementById("closeScreeningModal"),
+    screeningTitle: document.getElementById("screeningTitle"),
+    screeningContext: document.getElementById("screeningContext"),
+    screeningContainer: document.getElementById("screeningContainer"),
+    screeningStrengths: document.getElementById("screeningStrengths"),
+    screeningRisks: document.getElementById("screeningRisks"),
+    screeningSummary: document.getElementById("screeningSummary"),
+    screeningDecision: document.getElementById("screeningDecision"),
+    generateScreeningBtn: document.getElementById("generateScreeningBtn"),
+    saveScreeningReviewBtn: document.getElementById("saveScreeningReviewBtn"),
+    pushToInterviewNotesBtn: document.getElementById("pushToInterviewNotesBtn")
+  };
+
+  // Continue with BLOCK 06 below this line
