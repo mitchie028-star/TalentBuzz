@@ -1279,54 +1279,79 @@ async function loadClients() {
 
     if (error) throw error;
 
-    state.clientsMap = {};
-    (data || []).forEach(c => {
-      state.clientsMap[c.client_name] = true;
-    });
-
+    state.clientsList = data || [];
   } catch (err) {
     console.error("loadClients error:", err);
+    state.clientsList = [];
   }
 }
 
 
 /* =========================================================
-BLOCK 13: POPULATE FILTER DROPDOWNS
-Identifier: FILTER_DROPDOWNS
-Purpose: Fill Job / Client / Recruiter filters
+BLOCK 13: POPULATE FILTERS
+Identifier: FILTER_POPULATOR
+Purpose: Fill dropdown filters from loaded data
 ========================================================= */
+function populateStatusFilter() {
+  if (!els.statusFilter) return;
+
+  els.statusFilter.innerHTML =
+    `<option value="">All statuses</option>` +
+    STATUS_OPTIONS.map(status => `
+      <option value="${escapeHtml(status)}">${escapeHtml(status)}</option>
+    `).join("");
+}
+
 function populateJobFilter() {
-  if (!els.jobFilter) return;
+  const jobFilter = document.getElementById("jobFilter");
+  if (!jobFilter) return;
 
   const jobs = [...new Set(
-    state.allApplications.map(a => a.job_title).filter(Boolean)
-  )];
+    state.allApplications
+      .map(app => normalizeText(app.job_title))
+      .filter(Boolean)
+  )].sort();
 
-  els.jobFilter.innerHTML =
+  jobFilter.innerHTML =
     `<option value="">All jobs</option>` +
-    jobs.map(j => `<option value="${escapeHtml(j)}">${escapeHtml(j)}</option>`).join("");
+    jobs.map(job => `
+      <option value="${escapeHtml(job)}">${escapeHtml(job)}</option>
+    `).join("");
 }
 
 function populateClientFilter() {
-  if (!els.clientFilter) return;
+  const clientFilter = document.getElementById("clientFilter");
+  if (!clientFilter) return;
 
   const clients = [...new Set(
-    state.allApplications.map(a => getClientName(a)).filter(Boolean)
-  )];
+    state.allApplications
+      .map(app => normalizeText(app.client_name || app.jobs?.client_name))
+      .filter(Boolean)
+  )].sort();
 
-  els.clientFilter.innerHTML =
+  clientFilter.innerHTML =
     `<option value="">All clients</option>` +
-    clients.map(c => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join("");
+    clients.map(client => `
+      <option value="${escapeHtml(client)}">${escapeHtml(client)}</option>
+    `).join("");
 }
 
 function populateRecruiterFilter() {
-  if (!els.recruiterFilter) return;
+  const recruiterFilter = document.getElementById("recruiterFilter");
+  if (!recruiterFilter) return;
 
-  els.recruiterFilter.innerHTML =
+  recruiterFilter.innerHTML =
     `<option value="">All recruiters</option>` +
-    state.recruitersList.map(rec =>
-      `<option value="${escapeHtml(rec.email)}">${escapeHtml(rec.full_name)}</option>`
-    ).join("");
+    state.recruitersList.map(rec => `
+      <option value="${escapeHtml(rec.email)}">${escapeHtml(rec.full_name || rec.email)}</option>
+    `).join("");
+}
+
+function populateAllFilters() {
+  populateStatusFilter();
+  populateJobFilter();
+  populateClientFilter();
+  populateRecruiterFilter();
 }
 
 
