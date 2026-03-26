@@ -1084,3 +1084,181 @@ document.addEventListener("DOMContentLoaded", () => {
   };
 
   // Continue with BLOCK 06 below this line
+    /* =========================================================
+  BLOCK 06: UTILITIES
+  Identifier: HELPERS
+  ========================================================= */
+  function normalizeText(value) {
+    return String(value || "").trim();
+  }
+
+  function normalizeEmail(value) {
+    return normalizeText(value).toLowerCase();
+  }
+
+  function escapeHtml(value) {
+    return normalizeText(value)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;");
+  }
+
+  function formatDate(value) {
+    if (!value) return "-";
+    const d = new Date(value);
+    if (isNaN(d)) return "-";
+    return d.toLocaleDateString();
+  }
+
+  function computeSlaStatus(app) {
+    if (app?.sla_status) return app.sla_status;
+
+    if (!app?.created_at) return "on_track";
+
+    const created = new Date(app.created_at);
+    const now = new Date();
+    const hours = (now - created) / (1000 * 60 * 60);
+
+    if (hours > 72) return "overdue";
+    if (hours > 48) return "due_soon";
+    return "on_track";
+  }
+
+  function getProfileFromApplication(app) {
+    return app?.applicant_profiles || {};
+  }
+
+  function getRecruiterName(email) {
+    if (!email) return "-";
+    return state.allRecruitersMap?.[normalizeEmail(email)] || email;
+  }
+
+  /* =========================================================
+  BLOCK 07: NOTICE HANDLER
+  ========================================================= */
+  function showNotice(message, type = "info") {
+    if (!els.notice) return;
+    els.notice.textContent = message;
+    els.notice.className = `notice show ${type}`;
+  }
+
+  function clearNotice() {
+    if (!els.notice) return;
+    els.notice.textContent = "";
+    els.notice.className = "notice";
+  }
+
+  /* =========================================================
+  BLOCK 08: AUTH (USES WORKING BASE LOGIC)
+  ========================================================= */
+  async function protectRecruiterPage() {
+    const { data: { session } } = await supabaseClient.auth.getSession();
+
+    if (!session?.user) {
+      window.location.href = "recruiter-login.html";
+      return null;
+    }
+
+    const email = session.user.email;
+
+    const { data, error } = await supabaseClient
+      .from("recruiters")
+      .select("*")
+      .eq("email", email)
+      .eq("active", true)
+      .single();
+
+    if (error || !data) {
+      alert(`This account is not authorized for recruiter access. Logged in as: ${email}`);
+      await supabaseClient.auth.signOut();
+      window.location.href = "recruiter-login.html";
+      return null;
+    }
+
+    state.currentUser = session.user;
+    state.currentRecruiterRecord = data;
+
+    if (els.helloRecruiter) {
+      els.helloRecruiter.textContent =
+        `Hello, ${data.full_name || email}`;
+    }
+
+    return session.user;
+  }
+
+  /* =========================================================
+  BLOCK 09: RECRUITER MAP
+  ========================================================= */
+  async function loadRecruitersMap() {
+    try {
+      const { data } = await supabaseClient
+        .from("recruiters")
+        .select("email, full_name")
+        .eq("active", true);
+
+      state.allRecruitersMap = Object.fromEntries(
+        (data || []).map(r => [
+          normalizeEmail(r.email),
+          r.full_name || r.email
+        ])
+      );
+
+    } catch (err) {
+      console.error("Failed to load recruiter map", err);
+      state.allRecruitersMap = {};
+    }
+  }
+
+  /* =========================================================
+  BLOCK 10: FILTER + STATS
+  ========================================================= */
+  function getFilteredApplications() {
+    const search = normalizeText(els.searchInput?.value).toLowerCase();
+
+    return state.allApplications.filter(app => {
+      const email = normalizeText(app.email).toLowerCase();
+      const job = normalizeText(app.job_title).toLowerCase();
+
+      if (search && !(`${email} ${job}`).includes(search)) {
+        return false;
+      }
+
+      return true;
+    });
+  }
+
+  function renderStats() {
+    const list = getFilteredApplications();
+
+    if (els.statTotal) els.statTotal.textContent = list.length;
+
+    if (els.statEndorsed) {
+      els.statEndorsed.textContent = list.filter(a =>
+        normalizeText(a.status) === "endorsed"
+      ).length;
+    }
+
+    if (els.statRejected) {
+      els.statRejected.textContent = list.filter(a =>
+        REJECTED_STATUSES.includes(normalizeText(a.status))
+      ).length;
+    }
+
+    if (els.statInterviewed) {
+      els.statInterviewed.textContent = list.filter(a =>
+        INTERVIEWED_STATUSES.includes(normalizeText(a.status))
+      ).length;
+    }
+
+    if (els.statHired) {
+      els.statHired.textContent = list.filter(a =>
+        HIRED_STATUSES.includes(normalizeText(a.status))
+      ).length;
+    }
+
+    if (els.statOverdue) {
+      els.statOverdue.textContent = list.filter(a =>
+        computeSlaStatus(a) === "overdue"
+      ).length;
+    }
+  }
