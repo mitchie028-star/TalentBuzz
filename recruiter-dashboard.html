@@ -2649,6 +2649,69 @@ function buildScreeningNarrative(responses) {
       els.applicationsTable.addEventListener("click", async (event) => {
         const target = event.target;
 
+// ================================
+// 🔥 SCREENING BUTTON HANDLER
+// ================================
+if (target.classList.contains("review-screening-btn")) {
+
+  const appId = target.dataset.id;
+
+  const app = state.allApplications.find(
+    a => String(a.id) === String(appId)
+  );
+
+  if (!app) {
+    showNotice("Application not found", "error");
+    return;
+  }
+
+  try {
+    state.currentScreeningAppId = app.id;
+
+    // Fetch screening responses
+    const { data, error } = await supabaseClient
+      .from("application_screening_responses")
+      .select("*")
+      .eq("application_id", app.id);
+
+    if (error) throw error;
+
+    state.currentScreeningResponses = data || [];
+
+    // Render screening questions
+    els.screeningContainer.innerHTML = (data || []).map((q, i) => `
+      <div class="panel" style="margin-bottom:12px;">
+        <strong>Q${i + 1}: ${q.question_text || "-"}</strong>
+
+        <textarea 
+          class="screening-answer"
+          data-id="${q.id}"
+          rows="3"
+        >${q.candidate_answer || ""}</textarea>
+
+        <select class="screening-score" data-id="${q.id}">
+          <option value="">Score</option>
+          ${[1,2,3,4,5].map(s => `
+            <option value="${s}" ${q.recruiter_score == s ? "selected" : ""}>
+              ${s}
+            </option>
+          `).join("")}
+        </select>
+      </div>
+    `).join("");
+
+    // Open modal
+    els.screeningModal.classList.add("show");
+
+  } catch (err) {
+    console.error(err);
+    showNotice("Failed to load screening", "error");
+  }
+
+  return;
+}
+        const target = event.target;
+
 // 🔥 SCREENING BUTTON HANDLER (ADD THIS)
 if (target.classList.contains("review-screening-btn")) {
   console.log("🔥 Screening button clicked");
