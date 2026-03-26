@@ -1897,4 +1897,187 @@ ${state.currentRecruiterRecord?.full_name || "TalentBuzz"}`;
     showNotice("Screening review pushed to interview notes.", "success");
   }
 
-  
+    /* =========================================================
+  BLOCK 21: EVENT BINDINGS
+  Identifier: EVENT_BINDER
+  Purpose: Attach filter, modal, table, and button listeners
+  ========================================================= */
+  function bindFilterEvents() {
+    [
+      els.searchInput,
+      els.jobFilter,
+      els.clientFilter,
+      els.statusFilter,
+      els.recruiterFilter,
+      els.sourceFilter,
+      els.slaFilter
+    ].forEach(el => {
+      if (!el) return;
+      el.addEventListener("input", () => {
+        renderStats();
+        renderTable();
+      });
+      el.addEventListener("change", () => {
+        renderStats();
+        renderTable();
+      });
+    });
+
+    if (els.refreshBtn) {
+      els.refreshBtn.addEventListener("click", loadApplications);
+    }
+  }
+
+  function bindModalEvents() {
+    els.openInviteRecruiterBtn?.addEventListener("click", openInviteRecruiterModal);
+    els.closeInviteRecruiterModal?.addEventListener("click", closeInviteRecruiterModal);
+    els.sendInviteRecruiterBtn?.addEventListener("click", inviteRecruiter);
+
+    els.closeEndorseModal?.addEventListener("click", closeEndorseModal);
+    els.closeModal?.addEventListener("click", closeResumeModal);
+    els.closeInterviewNotesModal?.addEventListener("click", closeInterviewNotesModal);
+    els.closeScreeningModal?.addEventListener("click", closeScreeningModal);
+
+    els.refreshOptimizedNotesBtn?.addEventListener("click", refreshOptimizedNotesPreview);
+    els.saveInterviewNotesBtn?.addEventListener("click", saveInterviewNotes);
+
+    els.generateScreeningBtn?.addEventListener("click", generateScreeningSummary);
+    els.saveScreeningReviewBtn?.addEventListener("click", saveScreeningReview);
+    els.pushToInterviewNotesBtn?.addEventListener("click", pushToInterviewNotes);
+
+    els.logoutBtn?.addEventListener("click", async () => {
+      try {
+        await supabaseClient.auth.signOut();
+      } catch (err) {
+        console.error("Logout failed:", err);
+      } finally {
+        window.location.href = "recruiter-login.html";
+      }
+    });
+
+    [
+      els.notesStrengths,
+      els.notesRisks,
+      els.notesSummary,
+      els.notesDecisionStatus
+    ].forEach(el => {
+      el?.addEventListener("input", refreshOptimizedNotesPreview);
+      el?.addEventListener("change", refreshOptimizedNotesPreview);
+    });
+  }
+
+  function bindTableEvents() {
+    els.applicationsTable?.addEventListener("click", async event => {
+      const button = event.target.closest("[data-action]");
+      if (!button) return;
+
+      const action = button.dataset.action;
+      const id = button.dataset.id;
+      if (!id) return;
+
+      try {
+        if (action === "resume") {
+          await openResumeModalByAppId(id);
+          return;
+        }
+
+        if (action === "notes") {
+          await openInterviewNotesModalByAppId(id);
+          return;
+        }
+
+        if (action === "endorse") {
+          await openEndorseModalByAppId(id);
+          return;
+        }
+
+        if (action === "screening") {
+          await openScreeningModalByAppId(id);
+          return;
+        }
+
+        if (action === "edit") {
+          window.location.href = `recruiter-add-candidate.html?application_id=${encodeURIComponent(id)}`;
+          return;
+        }
+
+        if (action === "delete") {
+          showNotice("Delete action not enabled in this batch yet.", "info");
+        }
+      } catch (err) {
+        console.error(`Table click action failed: ${action}`, err);
+        showNotice(err.message || "Action failed.", "error");
+      }
+    });
+
+    els.applicationsTable?.addEventListener("change", async event => {
+      const target = event.target;
+      if (!target?.dataset?.action) return;
+
+      const action = target.dataset.action;
+      const id = target.dataset.id;
+      const value = target.value;
+
+      if (!id) return;
+
+      try {
+        if (action === "status") {
+          showNotice("Status update not enabled in this batch yet.", "info");
+          return;
+        }
+
+        if (action === "stage-note") {
+          showNotice("Stage note update not enabled in this batch yet.", "info");
+          return;
+        }
+
+        if (action === "recruiter") {
+          showNotice("Recruiter reassignment not enabled in this batch yet.", "info");
+        }
+      } catch (err) {
+        console.error(`Table change action failed: ${action}`, err);
+        showNotice(err.message || "Failed to update application.", "error");
+      }
+    });
+  }
+
+    /* =========================================================
+  BLOCK 22: INITIAL PAGE STARTUP + APP CLOSER
+  Identifier: PAGE_INIT
+  Purpose: Protect page, preload data, bind events, and close app
+  ========================================================= */
+  async function initPage() {
+    try {
+      console.log("🚀 initPage started");
+
+      const user = await protectRecruiterPage();
+      console.log("protectRecruiterPage user:", user);
+
+      if (!user) {
+        console.warn("No recruiter session returned.");
+        return;
+      }
+
+      await loadRecruitersMap();
+      console.log("✅ recruiters map loaded");
+
+      bindFilterEvents();
+      bindModalEvents();
+      bindTableEvents();
+      console.log("✅ events bound");
+
+      await loadApplications();
+      console.log("✅ applications loaded");
+    } catch (err) {
+      console.error("initPage failed:", err);
+      showNotice(err.message || "Initialization failed.", "error");
+
+      if (els.applicationsTable) {
+        els.applicationsTable.innerHTML =
+          `<tr><td colspan="18" class="empty">Initialization failed.</td></tr>`;
+      }
+    }
+  }
+
+  initPage();
+});
