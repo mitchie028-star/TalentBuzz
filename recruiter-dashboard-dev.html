@@ -1235,59 +1235,111 @@ function renderSlaBadge(app) {
   };
   return `<span class="${getStatusClass(sla)}">${labelMap[sla] || "On Track"}</span>`;
 }
-  /* =========================================================
+/* =========================================================
 BLOCK 08: RESUME HELPERS
 Identifier: RESUME_MANAGER
 Purpose: Resolve, preview, and open resume files
+Notes:
+- Uses the existing "resumes" Supabase storage bucket
+- Assumes resume_path is stored like:
+  manual/email_or_folder/file.pdf
+- Uses resume_url directly when already available
 ========================================================= */
+const RESUME_BUCKET = "resumes";
+
 function hasResumeFile(app) {
   const profile = getProfileFromApplication(app);
-  return Boolean(profile.resume_url || profile.resume_path);
+  return Boolean(
+    normalizeText(profile.resume_url) ||
+    normalizeText(profile.resume_path)
+  );
 }
 
 async function getResumeUrl(app) {
-  const profile = getProfileFromApplication(app);
-  const resumeUrl = normalizeText(profile.resume_url);
-  const resumePath = normalizeText(profile.resume_path);
+  try {
+    const profile = getProfileFromApplication(app);
 
-  if (resumeUrl) return resumeUrl;
-  if (!resumePath) return "";
+    const resumeUrl = normalizeText(profile.resume_url);
+    const resumePath = normalizeText(profile.resume_path);
 
-  const cleanedPath = resumePath
-    .replace(/^\/+/, "")
-    .replace(/^storage\/v1\/object\/public\/resumes\//, "")
-    .replace(/^resumes\//, "");
+    if (resumeUrl) {
+      return resumeUrl;
+    }
 
-  const { data } = supabaseClient.storage
-    .from(RESUME_BUCKET)
-    .getPublicUrl(cleanedPath);
+    if (!resumePath) {
+      return "";
+    }
 
-  return data?.publicUrl || "";
+    // Keep the stored path structure intact.
+    // Only remove leading slashes if present.
+    const cleanedPath = resumePath.replace(/^\/+/, "");
+
+    const { data } = supabaseClient
+      .storage
+      .from(RESUME_BUCKET)
+      .getPublicUrl(cleanedPath);
+
+    return data?.publicUrl || "";
+  } catch (err) {
+    console.error("getResumeUrl error:", err);
+    return "";
+  }
 }
 
 async function openResumeModalByAppId(applicationId) {
-  const app = state.allApplications.find(item => item.id === applicationId);
-  if (!app) return;
+  try {
+    const app = state.allApplications.find(item => item.id === applicationId);
 
-  const url = await getResumeUrl(app);
-  if (!url) {
-    showNotice("Resume not found for this candidate.", "error");
-    return;
+    if (!app) {
+      showNotice("Application not found.", "error");
+      return;
+    }
+
+    const profile = getProfileFromApplication(app);
+    const candidateName = profile.full_name || app.email || "Candidate";
+    const url = await getResumeUrl(app);
+
+    if (!url) {
+      console.warn("Resume missing or invalid path:", {
+        applicationId,
+        resume_url: profile.resume_url,
+        resume_path: profile.resume_path
+      });
+      showNotice("Resume not found or resume path is invalid.", "error");
+      return;
+    }
+
+    els.resumeFrame.src = url;
+    els.downloadResumeBtn.href = url;
+    els.downloadResumeBtn.style.display = "inline-flex";
+    els.resumeModal.classList.add("show");
+    els.resumeModal.setAttribute("aria-hidden", "false");
+
+    console.log("Resume opened:", {
+      applicationId,
+      candidateName,
+      url
+    });
+  } catch (err) {
+    console.error("openResumeModalByAppId error:", err);
+    showNotice(err.message || "Failed to open resume.", "error");
   }
-
-  els.resumeFrame.src = url;
-  els.downloadResumeBtn.href = url;
-  els.downloadResumeBtn.style.display = "inline-flex";
-  els.resumeModal.classList.add("show");
-  els.resumeModal.setAttribute("aria-hidden", "false");
 }
 
 function closeResumeModal() {
-  els.resumeFrame.src = "";
-  els.downloadResumeBtn.href = "#";
-  els.downloadResumeBtn.style.display = "none";
-  els.resumeModal.classList.remove("show");
-  els.resumeModal.setAttribute("aria-hidden", "true");
+  if (els.resumeFrame) {
+    els.resumeFrame.src = "";
+  }
+
+  if (els.downloadResumeBtn) {
+    els.downloadResumeBtn.href = "#";
+    els.downloadResumeBtn.style.display = "none";
+  }
+
+  if (els.resumeModal) {
+    els.resumeModal.classList.remove("show");
+    els.resumeModal.setAttribute("aria-hidden", "true");
+  }
 }
   /* =========================================================
 BLOCK 09: INTERVIEW NOTES HELPERS
