@@ -859,3 +859,1346 @@
     </div>
   </div>
 </div>
+  <script>
+/* =========================================================
+BLOCK 01: APP INITIALIZATION
+Identifier: APP_BOOT
+Purpose: Start BuzzHire after the page fully loads
+========================================================= */
+document.addEventListener("DOMContentLoaded", () => {
+  /* =========================================================
+BLOCK 02: SUPABASE CONFIGURATION
+Identifier: SUPABASE_CONFIG
+Purpose: Connect the dashboard to Supabase
+========================================================= */
+    const SUPABASE_URL = "https://dilalntcxmvdcmwxjcct.supabase.co";
+    const SUPABASE_ANON_KEY = "sb_publishable_HrLVIUwnaRo54yijtrbWBQ_1aeb4ezs";
+    const RESUME_BUCKET = "resumes";
+
+const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  /* =========================================================
+BLOCK 03: STATIC CONFIG / ENUMS
+Identifier: APP_ENUMS
+Purpose: Central source for statuses, labels, and reusable lists
+========================================================= */
+const STATUS_OPTIONS = [
+  "submitted",
+  "failed paper screening",
+  "endorsed",
+  "assessment",
+  "initial",
+  "final",
+  "hired",
+  "onboarded",
+  "no-show (onboarding)",
+  "withdrawn",
+  "rejected"
+];
+
+const REJECTED_STATUSES = [
+  "failed paper screening",
+  "withdrawn",
+  "rejected",
+  "no-show (onboarding)"
+];
+
+const INTERVIEWED_STATUSES = [
+  "assessment",
+  "initial",
+  "final",
+  "endorsed"
+];
+
+const HIRED_STATUSES = [
+  "hired",
+  "onboarded"
+];
+
+const STAGE_NOTE_OPTIONS = {
+  submitted: [
+    { value: "new_application", label: "New application received" },
+    { value: "for_review", label: "For recruiter review" },
+    { value: "shortlisted", label: "Shortlisted for screening" }
+  ],
+  "failed paper screening": [
+    { value: "not_qualified", label: "Did not meet role requirements" },
+    { value: "insufficient_experience", label: "Insufficient relevant experience" },
+    { value: "profile_mismatch", label: "Profile mismatch" }
+  ],
+  endorsed: [
+    { value: "endorsed_to_client", label: "Endorsed to client" },
+    { value: "awaiting_client_feedback", label: "Awaiting client feedback" },
+    { value: "for_client_review", label: "For client review" }
+  ],
+  assessment: [
+    { value: "assessment_pending", label: "Assessment pending" },
+    { value: "assessment_scheduled", label: "Assessment scheduled" },
+    { value: "assessment_completed", label: "Assessment completed" }
+  ],
+  initial: [
+    { value: "initial_pending", label: "Initial interview pending" },
+    { value: "initial_scheduled", label: "Initial interview scheduled" },
+    { value: "initial_completed", label: "Initial interview completed" }
+  ],
+  final: [
+    { value: "final_pending", label: "Final interview pending" },
+    { value: "final_scheduled", label: "Final interview scheduled" },
+    { value: "final_completed", label: "Final interview completed" }
+  ],
+  hired: [
+    { value: "offer_accepted", label: "Offer accepted" },
+    { value: "for_preemployment", label: "For pre-employment requirements" }
+  ],
+  onboarded: [
+    { value: "joined_successfully", label: "Joined successfully" },
+    { value: "onboarding_completed", label: "Onboarding completed" }
+  ],
+  "no-show (onboarding)": [
+    { value: "did_not_start", label: "Did not start on onboarding date" }
+  ],
+  withdrawn: [
+    { value: "candidate_withdrew", label: "Candidate withdrew application" }
+  ],
+  rejected: [
+    { value: "client_rejected", label: "Rejected by client" },
+    { value: "recruiter_rejected", label: "Rejected after internal review" }
+  ]
+};
+  /* =========================================================
+BLOCK 04: GLOBAL STATE
+Identifier: APP_STATE
+Purpose: Store page-level runtime data
+========================================================= */
+const state = {
+  allApplications: [],
+  filteredApplications: [],
+  recruitersMap: {},
+  recruitersList: [],
+  clientsMap: {},
+  currentUser: null,
+  currentRecruiterRecord: null,
+  selectedEndorsementApp: null,
+  currentScreeningAppId: null,
+  currentScreeningResponses: [],
+  currentInterviewNotesApp: null
+};
+/* =========================================================
+BLOCK 05: DOM REFERENCES
+Identifier: DOM_CACHE
+Purpose: Cache all main HTML elements for faster access
+========================================================= */
+const els = {
+  helloRecruiter: document.getElementById("helloRecruiter"),
+  logoutBtn: document.getElementById("logoutBtn"),
+  notice: document.getElementById("notice"),
+
+  statTotal: document.getElementById("statTotal"),
+  statEndorsed: document.getElementById("statEndorsed"),
+  statRejected: document.getElementById("statRejected"),
+  statInterviewed: document.getElementById("statInterviewed"),
+  statHired: document.getElementById("statHired"),
+  statOverdue: document.getElementById("statOverdue"),
+
+  searchInput: document.getElementById("searchInput"),
+  jobFilter: document.getElementById("jobFilter"),
+  clientFilter: document.getElementById("clientFilter"),
+  statusFilter: document.getElementById("statusFilter"),
+  recruiterFilter: document.getElementById("recruiterFilter"),
+  sourceFilter: document.getElementById("sourceFilter"),
+  slaFilter: document.getElementById("slaFilter"),
+
+  applicationsTable: document.getElementById("applicationsTable"),
+  refreshBtn: document.getElementById("refreshBtn"),
+
+  inviteRecruiterModal: document.getElementById("inviteRecruiterModal"),
+  openInviteRecruiterBtn: document.getElementById("openInviteRecruiterBtn"),
+  closeInviteRecruiterModal: document.getElementById("closeInviteRecruiterModal"),
+  inviteRecruiterName: document.getElementById("inviteRecruiterName"),
+  inviteRecruiterEmail: document.getElementById("inviteRecruiterEmail"),
+  sendInviteRecruiterBtn: document.getElementById("sendInviteRecruiterBtn"),
+
+  endorseModal: document.getElementById("endorseModal"),
+  closeEndorseModal: document.getElementById("closeEndorseModal"),
+  endorseSummary: document.getElementById("endorseSummary"),
+  endorseSubject: document.getElementById("endorseSubject"),
+  endorseBody: document.getElementById("endorseBody"),
+  endorseRecipient: document.getElementById("endorseRecipient"),
+  saveEndorseBtn: document.getElementById("saveEndorseBtn"),
+  sendEndorseBtn: document.getElementById("sendEndorseBtn"),
+
+  resumeModal: document.getElementById("resumeModal"),
+  closeModal: document.getElementById("closeModal"),
+  resumeFrame: document.getElementById("resumeFrame"),
+  downloadResumeBtn: document.getElementById("downloadResumeBtn"),
+
+  interviewNotesModal: document.getElementById("interviewNotesModal"),
+  closeInterviewNotesModal: document.getElementById("closeInterviewNotesModal"),
+  interviewNotesTitle: document.getElementById("interviewNotesTitle"),
+  interviewNotesContext: document.getElementById("interviewNotesContext"),
+  notesApplicationId: document.getElementById("notesApplicationId"),
+  notesApplicantProfileId: document.getElementById("notesApplicantProfileId"),
+  notesJobId: document.getElementById("notesJobId"),
+  notesRecruiterEmail: document.getElementById("notesRecruiterEmail"),
+  notesCandidateName: document.getElementById("notesCandidateName"),
+  notesJobTitle: document.getElementById("notesJobTitle"),
+  notesStrengths: document.getElementById("notesStrengths"),
+  notesRisks: document.getElementById("notesRisks"),
+  notesSummary: document.getElementById("notesSummary"),
+  notesDecisionStatus: document.getElementById("notesDecisionStatus"),
+  notesOptimizedPreview: document.getElementById("notesOptimizedPreview"),
+  notesSaveMessage: document.getElementById("notesSaveMessage"),
+  refreshOptimizedNotesBtn: document.getElementById("refreshOptimizedNotesBtn"),
+  saveInterviewNotesBtn: document.getElementById("saveInterviewNotesBtn"),
+
+  screeningModal: document.getElementById("screeningModal"),
+  closeScreeningModal: document.getElementById("closeScreeningModal"),
+  screeningTitle: document.getElementById("screeningTitle"),
+  screeningContext: document.getElementById("screeningContext"),
+  screeningContainer: document.getElementById("screeningContainer"),
+  screeningStrengths: document.getElementById("screeningStrengths"),
+  screeningRisks: document.getElementById("screeningRisks"),
+  screeningSummary: document.getElementById("screeningSummary"),
+  screeningDecision: document.getElementById("screeningDecision"),
+  generateScreeningBtn: document.getElementById("generateScreeningBtn"),
+  saveScreeningReviewBtn: document.getElementById("saveScreeningReviewBtn"),
+  pushToInterviewNotesBtn: document.getElementById("pushToInterviewNotesBtn")
+};
+  /* =========================================================
+BLOCK 06: GENERAL HELPERS
+Identifier: UTILS
+Purpose: Shared helpers for formatting, safety, and display
+========================================================= */
+function normalizeText(value) {
+  return String(value || "").trim();
+}
+
+function normalizeEmail(value) {
+  return normalizeText(value).toLowerCase();
+}
+
+function escapeHtml(value) {
+  return String(value || "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
+function formatDate(value) {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "-";
+  return date.toLocaleDateString("en-PH", {
+    year: "numeric",
+    month: "short",
+    day: "numeric"
+  });
+}
+
+function formatDateTime(value) {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "-";
+  return date.toLocaleString("en-PH", {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit"
+  });
+}
+
+function titleCase(value) {
+  return normalizeText(value)
+    .toLowerCase()
+    .split(" ")
+    .filter(Boolean)
+    .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
+}
+
+function safeJoin(parts, separator = " • ") {
+  return parts.filter(Boolean).join(separator);
+}
+
+function clearNotice() {
+  els.notice.textContent = "";
+  els.notice.className = "notice";
+}
+
+function showNotice(message, type = "success") {
+  els.notice.textContent = message;
+  els.notice.className = `notice show ${type}`;
+}
+
+function clearNotesSaveMessage() {
+  els.notesSaveMessage.textContent = "";
+  els.notesSaveMessage.className = "notes-save-message";
+}
+
+function showNotesSaveMessage(message, type = "success") {
+  els.notesSaveMessage.textContent = message;
+  els.notesSaveMessage.className = `notes-save-message show ${type}`;
+}
+
+function getStatusClass(status) {
+  const normalized = normalizeText(status)
+    .toLowerCase()
+    .replaceAll(" ", "-")
+    .replaceAll("(", "")
+    .replaceAll(")", "");
+  return `status-pill status-${normalized || "submitted"}`;
+}
+
+function getProfileFromApplication(app) {
+  return app?.applicant_profiles || {};
+}
+
+function getJobFromApplication(app) {
+  return app?.jobs || {};
+}
+
+function getClientName(app) {
+  const job = getJobFromApplication(app);
+  return (
+    normalizeText(job.client_name) ||
+    normalizeText(app.client_name) ||
+    "-"
+  );
+}
+
+function getRecruiterName(email) {
+  const normalized = normalizeEmail(email);
+  return state.recruitersMap[normalized]?.full_name || email || "-";
+}
+
+function parseMaybeJson(value) {
+  if (!value) return null;
+  if (typeof value === "object") return value;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return null;
+  }
+}
+  /* =========================================================
+BLOCK 07: STAGE NOTE + SLA HELPERS
+Identifier: STAGE_AND_SLA
+Purpose: Support stage notes and SLA calculations
+========================================================= */
+function getStageNoteOptions(status) {
+  return STAGE_NOTE_OPTIONS[normalizeText(status).toLowerCase()] || [];
+}
+
+function getStageNoteLabel(status, code) {
+  if (!code) return "-";
+  const found = getStageNoteOptions(status).find(item => item.value === code);
+  return found?.label || code;
+}
+
+function renderStageNoteOptions(status, selectedValue = "") {
+  const options = getStageNoteOptions(status);
+  const base = `<option value="">Select note</option>`;
+  const rendered = options.map(item => `
+    <option value="${escapeHtml(item.value)}" ${item.value === selectedValue ? "selected" : ""}>
+      ${escapeHtml(item.label)}
+    </option>
+  `).join("");
+  return base + rendered;
+}
+
+function computeSlaStatus(app) {
+  if (["hired", "onboarded", "rejected", "withdrawn", "failed paper screening", "no-show (onboarding)"].includes(normalizeText(app.status).toLowerCase())) {
+    return "completed";
+  }
+
+  const dueAt = app?.sla_due_at ? new Date(app.sla_due_at) : null;
+  if (!dueAt || Number.isNaN(dueAt.getTime())) return "on_track";
+
+  const now = new Date();
+  const diffMs = dueAt.getTime() - now.getTime();
+  const hours = diffMs / (1000 * 60 * 60);
+
+  if (hours < 0) return "overdue";
+  if (hours <= 24) return "due_soon";
+  return "on_track";
+}
+
+function renderSlaBadge(app) {
+  const sla = computeSlaStatus(app);
+  const labelMap = {
+    on_track: "On Track",
+    due_soon: "Due Soon",
+    overdue: "Overdue",
+    completed: "Completed"
+  };
+  return `<span class="${getStatusClass(sla)}">${labelMap[sla] || "On Track"}</span>`;
+}
+  /* =========================================================
+BLOCK 08: RESUME HELPERS
+Identifier: RESUME_MANAGER
+Purpose: Resolve, preview, and open resume files
+========================================================= */
+function hasResumeFile(app) {
+  const profile = getProfileFromApplication(app);
+  return Boolean(profile.resume_url || profile.resume_path);
+}
+
+async function getResumeUrl(app) {
+  const profile = getProfileFromApplication(app);
+  const resumeUrl = normalizeText(profile.resume_url);
+  const resumePath = normalizeText(profile.resume_path);
+
+  if (resumeUrl) return resumeUrl;
+  if (!resumePath) return "";
+
+  const cleanedPath = resumePath
+    .replace(/^\/+/, "")
+    .replace(/^storage\/v1\/object\/public\/resumes\//, "")
+    .replace(/^resumes\//, "");
+
+  const { data } = supabaseClient.storage
+    .from(RESUME_BUCKET)
+    .getPublicUrl(cleanedPath);
+
+  return data?.publicUrl || "";
+}
+
+async function openResumeModalByAppId(applicationId) {
+  const app = state.allApplications.find(item => item.id === applicationId);
+  if (!app) return;
+
+  const url = await getResumeUrl(app);
+  if (!url) {
+    showNotice("Resume not found for this candidate.", "error");
+    return;
+  }
+
+  els.resumeFrame.src = url;
+  els.downloadResumeBtn.href = url;
+  els.downloadResumeBtn.style.display = "inline-flex";
+  els.resumeModal.classList.add("show");
+  els.resumeModal.setAttribute("aria-hidden", "false");
+}
+
+function closeResumeModal() {
+  els.resumeFrame.src = "";
+  els.downloadResumeBtn.href = "#";
+  els.downloadResumeBtn.style.display = "none";
+  els.resumeModal.classList.remove("show");
+  els.resumeModal.setAttribute("aria-hidden", "true");
+}
+  /* =========================================================
+BLOCK 09: INTERVIEW NOTES HELPERS
+Identifier: INTERVIEW_NOTES_ENGINE
+Purpose: Build recruiter notes and endorsement-ready summary
+========================================================= */
+function normalizeBulletText(rawText) {
+  return normalizeText(rawText)
+    .split("\n")
+    .map(line => normalizeText(line.replace(/^[•\-*]\s*/, "")))
+    .filter(Boolean);
+}
+
+function buildOptimizedInterviewNotes({ strengths, risks, summary, decisionStatus, candidateName, jobTitle }) {
+  const strengthList = normalizeBulletText(strengths);
+  const riskList = normalizeBulletText(risks);
+  const cleanSummary = normalizeText(summary);
+  const decision = normalizeText(decisionStatus);
+
+  const sections = [];
+
+  if (cleanSummary) {
+    sections.push(`Summary:\n${cleanSummary}`);
+  }
+
+  if (strengthList.length) {
+    sections.push(`Key Strengths:\n- ${strengthList.join("\n- ")}`);
+  }
+
+  if (riskList.length) {
+    sections.push(`Potential Risks / Watchouts:\n- ${riskList.join("\n- ")}`);
+  }
+
+  if (decision) {
+    sections.push(`Recommendation:\n${candidateName || "Candidate"} is marked as "${decision}" for ${jobTitle || "the role"}.`);
+  }
+
+  return sections.join("\n\n").trim();
+}
+
+function resetInterviewNotesForm() {
+  els.notesApplicationId.value = "";
+  els.notesApplicantProfileId.value = "";
+  els.notesJobId.value = "";
+  els.notesRecruiterEmail.value = "";
+  els.notesCandidateName.value = "";
+  els.notesJobTitle.value = "";
+  els.notesStrengths.value = "";
+  els.notesRisks.value = "";
+  els.notesSummary.value = "";
+  els.notesDecisionStatus.value = "";
+  els.notesOptimizedPreview.value = "";
+  els.interviewNotesContext.textContent = "";
+  clearNotesSaveMessage();
+}
+
+function refreshOptimizedNotesPreview() {
+  els.notesOptimizedPreview.value = buildOptimizedInterviewNotes({
+    strengths: els.notesStrengths.value,
+    risks: els.notesRisks.value,
+    summary: els.notesSummary.value,
+    decisionStatus: els.notesDecisionStatus.value,
+    candidateName: els.notesCandidateName.value,
+    jobTitle: els.notesJobTitle.value
+  });
+}
+/* =========================================================
+BLOCK 10: AUTH / ACCESS CONTROL
+Identifier: RECRUITER_AUTH
+Purpose: Protect BuzzHire and identify logged-in recruiter
+========================================================= */
+async function verifyRecruiterAccess(email) {
+  const normalizedEmail = normalizeEmail(email);
+  if (!normalizedEmail) return null;
+
+  const { data, error } = await supabaseClient
+    .from("recruiters")
+    .select("id, email, full_name, active")
+    .eq("email", normalizedEmail)
+    .eq("active", true)
+    .maybeSingle();
+
+  if (error) throw error;
+  return data || null;
+}
+
+async function loadRecruitersMap() {
+  const { data, error } = await supabaseClient
+    .from("recruiters")
+    .select("id, email, full_name, active")
+    .eq("active", true)
+    .order("full_name", { ascending: true });
+
+  if (error) throw error;
+
+  state.recruitersList = data || [];
+  state.recruitersMap = {};
+
+  for (const recruiter of state.recruitersList) {
+    state.recruitersMap[normalizeEmail(recruiter.email)] = recruiter;
+  }
+}
+
+async function protectRecruiterPage() {
+  const { data, error } = await supabaseClient.auth.getUser();
+  if (error) throw error;
+
+  const user = data?.user;
+  if (!user?.email) {
+    window.location.href = "recruiter-login.html";
+    return null;
+  }
+
+  const recruiterRecord = await verifyRecruiterAccess(user.email);
+  if (!recruiterRecord) {
+    showNotice(`This recruiter email is not active in the recruiters table: ${user.email}`, "error");
+    return null;
+  }
+
+  state.currentUser = user;
+  state.currentRecruiterRecord = recruiterRecord;
+  els.helloRecruiter.textContent = `Hello, ${recruiterRecord.full_name || user.email}!`;
+
+  return user;
+}
+  /* =========================================================
+BLOCK 11: CLIENT + ENDORSEMENT HELPERS
+Identifier: ENDORSEMENT_ENGINE
+Purpose: Prepare endorsement summary and recipient details
+========================================================= */
+async function fetchClientRecipient(clientName) {
+  const normalizedClient = normalizeText(clientName);
+  if (!normalizedClient) return "";
+
+  const { data, error } = await supabaseClient
+    .from("clients")
+    .select("client_name, endorsement_emails")
+    .ilike("client_name", normalizedClient)
+    .maybeSingle();
+
+  if (error) {
+    console.error("Client lookup error:", error);
+    return "";
+  }
+
+  if (!data) return "";
+
+  const emails = parseMaybeJson(data.endorsement_emails);
+  if (Array.isArray(emails)) {
+    return emails.filter(Boolean).join(", ");
+  }
+
+  return normalizeText(data.endorsement_emails);
+}
+
+function buildCandidateSummary(app) {
+  const profile = getProfileFromApplication(app);
+  const job = getJobFromApplication(app);
+
+  const pieces = [
+    profile.full_name || app.email,
+    app.job_title || job.title,
+    getClientName(app),
+    profile.location || "",
+    profile.phone || ""
+  ].filter(Boolean);
+
+  return safeJoin(pieces);
+}
+
+async function buildEndorsementSubject(app) {
+  const candidateName = getProfileFromApplication(app).full_name || app.email || "Candidate";
+  const jobTitle = app.job_title || getJobFromApplication(app).title || "Open Role";
+  const clientName = getClientName(app);
+  return `Candidate Endorsement: ${candidateName} for ${jobTitle}${clientName !== "-" ? ` | ${clientName}` : ""}`;
+}
+
+async function buildEndorsementBody(app) {
+  const profile = getProfileFromApplication(app);
+  const candidateName = profile.full_name || app.email || "Candidate";
+  const jobTitle = app.job_title || getJobFromApplication(app).title || "the role";
+
+  const notesPreview = buildOptimizedInterviewNotes({
+    strengths: els.notesStrengths.value,
+    risks: els.notesRisks.value,
+    summary: els.notesSummary.value,
+    decisionStatus: els.notesDecisionStatus.value,
+    candidateName,
+    jobTitle
+  });
+
+  return [
+    `Hi,`,
+    ``,
+    `Please see below the endorsement details for ${candidateName} for the ${jobTitle} role.`,
+    ``,
+    notesPreview || `The candidate has been reviewed and is being endorsed for your consideration.`,
+    ``,
+    `Best regards,`,
+    state.currentRecruiterRecord?.full_name || "TalentBuzz",
+    `TalentBuzz`
+  ].join("\n");
+}
+
+async function openEndorseModalByAppId(applicationId) {
+  const app = state.allApplications.find(item => item.id === applicationId);
+  if (!app) return;
+
+  state.selectedEndorsementApp = app;
+
+  els.endorseSummary.textContent = buildCandidateSummary(app);
+  els.endorseSubject.value = await buildEndorsementSubject(app);
+  els.endorseBody.value = await buildEndorsementBody(app);
+  els.endorseRecipient.value = await fetchClientRecipient(getClientName(app));
+
+  els.endorseModal.classList.add("show");
+  els.endorseModal.setAttribute("aria-hidden", "false");
+}
+
+function closeEndorseModal() {
+  state.selectedEndorsementApp = null;
+  els.endorseSummary.textContent = "";
+  els.endorseSubject.value = "";
+  els.endorseBody.value = "";
+  els.endorseRecipient.value = "";
+  els.endorseModal.classList.remove("show");
+  els.endorseModal.setAttribute("aria-hidden", "true");
+}
+  /* =========================================================
+BLOCK 12: INVITE RECRUITER
+Identifier: RECRUITER_INVITE
+Purpose: Add recruiter record and optionally trigger invite flow
+========================================================= */
+function openInviteRecruiterModal() {
+  els.inviteRecruiterName.value = "";
+  els.inviteRecruiterEmail.value = "";
+  els.inviteRecruiterModal.classList.add("show");
+  els.inviteRecruiterModal.setAttribute("aria-hidden", "false");
+}
+
+function closeInviteRecruiterModal() {
+  els.inviteRecruiterModal.classList.remove("show");
+  els.inviteRecruiterModal.setAttribute("aria-hidden", "true");
+}
+
+async function inviteRecruiter() {
+  const fullName = normalizeText(els.inviteRecruiterName.value);
+  const email = normalizeEmail(els.inviteRecruiterEmail.value);
+
+  if (!fullName || !email) {
+    showNotice("Please enter recruiter name and email.", "error");
+    return;
+  }
+
+  els.sendInviteRecruiterBtn.disabled = true;
+  els.sendInviteRecruiterBtn.textContent = "Sending...";
+
+  try {
+    const { error } = await supabaseClient
+      .from("recruiters")
+      .upsert(
+        [{ full_name: fullName, email, active: true }],
+        { onConflict: "email" }
+      );
+
+    if (error) throw error;
+
+    await loadRecruitersMap();
+    populateRecruiterFilter();
+    showNotice(`Recruiter record saved for ${email}.`, "success");
+    closeInviteRecruiterModal();
+  } catch (err) {
+    console.error(err);
+    showNotice(err.message || "Failed to invite recruiter.", "error");
+  } finally {
+    els.sendInviteRecruiterBtn.disabled = false;
+    els.sendInviteRecruiterBtn.textContent = "Send Invite";
+  }
+}
+  /* =========================================================
+BLOCK 13: INTERVIEW NOTES MODAL LOGIC
+Identifier: NOTES_MODAL
+Purpose: Open, load, save, and manage structured interview notes
+========================================================= */
+async function openInterviewNotesModalByAppId(applicationId) {
+  const app = state.allApplications.find(item => item.id === applicationId);
+  if (!app) return;
+
+  resetInterviewNotesForm();
+  state.currentInterviewNotesApp = app;
+
+  const profile = getProfileFromApplication(app);
+  const job = getJobFromApplication(app);
+
+  els.notesApplicationId.value = app.id || "";
+  els.notesApplicantProfileId.value = profile.id || app.applicant_profile_id || "";
+  els.notesJobId.value = app.job_id || job.id || "";
+  els.notesRecruiterEmail.value = app.recruiter_email || state.currentUser?.email || "";
+  els.notesCandidateName.value = profile.full_name || "";
+  els.notesJobTitle.value = app.job_title || job.title || "";
+
+  els.interviewNotesTitle.textContent = `Interview Notes - ${profile.full_name || app.email || "Candidate"}`;
+  els.interviewNotesContext.textContent = safeJoin([
+    profile.full_name || app.email,
+    app.job_title || job.title,
+    getClientName(app)
+  ]);
+
+  els.interviewNotesModal.classList.add("show");
+  els.interviewNotesModal.setAttribute("aria-hidden", "false");
+}
+
+function closeInterviewNotesModal() {
+  state.currentInterviewNotesApp = null;
+  els.interviewNotesModal.classList.remove("show");
+  els.interviewNotesModal.setAttribute("aria-hidden", "true");
+}
+
+async function saveInterviewNotes() {
+  const payload = {
+    application_id: els.notesApplicationId.value || null,
+    applicant_profile_id: els.notesApplicantProfileId.value || null,
+    job_id: els.notesJobId.value || null,
+    recruiter_email: normalizeEmail(els.notesRecruiterEmail.value),
+    strengths: normalizeText(els.notesStrengths.value),
+    risks: normalizeText(els.notesRisks.value),
+    summary: normalizeText(els.notesSummary.value),
+    decision_status: normalizeText(els.notesDecisionStatus.value),
+    optimized_notes: normalizeText(els.notesOptimizedPreview.value),
+    updated_at: new Date().toISOString()
+  };
+
+  if (!payload.application_id) {
+    showNotesSaveMessage("Missing application ID.", "error");
+    return;
+  }
+
+  try {
+    refreshOptimizedNotesPreview();
+
+    const { error } = await supabaseClient
+      .from("interview_notes")
+      .upsert(payload, { onConflict: "application_id" });
+
+    if (error) throw error;
+
+    showNotesSaveMessage("Interview notes saved successfully.", "success");
+    await loadApplications();
+  } catch (err) {
+    console.error(err);
+    showNotesSaveMessage(err.message || "Failed to save interview notes.", "error");
+  }
+}
+  /* =========================================================
+BLOCK 14: SCREENING REVIEW MODAL
+Identifier: SCREENING_MODAL
+Purpose: Review screening responses and push into notes
+========================================================= */
+function closeScreeningModal() {
+  state.currentScreeningAppId = null;
+  state.currentScreeningResponses = [];
+  els.screeningContainer.innerHTML = "";
+  els.screeningStrengths.value = "";
+  els.screeningRisks.value = "";
+  els.screeningSummary.value = "";
+  els.screeningDecision.value = "";
+  els.screeningModal.classList.remove("show");
+  els.screeningModal.setAttribute("aria-hidden", "true");
+}
+
+async function openScreeningModalByAppId(applicationId) {
+  const app = state.allApplications.find(item => item.id === applicationId);
+  if (!app) return;
+
+  state.currentScreeningAppId = applicationId;
+
+  const profile = getProfileFromApplication(app);
+  els.screeningTitle.textContent = `Screening Review - ${profile.full_name || app.email || "Candidate"}`;
+  els.screeningContext.textContent = safeJoin([
+    profile.full_name || app.email,
+    app.job_title || "",
+    getClientName(app)
+  ]);
+
+  const responses = parseMaybeJson(app.screening_answers) || parseMaybeJson(app.screening_responses) || [];
+  state.currentScreeningResponses = Array.isArray(responses) ? responses : [];
+
+  if (!state.currentScreeningResponses.length) {
+    els.screeningContainer.innerHTML = `<div class="empty">No screening responses found for this application.</div>`;
+  } else {
+    els.screeningContainer.innerHTML = state.currentScreeningResponses.map((item, index) => `
+      <div class="panel" style="padding:14px;margin-bottom:12px;">
+        <div style="font-weight:800;color:var(--primary);margin-bottom:6px;">Question ${index + 1}</div>
+        <div style="margin-bottom:6px;">${escapeHtml(item.question || "-")}</div>
+        <div class="small"><strong>Answer:</strong> ${escapeHtml(item.answer || "-")}</div>
+      </div>
+    `).join("");
+  }
+
+  els.screeningModal.classList.add("show");
+  els.screeningModal.setAttribute("aria-hidden", "false");
+}
+
+async function generateScreeningSummary() {
+  const responses = state.currentScreeningResponses || [];
+  if (!responses.length) {
+    showNotice("No screening responses available.", "error");
+    return;
+  }
+
+  const answered = responses
+    .map(item => `Q: ${item.question || "-"}\nA: ${item.answer || "-"}`)
+    .join("\n\n");
+
+  els.screeningStrengths.value = "Reviewed screening responses and found potentially relevant qualifications based on the candidate's answers.";
+  els.screeningRisks.value = "Recruiter validation still required for depth of experience, communication, and role fit.";
+  els.screeningSummary.value = `Screening responses reviewed.\n\n${answered}`;
+}
+
+async function saveScreeningReview() {
+  if (!state.currentScreeningAppId) {
+    showNotice("No screening application selected.", "error");
+    return;
+  }
+
+  try {
+    const { error } = await supabaseClient
+      .from("applications")
+      .update({
+        screening_review_strengths: normalizeText(els.screeningStrengths.value),
+        screening_review_risks: normalizeText(els.screeningRisks.value),
+        screening_review_summary: normalizeText(els.screeningSummary.value),
+        screening_review_decision: normalizeText(els.screeningDecision.value)
+      })
+      .eq("id", state.currentScreeningAppId);
+
+    if (error) throw error;
+
+    showNotice("Screening review saved.", "success");
+    await loadApplications();
+  } catch (err) {
+    console.error(err);
+    showNotice(err.message || "Failed to save screening review.", "error");
+  }
+}
+
+function pushScreeningToInterviewNotes() {
+  els.notesStrengths.value = normalizeText(els.screeningStrengths.value);
+  els.notesRisks.value = normalizeText(els.screeningRisks.value);
+  els.notesSummary.value = normalizeText(els.screeningSummary.value);
+  els.notesDecisionStatus.value = normalizeText(els.screeningDecision.value);
+  refreshOptimizedNotesPreview();
+  closeScreeningModal();
+  showNotice("Screening review pushed to interview notes fields.", "success");
+}
+  /* =========================================================
+BLOCK 15: FILTER HELPERS
+Identifier: FILTER_ENGINE
+Purpose: Build dropdown filters and apply search/filter logic
+========================================================= */
+function populateSelect(selectEl, values, defaultLabel) {
+  if (!selectEl) return;
+  const currentValue = selectEl.value;
+  selectEl.innerHTML = `<option value="">${defaultLabel}</option>` + values.map(value => `
+    <option value="${escapeHtml(value)}">${escapeHtml(value)}</option>
+  `).join("");
+  selectEl.value = values.includes(currentValue) ? currentValue : "";
+}
+
+function populateJobFilter() {
+  const jobs = [...new Set(
+    state.allApplications
+      .map(app => normalizeText(app.job_title || getJobFromApplication(app).title))
+      .filter(Boolean)
+  )].sort((a, b) => a.localeCompare(b));
+
+  populateSelect(els.jobFilter, jobs, "All jobs");
+}
+
+function populateClientFilter() {
+  const clients = [...new Set(
+    state.allApplications
+      .map(app => normalizeText(getClientName(app)))
+      .filter(value => value && value !== "-")
+  )].sort((a, b) => a.localeCompare(b));
+
+  populateSelect(els.clientFilter, clients, "All clients");
+}
+
+function populateRecruiterFilter() {
+  const recruiters = [...new Set(
+    state.allApplications
+      .map(app => normalizeText(app.recruiter_email))
+      .filter(Boolean)
+  )].sort((a, b) => a.localeCompare(b));
+
+  els.recruiterFilter.innerHTML = `<option value="">All recruiters</option>` + recruiters.map(email => `
+    <option value="${escapeHtml(email)}">${escapeHtml(getRecruiterName(email))}</option>
+  `).join("");
+}
+
+function getFilteredApplications() {
+  const search = normalizeText(els.searchInput.value).toLowerCase();
+  const job = normalizeText(els.jobFilter.value);
+  const client = normalizeText(els.clientFilter.value);
+  const status = normalizeText(els.statusFilter.value).toLowerCase();
+  const recruiter = normalizeText(els.recruiterFilter.value).toLowerCase();
+  const source = normalizeText(els.sourceFilter.value).toLowerCase();
+  const sla = normalizeText(els.slaFilter.value).toLowerCase();
+
+  return state.allApplications.filter(app => {
+    const profile = getProfileFromApplication(app);
+    const fullName = normalizeText(profile.full_name).toLowerCase();
+    const email = normalizeText(app.email || profile.email).toLowerCase();
+    const jobTitle = normalizeText(app.job_title || getJobFromApplication(app).title);
+    const clientName = normalizeText(getClientName(app));
+    const recruiterEmail = normalizeText(app.recruiter_email).toLowerCase();
+    const sourceValue = normalizeText(app.application_source).toLowerCase();
+    const slaValue = computeSlaStatus(app).toLowerCase();
+    const statusValue = normalizeText(app.status).toLowerCase();
+
+    const matchesSearch = !search || fullName.includes(search) || email.includes(search);
+    const matchesJob = !job || jobTitle === job;
+    const matchesClient = !client || clientName === client;
+    const matchesStatus = !status || statusValue === status;
+    const matchesRecruiter = !recruiter || recruiterEmail === recruiter;
+    const matchesSource = !source || sourceValue === source;
+    const matchesSla = !sla || slaValue === sla;
+
+    return matchesSearch && matchesJob && matchesClient && matchesStatus && matchesRecruiter && matchesSource && matchesSla;
+  });
+}
+  /* =========================================================
+BLOCK 16: STATS RENDERING
+Identifier: STATS_ENGINE
+Purpose: Update summary cards based on filtered list
+========================================================= */
+function renderStats(applications) {
+  els.statTotal.textContent = applications.length;
+  els.statEndorsed.textContent = applications.filter(app => normalizeText(app.status).toLowerCase() === "endorsed").length;
+  els.statRejected.textContent = applications.filter(app => REJECTED_STATUSES.includes(normalizeText(app.status).toLowerCase())).length;
+  els.statInterviewed.textContent = applications.filter(app => INTERVIEWED_STATUSES.includes(normalizeText(app.status).toLowerCase())).length;
+  els.statHired.textContent = applications.filter(app => HIRED_STATUSES.includes(normalizeText(app.status).toLowerCase())).length;
+  els.statOverdue.textContent = applications.filter(app => computeSlaStatus(app) === "overdue").length;
+}
+/* =========================================================
+BLOCK 17: TABLE RENDERING
+Identifier: TABLE_RENDERER
+Purpose: Paint candidate rows into the dashboard table
+========================================================= */
+function renderTable() {
+  state.filteredApplications = getFilteredApplications();
+  renderStats(state.filteredApplications);
+
+  if (!state.filteredApplications.length) {
+    els.applicationsTable.innerHTML = `<tr><td colspan="18" class="empty">No candidates found.</td></tr>`;
+    return;
+  }
+
+  els.applicationsTable.innerHTML = state.filteredApplications.map(app => {
+    const profile = getProfileFromApplication(app);
+    const candidateName = profile.full_name || app.email || "-";
+    const stageNoteLabel = getStageNoteLabel(app.status, app.stage_note_code);
+    const experience = profile.experience_years || profile.total_experience || "-";
+
+    return `
+      <tr>
+        <td>
+          <div class="candidate-name">${escapeHtml(candidateName)}</div>
+          <div class="small">${escapeHtml(app.email || profile.email || "-")}</div>
+        </td>
+        <td>${escapeHtml(app.job_title || getJobFromApplication(app).title || "-")}</td>
+        <td>${escapeHtml(getClientName(app))}</td>
+        <td><span class="${getStatusClass(app.status)}">${escapeHtml(app.status || "-")}</span></td>
+        <td>${escapeHtml(getRecruiterName(app.recruiter_email))}</td>
+        <td>${escapeHtml(app.application_source || "-")}</td>
+        <td>${escapeHtml(formatDate(app.created_at))}</td>
+        <td>${escapeHtml(profile.phone || "-")}</td>
+        <td>${escapeHtml(profile.location || "-")}</td>
+        <td>${escapeHtml(String(experience))}</td>
+        <td>
+          ${hasResumeFile(app)
+            ? `<button class="btn btn-outline table-btn" data-action="resume" data-id="${app.id}">View Resume</button>`
+            : `<span class="small">No resume</span>`
+          }
+        </td>
+        <td>
+          <button class="btn btn-outline table-btn" data-action="notes" data-id="${app.id}">Open Notes</button>
+          <button class="btn btn-outline table-btn" data-action="screening" data-id="${app.id}" style="margin-top:6px;">Screening</button>
+        </td>
+        <td>
+          <button class="btn btn-primary table-btn" data-action="endorse" data-id="${app.id}">Endorse</button>
+        </td>
+        <td>${renderSlaBadge(app)}</td>
+        <td>
+          <select class="table-select" data-action="status" data-id="${app.id}">
+            ${STATUS_OPTIONS.map(status => `
+              <option value="${escapeHtml(status)}" ${normalizeText(app.status).toLowerCase() === status ? "selected" : ""}>
+                ${escapeHtml(titleCase(status))}
+              </option>
+            `).join("")}
+          </select>
+        </td>
+        <td>
+          <select class="table-select" data-action="stage-note" data-id="${app.id}">
+            ${renderStageNoteOptions(app.status, app.stage_note_code || "")}
+          </select>
+          <div class="table-note-meta">${escapeHtml(stageNoteLabel)}</div>
+        </td>
+        <td>
+          <select class="table-select" data-action="recruiter" data-id="${app.id}">
+            <option value="">Assign recruiter</option>
+            ${state.recruitersList.map(rec => `
+              <option value="${escapeHtml(rec.email)}" ${normalizeEmail(app.recruiter_email) === normalizeEmail(rec.email) ? "selected" : ""}>
+                ${escapeHtml(rec.full_name)}
+              </option>
+            `).join("")}
+          </select>
+        </td>
+        <td>
+          <button class="btn btn-danger table-btn" data-action="delete" data-id="${app.id}">Delete</button>
+        </td>
+      </tr>
+    `;
+  }).join("");
+}
+  /* =========================================================
+BLOCK 18: APPLICATION ACTIONS
+Identifier: APPLICATION_MUTATIONS
+Purpose: Update status, note, recruiter, and delete candidate
+========================================================= */
+async function updateApplicationStatus(applicationId, newStatus) {
+  try {
+    const { error } = await supabaseClient
+      .from("applications")
+      .update({
+        status: normalizeText(newStatus),
+        last_status_change_at: new Date().toISOString()
+      })
+      .eq("id", applicationId);
+
+    if (error) throw error;
+
+    showNotice("Application status updated.", "success");
+    await loadApplications();
+  } catch (err) {
+    console.error(err);
+    showNotice(err.message || "Failed to update status.", "error");
+  }
+}
+
+async function updateApplicationStageNote(applicationId, noteCode) {
+  try {
+    const targetApp = state.allApplications.find(item => item.id === applicationId);
+    const label = getStageNoteLabel(targetApp?.status, noteCode);
+
+    const { error } = await supabaseClient
+      .from("applications")
+      .update({
+        stage_note_code: noteCode || null,
+        stage_note_label: noteCode ? label : null,
+        stage_note_updated_at: noteCode ? new Date().toISOString() : null
+      })
+      .eq("id", applicationId);
+
+    if (error) throw error;
+
+    showNotice("Stage note updated.", "success");
+    await loadApplications();
+  } catch (err) {
+    console.error(err);
+    showNotice(err.message || "Failed to update stage note.", "error");
+  }
+}
+
+async function updateApplicationRecruiter(applicationId, recruiterEmail) {
+  try {
+    const { error } = await supabaseClient
+      .from("applications")
+      .update({
+        recruiter_email: recruiterEmail || null
+      })
+      .eq("id", applicationId);
+
+    if (error) throw error;
+
+    showNotice("Recruiter assignment updated.", "success");
+    await loadApplications();
+  } catch (err) {
+    console.error(err);
+    showNotice(err.message || "Failed to assign recruiter.", "error");
+  }
+}
+
+async function deleteApplication(applicationId) {
+  const confirmed = window.confirm("Are you sure you want to delete this candidate?");
+  if (!confirmed) return;
+
+  try {
+    const { error } = await supabaseClient
+      .from("applications")
+      .delete()
+      .eq("id", applicationId);
+
+    if (error) throw error;
+
+    showNotice("Candidate deleted.", "success");
+    await loadApplications();
+  } catch (err) {
+    console.error(err);
+    showNotice(err.message || "Failed to delete candidate.", "error");
+  }
+}
+  /* =========================================================
+BLOCK 19: DATA LOADER
+Identifier: DATA_FETCHER
+Purpose: Load applications and supporting joined records
+========================================================= */
+async function loadApplications() {
+  try {
+    clearNotice();
+
+    if (els.applicationsTable) {
+      els.applicationsTable.innerHTML = `<tr><td colspan="18" class="empty loading">Loading candidates...</td></tr>`;
+    }
+
+    if (els.refreshBtn) {
+      els.refreshBtn.disabled = true;
+      els.refreshBtn.textContent = "Refreshing...";
+    }
+
+    const { data, error } = await supabaseClient
+      .from("applications")
+      .select(`
+        id,
+        email,
+        job_id,
+        job_title,
+        status,
+        recruiter_email,
+        application_source,
+        confirmation_email_status,
+        rejection_email_status,
+        screening_result,
+        screening_score,
+        auto_disposition_reason,
+        created_at,
+        applicant_profile_id,
+        stage_note_code,
+        stage_note_label,
+        stage_note_updated_at,
+        endorsement_status,
+        endorsement_sent_at,
+        endorsed_by,
+        endorsement_sent_to,
+        sla_status,
+        sla_due_at,
+        last_status_change_at,
+        screening_answers,
+        screening_responses,
+        screening_review_strengths,
+        screening_review_risks,
+        screening_review_summary,
+        screening_review_decision,
+        applicant_profiles (
+          id,
+          full_name,
+          email,
+          phone,
+          location,
+          resume_url,
+          resume_path,
+          experience_years,
+          total_experience
+        ),
+        jobs (
+          id,
+          title,
+          client_name,
+          work_setup
+        )
+      `)
+      .order("created_at", { ascending: false });
+
+    if (error) throw error;
+
+    state.allApplications = data || [];
+
+    populateJobFilter();
+    populateClientFilter();
+    populateRecruiterFilter();
+    renderTable();
+  } catch (err) {
+    console.error(err);
+    showNotice(err.message || "Failed to load applications.", "error");
+    els.applicationsTable.innerHTML = `<tr><td colspan="18" class="empty">Failed to load candidates.</td></tr>`;
+  } finally {
+    if (els.refreshBtn) {
+      els.refreshBtn.disabled = false;
+      els.refreshBtn.textContent = "Refresh";
+    }
+  }
+}
+  /* =========================================================
+BLOCK 20: EVENT BINDINGS
+Identifier: EVENT_BINDER
+Purpose: Attach filter, table, modal, and action listeners
+========================================================= */
+function bindFilterEvents() {
+  [
+    els.searchInput,
+    els.jobFilter,
+    els.clientFilter,
+    els.statusFilter,
+    els.recruiterFilter,
+    els.sourceFilter,
+    els.slaFilter
+  ].forEach(el => {
+    if (!el) return;
+    el.addEventListener("input", renderTable);
+    el.addEventListener("change", renderTable);
+  });
+}
+
+function bindModalEvents() {
+  els.openInviteRecruiterBtn?.addEventListener("click", openInviteRecruiterModal);
+  els.closeInviteRecruiterModal?.addEventListener("click", closeInviteRecruiterModal);
+  els.sendInviteRecruiterBtn?.addEventListener("click", inviteRecruiter);
+
+  els.closeEndorseModal?.addEventListener("click", closeEndorseModal);
+  els.closeModal?.addEventListener("click", closeResumeModal);
+  els.closeInterviewNotesModal?.addEventListener("click", closeInterviewNotesModal);
+  els.closeScreeningModal?.addEventListener("click", closeScreeningModal);
+
+  els.refreshOptimizedNotesBtn?.addEventListener("click", refreshOptimizedNotesPreview);
+  els.saveInterviewNotesBtn?.addEventListener("click", saveInterviewNotes);
+
+  els.generateScreeningBtn?.addEventListener("click", generateScreeningSummary);
+  els.saveScreeningReviewBtn?.addEventListener("click", saveScreeningReview);
+  els.pushToInterviewNotesBtn?.addEventListener("click", pushScreeningToInterviewNotes);
+
+  els.refreshBtn?.addEventListener("click", loadApplications);
+
+  els.logoutBtn?.addEventListener("click", async () => {
+    await supabaseClient.auth.signOut();
+    window.location.href = "recruiter-login.html";
+  });
+
+  [els.notesStrengths, els.notesRisks, els.notesSummary, els.notesDecisionStatus].forEach(el => {
+    el?.addEventListener("input", refreshOptimizedNotesPreview);
+    el?.addEventListener("change", refreshOptimizedNotesPreview);
+  });
+}
+
+function bindTableEvents() {
+  els.applicationsTable?.addEventListener("click", async (event) => {
+    const button = event.target.closest("[data-action]");
+    if (!button) return;
+
+    const action = button.dataset.action;
+    const id = button.dataset.id;
+    if (!id) return;
+
+    if (action === "resume") await openResumeModalByAppId(id);
+    if (action === "notes") await openInterviewNotesModalByAppId(id);
+    if (action === "endorse") await openEndorseModalByAppId(id);
+    if (action === "screening") await openScreeningModalByAppId(id);
+    if (action === "delete") await deleteApplication(id);
+  });
+
+  els.applicationsTable?.addEventListener("change", async (event) => {
+    const target = event.target;
+    if (!target?.dataset?.action) return;
+
+    const action = target.dataset.action;
+    const id = target.dataset.id;
+    const value = target.value;
+
+    if (!id) return;
+
+    if (action === "status") await updateApplicationStatus(id, value);
+    if (action === "stage-note") await updateApplicationStageNote(id, value);
+    if (action === "recruiter") await updateApplicationRecruiter(id, value);
+  });
+}
+  /* =========================================================
+BLOCK 21: INITIAL PAGE STARTUP
+Identifier: PAGE_INIT
+Purpose: Run page protection, preload data, and start dashboard
+========================================================= */
+async function initPage() {
+  try {
+    const user = await protectRecruiterPage();
+    if (!user) return;
+
+    await loadRecruitersMap();
+    bindFilterEvents();
+    bindModalEvents();
+    bindTableEvents();
+    await loadApplications();
+  } catch (err) {
+    console.error(err);
+    showNotice(err.message || "Failed to initialize BuzzHire.", "error");
+  }
+}
+
+initPage();
+  /* =========================================================
+BLOCK 22: APP CLOSER
+Identifier: APP_END
+Purpose: Close DOMContentLoaded wrapper
+========================================================= */
+});
+</script>
