@@ -1033,7 +1033,7 @@
     ];
 
     const STAGE_NOTE_OPTIONS = {
-      "submitted": [
+      submitted: [
         { code: "", label: "Select note" },
         { code: "strong_fit", label: "Strong fit" },
         { code: "salary_not_aligned", label: "Salary not aligned" },
@@ -1047,40 +1047,40 @@
         { code: "failed_education_requirement", label: "Failed education requirement" },
         { code: "failed_language_requirement", label: "Failed language requirement" }
       ],
-      "endorsed": [
+      endorsed: [
         { code: "", label: "Select note" },
         { code: "endorsed_to_client", label: "Endorsed to client" },
         { code: "awaiting_client_feedback", label: "Awaiting client feedback" },
         { code: "shortlisted_for_next_step", label: "Shortlisted for next step" }
       ],
-      "assessment": [
+      assessment: [
         { code: "", label: "Select note" },
         { code: "assessment_sent", label: "Assessment sent" },
         { code: "assessment_passed", label: "Assessment passed" },
         { code: "assessment_failed", label: "Assessment failed" },
         { code: "assessment_no_show", label: "Assessment no-show" }
       ],
-      "initial": [
+      initial: [
         { code: "", label: "Select note" },
         { code: "good_communication", label: "Good communication" },
         { code: "failed_initial_interview", label: "Failed initial interview" },
         { code: "initial_interview_no_show", label: "Initial interview no-show" },
         { code: "for_final_interview", label: "For final interview" }
       ],
-      "final": [
+      final: [
         { code: "", label: "Select note" },
         { code: "passed_final_interview", label: "Passed final interview" },
         { code: "client_rejected", label: "Client rejected" },
         { code: "for_offer", label: "For offer" },
         { code: "final_interview_no_show", label: "Final interview no-show" }
       ],
-      "hired": [
+      hired: [
         { code: "", label: "Select note" },
         { code: "offer_accepted", label: "Offer accepted" },
         { code: "offer_declined", label: "Offer declined" },
         { code: "pre_employment_in_progress", label: "Pre-employment in progress" }
       ],
-      "onboarded": [
+      onboarded: [
         { code: "", label: "Select note" },
         { code: "completed_onboarding", label: "Completed onboarding" },
         { code: "day_1_no_show", label: "Day 1 no-show" },
@@ -1091,13 +1091,13 @@
         { code: "onboarding_no_show", label: "Onboarding no-show" },
         { code: "unreachable_before_start", label: "Unreachable before start" }
       ],
-      "withdrawn": [
+      withdrawn: [
         { code: "", label: "Select note" },
         { code: "candidate_withdrew", label: "Candidate withdrew" },
         { code: "accepted_other_offer", label: "Accepted other offer" },
         { code: "unresponsive", label: "Unresponsive" }
       ],
-      "rejected": [
+      rejected: [
         { code: "", label: "Select note" },
         { code: "rejected_due_to_experience", label: "Rejected due to experience" },
         { code: "rejected_due_to_salary", label: "Rejected due to salary" },
@@ -1117,17 +1117,17 @@
       currentRecruiterRecord: null,
       selectedEndorsementApp: null,
       currentScreeningAppId: null,
+      currentScreeningApplication: null,
       currentScreeningResponses: []
     };
 
-    // ✅ FIX: Safe DOM element retrieval with null checks
-    const getElement = (id) => {
+    function getElement(id) {
       const el = document.getElementById(id);
       if (!el) {
         console.warn(`[DOM] Element not found: ${id}`);
       }
       return el;
-    };
+    }
 
     const els = {
       applicationsTable: getElement("applicationsTable"),
@@ -1189,24 +1189,23 @@
       notesSaveMessage: getElement("notesSaveMessage"),
       refreshOptimizedNotesBtn: getElement("refreshOptimizedNotesBtn"),
       saveInterviewNotesBtn: getElement("saveInterviewNotesBtn"),
-      
+
       screeningModal: getElement("screeningModal"),
-closeScreeningModal: getElement("closeScreeningModal"),
-screeningTitle: getElement("screeningTitle"),
-screeningContext: getElement("screeningContext"),
-screeningContainer: getElement("screeningContainer"),
-screeningStrengths: getElement("screeningStrengths"),
-screeningRisks: getElement("screeningRisks"),
-screeningSummary: getElement("screeningSummary"),
-screeningDecision: getElement("screeningDecision"),
-generateScreeningBtn: getElement("generateScreeningBtn"),
-saveScreeningReviewBtn: getElement("saveScreeningReviewBtn"),
-pushToInterviewNotesBtn: getElement("pushToInterviewNotesBtn"),
+      closeScreeningModal: getElement("closeScreeningModal"),
+      screeningTitle: getElement("screeningTitle"),
+      screeningContext: getElement("screeningContext"),
+      screeningContainer: getElement("screeningContainer"),
+      screeningStrengths: getElement("screeningStrengths"),
+      screeningRisks: getElement("screeningRisks"),
+      screeningSummary: getElement("screeningSummary"),
+      screeningDecision: getElement("screeningDecision"),
+      generateScreeningBtn: getElement("generateScreeningBtn"),
+      saveScreeningReviewBtn: getElement("saveScreeningReviewBtn"),
+      pushToInterviewNotesBtn: getElement("pushToInterviewNotesBtn")
     };
 
-    // ✅ FIX: Safe value getters with fallbacks
-    const getSafeValue = (el) => el?.value || "";
-    const getSafeText = (el) => el?.textContent || "";
+    const getSafeValue = el => (el ? el.value : "");
+    const getSafeText = el => (el ? el.textContent : "");
 
     function normalizeText(value) {
       return String(value || "").trim().toLowerCase();
@@ -1260,23 +1259,24 @@ pushToInterviewNotesBtn: getElement("pushToInterviewNotesBtn"),
     }
 
     function getProfileFromApplication(app) {
+      if (!app) return null;
       if (Array.isArray(app.applicant_profiles)) return app.applicant_profiles[0] || null;
       return app.applicant_profiles || null;
     }
 
     function getRecruiterName(email) {
       const cleanEmail = normalizeEmail(email);
-      if (state.allRecruitersMap && state.allRecruitersMap[cleanEmail]) {
+      if (state.allRecruitersMap[cleanEmail]) {
         return state.allRecruitersMap[cleanEmail];
       }
       return cleanEmail || "Unassigned";
     }
 
     function computeSlaStatus(app) {
-      const stored = normalizeText(app.sla_status);
+      const stored = normalizeText(app?.sla_status);
       if (stored) return stored;
 
-      const dueAt = app.sla_due_at ? new Date(app.sla_due_at).getTime() : null;
+      const dueAt = app?.sla_due_at ? new Date(app.sla_due_at).getTime() : null;
       if (!dueAt) return "on_track";
 
       const now = Date.now();
@@ -1289,10 +1289,9 @@ pushToInterviewNotesBtn: getElement("pushToInterviewNotesBtn"),
     }
 
     function clearNotice() {
-      if (els.notice) {
-        els.notice.textContent = "";
-        els.notice.className = "notice";
-      }
+      if (!els.notice) return;
+      els.notice.textContent = "";
+      els.notice.className = "notice";
     }
 
     function showNotice(message, type = "success") {
@@ -1326,10 +1325,12 @@ pushToInterviewNotesBtn: getElement("pushToInterviewNotesBtn"),
 
     function renderNoteOptionsByStatus(status, selectedCode) {
       const current = String(selectedCode || "");
-      return getStageNoteOptions(status).map(option => {
-        const selected = option.code === current ? "selected" : "";
-        return `<option value="${escapeHtml(option.code)}" ${selected}>${escapeHtml(option.label)}</option>`;
-      }).join("");
+      return getStageNoteOptions(status)
+        .map(option => {
+          const selected = option.code === current ? "selected" : "";
+          return `<option value="${escapeHtml(option.code)}" ${selected}>${escapeHtml(option.label)}</option>`;
+        })
+        .join("");
     }
 
     function getFileExtension(url) {
@@ -1380,7 +1381,14 @@ pushToInterviewNotesBtn: getElement("pushToInterviewNotesBtn"),
         .filter(Boolean);
     }
 
-    function buildOptimizedInterviewNotes({ candidateName, jobTitle, strengths, risks, summary, decisionStatus }) {
+    function buildOptimizedInterviewNotes({
+      candidateName,
+      jobTitle,
+      strengths,
+      risks,
+      summary,
+      decisionStatus
+    }) {
       const strengthLines = normalizeBulletText(strengths);
       const riskLines = normalizeBulletText(risks);
       const summaryText = String(summary || "").trim();
@@ -1486,7 +1494,9 @@ pushToInterviewNotesBtn: getElement("pushToInterviewNotesBtn"),
 
     async function protectRecruiterPage() {
       try {
-        const { data: { session } } = await supabaseClient.auth.getSession();
+        const {
+          data: { session }
+        } = await supabaseClient.auth.getSession();
 
         if (!session?.user) {
           window.location.href = "recruiter-login.html";
@@ -1496,10 +1506,11 @@ pushToInterviewNotesBtn: getElement("pushToInterviewNotesBtn"),
         const recruiterRecord = await verifyRecruiterAccess(session.user.email);
         state.currentUser = session.user;
         state.currentRecruiterRecord = recruiterRecord;
-        
+
         if (els.helloRecruiter) {
           els.helloRecruiter.textContent = `Hello! ${recruiterRecord.full_name || recruiterRecord.email}`;
         }
+
         return session.user;
       } catch (error) {
         console.error("[AUTH] Access denied:", error);
@@ -1517,18 +1528,11 @@ pushToInterviewNotesBtn: getElement("pushToInterviewNotesBtn"),
       const rawResumePath = String(profile.resume_path || "").trim();
       const rawResumeUrl = String(profile.resume_url || "").trim();
 
-      if (rawResumeUrl && !rawResumePath) {
-        return rawResumeUrl;
-      }
-
-      if (!rawResumePath) {
-        return rawResumeUrl || "";
-      }
+      if (rawResumeUrl && !rawResumePath) return rawResumeUrl;
+      if (!rawResumePath) return rawResumeUrl || "";
 
       const cleanedPath = cleanResumePath(rawResumePath);
-      if (!cleanedPath) {
-        return rawResumeUrl || "";
-      }
+      if (!cleanedPath) return rawResumeUrl || "";
 
       try {
         const { data, error } = await supabaseClient.storage
@@ -1559,11 +1563,9 @@ pushToInterviewNotesBtn: getElement("pushToInterviewNotesBtn"),
       }
 
       if (els.resumeFrame) {
-        if (isPdf) {
-          els.resumeFrame.src = url;
-        } else {
-          els.resumeFrame.src = `https://docs.google.com/gview?url=${encodeURIComponent(url)}&embedded=true`;
-        }
+        els.resumeFrame.src = isPdf
+          ? url
+          : `https://docs.google.com/gview?url=${encodeURIComponent(url)}&embedded=true`;
       }
 
       if (els.resumeModal) {
@@ -1591,8 +1593,8 @@ pushToInterviewNotesBtn: getElement("pushToInterviewNotesBtn"),
     async function buildEndorsementSubject(app) {
       const profile = getProfileFromApplication(app);
       const candidateName = profile?.full_name || "Candidate";
-      const jobTitle = app.jobs?.title || app.job_title || "Role";
-      const clientName = app.jobs?.client_name || "Client";
+      const jobTitle = app?.jobs?.title || app?.job_title || "Role";
+      const clientName = app?.jobs?.client_name || "Client";
       return `Candidate Endorsement: ${candidateName} for ${jobTitle} | ${clientName}`;
     }
 
@@ -1602,9 +1604,9 @@ pushToInterviewNotesBtn: getElement("pushToInterviewNotesBtn"),
         state.currentRecruiterRecord?.full_name ||
         state.currentUser?.email ||
         "TalentBuzz";
-      const clientName = app.jobs?.client_name || "Hiring Team";
+      const clientName = app?.jobs?.client_name || "Hiring Team";
       const candidateName = profile?.full_name || "Candidate";
-      const jobTitle = app.jobs?.title || app.job_title || "Role";
+      const jobTitle = app?.jobs?.title || app?.job_title || "Role";
 
       const summaryLines = [];
       if (profile?.current_title) summaryLines.push(`Current Title: ${profile.current_title}`);
@@ -1656,8 +1658,8 @@ TalentBuzz`;
 
       const profile = getProfileFromApplication(app);
       const candidateName = profile?.full_name || "Unnamed";
-      const jobTitle = app.jobs?.title || app.job_title || "-";
-      const clientName = app.jobs?.client_name || "-";
+      const jobTitle = app?.jobs?.title || app?.job_title || "-";
+      const clientName = app?.jobs?.client_name || "-";
 
       if (els.endorseSummary) {
         els.endorseSummary.innerHTML = `
@@ -1686,20 +1688,24 @@ TalentBuzz`;
 
     function closeEndorseModal() {
       state.selectedEndorsementApp = null;
+
       if (els.endorseSubject) els.endorseSubject.value = "";
       if (els.endorseBody) els.endorseBody.value = "";
       if (els.endorseRecipient) els.endorseRecipient.value = "";
       if (els.endorseSummary) els.endorseSummary.innerHTML = "";
+
       if (els.endorseModal) {
         els.endorseModal.classList.remove("show");
         els.endorseModal.setAttribute("aria-hidden", "true");
       }
+
       document.body.style.overflow = "";
     }
 
     function openInviteRecruiterModal() {
       if (els.inviteRecruiterName) els.inviteRecruiterName.value = "";
       if (els.inviteRecruiterEmail) els.inviteRecruiterEmail.value = "";
+
       if (els.inviteRecruiterModal) {
         els.inviteRecruiterModal.classList.add("show");
         els.inviteRecruiterModal.setAttribute("aria-hidden", "false");
@@ -1723,29 +1729,29 @@ TalentBuzz`;
         throw new Error("Please enter recruiter name and email.");
       }
 
-      try {
-        const { error: recruiterError } = await supabaseClient
-          .from("recruiters")
-          .upsert([{
-            email,
-            full_name: fullName,
-            active: true
-          }], { onConflict: "email" });
+      const { error: recruiterError } = await supabaseClient
+        .from("recruiters")
+        .upsert(
+          [
+            {
+              email,
+              full_name: fullName,
+              active: true
+            }
+          ],
+          { onConflict: "email" }
+        );
 
-        if (recruiterError) throw recruiterError;
+      if (recruiterError) throw recruiterError;
 
-        const { error: resetError } = await supabaseClient.auth.resetPasswordForEmail(email, {
-          redirectTo: `${window.location.origin}/reset-password.html`
-        });
+      const { error: resetError } = await supabaseClient.auth.resetPasswordForEmail(email, {
+        redirectTo: `${window.location.origin}/reset-password.html`
+      });
 
-        if (resetError) throw resetError;
+      if (resetError) throw resetError;
 
-        await loadRecruitersMap();
-        return true;
-      } catch (err) {
-        console.error("[EXCEPTION] inviteRecruiter:", err);
-        throw err;
-      }
+      await loadRecruitersMap();
+      return true;
     }
 
     async function fetchClientRecipient(clientUuid) {
@@ -1784,55 +1790,50 @@ TalentBuzz`;
       const recruiterEmail = state.currentUser?.email || null;
 
       if (!app?.id) throw new Error("Application record is missing.");
-      if (!app.jobs?.client_uuid) throw new Error("This job is not linked to a client profile yet.");
+      if (!app?.jobs?.client_uuid) throw new Error("This job is not linked to a client profile yet.");
 
-      try {
-        const endorsementPayload = {
-          application_id: app.id,
-          client_id: app.jobs.client_uuid,
-          job_id: app.jobs?.id || app.job_id || null,
-          candidate_summary: buildCandidateSummary(app),
-          recipient_email: recipientEmail || null,
-          email_subject: subject || null,
-          email_body: body || null,
-          resume_url: resumeUrl || null,
-          endorsement_status: markAsSent ? "sent" : "draft_ready",
-          sent_at: markAsSent ? nowIso : null,
-          sent_by: recruiterEmail,
-          client_response_status: null,
-          client_response_notes: null,
-          last_error: errorMessage || null
-        };
+      const endorsementPayload = {
+        application_id: app.id,
+        client_id: app.jobs.client_uuid,
+        job_id: app.jobs?.id || app.job_id || null,
+        candidate_summary: buildCandidateSummary(app),
+        recipient_email: recipientEmail || null,
+        email_subject: subject || null,
+        email_body: body || null,
+        resume_url: resumeUrl || null,
+        endorsement_status: markAsSent ? "sent" : "draft_ready",
+        sent_at: markAsSent ? nowIso : null,
+        sent_by: recruiterEmail,
+        client_response_status: null,
+        client_response_notes: null,
+        last_error: errorMessage || null
+      };
 
-        const { error: endorsementError } = await supabaseClient
-          .from("application_endorsements")
-          .upsert([endorsementPayload], { onConflict: "application_id,client_id" });
+      const { error: endorsementError } = await supabaseClient
+        .from("application_endorsements")
+        .upsert([endorsementPayload], { onConflict: "application_id,client_id" });
 
-        if (endorsementError) throw endorsementError;
+      if (endorsementError) throw endorsementError;
 
-        const updatePayload = {
-          endorsement_status: markAsSent ? "sent" : "draft_ready",
-          endorsed_by: recruiterEmail
-        };
+      const updatePayload = {
+        endorsement_status: markAsSent ? "sent" : "draft_ready",
+        endorsed_by: recruiterEmail
+      };
 
-        if (markAsSent) {
-          updatePayload.endorsement_sent_at = nowIso;
-          updatePayload.last_status_change_at = nowIso;
-          updatePayload.sla_status = "on_track";
-          updatePayload.sla_due_at = new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString();
-          updatePayload.endorsement_sent_to = recipientEmail || null;
-        }
-
-        const { error: appUpdateError } = await supabaseClient
-          .from("applications")
-          .update(updatePayload)
-          .eq("id", app.id);
-
-        if (appUpdateError) throw appUpdateError;
-      } catch (err) {
-        console.error("[EXCEPTION] saveEndorsementRecord:", err);
-        throw err;
+      if (markAsSent) {
+        updatePayload.endorsement_sent_at = nowIso;
+        updatePayload.last_status_change_at = nowIso;
+        updatePayload.sla_status = "on_track";
+        updatePayload.sla_due_at = new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString();
+        updatePayload.endorsement_sent_to = recipientEmail || null;
       }
+
+      const { error: appUpdateError } = await supabaseClient
+        .from("applications")
+        .update(updatePayload)
+        .eq("id", app.id);
+
+      if (appUpdateError) throw appUpdateError;
     }
 
     async function sendEndorsementEmail({ app, subject, body, recipientEmail }) {
@@ -1840,47 +1841,44 @@ TalentBuzz`;
       if (!recipientEmail) throw new Error("No client recipient email found.");
       if (!subject?.trim()) throw new Error("Email subject is required.");
       if (!body?.trim()) throw new Error("Email body is required.");
-      if (!app.jobs?.title && !app.job_title) throw new Error("Job title is missing.");
-      if (!app.jobs?.client_uuid) throw new Error("Client is not linked to this job yet.");
+      if (!app?.jobs?.title && !app?.job_title) throw new Error("Job title is missing.");
+      if (!app?.jobs?.client_uuid) throw new Error("Client is not linked to this job yet.");
 
       const profile = getProfileFromApplication(app);
       if (!profile?.full_name) throw new Error("Candidate name is missing.");
 
-      try {
-        const resumeUrl = await getResumeUrl(app);
-        if (!resumeUrl) throw new Error("Resume file is missing. Please upload a resume before endorsing.");
-
-        const notes = await getInterviewNotesByApplicationId(app.id);
-
-        const { data, error } = await supabaseClient.functions.invoke("send-endorsement-email", {
-          body: {
-            to: recipientEmail,
-            subject: subject.trim(),
-            body: body.trim(),
-            candidate_name: profile.full_name,
-            candidate_email: app.email || null,
-            candidate_phone: profile.phone || null,
-            candidate_location: profile.location || null,
-            current_title: profile.current_title || null,
-            years_of_experience: profile.years_of_experience ?? null,
-            skills: profile.skills || null,
-            job_title: app.jobs?.title || app.job_title || "Role",
-            client_name: app.jobs?.client_name || null,
-            resume_url: resumeUrl,
-            interview_notes: notes?.optimized_notes || null,
-            interview_decision: notes?.decision_status || null
-          }
-        });
-
-        if (error || !data?.success) {
-          throw new Error(error?.message || data?.error || "Failed to send endorsement email.");
-        }
-
-        return { success: true, resumeUrl };
-      } catch (err) {
-        console.error("[EXCEPTION] sendEndorsementEmail:", err);
-        throw err;
+      const resumeUrl = await getResumeUrl(app);
+      if (!resumeUrl) {
+        throw new Error("Resume file is missing. Please upload a resume before endorsing.");
       }
+
+      const notes = await getInterviewNotesByApplicationId(app.id);
+
+      const { data, error } = await supabaseClient.functions.invoke("send-endorsement-email", {
+        body: {
+          to: recipientEmail,
+          subject: subject.trim(),
+          body: body.trim(),
+          candidate_name: profile.full_name,
+          candidate_email: app.email || null,
+          candidate_phone: profile.phone || null,
+          candidate_location: profile.location || null,
+          current_title: profile.current_title || null,
+          years_of_experience: profile.years_of_experience ?? null,
+          skills: profile.skills || null,
+          job_title: app.jobs?.title || app.job_title || "Role",
+          client_name: app.jobs?.client_name || null,
+          resume_url: resumeUrl,
+          interview_notes: notes?.optimized_notes || null,
+          interview_decision: notes?.decision_status || null
+        }
+      });
+
+      if (error || !data?.success) {
+        throw new Error(error?.message || data?.error || "Failed to send endorsement email.");
+      }
+
+      return { success: true, resumeUrl };
     }
 
     async function sendRejectionEmail(application) {
@@ -1930,10 +1928,10 @@ TalentBuzz`;
       const recruitersMap = new Map();
 
       state.allApplications.forEach(app => {
-        const title = app.jobs?.title || app.job_title || "";
-        const slug = app.jobs?.slug || title;
-        const clientName = app.jobs?.client_name || "";
-        const recruiterEmail = app.recruiter_email || "";
+        const title = app?.jobs?.title || app?.job_title || "";
+        const slug = app?.jobs?.slug || title;
+        const clientName = app?.jobs?.client_name || "";
+        const recruiterEmail = app?.recruiter_email || "";
 
         if (title) jobsMap.set(String(slug), String(title));
         if (clientName) clientsMap.set(String(clientName), String(clientName));
@@ -1985,8 +1983,8 @@ TalentBuzz`;
         const profile = getProfileFromApplication(app);
         const candidateName = normalizeText(profile?.full_name);
         const candidateEmail = normalizeText(app.email);
-        const jobSlug = normalizeText(app.jobs?.slug || app.job_title);
-        const clientName = normalizeText(app.jobs?.client_name);
+        const jobSlug = normalizeText(app?.jobs?.slug || app?.job_title);
+        const clientName = normalizeText(app?.jobs?.client_name);
         const status = normalizeText(app.status || "submitted");
         const recruiter = normalizeText(app.recruiter_email);
         const source = normalizeText(app.application_source);
@@ -2006,12 +2004,23 @@ TalentBuzz`;
 
     function renderStats() {
       const filtered = getFilteredApplications();
+
       if (els.statTotal) els.statTotal.textContent = filtered.length;
-      if (els.statEndorsed) els.statEndorsed.textContent = filtered.filter(a => normalizeText(a.status) === "endorsed").length;
-      if (els.statRejected) els.statRejected.textContent = filtered.filter(a => REJECTED_STATUSES.includes(normalizeText(a.status))).length;
-      if (els.statInterviewed) els.statInterviewed.textContent = filtered.filter(a => INTERVIEWED_STATUSES.includes(normalizeText(a.status))).length;
-      if (els.statHired) els.statHired.textContent = filtered.filter(a => HIRED_STATUSES.includes(normalizeText(a.status))).length;
-      if (els.statOverdue) els.statOverdue.textContent = filtered.filter(a => computeSlaStatus(a) === "overdue").length;
+      if (els.statEndorsed) {
+        els.statEndorsed.textContent = filtered.filter(a => normalizeText(a.status) === "endorsed").length;
+      }
+      if (els.statRejected) {
+        els.statRejected.textContent = filtered.filter(a => REJECTED_STATUSES.includes(normalizeText(a.status))).length;
+      }
+      if (els.statInterviewed) {
+        els.statInterviewed.textContent = filtered.filter(a => INTERVIEWED_STATUSES.includes(normalizeText(a.status))).length;
+      }
+      if (els.statHired) {
+        els.statHired.textContent = filtered.filter(a => HIRED_STATUSES.includes(normalizeText(a.status))).length;
+      }
+      if (els.statOverdue) {
+        els.statOverdue.textContent = filtered.filter(a => computeSlaStatus(a) === "overdue").length;
+      }
     }
 
     async function renderTable() {
@@ -2031,8 +2040,8 @@ TalentBuzz`;
         const profile = getProfileFromApplication(app);
         const candidateName = escapeHtml(profile?.full_name || "Unnamed");
         const candidateEmail = escapeHtml(app.email || "-");
-        const jobTitle = escapeHtml(app.jobs?.title || app.job_title || "-");
-        const clientName = escapeHtml(app.jobs?.client_name || "-");
+        const jobTitle = escapeHtml(app?.jobs?.title || app?.job_title || "-");
+        const clientName = escapeHtml(app?.jobs?.client_name || "-");
         const currentStatus = String(app.status || "submitted");
         const safeStatus = escapeHtml(currentStatus);
         const recruiterName = escapeHtml(getRecruiterName(app.recruiter_email));
@@ -2054,11 +2063,12 @@ TalentBuzz`;
         const endorsementStatus = app.endorsement_status || "not_sent";
         const safeEndorsementStatus = escapeHtml(endorsementStatus);
         const slaStatus = computeSlaStatus(app);
-        const hasResume = hasResumeFile(app);
 
-        const interviewDecision = String(app.interview_notes?.decision_status || "").trim();
-        const interviewUpdated = app.interview_notes?.updated_at ? formatDateTime(app.interview_notes.updated_at) : "";
-        const optimizedPreview = String(app.interview_notes?.optimized_notes || "").trim();
+        const interviewDecision = String(app?.interview_notes?.decision_status || "").trim();
+        const interviewUpdated = app?.interview_notes?.updated_at
+          ? formatDateTime(app.interview_notes.updated_at)
+          : "";
+        const optimizedPreview = String(app?.interview_notes?.optimized_notes || "").trim();
 
         const statusOptions = STATUS_OPTIONS.map(option => {
           const selected = normalizeText(option) === normalizeText(currentStatus) ? "selected" : "";
@@ -2067,7 +2077,7 @@ TalentBuzz`;
 
         const recruiterOptions =
           `<option value="">Unassigned</option>` +
-          Object.entries(state.allRecruitersMap || {})
+          Object.entries(state.allRecruitersMap)
             .map(([email, name]) => {
               const selected = normalizeText(app.recruiter_email) === normalizeText(email) ? "selected" : "";
               return `<option value="${escapeHtml(email)}" ${selected}>${escapeHtml(name)}</option>`;
@@ -2091,7 +2101,7 @@ TalentBuzz`;
             <td>${yearsOfExperience}</td>
             <td>
               ${
-                hasResume
+                hasResumeFile(app)
                   ? `<button class="btn btn-outline table-btn view-resume-btn" type="button" data-id="${escapeHtml(app.id)}">View Resume</button>`
                   : `<span class="small">No resume</span>`
               }
@@ -2291,221 +2301,236 @@ TalentBuzz`;
       if (els.notesOptimizedPreview) {
         els.notesOptimizedPreview.value = optimized;
       }
+
       return optimized;
     }
+
     async function saveSingleScreeningAnswer(responseId, payload) {
-  const { error } = await supabaseClient
-    .from("application_screening_responses")
-    .update({
-      ...payload,
-      updated_at: new Date().toISOString()
-    })
-    .eq("id", responseId);
+      const { error } = await supabaseClient
+        .from("application_screening_responses")
+        .update({
+          ...payload,
+          updated_at: new Date().toISOString()
+        })
+        .eq("id", responseId);
 
-  if (error) throw error;
-}
+      if (error) throw error;
+    }
 
-async function saveScreeningReview() {
-  if (!state.currentScreeningAppId) {
-    throw new Error("No screening application selected.");
-  }
+    async function saveScreeningReview() {
+      if (!state.currentScreeningAppId) {
+        throw new Error("No screening application selected.");
+      }
 
-  const payload = {
-    application_id: state.currentScreeningAppId,
-    strengths: getSafeValue(els.screeningStrengths),
-    risks: getSafeValue(els.screeningRisks),
-    summary: getSafeValue(els.screeningSummary),
-    recommended_decision: getSafeValue(els.screeningDecision),
-    updated_at: new Date().toISOString()
-  };
+      const payload = {
+        application_id: state.currentScreeningAppId,
+        strengths: getSafeValue(els.screeningStrengths),
+        risks: getSafeValue(els.screeningRisks),
+        summary: getSafeValue(els.screeningSummary),
+        recommended_decision: getSafeValue(els.screeningDecision),
+        updated_at: new Date().toISOString()
+      };
 
-  const { error } = await supabaseClient
-    .from("application_screening_reviews")
-    .upsert(payload, { onConflict: "application_id" });
+      const { error } = await supabaseClient
+        .from("application_screening_reviews")
+        .upsert(payload, { onConflict: "application_id" });
 
-  if (error) throw error;
-}
+      if (error) throw error;
+    }
 
-async function pushScreeningToInterviewNotes() {
-  if (!state.currentScreeningAppId) {
-    throw new Error("No screening application selected.");
-  }
+    async function pushScreeningToInterviewNotes() {
+      if (!state.currentScreeningAppId) {
+        throw new Error("No screening application selected.");
+      }
 
-  const app = state.currentScreeningApplication;
-  if (!app) {
-    throw new Error("Application not loaded.");
-  }
+      const app = state.currentScreeningApplication;
+      if (!app) {
+        throw new Error("Application not loaded.");
+      }
 
-  const existing = await getInterviewNotesByApplicationId(state.currentScreeningAppId);
+      const existing = await getInterviewNotesByApplicationId(state.currentScreeningAppId);
 
-  const strengths = getSafeValue(els.screeningStrengths);
-  const risks = getSafeValue(els.screeningRisks);
-  const summary = getSafeValue(els.screeningSummary);
-  const decision = getSafeValue(els.screeningDecision);
+      const strengths = getSafeValue(els.screeningStrengths);
+      const risks = getSafeValue(els.screeningRisks);
+      const summary = getSafeValue(els.screeningSummary);
+      const decision = getSafeValue(els.screeningDecision);
 
-  const optimized = buildOptimizedInterviewNotes({
-    candidateName: app.applicant_profiles?.full_name || app.email || "Candidate",
-    jobTitle: app.jobs?.title || app.job_title || "Role",
-    strengths,
-    risks,
-    summary,
-    decisionStatus: decision
-  });
+      const profile = getProfileFromApplication(app);
+      const optimized = buildOptimizedInterviewNotes({
+        candidateName: profile?.full_name || app.email || "Candidate",
+        jobTitle: app?.jobs?.title || app?.job_title || "Role",
+        strengths,
+        risks,
+        summary,
+        decisionStatus: decision
+      });
 
-  const payload = {
-    application_id: state.currentScreeningAppId,
-    applicant_profile_id: app.applicant_profile_id || null,
-    job_id: app.job_id_uuid || app.job_id || null,
-    recruiter_email: app.recruiter_email || state.currentUser?.email || null,
-    candidate_name: app.applicant_profiles?.full_name || null,
-    job_title: app.jobs?.title || app.job_title || null,
-    strengths: existing?.strengths ? `${existing.strengths}\n\n${strengths}` : strengths,
-    risks: existing?.risks ? `${existing.risks}\n\n${risks}` : risks,
-    interview_summary: existing?.interview_summary ? `${existing.interview_summary}\n\n${summary}` : summary,
-    decision_status: existing?.decision_status || decision || null,
-    optimized_notes: existing?.optimized_notes ? `${existing.optimized_notes}\n\n${optimized}` : optimized,
-    include_strengths_in_endorsement: true,
-    include_risks_in_endorsement: true,
-    include_summary_in_endorsement: true,
-    include_decision_in_endorsement: true,
-    updated_at: new Date().toISOString()
-  };
+      const payload = {
+        application_id: state.currentScreeningAppId,
+        applicant_profile_id: app.applicant_profile_id || profile?.id || null,
+        job_id: app.job_id_uuid || app.job_id || app?.jobs?.id || null,
+        recruiter_email: app.recruiter_email || state.currentUser?.email || null,
+        candidate_name: profile?.full_name || null,
+        job_title: app?.jobs?.title || app?.job_title || null,
+        strengths: existing?.strengths ? `${existing.strengths}\n\n${strengths}` : strengths,
+        risks: existing?.risks ? `${existing.risks}\n\n${risks}` : risks,
+        interview_summary: existing?.interview_summary
+          ? `${existing.interview_summary}\n\n${summary}`
+          : summary,
+        decision_status: existing?.decision_status || decision || null,
+        optimized_notes: existing?.optimized_notes
+          ? `${existing.optimized_notes}\n\n${optimized}`
+          : optimized,
+        include_strengths_in_endorsement: true,
+        include_risks_in_endorsement: true,
+        include_summary_in_endorsement: true,
+        include_decision_in_endorsement: true,
+        updated_at: new Date().toISOString()
+      };
 
-  const { error } = await supabaseClient
-    .from("interview_notes")
-    .upsert(payload, { onConflict: "application_id" });
+      const { error } = await supabaseClient
+        .from("interview_notes")
+        .upsert(payload, { onConflict: "application_id" });
 
-  if (error) throw error;
-}
-function openScreeningModal() {
-  if (!els.screeningModal) return;
-  els.screeningModal.classList.add("show");
-  els.screeningModal.setAttribute("aria-hidden", "false");
-  document.body.style.overflow = "hidden";
-}
+      if (error) throw error;
+    }
 
-function closeScreeningModal() {
-  if (!els.screeningModal) return;
-  els.screeningModal.classList.remove("show");
-  els.screeningModal.setAttribute("aria-hidden", "true");
-  document.body.style.overflow = "";
-}
+    function openScreeningModal() {
+      if (!els.screeningModal) return;
+      els.screeningModal.classList.add("show");
+      els.screeningModal.setAttribute("aria-hidden", "false");
+      document.body.style.overflow = "hidden";
+    }
 
-async function loadScreeningResponses(applicationId) {
-  const { data, error } = await supabaseClient
-    .from("application_screening_responses")
-    .select("*")
-    .eq("application_id", applicationId)
-    .order("created_at", { ascending: true });
+    function closeScreeningModal() {
+      if (!els.screeningModal) return;
+      els.screeningModal.classList.remove("show");
+      els.screeningModal.setAttribute("aria-hidden", "true");
+      document.body.style.overflow = "";
+    }
 
-  if (error) throw error;
-  return data || [];
-}
+    async function loadScreeningResponses(applicationId) {
+      const { data, error } = await supabaseClient
+        .from("application_screening_responses")
+        .select("*")
+        .eq("application_id", applicationId)
+        .order("created_at", { ascending: true });
 
-async function loadScreeningReview(applicationId) {
-  const { data, error } = await supabaseClient
-    .from("application_screening_reviews")
-    .select("*")
-    .eq("application_id", applicationId)
-    .maybeSingle();
+      if (error) throw error;
+      return data || [];
+    }
 
-  if (error) throw error;
-  return data || null;
-}
+    async function loadScreeningReview(applicationId) {
+      const { data, error } = await supabaseClient
+        .from("application_screening_reviews")
+        .select("*")
+        .eq("application_id", applicationId)
+        .maybeSingle();
 
-function renderScreeningResponses(responses) {
-  if (!els.screeningContainer) return;
+      if (error) throw error;
+      return data || null;
+    }
 
-  if (!responses.length) {
-    els.screeningContainer.innerHTML = `
-      <div class="empty">No screening responses found for this application.</div>
-    `;
-    return;
-  }
+    function renderScreeningResponses(responses) {
+      if (!els.screeningContainer) return;
 
-  els.screeningContainer.innerHTML = responses.map((r, index) => `
-    <div class="panel" style="margin-bottom:14px;">
-      <div style="font-weight:800;color:#1e3a8a;margin-bottom:8px;">Question ${index + 1}</div>
-      <div style="margin-bottom:10px;"><strong>${escapeHtml(r.question_text || "-")}</strong></div>
+      if (!responses.length) {
+        els.screeningContainer.innerHTML = `
+          <div class="empty">No screening responses found for this application.</div>
+        `;
+        return;
+      }
 
-      <div class="field" style="margin-bottom:10px;">
-        <label>Candidate Answer</label>
-        <textarea
-          class="screening-answer"
-          data-id="${escapeHtml(r.id)}"
-          rows="4"
-          placeholder="Type candidate answer here"
-        >${escapeHtml(r.candidate_answer || "")}</textarea>
-      </div>
+      els.screeningContainer.innerHTML = responses
+        .map((r, index) => `
+          <div class="panel" style="margin-bottom:14px;">
+            <div style="font-weight:800;color:#1e3a8a;margin-bottom:8px;">Question ${index + 1}</div>
+            <div style="margin-bottom:10px;"><strong>${escapeHtml(r.question_text || "-")}</strong></div>
 
-      <div class="notes-grid">
-        <div class="field">
-          <label>Score</label>
-          <select class="screening-score" data-id="${escapeHtml(r.id)}">
-            <option value="">Select score</option>
-            <option value="1" ${Number(r.recruiter_score) === 1 ? "selected" : ""}>1</option>
-            <option value="2" ${Number(r.recruiter_score) === 2 ? "selected" : ""}>2</option>
-            <option value="3" ${Number(r.recruiter_score) === 3 ? "selected" : ""}>3</option>
-            <option value="4" ${Number(r.recruiter_score) === 4 ? "selected" : ""}>4</option>
-            <option value="5" ${Number(r.recruiter_score) === 5 ? "selected" : ""}>5</option>
-          </select>
-        </div>
+            <div class="field" style="margin-bottom:10px;">
+              <label>Candidate Answer</label>
+              <textarea
+                class="screening-answer"
+                data-id="${escapeHtml(r.id)}"
+                rows="4"
+                placeholder="Type candidate answer here"
+              >${escapeHtml(r.candidate_answer || "")}</textarea>
+            </div>
 
-        <div class="field">
-          <label>Question Type</label>
-          <input value="${escapeHtml(r.question_type || "-")}" readonly />
-        </div>
-      </div>
-    </div>
-  `).join("");
-}
+            <div class="notes-grid">
+              <div class="field">
+                <label>Score</label>
+                <select class="screening-score" data-id="${escapeHtml(r.id)}">
+                  <option value="">Select score</option>
+                  <option value="1" ${Number(r.recruiter_score) === 1 ? "selected" : ""}>1</option>
+                  <option value="2" ${Number(r.recruiter_score) === 2 ? "selected" : ""}>2</option>
+                  <option value="3" ${Number(r.recruiter_score) === 3 ? "selected" : ""}>3</option>
+                  <option value="4" ${Number(r.recruiter_score) === 4 ? "selected" : ""}>4</option>
+                  <option value="5" ${Number(r.recruiter_score) === 5 ? "selected" : ""}>5</option>
+                </select>
+              </div>
 
-function fillScreeningReviewFields(review) {
-  if (!review) {
-    if (els.screeningStrengths) els.screeningStrengths.value = "";
-    if (els.screeningRisks) els.screeningRisks.value = "";
-    if (els.screeningSummary) els.screeningSummary.value = "";
-    if (els.screeningDecision) els.screeningDecision.value = "";
-    return;
-  }
+              <div class="field">
+                <label>Question Type</label>
+                <input value="${escapeHtml(r.question_type || "-")}" readonly />
+              </div>
+            </div>
+          </div>
+        `)
+        .join("");
+    }
 
-  if (els.screeningStrengths) els.screeningStrengths.value = review.strengths || "";
-  if (els.screeningRisks) els.screeningRisks.value = review.risks || "";
-  if (els.screeningSummary) els.screeningSummary.value = review.summary || "";
-  if (els.screeningDecision) els.screeningDecision.value = review.recommended_decision || "";
-}
+    function fillScreeningReviewFields(review) {
+      if (!review) {
+        if (els.screeningStrengths) els.screeningStrengths.value = "";
+        if (els.screeningRisks) els.screeningRisks.value = "";
+        if (els.screeningSummary) els.screeningSummary.value = "";
+        if (els.screeningDecision) els.screeningDecision.value = "";
+        return;
+      }
 
-function buildScreeningNarrative(responses) {
-  const strengths = [];
-  const risks = [];
+      if (els.screeningStrengths) els.screeningStrengths.value = review.strengths || "";
+      if (els.screeningRisks) els.screeningRisks.value = review.risks || "";
+      if (els.screeningSummary) els.screeningSummary.value = review.summary || "";
+      if (els.screeningDecision) els.screeningDecision.value = review.recommended_decision || "";
+    }
 
-  responses.forEach(r => {
-    const score = Number(r.recruiter_score || 0);
-    const question = r.question_text || "question";
+    function buildScreeningNarrative(responses) {
+      const strengths = [];
+      const risks = [];
 
-    if (score >= 4) strengths.push(`Strong response to: ${question}`);
-    if (score > 0 && score <= 2) risks.push(`Weak response to: ${question}`);
-  });
+      responses.forEach(r => {
+        const score = Number(r.recruiter_score || 0);
+        const question = r.question_text || "question";
 
-  return {
-    strengths: strengths.length ? strengths.map(x => `• ${x}`).join("\n") : "• No major strengths captured yet.",
-    risks: risks.length ? risks.map(x => `• ${x}`).join("\n") : "• No major risks captured yet.",
-    summary: strengths.length
-      ? "Candidate shows solid screening alignment based on current responses."
-      : "Candidate shows baseline alignment, but more validation is needed."
-  };
-}
+        if (score >= 4) strengths.push(`Strong response to: ${question}`);
+        if (score > 0 && score <= 2) risks.push(`Weak response to: ${question}`);
+      });
+
+      return {
+        strengths: strengths.length
+          ? strengths.map(item => `• ${item}`).join("\n")
+          : "• No major strengths captured yet.",
+        risks: risks.length
+          ? risks.map(item => `• ${item}`).join("\n")
+          : "• No major risks captured yet.",
+        summary: strengths.length
+          ? "Candidate shows solid screening alignment based on current responses."
+          : "Candidate shows baseline alignment, but more validation is needed."
+      };
+    }
+
     async function openInterviewNotesModal(app) {
       resetInterviewNotesForm();
 
       const profile = getProfileFromApplication(app);
       const candidateName = profile?.full_name || app.email || "Candidate";
-      const jobTitle = app.jobs?.title || app.job_title || "Role";
+      const jobTitle = app?.jobs?.title || app?.job_title || "Role";
       const recruiterEmail = state.currentUser?.email || app.recruiter_email || "";
 
       if (els.notesApplicationId) els.notesApplicationId.value = app.id || "";
       if (els.notesApplicantProfileId) els.notesApplicantProfileId.value = app.applicant_profile_id || profile?.id || "";
-      if (els.notesJobId) els.notesJobId.value = app.jobs?.id || app.job_id || "";
+      if (els.notesJobId) els.notesJobId.value = app?.jobs?.id || app.job_id || "";
       if (els.notesRecruiterEmail) els.notesRecruiterEmail.value = recruiterEmail;
       if (els.notesCandidateName) els.notesCandidateName.value = candidateName;
       if (els.notesJobTitle) els.notesJobTitle.value = jobTitle;
@@ -2513,11 +2538,12 @@ function buildScreeningNarrative(responses) {
       if (els.interviewNotesTitle) {
         els.interviewNotesTitle.textContent = `Interview Notes - ${candidateName}`;
       }
+
       if (els.interviewNotesContext) {
         els.interviewNotesContext.innerHTML = `
           <strong>Candidate:</strong> ${escapeHtml(candidateName)}<br>
           <strong>Role:</strong> ${escapeHtml(jobTitle)}<br>
-          <strong>Client:</strong> ${escapeHtml(app.jobs?.client_name || "-")}
+          <strong>Client:</strong> ${escapeHtml(app?.jobs?.client_name || "-")}
         `;
       }
 
@@ -2552,6 +2578,7 @@ function buildScreeningNarrative(responses) {
     async function saveInterviewNotes() {
       try {
         const applicationId = getSafeValue(els.notesApplicationId);
+
         if (!applicationId) {
           showNotesSaveMessage("Missing application ID.", "error");
           return;
@@ -2591,6 +2618,7 @@ function buildScreeningNarrative(responses) {
         showNotesSaveMessage("Error saving notes.", "error");
       }
     }
+  });
 
     async function loadApplications() {
       try {
