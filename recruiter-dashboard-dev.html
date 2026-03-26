@@ -1693,11 +1693,78 @@ async function saveInterviewNotes() {
     showNotesSaveMessage(err.message || "Failed to save interview notes.", "error");
   }
 }
-  /* =========================================================
+/* =========================================================
 BLOCK 14: SCREENING REVIEW MODAL
 Identifier: SCREENING_MODAL
 Purpose: Review screening responses and push into notes
 ========================================================= */
+function normalizeScreeningResponses(rawValue) {
+  const parsed = parseMaybeJson(rawValue);
+
+  if (!parsed) return [];
+
+  if (Array.isArray(parsed)) {
+    return parsed.map((item, index) => {
+      if (typeof item === "string") {
+        return {
+          question: `Question ${index + 1}`,
+          answer: item
+        };
+      }
+
+      return {
+        question:
+          item.question ||
+          item.label ||
+          item.prompt ||
+          `Question ${index + 1}`,
+        answer:
+          item.answer ??
+          item.response ??
+          item.value ??
+          item.selected_option ??
+          item.selectedAnswer ??
+          "-"
+      };
+    });
+  }
+
+  if (typeof parsed === "object") {
+    return Object.entries(parsed).map(([key, value], index) => ({
+      question: key || `Question ${index + 1}`,
+      answer: typeof value === "object"
+        ? JSON.stringify(value)
+        : String(value ?? "-")
+    }));
+  }
+
+  return [];
+}
+
+function renderScreeningResponses(responses) {
+  if (!responses.length) {
+    return `
+      <div class="empty">
+        No screening questions or answers were found for this application.
+      </div>
+    `;
+  }
+
+  return responses.map((item, index) => `
+    <div class="panel" style="padding:14px;margin-bottom:12px;">
+      <div style="font-weight:800;color:var(--primary);margin-bottom:6px;">
+        Question ${index + 1}
+      </div>
+      <div style="margin-bottom:6px;">
+        ${escapeHtml(item.question || "-")}
+      </div>
+      <div class="small">
+        <strong>Answer:</strong> ${escapeHtml(item.answer || "-")}
+      </div>
+    </div>
+  `).join("");
+}
+
 function closeScreeningModal() {
   state.currentScreeningAppId = null;
   state.currentScreeningResponses = [];
@@ -1717,6 +1784,7 @@ async function openScreeningModalByAppId(applicationId) {
   state.currentScreeningAppId = applicationId;
 
   const profile = getProfileFromApplication(app);
+
   els.screeningTitle.textContent = `Screening Review - ${profile.full_name || app.email || "Candidate"}`;
   els.screeningContext.textContent = safeJoin([
     profile.full_name || app.email,
@@ -1724,20 +1792,24 @@ async function openScreeningModalByAppId(applicationId) {
     getClientName(app)
   ]);
 
-  const responses = parseMaybeJson(app.screening_answers) || parseMaybeJson(app.screening_responses) || [];
-  state.currentScreeningResponses = Array.isArray(responses) ? responses : [];
+  const responsesFromAnswers = normalizeScreeningResponses(app.screening_answers);
+  const responsesFromResponses = normalizeScreeningResponses(app.screening_responses);
 
-  if (!state.currentScreeningResponses.length) {
-    els.screeningContainer.innerHTML = `<div class="empty">No screening responses found for this application.</div>`;
-  } else {
-    els.screeningContainer.innerHTML = state.currentScreeningResponses.map((item, index) => `
-      <div class="panel" style="padding:14px;margin-bottom:12px;">
-        <div style="font-weight:800;color:var(--primary);margin-bottom:6px;">Question ${index + 1}</div>
-        <div style="margin-bottom:6px;">${escapeHtml(item.question || "-")}</div>
-        <div class="small"><strong>Answer:</strong> ${escapeHtml(item.answer || "-")}</div>
-      </div>
-    `).join("");
-  }
+  const responses = responsesFromAnswers.length
+    ? responsesFromAnswers
+    : responsesFromResponses;
+
+  state.currentScreeningResponses = responses;
+
+  els.screeningContainer.innerHTML = renderScreeningResponses(responses);
+
+  els.screeningStrengths.value = normalizeText(app.screening_review_strengths);
+  els.screeningRisks.value = normalizeText(app.screening_review_risks);
+  els.screeningSummary.value = normalizeText(app.screening_review_summary);
+  els.screeningDecision.value = normalizeText(app.screening_review_decision);
+
+  console.log("Screening modal app data:", app);
+  console.log("Parsed screening responses:", responses);
 
   els.screeningModal.classList.add("show");
   els.screeningModal.setAttribute("aria-hidden", "false");
@@ -1745,18 +1817,54 @@ async function openScreeningModalByAppId(applicationId) {
 
 async function generateScreeningSummary() {
   const responses = state.currentScreeningResponses || [];
+
   if (!responses.length) {
-    showNotice("No screening responses available.", "error");
+    showNotice("No screening responses available for this application.", "error");
     return;
   }
 
-  const answered = responses
-    .map(item => `Q: ${item.question || "-"}\nA: ${item.answer || "-"}`)
-    .join("\n\n");
+  const strengths = [];
+  const risks = [];
 
-  els.screeningStrengths.value = "Reviewed screening responses and found potentially relevant qualifications based on the candidate's answers.";
-  els.screeningRisks.value = "Recruiter validation still required for depth of experience, communication, and role fit.";
-  els.screeningSummary.value = `Screening responses reviewed.\n\n${answered}`;
+  responses.forEach(item => {
+    const q = normalizeText(item.question).toLowerCase();
+    const a = normalizeText(item.answer);
+
+    if (a && a !== "-") {
+      strengths.push(`${item.question}: ${a}`);
+    } else {
+      risks.push(`${item.question}: No answer provided`);
+    }
+
+    if (q.includes("salary") || q.includes("compensation")) {
+      risks.push(`Validate compensation alignment: ${a || "No answer provided"}`);
+    }
+
+    if (q.includes("notice period") || q.includes("start date")) {
+      risks.push(`Check availability/start timeline: ${a || "No answer provided"}`);
+    }
+
+    if (
+      q.includes("experience") ||
+      q.includes("tools") ||
+      q.includes("skills") ||
+      q.includes("qualification")
+    ) {
+      strengths.push(`Relevant qualification response: ${a || "No answer provided"}`);
+    }
+  });
+
+  els.screeningStrengths.value = strengths.length
+    ? strengths.join("\n")
+    : "Candidate provided screening responses for recruiter review.";
+
+  els.screeningRisks.value = risks.length
+    ? risks.join("\n")
+    : "No major screening risks identified from the submitted responses.";
+
+  els.screeningSummary.value = responses.map((item, index) => {
+    return `Q${index + 1}: ${item.question}\nA: ${item.answer || "-"}`;
+  }).join("\n\n");
 }
 
 async function saveScreeningReview() {
