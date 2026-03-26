@@ -1561,4 +1561,340 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }
 
-                          
+                        /* =========================================================
+  BLOCK 17: RESUME PREVIEW
+  Identifier: RESUME_PREVIEW
+  Purpose: Open and close resume preview modal
+  ========================================================= */
+  async function getResumeUrl(app) {
+    const profile = getProfileFromApplication(app);
+    const resumeUrl = normalizeText(profile?.resume_url);
+    const resumePath = normalizeText(profile?.resume_path);
+
+    if (resumeUrl) return resumeUrl;
+    if (!resumePath) return "";
+
+    const cleanedPath = resumePath
+      .replace(/^\/+/, "")
+      .replace(/^resumes\//i, "");
+
+    const { data, error } = await supabaseClient
+      .storage
+      .from(RESUME_BUCKET)
+      .createSignedUrl(cleanedPath, 3600);
+
+    if (error) {
+      console.error("createSignedUrl failed:", error);
+      return "";
+    }
+
+    return data?.signedUrl || "";
+  }
+
+  async function openResumeModalByAppId(applicationId) {
+    try {
+      const app = state.allApplications.find(item => item.id === applicationId);
+      if (!app) throw new Error("Application not found.");
+
+      const url = await getResumeUrl(app);
+      if (!url) throw new Error("Resume not found.");
+
+      if (els.resumeFrame) els.resumeFrame.src = url;
+      if (els.downloadResumeBtn) {
+        els.downloadResumeBtn.href = url;
+        els.downloadResumeBtn.style.display = "inline-flex";
+      }
+
+      if (els.resumeModal) {
+        els.resumeModal.classList.add("show");
+        els.resumeModal.setAttribute("aria-hidden", "false");
+      }
+    } catch (err) {
+      console.error("openResumeModalByAppId failed:", err);
+      showNotice(err.message || "Failed to open resume.", "error");
+    }
+  }
+
+  function closeResumeModal() {
+    if (els.resumeFrame) els.resumeFrame.src = "";
+    if (els.downloadResumeBtn) {
+      els.downloadResumeBtn.href = "#";
+      els.downloadResumeBtn.style.display = "none";
+    }
+    if (els.resumeModal) {
+      els.resumeModal.classList.remove("show");
+      els.resumeModal.setAttribute("aria-hidden", "true");
+    }
+  } 
+
+    /* =========================================================
+  BLOCK 18: ENDORSEMENT MODAL
+  Identifier: ENDORSEMENT_MODAL
+  Purpose: Open and close basic endorsement modal
+  ========================================================= */
+  async function openEndorseModalByAppId(applicationId) {
+    try {
+      const app = state.allApplications.find(item => item.id === applicationId);
+      if (!app) throw new Error("Application not found.");
+
+      state.selectedEndorsementApp = app;
+
+      const profile = getProfileFromApplication(app);
+      const candidateName = profile?.full_name || app.email || "Candidate";
+
+      if (els.endorseSummary) {
+        els.endorseSummary.textContent = safeJoin([
+          candidateName,
+          app.job_title || "",
+          app.status || ""
+        ]);
+      }
+
+      if (els.endorseSubject) {
+        els.endorseSubject.value =
+          `Candidate Endorsement: ${candidateName} - ${app.job_title || "Open Role"}`;
+      }
+
+      if (els.endorseBody) {
+        els.endorseBody.value =
+`Hi,
+
+Please see the candidate endorsement for ${candidateName}${app.job_title ? ` for the ${app.job_title} role` : ""}.
+
+Best regards,
+${state.currentRecruiterRecord?.full_name || "TalentBuzz"}`;
+      }
+
+      if (els.endorseRecipient) {
+        els.endorseRecipient.value = "";
+      }
+
+      if (els.endorseModal) {
+        els.endorseModal.classList.add("show");
+        els.endorseModal.setAttribute("aria-hidden", "false");
+      }
+    } catch (err) {
+      console.error("openEndorseModalByAppId failed:", err);
+      showNotice(err.message || "Failed to open endorsement modal.", "error");
+    }
+  }
+
+  function closeEndorseModal() {
+    state.selectedEndorsementApp = null;
+
+    if (els.endorseModal) {
+      els.endorseModal.classList.remove("show");
+      els.endorseModal.setAttribute("aria-hidden", "true");
+    }
+  }
+
+    /* =========================================================
+  BLOCK 19: INTERVIEW NOTES MODAL
+  Identifier: NOTES_MODAL
+  Purpose: Open, close, and refresh interview notes preview
+  ========================================================= */
+  function refreshOptimizedNotesPreview() {
+    const summary = normalizeText(els.notesSummary?.value);
+    const strengths = normalizeText(els.notesStrengths?.value);
+    const risks = normalizeText(els.notesRisks?.value);
+    const decision = normalizeText(els.notesDecisionStatus?.value);
+
+    const parts = [];
+
+    if (summary) parts.push(summary);
+    if (strengths) parts.push(`Strengths:\n${strengths}`);
+    if (risks) parts.push(`Risks:\n${risks}`);
+    if (decision) parts.push(`Decision: ${decision}`);
+
+    if (els.notesOptimizedPreview) {
+      els.notesOptimizedPreview.value = parts.join("\n\n");
+    }
+  }
+
+  async function openInterviewNotesModalByAppId(applicationId) {
+    try {
+      const app = state.allApplications.find(item => item.id === applicationId);
+      if (!app) throw new Error("Application not found.");
+
+      state.currentInterviewNotesApp = app;
+
+      const profile = getProfileFromApplication(app);
+      const candidateName = profile?.full_name || app.email || "";
+
+      if (els.notesApplicationId) els.notesApplicationId.value = app.id || "";
+      if (els.notesApplicantProfileId) els.notesApplicantProfileId.value = profile?.id || "";
+      if (els.notesJobId) els.notesJobId.value = app.job_id || "";
+      if (els.notesRecruiterEmail) els.notesRecruiterEmail.value = app.recruiter_email || "";
+      if (els.notesCandidateName) els.notesCandidateName.value = candidateName;
+      if (els.notesJobTitle) els.notesJobTitle.value = app.job_title || "";
+
+      if (els.interviewNotesTitle) {
+        els.interviewNotesTitle.textContent = `Interview Notes - ${candidateName || "Candidate"}`;
+      }
+
+      if (els.interviewNotesContext) {
+        els.interviewNotesContext.textContent = safeJoin([
+          candidateName,
+          app.job_title || "",
+          app.status || ""
+        ]);
+      }
+
+      clearNotesSaveMessage();
+      refreshOptimizedNotesPreview();
+
+      if (els.interviewNotesModal) {
+        els.interviewNotesModal.classList.add("show");
+        els.interviewNotesModal.setAttribute("aria-hidden", "false");
+      }
+    } catch (err) {
+      console.error("openInterviewNotesModalByAppId failed:", err);
+      showNotice(err.message || "Failed to open interview notes.", "error");
+    }
+  }
+
+  function closeInterviewNotesModal() {
+    state.currentInterviewNotesApp = null;
+
+    if (els.interviewNotesModal) {
+      els.interviewNotesModal.classList.remove("show");
+      els.interviewNotesModal.setAttribute("aria-hidden", "true");
+    }
+  }
+
+  async function saveInterviewNotes() {
+    try {
+      refreshOptimizedNotesPreview();
+      showNotesSaveMessage("Interview notes saved locally for now.", "success");
+    } catch (err) {
+      console.error("saveInterviewNotes failed:", err);
+      showNotesSaveMessage("Failed to save interview notes.", "error");
+    }
+  }
+
+    /* =========================================================
+  BLOCK 20: SCREENING MODAL
+  Identifier: SCREENING_MODAL
+  Purpose: Open, close, and summarize screening responses
+  ========================================================= */
+  function normalizeScreeningResponses(rawValue) {
+    const parsed = parseMaybeJson(rawValue);
+    if (!parsed) return [];
+
+    if (Array.isArray(parsed)) {
+      return parsed.map((item, index) => ({
+        question: item?.question || item?.label || item?.prompt || `Question ${index + 1}`,
+        answer: item?.answer ?? item?.response ?? item?.value ?? "-"
+      }));
+    }
+
+    if (typeof parsed === "object") {
+      return Object.entries(parsed).map(([key, value], index) => ({
+        question: key || `Question ${index + 1}`,
+        answer: typeof value === "object" ? JSON.stringify(value) : String(value ?? "-")
+      }));
+    }
+
+    return [];
+  }
+
+  async function openScreeningModalByAppId(applicationId) {
+    try {
+      const app = state.allApplications.find(item => item.id === applicationId);
+      if (!app) throw new Error("Application not found.");
+
+      state.currentScreeningAppId = applicationId;
+
+      const profile = getProfileFromApplication(app);
+      const candidateName = profile?.full_name || app.email || "Candidate";
+
+      if (els.screeningTitle) {
+        els.screeningTitle.textContent = `Screening Review - ${candidateName}`;
+      }
+
+      if (els.screeningContext) {
+        els.screeningContext.textContent = safeJoin([
+          candidateName,
+          app.job_title || "",
+          app.status || ""
+        ]);
+      }
+
+      const responses = normalizeScreeningResponses(app.screening_answers || app.screening_responses);
+      state.currentScreeningResponses = responses;
+
+      if (els.screeningContainer) {
+        els.screeningContainer.innerHTML = responses.length
+          ? responses.map((item, index) => `
+              <div class="panel" style="padding:14px;margin-bottom:12px;">
+                <div style="font-weight:800;color:var(--primary);margin-bottom:6px;">Question ${index + 1}</div>
+                <div style="margin-bottom:6px;">${escapeHtml(item.question || "-")}</div>
+                <div class="small"><strong>Answer:</strong> ${escapeHtml(item.answer || "-")}</div>
+              </div>
+            `).join("")
+          : `<div class="empty">No screening responses found for this application.</div>`;
+      }
+
+      if (els.screeningModal) {
+        els.screeningModal.classList.add("show");
+        els.screeningModal.setAttribute("aria-hidden", "false");
+      }
+    } catch (err) {
+      console.error("openScreeningModalByAppId failed:", err);
+      showNotice(err.message || "Failed to open screening review.", "error");
+    }
+  }
+
+  function closeScreeningModal() {
+    state.currentScreeningAppId = null;
+    state.currentScreeningResponses = [];
+
+    if (els.screeningContainer) {
+      els.screeningContainer.innerHTML = "";
+    }
+
+    if (els.screeningModal) {
+      els.screeningModal.classList.remove("show");
+      els.screeningModal.setAttribute("aria-hidden", "true");
+    }
+  }
+
+  function generateScreeningSummary() {
+    const responses = state.currentScreeningResponses || [];
+
+    if (!responses.length) {
+      showNotice("No screening responses available.", "error");
+      return;
+    }
+
+    if (els.screeningStrengths) {
+      els.screeningStrengths.value = "Candidate submitted screening responses for review.";
+    }
+
+    if (els.screeningRisks) {
+      els.screeningRisks.value = "Validate fit against role requirements during recruiter review.";
+    }
+
+    if (els.screeningSummary) {
+      els.screeningSummary.value = responses
+        .map((item, index) => `Q${index + 1}: ${item.question}\nA: ${item.answer || "-"}`)
+        .join("\n\n");
+    }
+  }
+
+  function saveScreeningReview() {
+    showNotice("Screening review saved locally for now.", "success");
+  }
+
+  function pushToInterviewNotes() {
+    if (els.notesStrengths) els.notesStrengths.value = normalizeText(els.screeningStrengths?.value);
+    if (els.notesRisks) els.notesRisks.value = normalizeText(els.screeningRisks?.value);
+    if (els.notesSummary) els.notesSummary.value = normalizeText(els.screeningSummary?.value);
+    if (els.notesDecisionStatus) els.notesDecisionStatus.value = normalizeText(els.screeningDecision?.value);
+
+    refreshOptimizedNotesPreview();
+    closeScreeningModal();
+    showNotice("Screening review pushed to interview notes.", "success");
+  }
+
+  
