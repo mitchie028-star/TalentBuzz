@@ -2164,114 +2164,129 @@ async function saveInterviewNotes() {
     els.applicationsTable.innerHTML = rows.join("");
   }
 
-    async function loadApplications() {
-    try {
-      if (els.applicationsTable) {
-        els.applicationsTable.innerHTML = '<tr><td colspan="18" class="empty loading">Loading candidates...</td></tr>';
-      }
+async function loadApplications() {
+  try {
+    console.log("🔥 loadApplications started");
 
-      if (els.refreshBtn) {
-        els.refreshBtn.disabled = true;
-        els.refreshBtn.textContent = "Refreshing...";
-      }
+    if (els.applicationsTable) {
+      els.applicationsTable.innerHTML = '<tr><td colspan="18" class="empty loading">Loading candidates...</td></tr>';
+    }
 
-      const { data, error } = await supabaseClient
-        .from("applications")
-        .select(`
+    if (els.refreshBtn) {
+      els.refreshBtn.disabled = true;
+      els.refreshBtn.textContent = "Refreshing...";
+    }
+
+    const { data, error } = await supabaseClient
+      .from("applications")
+      .select(`
+        id,
+        email,
+        job_id,
+        job_title,
+        status,
+        recruiter_email,
+        application_source,
+        confirmation_email_status,
+        rejection_email_status,
+        screening_result,
+        screening_score,
+        auto_disposition_reason,
+        created_at,
+        applicant_profile_id,
+        stage_note_code,
+        stage_note_label,
+        stage_note_updated_at,
+        endorsement_status,
+        endorsement_sent_at,
+        endorsed_by,
+        endorsement_sent_to,
+        sla_status,
+        sla_due_at,
+        last_status_change_at,
+        applicant_profiles (
           id,
+          full_name,
           email,
-          job_id,
-          job_title,
-          status,
-          recruiter_email,
-          application_source,
-          confirmation_email_status,
-          rejection_email_status,
-          screening_result,
-          screening_score,
-          auto_disposition_reason,
-          created_at,
-          applicant_profile_id,
-          stage_note_code,
-          stage_note_label,
-          stage_note_updated_at,
-          endorsement_status,
-          endorsement_sent_at,
-          endorsed_by,
-          endorsement_sent_to,
-          sla_status,
-          sla_due_at,
-          last_status_change_at,
-          applicant_profiles (
-            id,
-            full_name,
-            email,
-            phone,
-            location,
-            resume_url,
-            resume_path,
-            current_title,
-            years_of_experience,
-            skills
-          ),
-          jobs (
-            id,
-            title,
-            slug,
-            client_name,
-            client_uuid
-          ),
-          interview_notes (
-            application_id,
-            decision_status,
-            optimized_notes,
-            updated_at
-          )
-        `)
-        .order("created_at", { ascending: false });
+          phone,
+          location,
+          resume_url,
+          resume_path,
+          current_title,
+          years_of_experience,
+          skills
+        ),
+        jobs (
+          id,
+          title,
+          slug,
+          client_name,
+          client_uuid
+        ),
+        interview_notes (
+          application_id,
+          decision_status,
+          optimized_notes,
+          updated_at
+        )
+      `)
+      .order("created_at", { ascending: false });
 
-      if (els.refreshBtn) {
-        els.refreshBtn.disabled = false;
-        els.refreshBtn.textContent = "Refresh";
-      }
+    console.log("🔥 applications query result", { data, error });
 
-      if (error) {
-        console.error("[DB] Failed to load applications:", error);
-        if (els.applicationsTable) {
-          els.applicationsTable.innerHTML = `<tr><td colspan="18" class="empty">${escapeHtml(error.message || "Failed to load candidates.")}</td></tr>`;
-        }
-        return;
-      }
+    if (els.refreshBtn) {
+      els.refreshBtn.disabled = false;
+      els.refreshBtn.textContent = "Refresh";
+    }
 
-      state.allApplications = (data || []).map(item => ({
-        ...item,
-        interview_notes: Array.isArray(item.interview_notes) ? (item.interview_notes[0] || null) : item.interview_notes
-      }));
-
-      populateFilters();
-      renderStats();
-      await renderTable();
-    } catch (err) {
-      console.error("[EXCEPTION] loadApplications:", err);
+    if (error) {
+      console.error("[DB] Failed to load applications:", error);
       if (els.applicationsTable) {
-        els.applicationsTable.innerHTML = '<tr><td colspan="18" class="empty">Error loading candidates. Check console.</td></tr>';
+        els.applicationsTable.innerHTML = `<tr><td colspan="18" class="empty">${escapeHtml(error.message || "Failed to load candidates.")}</td></tr>`;
       }
-      if (els.refreshBtn) {
-        els.refreshBtn.disabled = false;
-        els.refreshBtn.textContent = "Refresh";
-      }
+      return;
     }
-  }
 
-  async function refreshAll() {
-    try {
-      await loadRecruitersMap();
-      await loadApplications();
-    } catch (err) {
-      console.error("[EXCEPTION] refreshAll:", err);
-      showNotice("Error refreshing data.", "error");
+    state.allApplications = (data || []).map(item => ({
+      ...item,
+      interview_notes: Array.isArray(item.interview_notes) ? (item.interview_notes[0] || null) : item.interview_notes
+    }));
+
+    console.log("🔥 state.allApplications ready", state.allApplications);
+
+    console.log("🔥 populateFilters start");
+    populateFilters();
+
+    console.log("🔥 renderStats start");
+    renderStats();
+
+    console.log("🔥 renderTable start");
+    await renderTable();
+
+    console.log("🔥 loadApplications finished");
+  } catch (err) {
+    console.error("[EXCEPTION] loadApplications:", err);
+    if (els.applicationsTable) {
+      els.applicationsTable.innerHTML = '<tr><td colspan="18" class="empty">Error loading candidates. Check console.</td></tr>';
+    }
+    if (els.refreshBtn) {
+      els.refreshBtn.disabled = false;
+      els.refreshBtn.textContent = "Refresh";
     }
   }
+}
+
+async function refreshAll() {
+  try {
+    console.log("🔥 refreshAll started");
+    await loadRecruitersMap();
+    await loadApplications();
+    console.log("🔥 refreshAll finished");
+  } catch (err) {
+    console.error("[EXCEPTION] refreshAll:", err);
+    showNotice("Error refreshing data.", "error");
+  }
+}
 
     if (els.searchInput) {
     els.searchInput.addEventListener("input", async () => {
