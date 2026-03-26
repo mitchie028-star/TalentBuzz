@@ -1408,14 +1408,18 @@ function renderTable() {
 
 
 /* =========================================================
-BLOCK 15: DATA LOADER (CRITICAL FIX)
-Identifier: DATA_FETCHER
-Purpose: Load applications safely (NO MORE STUCK LOADING)
+BLOCK 15: LOAD APPLICATIONS
+Identifier: DATA_LOADER
+Purpose: Fetch applications and render dashboard
 ========================================================= */
 async function loadApplications() {
   try {
     clearNotice();
-    showLoadingState();
+
+    if (els.applicationsTable) {
+      els.applicationsTable.innerHTML =
+        `<tr><td colspan="18" class="empty loading">Loading candidates...</td></tr>`;
+    }
 
     if (els.refreshBtn) {
       els.refreshBtn.disabled = true;
@@ -1427,33 +1431,14 @@ async function loadApplications() {
       .select(`
         id,
         email,
-        job_id,
         job_title,
         status,
         created_at,
         recruiter_email,
         application_source,
-        screening_result,
-        screening_score,
-        stage_note_code,
-        stage_note_label,
-        endorsement_status,
         sla_status,
-        applicant_profiles (
-          id,
-          full_name,
-          email,
-          phone,
-          location,
-          experience_summary,
-          experience_years,
-          total_experience,
-          resume_url,
-          resume_path
-        ),
+        stage_note_label,
         jobs (
-          id,
-          title,
           client_name
         )
       `)
@@ -1461,21 +1446,18 @@ async function loadApplications() {
 
     if (error) throw error;
 
-    // 🔥 SAFETY: always assign array
     state.allApplications = Array.isArray(data) ? data : [];
 
-    // Populate dropdowns
-    populateJobFilter();
-    populateClientFilter();
-    populateRecruiterFilter();
-
-    // Render table
+    populateAllFilters();
     renderTable();
-
   } catch (err) {
     console.error("loadApplications error:", err);
-    showNotice(err.message || "Failed to load applications.", "error");
-    showErrorState();
+    showNotice(err.message || "Failed to load candidates.", "error");
+
+    if (els.applicationsTable) {
+      els.applicationsTable.innerHTML =
+        `<tr><td colspan="18" class="empty">Failed to load candidates.</td></tr>`;
+    }
   } finally {
     if (els.refreshBtn) {
       els.refreshBtn.disabled = false;
