@@ -1792,6 +1792,7 @@ BLOCK 12: SCREENING FUNCTIONS
 Identifier: SCREENING_REVIEW
 Purpose: Load, render, review, and push screening results
 ========================================================= */
+
   async function saveSingleScreeningAnswer(responseId, payload) {
     const { error } = await supabaseClient
       .from("application_screening_responses")
@@ -1892,15 +1893,49 @@ Purpose: Load, render, review, and push screening results
     document.body.style.overflow = "";
   }
 
+  /* =========================================================
+  🔥 FIXED LOADER (MAIN CHANGE)
+  ========================================================= */
   async function loadScreeningResponses(applicationId) {
-    const { data, error } = await supabaseClient
+    const app = state.allApplications.find(a => String(a.id) === String(applicationId));
+
+    if (!app) return [];
+
+    const jobId = app.job_id || app.jobs?.id;
+
+    // 1️⃣ Try to load existing responses
+    const { data: responses, error } = await supabaseClient
       .from("application_screening_responses")
       .select("*")
       .eq("application_id", applicationId)
       .order("created_at", { ascending: true });
 
     if (error) throw error;
-    return data || [];
+
+    // 2️⃣ If responses exist → use them
+    if (responses && responses.length > 0) {
+      return responses;
+    }
+
+    // 3️⃣ Otherwise load job questions (fallback)
+    if (!jobId) return [];
+
+    const { data: questions, error: qError } = await supabaseClient
+      .from("job_screening_questions")
+      .select("*")
+      .eq("job_id", jobId)
+      .order("created_at", { ascending: true });
+
+    if (qError) throw qError;
+
+    // 4️⃣ Convert to response format (UI-compatible)
+    return (questions || []).map(q => ({
+      id: `temp-${q.id}`,
+      question_text: q.question_text,
+      candidate_answer: "",
+      recruiter_score: "",
+      question_type: q.question_type || "General"
+    }));
   }
 
   async function loadScreeningReview(applicationId) {
@@ -1919,7 +1954,7 @@ Purpose: Load, render, review, and push screening results
 
     if (!responses.length) {
       els.screeningContainer.innerHTML = `
-        <div class="empty">No screening responses found for this application.</div>
+        <div class="empty">No screening questions found for this role.</div>
       `;
       return;
     }
@@ -1959,82 +1994,6 @@ Purpose: Load, render, review, and push screening results
         </div>
       </div>
     `).join("");
-  }
-
-  function fillScreeningReviewFields(review) {
-    if (!review) {
-      if (els.screeningStrengths) els.screeningStrengths.value = "";
-      if (els.screeningRisks) els.screeningRisks.value = "";
-      if (els.screeningSummary) els.screeningSummary.value = "";
-      if (els.screeningDecision) els.screeningDecision.value = "";
-      return;
-    }
-
-    if (els.screeningStrengths) els.screeningStrengths.value = review.strengths || "";
-    if (els.screeningRisks) els.screeningRisks.value = review.risks || "";
-    if (els.screeningSummary) els.screeningSummary.value = review.summary || "";
-    if (els.screeningDecision) els.screeningDecision.value = review.recommended_decision || "";
-  }
-
-  function buildScreeningNarrative(responses) {
-    const strengths = [];
-    const risks = [];
-
-    responses.forEach(r => {
-      const score = Number(r.recruiter_score || 0);
-      const question = r.question_text || "question";
-
-      if (score >= 4) strengths.push(`Strong response: ${question}`);
-      if (score > 0 && score <= 2) risks.push(`Weak response: ${question}`);
-    });
-
-    return {
-      strengths: strengths.length
-        ? strengths.map(x => `• ${x}`).join("\n")
-        : "• No major strengths captured yet.",
-      risks: risks.length
-        ? risks.map(x => `• ${x}`).join("\n")
-        : "• No major risks captured yet.",
-      summary: strengths.length
-        ? "Candidate shows solid screening alignment based on current responses."
-        : "Candidate shows baseline alignment, but more validation is needed."
-    };
-  }
-
-  async function openScreeningReview(app) {
-    if (!app) {
-      throw new Error("Application not found.");
-    }
-
-    state.currentScreeningAppId = app.id;
-    state.currentScreeningApplication = app;
-
-    const profile = getProfileFromApplication(app);
-    const candidateName = profile?.full_name || app.email || "Candidate";
-    const jobTitle = app.jobs?.title || app.job_title || "Role";
-    const clientName = app.jobs?.client_name || "-";
-
-    if (els.screeningTitle) {
-      els.screeningTitle.textContent = `Screening Review - ${candidateName}`;
-    }
-
-    if (els.screeningContext) {
-      els.screeningContext.innerHTML = `
-        <strong>Candidate:</strong> ${escapeHtml(candidateName)}<br>
-        <strong>Role:</strong> ${escapeHtml(jobTitle)}<br>
-        <strong>Client:</strong> ${escapeHtml(clientName)}
-      `;
-    }
-
-    const [responses, review] = await Promise.all([
-      loadScreeningResponses(app.id),
-      loadScreeningReview(app.id)
-    ]);
-
-    state.currentScreeningResponses = responses;
-    renderScreeningResponses(responses);
-    fillScreeningReviewFields(review);
-    openScreeningModal();
   }
 
 /* =========================================================
