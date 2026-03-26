@@ -112,15 +112,9 @@
       font-size:1.35rem;
     }
     .form-subtitle {
-      margin:0 0 8px;
+      margin:0 0 22px;
       color:var(--muted);
       font-size:.95rem;
-    }
-    .form-note {
-      margin:0 0 22px;
-      color:#475569;
-      font-size:.9rem;
-      line-height:1.6;
     }
     form { display:grid; gap:16px; }
     .grid {
@@ -183,10 +177,6 @@
       background:linear-gradient(135deg,var(--blue),var(--blue-light));
       color:#fff;
     }
-    .btn-primary:disabled {
-      opacity:.75;
-      cursor:not-allowed;
-    }
     .btn-secondary {
       background:#fff;
       color:var(--blue);
@@ -198,7 +188,6 @@
       border-radius:12px;
       font-weight:700;
       display:none;
-      white-space:pre-wrap;
     }
     .status.success {
       display:block;
@@ -249,7 +238,6 @@
       <div class="form-card" style="margin-top:20px;">
         <h2 class="form-title">Create Profile & Apply</h2>
         <p class="form-subtitle">Complete the form below and upload your resume to submit your application.</p>
-        <p class="form-note">Your temporary dashboard password will be your phone number. You can use it right after applying.</p>
 
         <form id="applicationForm">
           <div class="grid">
@@ -281,7 +269,12 @@
             <div class="field full">
               <label for="resumeFile">Resume File</label>
               <input id="resumeFile" name="resumeFile" type="file" accept=".pdf,.doc,.docx" required />
-              <div class="hint">Accepted formats: PDF, DOC, DOCX. Maximum file size: 5MB.</div>
+              <div class="hint">Accepted formats: PDF, DOC, DOCX</div>
+            </div>
+
+            <div class="field full">
+              <label for="coverNote">Short Introduction</label>
+              <textarea id="coverNote" name="coverNote" placeholder="Tell us briefly about your background and interest in this role."></textarea>
             </div>
           </div>
 
@@ -335,11 +328,9 @@
 
     function sanitizeFileName(name) {
       return String(name || 'resume')
-        .trim()
         .toLowerCase()
         .replace(/[^a-z0-9.\-_]+/g, '-')
-        .replace(/-+/g, '-')
-        .replace(/^-|-$/g, '');
+        .replace(/-+/g, '-');
     }
 
     function renderJobSummary(job) {
@@ -387,10 +378,11 @@
       renderJobSummary(data);
     }
 
-    async function uploadResume(file, emailValue, jobIdValue) {
+    async function uploadResume(file, email, jobIdValue) {
+      const ext = file.name.split('.').pop()?.toLowerCase() || '';
       const safeName = sanitizeFileName(file.name);
       const stamp = Date.now();
-      const emailKey = sanitizeFileName(emailValue);
+      const emailKey = sanitizeFileName(email);
       const path = `${jobIdValue}/${emailKey}-${stamp}-${safeName}`;
 
       const { error: uploadError } = await supabaseClient
@@ -410,86 +402,9 @@
 
       return {
         resume_path: path,
-        resume_url: data?.publicUrl || null
+        resume_url: data?.publicUrl || null,
+        resume_extension: ext
       };
-    }
-
-    async function findProfileByAuthId(userId) {
-      const { data, error } = await supabaseClient
-        .from('applicant_profiles')
-        .select('id, email')
-        .eq('id', userId)
-        .maybeSingle();
-
-      if (error) throw error;
-      return data || null;
-    }
-
-    async function upsertProfileByAuthUser(user, profilePayload) {
-      const existingProfile = await findProfileByAuthId(user.id);
-
-      if (existingProfile) {
-        const { data, error } = await supabaseClient
-          .from('applicant_profiles')
-          .update(profilePayload)
-          .eq('id', user.id)
-          .select('id, email')
-          .single();
-
-        if (error) throw error;
-        return data;
-      }
-
-      const { data, error } = await supabaseClient
-        .from('applicant_profiles')
-        .insert([{
-          id: user.id,
-          ...profilePayload
-        }])
-        .select('id, email')
-        .single();
-
-      if (error) throw error;
-      return data;
-    }
-
-    async function createOrLoginApplicant(email, password, fullName) {
-      const signUpResult = await supabaseClient.auth.signUp({
-        email,
-        password,
-        options: {
-          data: {
-            full_name: fullName
-          }
-        }
-      });
-
-      const signUpError = signUpResult.error;
-
-      if (!signUpError) {
-        const { data: userData, error: userError } = await supabaseClient.auth.getUser();
-        if (userError) throw userError;
-        if (userData?.user) return userData.user;
-      }
-
-      const signUpMessage = String(signUpError?.message || '').toLowerCase();
-      const canTryLogin =
-        signUpMessage.includes('already') ||
-        signUpMessage.includes('registered') ||
-        signUpMessage.includes('exists') ||
-        signUpMessage.includes('user already');
-
-      if (!canTryLogin && signUpError) {
-        throw signUpError;
-      }
-
-      const { data: loginData, error: loginError } = await supabaseClient.auth.signInWithPassword({
-        email,
-        password
-      });
-
-      if (loginError) throw loginError;
-      return loginData.user;
     }
 
     applicationForm.addEventListener('submit', async (event) => {
@@ -500,6 +415,7 @@
       const email = document.getElementById('email').value.trim().toLowerCase();
       const phone = document.getElementById('phone').value.trim();
       const location = document.getElementById('location').value.trim();
+      const coverNote = document.getElementById('coverNote').value.trim();
       const jobTitle = jobTitleInput.value.trim();
       const resumeFile = document.getElementById('resumeFile').files[0];
 
@@ -528,71 +444,50 @@
       submitBtn.textContent = 'Submitting...';
 
       try {
-        const temporaryPassword = phone;
-
-        const authUser = await createOrLoginApplicant(email, temporaryPassword, fullName);
-
-        if (!authUser?.id) {
-          throw new Error('Unable to create or access applicant account.');
-        }
-
-        const { data: existingApplication, error: checkError } = await supabaseClient
+        const { data: existing, error: checkError } = await supabaseClient
           .from('applications')
           .select('id')
           .eq('email', email)
-          .eq('job_id', String(selectedJob.id))
+          .eq('job_id', selectedJob.id)
           .limit(1);
 
         if (checkError) throw checkError;
 
-        if (existingApplication && existingApplication.length > 0) {
-          setStatus('You already applied for this role. Redirecting to your dashboard...', 'success');
-          setTimeout(() => {
-            window.location.href = 'dashboard.html';
-          }, 1000);
+        if (existing && existing.length > 0) {
+          setStatus('You already applied for this role.', 'error');
+          submitBtn.disabled = false;
+          submitBtn.textContent = 'Submit Application';
           return;
         }
 
         const uploaded = await uploadResume(resumeFile, email, selectedJob.id);
 
-        const profilePayload = {
-          email,
+        const payload = {
           full_name: fullName,
+          email,
           phone,
-          location: location || null,
+          location,
           resume_url: uploaded.resume_url,
           resume_path: uploaded.resume_path,
-          created_at: new Date().toISOString()
-        };
-
-        const savedProfile = await upsertProfileByAuthUser(authUser, profilePayload);
-
-        const applicationPayload = {
-          email,
-          job_id: String(selectedJob.id),
-          job_title: selectedJob.title || '',
+          cover_note: coverNote || null,
+          job_id: selectedJob.id,
+          job_title: selectedJob.title,
           status: 'submitted',
-          applicant_profile_id: savedProfile.id,
           application_source: 'career_page',
           created_at: new Date().toISOString()
         };
 
         const { error: insertError } = await supabaseClient
           .from('applications')
-          .insert([applicationPayload]);
+          .insert([payload]);
 
         if (insertError) throw insertError;
 
         applicationForm.reset();
         jobTitleInput.value = selectedJob.title || '';
-        setStatus('Application submitted successfully. Redirecting to your dashboard...', 'success');
-
-        setTimeout(() => {
-          window.location.href = 'dashboard.html';
-        }, 1200);
+        setStatus('Application submitted successfully.', 'success');
       } catch (error) {
-        console.error('[APPLY_SUBMIT_ERROR]', error);
-        setStatus(error?.message || 'Something went wrong while submitting your application.', 'error');
+        setStatus(error.message || 'Something went wrong while submitting your application.', 'error');
       } finally {
         submitBtn.disabled = false;
         submitBtn.textContent = 'Submit Application';
