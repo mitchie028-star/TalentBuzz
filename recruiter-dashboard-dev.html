@@ -1185,58 +1185,92 @@ Identifier: FILTER_ENGINE
 Purpose: Filter dataset + compute stats
 ========================================================= */
 function getFilteredApplications() {
-  let list = [...state.allApplications];
+  const list = Array.isArray(state.allApplications) ? [...state.allApplications] : [];
 
   const search = normalizeText(els.searchInput?.value).toLowerCase();
   const job = normalizeText(els.jobFilter?.value);
   const client = normalizeText(els.clientFilter?.value);
   const status = normalizeText(els.statusFilter?.value);
-  const recruiter = normalizeText(els.recruiterFilter?.value);
+  const recruiter = normalizeEmail(els.recruiterFilter?.value);
   const source = normalizeText(els.sourceFilter?.value);
   const sla = normalizeText(els.slaFilter?.value);
 
   return list.filter(app => {
-    const profile = getProfileFromApplication(app);
+    const profile = typeof getProfileFromApplication === "function"
+      ? getProfileFromApplication(app)
+      : (app?.applicant_profiles || {});
+
+    const clientName = typeof getClientName === "function"
+      ? getClientName(app)
+      : (app?.client_name || app?.jobs?.client_name || "-");
+
+    const appSla = typeof computeSlaStatus === "function"
+      ? computeSlaStatus(app)
+      : normalizeText(app?.sla_status || "on_track");
 
     if (search) {
-      const combined =
-        `${profile.full_name || ""} ${app.email || ""}`.toLowerCase();
+      const combined = [
+        profile?.full_name || "",
+        app?.email || "",
+        app?.job_title || "",
+        clientName || "",
+        app?.recruiter_email || "",
+        app?.application_source || ""
+      ].join(" ").toLowerCase();
+
       if (!combined.includes(search)) return false;
     }
 
-    if (job && app.job_title !== job) return false;
-    if (client && getClientName(app) !== client) return false;
-    if (status && normalizeText(app.status) !== status) return false;
-    if (recruiter && normalizeEmail(app.recruiter_email) !== normalizeEmail(recruiter)) return false;
-    if (source && normalizeText(app.application_source) !== source) return false;
-    if (sla && normalizeText(app.sla_status) !== sla) return false;
+    if (job && normalizeText(app?.job_title) !== job) return false;
+    if (client && normalizeText(clientName) !== client) return false;
+    if (status && normalizeText(app?.status) !== status) return false;
+    if (recruiter && normalizeEmail(app?.recruiter_email) !== recruiter) return false;
+    if (source && normalizeText(app?.application_source) !== source) return false;
+    if (sla && normalizeText(appSla) !== sla) return false;
 
     return true;
   });
 }
 
 function renderStats(list) {
-  els.statTotal.textContent = list.length;
+  const safeList = Array.isArray(list) ? list : [];
 
-  els.statEndorsed.textContent = list.filter(a =>
-    normalizeText(a.status) === "endorsed"
-  ).length;
+  if (els.statTotal) {
+    els.statTotal.textContent = safeList.length;
+  }
 
-  els.statRejected.textContent = list.filter(a =>
-    REJECTED_STATUSES.includes(normalizeText(a.status))
-  ).length;
+  if (els.statEndorsed) {
+    els.statEndorsed.textContent = safeList.filter(app =>
+      normalizeText(app?.status) === "endorsed"
+    ).length;
+  }
 
-  els.statInterviewed.textContent = list.filter(a =>
-    INTERVIEWED_STATUSES.includes(normalizeText(a.status))
-  ).length;
+  if (els.statRejected) {
+    els.statRejected.textContent = safeList.filter(app =>
+      REJECTED_STATUSES.includes(normalizeText(app?.status))
+    ).length;
+  }
 
-  els.statHired.textContent = list.filter(a =>
-    HIRED_STATUSES.includes(normalizeText(a.status))
-  ).length;
+  if (els.statInterviewed) {
+    els.statInterviewed.textContent = safeList.filter(app =>
+      INTERVIEWED_STATUSES.includes(normalizeText(app?.status))
+    ).length;
+  }
 
-  els.statOverdue.textContent = list.filter(a =>
-    normalizeText(a.sla_status) === "overdue"
-  ).length;
+  if (els.statHired) {
+    els.statHired.textContent = safeList.filter(app =>
+      HIRED_STATUSES.includes(normalizeText(app?.status))
+    ).length;
+  }
+
+  if (els.statOverdue) {
+    els.statOverdue.textContent = safeList.filter(app => {
+      const appSla = typeof computeSlaStatus === "function"
+        ? computeSlaStatus(app)
+        : normalizeText(app?.sla_status || "");
+      return normalizeText(appSla) === "overdue";
+    }).length;
+  }
 }
   /* =========================================================
 BLOCK: SLA COMPUTATION
