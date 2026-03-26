@@ -1262,3 +1262,242 @@ document.addEventListener("DOMContentLoaded", () => {
       ).length;
     }
   }
+  /* =========================================================
+  BLOCK 11: LOAD APPLICATIONS
+  Identifier: DATA_LOADER
+  Purpose: Fetch applications safely
+  ========================================================= */
+  async function loadApplications() {
+    try {
+      clearNotice();
+
+      if (els.applicationsTable) {
+        els.applicationsTable.innerHTML =
+          `<tr><td colspan="18" class="empty loading">Loading candidates...</td></tr>`;
+      }
+
+      if (els.refreshBtn) {
+        els.refreshBtn.disabled = true;
+        els.refreshBtn.textContent = "Refreshing...";
+      }
+
+      const { data, error } = await supabaseClient
+        .from("applications")
+        .select(`
+          id,
+          email,
+          job_title,
+          status,
+          created_at,
+          recruiter_email,
+          application_source,
+          sla_status,
+          stage_note_label
+        `)
+        .order("created_at", { ascending: false });
+
+      console.log("loadApplications data:", data);
+      console.log("loadApplications error:", error);
+
+      if (error) throw error;
+
+      state.allApplications = Array.isArray(data) ? data : [];
+
+      renderStats();
+      renderTable();
+    } catch (err) {
+      console.error("loadApplications failed:", err);
+      showNotice(err.message || "Failed to load candidates.", "error");
+
+      if (els.applicationsTable) {
+        els.applicationsTable.innerHTML =
+          `<tr><td colspan="18" class="empty">Failed to load candidates.</td></tr>`;
+      }
+    } finally {
+      if (els.refreshBtn) {
+        els.refreshBtn.disabled = false;
+        els.refreshBtn.textContent = "Refresh";
+      }
+    }
+  }
+
+  /* =========================================================
+  BLOCK 12: TABLE RENDER
+  Identifier: TABLE_RENDERER
+  Purpose: Render candidate list safely
+  ========================================================= */
+  function renderTable() {
+    if (!els.applicationsTable) return;
+
+    const list = getFilteredApplications();
+
+    if (!list.length) {
+      els.applicationsTable.innerHTML =
+        `<tr><td colspan="18" class="empty">No candidates found.</td></tr>`;
+      return;
+    }
+
+    els.applicationsTable.innerHTML = list.map(app => {
+      const recruiterName = getRecruiterName(app.recruiter_email);
+
+      return `
+        <tr>
+          <td>
+            <div class="candidate-name">${escapeHtml(app.email || "-")}</div>
+            <div class="small">${escapeHtml(app.email || "-")}</div>
+          </td>
+          <td>${escapeHtml(app.job_title || "-")}</td>
+          <td>-</td>
+          <td>
+            <span class="status-pill ${escapeHtml("status-" + normalizeText(app.status).replace(/\s+/g, "-").replace(/[()]/g, ""))}">
+              ${escapeHtml(app.status || "-")}
+            </span>
+          </td>
+          <td>${escapeHtml(recruiterName)}</td>
+          <td>${escapeHtml(app.application_source || "-")}</td>
+          <td>${escapeHtml(formatDate(app.created_at))}</td>
+          <td>-</td>
+          <td>-</td>
+          <td>-</td>
+          <td>-</td>
+          <td>-</td>
+          <td>-</td>
+          <td>${escapeHtml(computeSlaStatus(app))}</td>
+          <td>-</td>
+          <td>${escapeHtml(app.stage_note_label || "-")}</td>
+          <td>${escapeHtml(recruiterName)}</td>
+          <td>-</td>
+        </tr>
+      `;
+    }).join("");
+  }
+
+  /* =========================================================
+  BLOCK 13: FILTER BINDINGS
+  Identifier: FILTER_EVENTS
+  Purpose: Re-render list when filters change
+  ========================================================= */
+  function bindFilterEvents() {
+    const watched = [
+      els.searchInput,
+      els.jobFilter,
+      els.clientFilter,
+      els.statusFilter,
+      els.recruiterFilter,
+      els.sourceFilter,
+      els.slaFilter
+    ];
+
+    watched.forEach(el => {
+      if (!el) return;
+      el.addEventListener("input", () => {
+        renderStats();
+        renderTable();
+      });
+      el.addEventListener("change", () => {
+        renderStats();
+        renderTable();
+      });
+    });
+
+    if (els.refreshBtn) {
+      els.refreshBtn.addEventListener("click", loadApplications);
+    }
+  }
+
+  /* =========================================================
+  BLOCK 14: BASIC UI EVENTS
+  Identifier: UI_EVENTS
+  Purpose: Handle logout and safe modal close events
+  ========================================================= */
+  function bindBasicEvents() {
+    if (els.logoutBtn) {
+      els.logoutBtn.addEventListener("click", async () => {
+        try {
+          await supabaseClient.auth.signOut();
+        } catch (err) {
+          console.error("Logout failed:", err);
+        } finally {
+          window.location.href = "recruiter-login.html";
+        }
+      });
+    }
+
+    if (els.closeModal) {
+      els.closeModal.addEventListener("click", () => {
+        if (els.resumeModal) els.resumeModal.classList.remove("show");
+        if (els.resumeFrame) els.resumeFrame.src = "";
+      });
+    }
+
+    if (els.closeInviteRecruiterModal) {
+      els.closeInviteRecruiterModal.addEventListener("click", () => {
+        if (els.inviteRecruiterModal) {
+          els.inviteRecruiterModal.classList.remove("show");
+        }
+      });
+    }
+
+    if (els.closeEndorseModal) {
+      els.closeEndorseModal.addEventListener("click", () => {
+        if (els.endorseModal) {
+          els.endorseModal.classList.remove("show");
+        }
+      });
+    }
+
+    if (els.closeInterviewNotesModal) {
+      els.closeInterviewNotesModal.addEventListener("click", () => {
+        if (els.interviewNotesModal) {
+          els.interviewNotesModal.classList.remove("show");
+        }
+      });
+    }
+
+    if (els.closeScreeningModal) {
+      els.closeScreeningModal.addEventListener("click", () => {
+        if (els.screeningModal) {
+          els.screeningModal.classList.remove("show");
+        }
+      });
+    }
+  }
+
+  /* =========================================================
+  BLOCK 15: PAGE INIT
+  Identifier: PAGE_INIT
+  Purpose: Start page in the correct order
+  ========================================================= */
+  async function initPage() {
+    try {
+      console.log("🚀 initPage started");
+
+      const user = await protectRecruiterPage();
+      console.log("protectRecruiterPage user:", user);
+
+      if (!user) {
+        console.warn("No recruiter session returned.");
+        return;
+      }
+
+      await loadRecruitersMap();
+      console.log("✅ recruiters map loaded");
+
+      bindFilterEvents();
+      bindBasicEvents();
+      console.log("✅ events bound");
+
+      await loadApplications();
+      console.log("✅ applications loaded");
+    } catch (err) {
+      console.error("initPage failed:", err);
+      showNotice(err.message || "Initialization failed.", "error");
+
+      if (els.applicationsTable) {
+        els.applicationsTable.innerHTML =
+          `<tr><td colspan="18" class="empty">Initialization failed.</td></tr>`;
+      }
+    }
+  }
+
+  initPage();
