@@ -2309,7 +2309,7 @@ async function loadApplications() {
     }
   }
 }
-  /* =========================================================
+/* =========================================================
 BLOCK 20: EVENT BINDINGS
 Identifier: EVENT_BINDER
 Purpose: Attach filter, table, modal, and action listeners
@@ -2350,18 +2350,56 @@ function bindModalEvents() {
   els.refreshBtn?.addEventListener("click", loadApplications);
 
   els.logoutBtn?.addEventListener("click", async () => {
-    await supabaseClient.auth.signOut();
-    window.location.href = "recruiter-login.html";
+    try {
+      await supabaseClient.auth.signOut();
+    } catch (err) {
+      console.error("Logout error:", err);
+    } finally {
+      window.location.href = "recruiter-login.html";
+    }
   });
 
-  [els.notesStrengths, els.notesRisks, els.notesSummary, els.notesDecisionStatus].forEach(el => {
+  [
+    els.notesStrengths,
+    els.notesRisks,
+    els.notesSummary,
+    els.notesDecisionStatus
+  ].forEach(el => {
     el?.addEventListener("input", refreshOptimizedNotesPreview);
     el?.addEventListener("change", refreshOptimizedNotesPreview);
+  });
+
+  [
+    els.inviteRecruiterModal,
+    els.endorseModal,
+    els.resumeModal,
+    els.interviewNotesModal,
+    els.screeningModal
+  ].forEach(modal => {
+    modal?.addEventListener("click", event => {
+      if (event.target === modal) {
+        if (modal === els.inviteRecruiterModal) closeInviteRecruiterModal();
+        if (modal === els.endorseModal) closeEndorseModal();
+        if (modal === els.resumeModal) closeResumeModal();
+        if (modal === els.interviewNotesModal) closeInterviewNotesModal();
+        if (modal === els.screeningModal) closeScreeningModal();
+      }
+    });
+  });
+
+  document.addEventListener("keydown", event => {
+    if (event.key !== "Escape") return;
+
+    if (els.screeningModal?.classList.contains("show")) closeScreeningModal();
+    else if (els.interviewNotesModal?.classList.contains("show")) closeInterviewNotesModal();
+    else if (els.resumeModal?.classList.contains("show")) closeResumeModal();
+    else if (els.endorseModal?.classList.contains("show")) closeEndorseModal();
+    else if (els.inviteRecruiterModal?.classList.contains("show")) closeInviteRecruiterModal();
   });
 }
 
 function bindTableEvents() {
-  els.applicationsTable?.addEventListener("click", async (event) => {
+  els.applicationsTable?.addEventListener("click", async event => {
     const button = event.target.closest("[data-action]");
     if (!button) return;
 
@@ -2369,14 +2407,42 @@ function bindTableEvents() {
     const id = button.dataset.id;
     if (!id) return;
 
-    if (action === "resume") await openResumeModalByAppId(id);
-    if (action === "notes") await openInterviewNotesModalByAppId(id);
-    if (action === "endorse") await openEndorseModalByAppId(id);
-    if (action === "screening") await openScreeningModalByAppId(id);
-    if (action === "delete") await deleteApplication(id);
+    try {
+      if (action === "resume") {
+        await openResumeModalByAppId(id);
+        return;
+      }
+
+      if (action === "notes") {
+        await openInterviewNotesModalByAppId(id);
+        return;
+      }
+
+      if (action === "endorse") {
+        await openEndorseModalByAppId(id);
+        return;
+      }
+
+      if (action === "screening") {
+        await openScreeningModalByAppId(id);
+        return;
+      }
+
+      if (action === "edit") {
+        window.location.href = `recruiter-add-candidate.html?application_id=${encodeURIComponent(id)}`;
+        return;
+      }
+
+      if (action === "delete") {
+        await deleteApplication(id);
+      }
+    } catch (err) {
+      console.error(`Table click action failed: ${action}`, err);
+      showNotice(err.message || "Action failed.", "error");
+    }
   });
 
-  els.applicationsTable?.addEventListener("change", async (event) => {
+  els.applicationsTable?.addEventListener("change", async event => {
     const target = event.target;
     if (!target?.dataset?.action) return;
 
@@ -2386,9 +2452,24 @@ function bindTableEvents() {
 
     if (!id) return;
 
-    if (action === "status") await updateApplicationStatus(id, value);
-    if (action === "stage-note") await updateApplicationStageNote(id, value);
-    if (action === "recruiter") await updateApplicationRecruiter(id, value);
+    try {
+      if (action === "status") {
+        await updateApplicationStatus(id, value);
+        return;
+      }
+
+      if (action === "stage-note") {
+        await updateApplicationStageNote(id, value);
+        return;
+      }
+
+      if (action === "recruiter") {
+        await updateApplicationRecruiter(id, value);
+      }
+    } catch (err) {
+      console.error(`Table change action failed: ${action}`, err);
+      showNotice(err.message || "Failed to update application.", "error");
+    }
   });
 }
 /* =========================================================
