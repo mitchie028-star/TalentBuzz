@@ -2645,262 +2645,161 @@ function buildScreeningNarrative(responses) {
     }
 
     // ✅ FIX: Safe delegation listener for table clicks
-    if (els.applicationsTable) {
-      els.applicationsTable.addEventListener("click", async (event) => {
-        const target = event.target;
+  if (els.applicationsTable) {
+  els.applicationsTable.addEventListener("click", async (event) => {
+    const target = event.target;
 
-// ================================
-// 🔥 SCREENING BUTTON HANDLER
-// ================================
-if (target.classList.contains("review-screening-btn")) {
+    try {
+      // Screening Review
+      if (target.classList.contains("review-screening-btn")) {
+        const app = state.allApplications.find(
+          item => String(item.id) === String(target.dataset.id)
+        );
 
-  const appId = target.dataset.id;
+        if (!app) {
+          showNotice("Application not found.", "error");
+          return;
+        }
 
-  const app = state.allApplications.find(
-    a => String(a.id) === String(appId)
-  );
+        state.currentScreeningAppId = app.id;
+        state.currentScreeningResponses = [];
 
-  if (!app) {
-    showNotice("Application not found", "error");
-    return;
-  }
+        const { data, error } = await supabaseClient
+          .from("application_screening_responses")
+          .select("*")
+          .eq("application_id", app.id);
 
-  try {
-    state.currentScreeningAppId = app.id;
+        if (error) throw error;
 
-    // Fetch screening responses
-    const { data, error } = await supabaseClient
-      .from("application_screening_responses")
-      .select("*")
-      .eq("application_id", app.id);
+        state.currentScreeningResponses = data || [];
 
-    if (error) throw error;
+        if (els.screeningTitle) {
+          const candidateName = app.applicant_profiles?.full_name || app.email || "Candidate";
+          els.screeningTitle.textContent = `Screening Review - ${candidateName}`;
+        }
 
-    state.currentScreeningResponses = data || [];
+        if (els.screeningContext) {
+          els.screeningContext.innerHTML = `
+            <strong>Candidate:</strong> ${escapeHtml(app.applicant_profiles?.full_name || app.email || "Candidate")}<br>
+            <strong>Role:</strong> ${escapeHtml(app.jobs?.title || app.job_title || "-")}
+          `;
+        }
 
-    // Render screening questions
-    els.screeningContainer.innerHTML = (data || []).map((q, i) => `
-      <div class="panel" style="margin-bottom:12px;">
-        <strong>Q${i + 1}: ${q.question_text || "-"}</strong>
+        if (els.screeningContainer) {
+          els.screeningContainer.innerHTML = state.currentScreeningResponses.map((r, i) => `
+            <div class="panel" style="margin-bottom:12px;">
+              <strong>Q${i + 1}: ${escapeHtml(r.question_text || "")}</strong>
 
-        <textarea 
-          class="screening-answer"
-          data-id="${q.id}"
-          rows="3"
-        >${q.candidate_answer || ""}</textarea>
+              <textarea
+                class="screening-answer"
+                data-id="${escapeHtml(r.id)}"
+                rows="3"
+                placeholder="Candidate answer"
+              >${escapeHtml(r.candidate_answer || "")}</textarea>
 
-        <select class="screening-score" data-id="${q.id}">
-          <option value="">Score</option>
-          ${[1,2,3,4,5].map(s => `
-            <option value="${s}" ${q.recruiter_score == s ? "selected" : ""}>
-              ${s}
-            </option>
-          `).join("")}
-        </select>
-      </div>
-    `).join("");
+              <select class="screening-score table-select" data-id="${escapeHtml(r.id)}" style="margin-top:10px;">
+                <option value="">Score</option>
+                ${[1,2,3,4,5].map(n => `
+                  <option value="${n}" ${Number(r.recruiter_score) === n ? "selected" : ""}>
+                    ${n}
+                  </option>
+                `).join("")}
+              </select>
+            </div>
+          `).join("");
+        }
 
-    // Open modal
-    els.screeningModal.classList.add("show");
+        if (els.screeningStrengths) els.screeningStrengths.value = "";
+        if (els.screeningRisks) els.screeningRisks.value = "";
+        if (els.screeningSummary) els.screeningSummary.value = "";
+        if (els.screeningDecision) els.screeningDecision.value = "";
 
-  } catch (err) {
-    console.error(err);
-    showNotice("Failed to load screening", "error");
-  }
+        if (els.screeningModal) {
+          els.screeningModal.classList.add("show");
+          els.screeningModal.setAttribute("aria-hidden", "false");
+          document.body.style.overflow = "hidden";
+        }
 
-  return;
-}
-        const target = event.target;
+        return;
+      }
 
-// 🔥 SCREENING BUTTON HANDLER (ADD THIS)
-if (target.classList.contains("review-screening-btn")) {
-  console.log("🔥 Screening button clicked");
+      // View Resume
+      if (target.classList.contains("view-resume-btn")) {
+        const app = state.allApplications.find(item => String(item.id) === String(target.dataset.id));
+        if (!app) {
+          showNotice("Application not found.", "error");
+          return;
+        }
 
-  const app = state.allApplications.find(
-    item => String(item.id) === String(target.dataset.id)
-  );
-
-  if (!app) {
-    showNotice("Application not found.", "error");
-    return;
-  }
-
-  try {
-    state.currentScreeningAppId = app.id;
-
-    // Fetch screening responses
-    const { data, error } = await supabaseClient
-      .from("application_screening_responses")
-      .select("*")
-      .eq("application_id", app.id);
-
-    if (error) throw error;
-
-    console.log("Screening data:", data);
-
-    state.currentScreeningResponses = data || [];
-
-    // Render UI
-    if (els.screeningContainer) {
-      els.screeningContainer.innerHTML = (data || []).map((q, i) => `
-        <div class="panel" style="margin-bottom:12px;">
-          <strong>Q${i + 1}: ${q.question_text || "-"}</strong>
-
-          <textarea 
-            class="screening-answer"
-            data-id="${q.id}"
-            rows="3"
-            placeholder="Type answer"
-          >${q.candidate_answer || ""}</textarea>
-
-          <select class="screening-score" data-id="${q.id}">
-            <option value="">Score</option>
-            <option value="1" ${q.recruiter_score == 1 ? "selected" : ""}>1</option>
-            <option value="2" ${q.recruiter_score == 2 ? "selected" : ""}>2</option>
-            <option value="3" ${q.recruiter_score == 3 ? "selected" : ""}>3</option>
-            <option value="4" ${q.recruiter_score == 4 ? "selected" : ""}>4</option>
-            <option value="5" ${q.recruiter_score == 5 ? "selected" : ""}>5</option>
-          </select>
-        </div>
-      `).join("");
-    }
-
-    // Open modal
-    if (els.screeningModal) {
-      els.screeningModal.classList.add("show");
-    }
-
-  } catch (err) {
-    console.error(err);
-    showNotice("Failed to load screening.", "error");
-  }
-
-  return;
-}
-        const target = event.target;
+        target.disabled = true;
+        const originalText = target.textContent;
+        target.textContent = "Opening...";
 
         try {
-          // Screening Review
-          if (target.classList.contains("review-screening-btn")) {
-            const app = state.allApplications.find(item => String(item.id) === String(target.dataset.id));
-            if (!app) {
-              showNotice("Application not found.", "error");
-              return;
-            }
-
-            state.currentScreeningAppId = app.id;
-
-            const { data } = await supabaseClient
-              .from("application_screening_responses")
-              .select("*")
-              .eq("application_id", app.id);
-
-            state.currentScreeningResponses = data || [];
-
-            if (els.screeningContainer) {
-              els.screeningContainer.innerHTML = state.currentScreeningResponses.map(r => `
-                <div class="panel">
-                  <strong>${escapeHtml(r.question_text || "")}</strong>
-
-                  <textarea 
-                    class="screening-answer" 
-                    data-id="${escapeHtml(r.id)}"
-                    placeholder="Candidate answer"
-                  >${escapeHtml(r.candidate_answer || "")}</textarea>
-
-                  <select class="screening-score" data-id="${escapeHtml(r.id)}">
-                    <option value="">Score</option>
-                    ${[1,2,3,4,5].map(n => `
-                      <option value="${n}" ${Number(r.recruiter_score) === n ? "selected" : ""}>
-                        ${n}
-                      </option>
-                    `).join("")}
-                  </select>
-                </div>
-              `).join("");
-            }
-
-            if (els.screeningModal) {
-              els.screeningModal.classList.add("show");
-            }
+          const resumeUrl = await getResumeUrl(app);
+          if (!resumeUrl) {
+            showNotice("Resume not available.", "error");
             return;
           }
-
-          // View Resume
-          if (target.classList.contains("view-resume-btn")) {
-            const app = state.allApplications.find(item => String(item.id) === String(target.dataset.id));
-            if (!app) {
-              showNotice("Application not found.", "error");
-              return;
-            }
-
-            target.disabled = true;
-            const originalText = target.textContent;
-            target.textContent = "Opening...";
-
-            try {
-              const resumeUrl = await getResumeUrl(app);
-              if (!resumeUrl) {
-                showNotice("Resume not available.", "error");
-                return;
-              }
-              openResumeModal(resumeUrl);
-            } finally {
-              target.disabled = false;
-              target.textContent = originalText;
-            }
-            return;
-          }
-
-          // Interview Notes
-          if (target.classList.contains("interview-notes-btn")) {
-            const app = state.allApplications.find(item => String(item.id) === String(target.dataset.id));
-            if (!app) {
-              showNotice("Application not found.", "error");
-              return;
-            }
-
-            await openInterviewNotesModal(app);
-            return;
-          }
-
-          // Endorsement
-          if (target.classList.contains("endorse-btn")) {
-            const app = state.allApplications.find(item => String(item.id) === String(target.dataset.id));
-            if (!app) {
-              showNotice("Application not found.", "error");
-              return;
-            }
-
-            const notes = await getInterviewNotesByApplicationId(app.id);
-            const recipient = await fetchClientRecipient(app.jobs?.client_uuid);
-            await openEndorseModal(app);
-
-            if (els.endorseRecipient) {
-              els.endorseRecipient.value = recipient || "";
-            }
-
-            if (!recipient) {
-              showNotice("No active client email found for this job's client.", "info");
-            }
-            return;
-          }
-
-          // Edit
-          if (target.classList.contains("edit-btn")) {
-            window.location.href = `recruiter-add-candidate.html?id=${encodeURIComponent(target.dataset.id)}`;
-            return;
-          }
-
-          // Delete
-          if (target.classList.contains("btn-delete")) {
-            await deleteApplication(target.dataset.id);
-          }
-        } catch (err) {
-          console.error("[EXCEPTION] table click listener:", err);
+          openResumeModal(resumeUrl);
+        } finally {
+          target.disabled = false;
+          target.textContent = originalText;
         }
-      });
+        return;
+      }
+
+      // Interview Notes
+      if (target.classList.contains("interview-notes-btn")) {
+        const app = state.allApplications.find(item => String(item.id) === String(target.dataset.id));
+        if (!app) {
+          showNotice("Application not found.", "error");
+          return;
+        }
+
+        await openInterviewNotesModal(app);
+        return;
+      }
+
+      // Endorse
+      if (target.classList.contains("endorse-btn")) {
+        const app = state.allApplications.find(item => String(item.id) === String(target.dataset.id));
+        if (!app) {
+          showNotice("Application not found.", "error");
+          return;
+        }
+
+        const recipient = await fetchClientRecipient(app.jobs?.client_uuid);
+        await openEndorseModal(app);
+
+        if (els.endorseRecipient) {
+          els.endorseRecipient.value = recipient || "";
+        }
+
+        if (!recipient) {
+          showNotice("No active client email found for this job's client.", "info");
+        }
+        return;
+      }
+
+      // Edit
+      if (target.classList.contains("edit-btn")) {
+        window.location.href = `recruiter-add-candidate.html?id=${encodeURIComponent(target.dataset.id)}`;
+        return;
+      }
+
+      // Delete
+      if (target.classList.contains("btn-delete")) {
+        await deleteApplication(target.dataset.id);
+        return;
+      }
+
+    } catch (err) {
+      console.error(err);
+      showNotice(err.message || "Something went wrong.", "error");
     }
+  });
+}
 
     // ✅ FIX: Safe event listeners for screening actions
     document.addEventListener("change", async (e) => {
