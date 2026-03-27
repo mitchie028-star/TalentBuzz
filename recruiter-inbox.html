@@ -1,0 +1,609 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Applicant Inbox | BuzzHire</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="Applicant message center for BuzzHire recruiters." />
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+
+  <style>
+    :root{
+      --blue:#1e3a8a;
+      --blue-light:#2563eb;
+      --text:#0f172a;
+      --muted:#64748b;
+      --line:#e2e8f0;
+      --bg:#f8fbff;
+      --white:#ffffff;
+      --success:#166534;
+      --danger:#b91c1c;
+      --shadow:0 14px 40px rgba(30,58,138,.08),0 3px 10px rgba(15,23,42,.04);
+    }
+    *{box-sizing:border-box}
+    body{
+      margin:0;
+      font-family:'Manrope',sans-serif;
+      background:linear-gradient(180deg,#f8fbff 0%,#eef4ff 100%);
+      color:var(--text);
+    }
+    .container{
+      max-width:1320px;
+      margin:auto;
+      padding:24px 20px 40px;
+    }
+    .topbar{
+      display:flex;
+      justify-content:space-between;
+      align-items:flex-start;
+      gap:16px;
+      flex-wrap:wrap;
+      margin-bottom:20px;
+    }
+    .topbar h1{
+      margin:0 0 6px;
+      color:var(--blue);
+      font-size:2rem;
+    }
+    .subtitle{
+      margin:0;
+      color:var(--muted);
+    }
+    .btn{
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      padding:11px 14px;
+      border-radius:12px;
+      border:1px solid transparent;
+      text-decoration:none;
+      font-weight:800;
+      font-size:.92rem;
+      cursor:pointer;
+      font-family:inherit;
+      background:#fff;
+    }
+    .btn-primary{
+      background:linear-gradient(135deg,var(--blue),var(--blue-light));
+      color:#fff;
+    }
+    .btn-outline{
+      color:var(--blue);
+      border-color:var(--line);
+      background:#fff;
+    }
+    .btn:disabled{
+      opacity:.7;
+      cursor:not-allowed;
+    }
+    .notice{
+      display:none;
+      margin-bottom:16px;
+      padding:12px 14px;
+      border-radius:12px;
+      font-size:.92rem;
+      font-weight:700;
+      white-space:pre-wrap;
+    }
+    .notice.show{display:block}
+    .notice.success{background:#ecfdf5;color:var(--success);border:1px solid #bbf7d0}
+    .notice.error{background:#fef2f2;color:var(--danger);border:1px solid #fecaca}
+
+    .layout{
+      display:grid;
+      grid-template-columns:340px minmax(0,1fr);
+      gap:20px;
+    }
+
+    .card{
+      background:#fff;
+      border:1px solid var(--line);
+      border-radius:20px;
+      box-shadow:var(--shadow);
+      padding:18px;
+    }
+
+    .card h2{
+      margin:0 0 14px;
+      color:var(--blue);
+      font-size:1.15rem;
+    }
+
+    .search{
+      width:100%;
+      border:1px solid var(--line);
+      border-radius:12px;
+      padding:12px 14px;
+      font:inherit;
+      margin-bottom:14px;
+    }
+
+    .thread-list{
+      display:grid;
+      gap:10px;
+      max-height:70vh;
+      overflow:auto;
+    }
+
+    .thread-item{
+      border:1px solid var(--line);
+      border-radius:14px;
+      padding:12px;
+      cursor:pointer;
+      background:#fff;
+    }
+
+    .thread-item.active{
+      border-color:#93c5fd;
+      background:#eff6ff;
+    }
+
+    .thread-item-name{
+      font-weight:800;
+      color:var(--blue);
+      margin-bottom:4px;
+    }
+
+    .thread-item-meta{
+      color:var(--muted);
+      font-size:.85rem;
+      line-height:1.4;
+    }
+
+    .thread-item-preview{
+      margin-top:8px;
+      color:#334155;
+      font-size:.9rem;
+      line-height:1.4;
+    }
+
+    .empty{
+      color:var(--muted);
+      padding:10px 0;
+    }
+
+    .thread-header{
+      display:flex;
+      justify-content:space-between;
+      align-items:flex-start;
+      gap:12px;
+      flex-wrap:wrap;
+      margin-bottom:14px;
+    }
+
+    .thread-title{
+      font-size:1.1rem;
+      font-weight:800;
+      color:var(--blue);
+      margin:0 0 4px;
+    }
+
+    .thread-subtitle{
+      margin:0;
+      color:var(--muted);
+      font-size:.9rem;
+      line-height:1.5;
+    }
+
+    .messages{
+      border:1px solid var(--line);
+      border-radius:16px;
+      background:#f8fbff;
+      padding:14px;
+      min-height:360px;
+      max-height:55vh;
+      overflow:auto;
+      display:grid;
+      gap:10px;
+    }
+
+    .message{
+      max-width:82%;
+      padding:10px 12px;
+      border-radius:14px;
+      line-height:1.5;
+      font-size:.93rem;
+      word-break:break-word;
+    }
+
+    .message.applicant{
+      background:#e0e7ff;
+      color:#1e3a8a;
+      margin-right:auto;
+    }
+
+    .message.recruiter{
+      background:#dcfce7;
+      color:#166534;
+      margin-left:auto;
+    }
+
+    .message-time{
+      display:block;
+      margin-top:6px;
+      font-size:.76rem;
+      color:#64748b;
+    }
+
+    .composer{
+      margin-top:14px;
+      display:grid;
+      gap:10px;
+    }
+
+    textarea{
+      width:100%;
+      min-height:120px;
+      resize:vertical;
+      border:1px solid var(--line);
+      border-radius:14px;
+      padding:12px 14px;
+      font:inherit;
+    }
+
+    .helper{
+      color:var(--muted);
+      font-size:.87rem;
+      line-height:1.5;
+    }
+
+    @media (max-width: 980px){
+      .layout{
+        grid-template-columns:1fr;
+      }
+      .thread-list{
+        max-height:none;
+      }
+      .messages{
+        max-height:45vh;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="topbar">
+      <div>
+        <h1>Applicant Inbox</h1>
+        <p class="subtitle">Review and reply to applicant messages from BuzzHire.</p>
+      </div>
+      <div>
+        <a href="recruiter-dashboard.html" class="btn btn-outline">Back to Dashboard</a>
+      </div>
+    </div>
+
+    <div id="notice" class="notice"></div>
+
+    <div class="layout">
+      <div class="card">
+        <h2>Conversations</h2>
+        <input id="searchInput" class="search" type="text" placeholder="Search by email or name..." />
+        <div id="threadList" class="thread-list">
+          <div class="empty">Loading conversations...</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div id="threadPanel">
+          <div class="empty">Select a conversation to view messages.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const SUPABASE_URL = 'https://dilalntcxmvdcmwxjcct.supabase.co';
+    const SUPABASE_ANON_KEY = 'sb_publishable_HrLVIUwnaRo54yijtrbWBQ_1aeb4ezs';
+    const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+    const els = {
+      notice: document.getElementById('notice'),
+      threadList: document.getElementById('threadList'),
+      threadPanel: document.getElementById('threadPanel'),
+      searchInput: document.getElementById('searchInput')
+    };
+
+    let currentRecruiter = null;
+    let allThreads = [];
+    let activeThreadEmail = null;
+
+    const ALLOWED_RECRUITERS = [
+      'michelle.giray@talentbuzz.pro',
+      'angel.n@talentbuzz.pro',
+      'jercey.cayetano@talentbuzz.pro',
+      'jayson.c@talentbuzz.pro',
+      'xyrene.e@talentbuzz.pro',
+      'mitchie028@gmail.com'
+    ];
+
+    function escapeHtml(value) {
+      return String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+    }
+
+    function formatDateTime(dateString) {
+      if (!dateString) return '-';
+      const date = new Date(dateString);
+      if (Number.isNaN(date.getTime())) return '-';
+      return date.toLocaleString(undefined, {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit'
+      });
+    }
+
+    function showNotice(message, type = 'success') {
+      els.notice.textContent = message;
+      els.notice.className = `notice show ${type}`;
+    }
+
+    async function protectRecruiterPage() {
+      const {
+        data: { session }
+      } = await supabaseClient.auth.getSession();
+
+      if (!session?.user?.email) {
+        window.location.href = 'recruiter-login.html';
+        return null;
+      }
+
+      const email = String(session.user.email).toLowerCase();
+
+      if (!ALLOWED_RECRUITERS.includes(email)) {
+        showNotice(`This account is not authorized for recruiter access. Logged in as: ${email}`, 'error');
+        return null;
+      }
+
+      currentRecruiter = session.user;
+      return session.user;
+    }
+
+    async function loadThreads() {
+      const { data: messages, error } = await supabaseClient
+        .from('applicant_messages')
+        .select('id, applicant_email, sender_type, message, created_at')
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        els.threadList.innerHTML = `<div class="empty">${escapeHtml(error.message)}</div>`;
+        return;
+      }
+
+      const threadMap = new Map();
+
+      for (const msg of messages || []) {
+        if (!threadMap.has(msg.applicant_email)) {
+          threadMap.set(msg.applicant_email, {
+            applicant_email: msg.applicant_email,
+            latest_message: msg.message,
+            latest_created_at: msg.created_at
+          });
+        }
+      }
+
+      const emails = Array.from(threadMap.keys());
+
+      let profileMap = new Map();
+      let appMap = new Map();
+
+      if (emails.length) {
+        const { data: profiles } = await supabaseClient
+          .from('applicant_profiles')
+          .select('id, email, full_name')
+          .in('email', emails);
+
+        const { data: apps } = await supabaseClient
+          .from('applications')
+          .select('email, job_title, status, created_at')
+          .in('email', emails)
+          .order('created_at', { ascending: false });
+
+        profileMap = new Map((profiles || []).map(p => [p.email, p]));
+        for (const app of apps || []) {
+          if (!appMap.has(app.email)) appMap.set(app.email, app);
+        }
+      }
+
+      allThreads = Array.from(threadMap.values()).map(thread => {
+        const profile = profileMap.get(thread.applicant_email);
+        const latestApp = appMap.get(thread.applicant_email);
+
+        return {
+          ...thread,
+          full_name: profile?.full_name || '',
+          latest_job_title: latestApp?.job_title || '',
+          latest_status: latestApp?.status || ''
+        };
+      });
+
+      renderThreadList();
+    }
+
+    function renderThreadList() {
+      const keyword = els.searchInput.value.trim().toLowerCase();
+
+      const filtered = allThreads.filter(thread => {
+        const haystack = [
+          thread.applicant_email,
+          thread.full_name,
+          thread.latest_job_title
+        ].join(' ').toLowerCase();
+
+        return haystack.includes(keyword);
+      });
+
+      if (!filtered.length) {
+        els.threadList.innerHTML = `<div class="empty">No conversations found.</div>`;
+        return;
+      }
+
+      els.threadList.innerHTML = filtered.map(thread => `
+        <div class="thread-item ${activeThreadEmail === thread.applicant_email ? 'active' : ''}"
+             data-email="${escapeHtml(thread.applicant_email)}">
+          <div class="thread-item-name">${escapeHtml(thread.full_name || thread.applicant_email)}</div>
+          <div class="thread-item-meta">
+            ${escapeHtml(thread.applicant_email)}<br>
+            ${thread.latest_job_title ? `Latest role: ${escapeHtml(thread.latest_job_title)}<br>` : ''}
+            ${thread.latest_status ? `Status: ${escapeHtml(thread.latest_status)}<br>` : ''}
+            ${escapeHtml(formatDateTime(thread.latest_created_at))}
+          </div>
+          <div class="thread-item-preview">${escapeHtml(thread.latest_message || '')}</div>
+        </div>
+      `).join('');
+
+      Array.from(document.querySelectorAll('.thread-item')).forEach(item => {
+        item.addEventListener('click', () => {
+          const email = item.getAttribute('data-email');
+          openThread(email);
+        });
+      });
+    }
+
+    async function openThread(applicantEmail) {
+      activeThreadEmail = applicantEmail;
+      renderThreadList();
+
+      const { data: profile } = await supabaseClient
+        .from('applicant_profiles')
+        .select('id, email, full_name, phone, location')
+        .eq('email', applicantEmail)
+        .maybeSingle();
+
+      const { data: apps } = await supabaseClient
+        .from('applications')
+        .select('id, job_title, status, recruiter_email, created_at')
+        .eq('email', applicantEmail)
+        .order('created_at', { ascending: false });
+
+      const { data: messages, error } = await supabaseClient
+        .from('applicant_messages')
+        .select('id, sender_type, message, created_at')
+        .eq('applicant_email', applicantEmail)
+        .order('created_at', { ascending: true });
+
+      if (error) {
+        els.threadPanel.innerHTML = `<div class="empty">${escapeHtml(error.message)}</div>`;
+        return;
+      }
+
+      const latestApp = apps?.[0] || null;
+
+      els.threadPanel.innerHTML = `
+        <div class="thread-header">
+          <div>
+            <h2 class="thread-title">${escapeHtml(profile?.full_name || applicantEmail)}</h2>
+            <p class="thread-subtitle">
+              ${escapeHtml(applicantEmail)}
+              ${profile?.phone ? `<br>Phone: ${escapeHtml(profile.phone)}` : ''}
+              ${profile?.location ? `<br>Location: ${escapeHtml(profile.location)}` : ''}
+              ${latestApp?.job_title ? `<br>Latest role: ${escapeHtml(latestApp.job_title)}` : ''}
+              ${latestApp?.status ? `<br>Latest status: ${escapeHtml(latestApp.status)}` : ''}
+            </p>
+          </div>
+          <div style="display:flex; gap:10px; flex-wrap:wrap;">
+            <a href="mailto:${escapeHtml(applicantEmail)}" class="btn btn-outline">Email Applicant</a>
+          </div>
+        </div>
+
+        <div id="messagesBox" class="messages">
+          ${
+            !messages || !messages.length
+              ? `<div class="empty">No messages in this conversation yet.</div>`
+              : messages.map(item => `
+                  <div class="message ${item.sender_type === 'recruiter' ? 'recruiter' : 'applicant'}">
+                    ${escapeHtml(item.message || '')}
+                    <span class="message-time">${escapeHtml(formatDateTime(item.created_at))}</span>
+                  </div>
+                `).join('')
+          }
+        </div>
+
+        <div class="composer">
+          <textarea id="replyInput" placeholder="Type your reply to the applicant..."></textarea>
+          <div style="display:flex; gap:10px; flex-wrap:wrap;">
+            <button id="sendReplyBtn" class="btn btn-primary" type="button">Send Reply</button>
+          </div>
+          <div class="helper">
+            Messages sent here will appear in the applicant's dashboard chat.
+          </div>
+        </div>
+      `;
+
+      const messagesBox = document.getElementById('messagesBox');
+      messagesBox.scrollTop = messagesBox.scrollHeight;
+
+      document.getElementById('sendReplyBtn').addEventListener('click', async () => {
+        await sendReply(applicantEmail, profile?.id || null, latestApp?.id || null);
+      });
+    }
+
+    async function sendReply(applicantEmail, applicantProfileId, applicationId) {
+      const replyInput = document.getElementById('replyInput');
+      const sendReplyBtn = document.getElementById('sendReplyBtn');
+      const message = replyInput.value.trim();
+
+      if (!message) {
+        showNotice('Please type a reply before sending.', 'error');
+        return;
+      }
+
+      sendReplyBtn.disabled = true;
+      sendReplyBtn.textContent = 'Sending...';
+
+      try {
+        const { error } = await supabaseClient
+          .from('applicant_messages')
+          .insert([{
+            applicant_email: applicantEmail,
+            applicant_profile_id: applicantProfileId,
+            application_id: applicationId,
+            sender_type: 'recruiter',
+            message
+          }]);
+
+        if (error) throw error;
+
+        replyInput.value = '';
+        showNotice('Reply sent successfully.', 'success');
+        await loadThreads();
+        await openThread(applicantEmail);
+      } catch (error) {
+        showNotice(error?.message || 'Unable to send reply.', 'error');
+      } finally {
+        sendReplyBtn.disabled = false;
+        sendReplyBtn.textContent = 'Send Reply';
+      }
+    }
+
+    els.searchInput.addEventListener('input', renderThreadList);
+
+    supabaseClient.auth.onAuthStateChange((event, session) => {
+      if (event === 'SIGNED_OUT' || !session?.user) {
+        window.location.href = 'recruiter-login.html';
+      }
+    });
+
+    (async () => {
+      const user = await protectRecruiterPage();
+      if (!user) return;
+
+      await loadThreads();
+
+      if (allThreads.length) {
+        await openThread(allThreads[0].applicant_email);
+      } else {
+        els.threadPanel.innerHTML = `<div class="empty">No applicant conversations yet.</div>`;
+      }
+    })();
+  </script>
+</body>
+</html>
