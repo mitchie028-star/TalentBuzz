@@ -22,12 +22,9 @@
       --error-bg: #fef2f2;
       --error-text: #b91c1c;
       --shadow: 0 14px 40px rgba(15, 23, 42, 0.08);
-      --radius: 18px;
     }
 
-    * {
-      box-sizing: border-box;
-    }
+    * { box-sizing: border-box; }
 
     body {
       font-family: 'Manrope', sans-serif;
@@ -48,7 +45,7 @@
 
     .shell {
       width: 100%;
-      max-width: 860px;
+      max-width: 920px;
     }
 
     .topbar {
@@ -82,7 +79,7 @@
     .subtitle {
       color: var(--muted);
       margin: 0 auto;
-      max-width: 640px;
+      max-width: 680px;
       line-height: 1.7;
       font-size: 1rem;
     }
@@ -91,7 +88,7 @@
       border: 1px solid var(--line);
       border-radius: 24px;
       padding: 24px;
-      background: rgba(255,255,255,0.92);
+      background: rgba(255,255,255,0.94);
       box-shadow: var(--shadow);
       backdrop-filter: blur(8px);
     }
@@ -187,8 +184,7 @@
     }
 
     .hint {
-      margin-top: -2px;
-      margin-bottom: 10px;
+      margin-top: 8px;
       color: var(--muted);
       font-size: 0.86rem;
       line-height: 1.5;
@@ -419,7 +415,14 @@
 
             <div class="field">
               <label for="phone">Phone</label>
-              <input id="phone" placeholder="e.g. 0917 123 4567">
+              <input
+                id="phone"
+                type="tel"
+                inputmode="numeric"
+                maxlength="11"
+                placeholder="09XXXXXXXXX"
+              >
+              <div class="hint">Use Philippine mobile format: 09XXXXXXXXX</div>
             </div>
 
             <div class="field">
@@ -427,9 +430,56 @@
               <input id="location" placeholder="e.g. Quezon City, Metro Manila">
             </div>
 
-            <div class="field">
+            <div class="field full">
               <label for="headline">Target Role</label>
-              <input id="headline" placeholder="e.g. Frontend Developer, BDM, CSR">
+              <select id="headline" required>
+                <option value="">Select your target role</option>
+                <option value="Software Engineer">Software Engineer</option>
+                <option value="Frontend Developer">Frontend Developer</option>
+                <option value="Backend Developer">Backend Developer</option>
+                <option value="Full Stack Developer">Full Stack Developer</option>
+                <option value="Mobile Developer">Mobile Developer</option>
+                <option value="QA Engineer">QA Engineer</option>
+                <option value="DevOps Engineer">DevOps Engineer</option>
+                <option value="Data Analyst">Data Analyst</option>
+                <option value="Business Development Manager">Business Development Manager</option>
+                <option value="Sales Manager">Sales Manager</option>
+                <option value="Account Manager">Account Manager</option>
+                <option value="Customer Service Representative">Customer Service Representative</option>
+                <option value="Technical Support Representative">Technical Support Representative</option>
+                <option value="Content Moderator">Content Moderator</option>
+                <option value="Operations Manager">Operations Manager</option>
+                <option value="Team Leader">Team Leader</option>
+                <option value="Project Manager">Project Manager</option>
+                <option value="Product Manager">Product Manager</option>
+                <option value="HR / Recruiter">HR / Recruiter</option>
+                <option value="Finance / Accounting">Finance / Accounting</option>
+                <option value="Other">Other</option>
+              </select>
+              <div class="hint">Pick the closest role to make matching easier.</div>
+            </div>
+
+            <div class="field">
+              <label for="salary">Expected Monthly Salary (PHP)</label>
+              <input
+                id="salary"
+                type="number"
+                min="0"
+                step="1"
+                placeholder="e.g. 30000"
+              >
+              <div class="hint">Enter your expected monthly salary in PHP.</div>
+            </div>
+
+            <div class="field">
+              <label for="work_setup">Preferred Work Setup</label>
+              <select id="work_setup">
+                <option value="">Select preference</option>
+                <option value="Onsite">Onsite</option>
+                <option value="Hybrid">Hybrid</option>
+                <option value="Remote">Remote</option>
+                <option value="Open to Any">Open to Any</option>
+              </select>
             </div>
           </div>
         </section>
@@ -518,7 +568,6 @@
 <script>
   const SUPABASE_URL = 'https://dilalntcxmvdcmwxjcct.supabase.co';
   const SUPABASE_ANON_KEY = 'sb_publishable_HrLVIUwnaRo54yijtrbWBQ_1aeb4ezs';
-
   const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
   const params = new URLSearchParams(window.location.search);
@@ -570,14 +619,19 @@
 
   function validateResumeFile(file) {
     if (!file) return;
-
     const allowedExtensions = ['.pdf', '.doc', '.docx'];
     const lowerName = file.name.toLowerCase();
     const isValid = allowedExtensions.some(ext => lowerName.endsWith(ext));
+    if (!isValid) throw new Error('Please upload a PDF, DOC, or DOCX file only.');
+  }
 
-    if (!isValid) {
-      throw new Error('Please upload a PDF, DOC, or DOCX file only.');
-    }
+  function normalizePhone(phone) {
+    return phone.replace(/\s+/g, '').trim();
+  }
+
+  function validatePhone(phone) {
+    if (!phone) return true;
+    return /^09\d{9}$/.test(phone);
   }
 
   function updateStepUI() {
@@ -604,27 +658,25 @@
     if (currentStep === 1) {
       const fullName = document.getElementById('full_name').value.trim();
       const email = document.getElementById('email').value.trim();
+      const phone = normalizePhone(document.getElementById('phone').value);
+      const headline = document.getElementById('headline').value.trim();
 
-      if (!fullName) {
-        throw new Error('Please enter your full name.');
-      }
-
-      if (!email) {
-        throw new Error('Email is required.');
+      if (!fullName) throw new Error('Please enter your full name.');
+      if (!email) throw new Error('Email is required.');
+      if (!headline) throw new Error('Please select your target role.');
+      if (phone && !validatePhone(phone)) {
+        throw new Error('Please enter a valid PH mobile number in this format: 09XXXXXXXXX');
       }
     }
 
     if (currentStep === 2) {
       const file = document.getElementById('resume').files[0];
-      if (file) {
-        validateResumeFile(file);
-      }
+      if (file) validateResumeFile(file);
     }
   }
 
   nextBtn.addEventListener('click', () => {
     clearMessage();
-
     try {
       validateCurrentStep();
       if (currentStep < 3) {
@@ -674,6 +726,11 @@
       document.getElementById('full_name').value = data.full_name || getFullName(user);
       document.getElementById('phone').value = data.phone || '';
       document.getElementById('location').value = data.location || '';
+      document.getElementById('headline').value = data.headline || '';
+      document.getElementById('salary').value = data.expected_salary || '';
+      document.getElementById('work_setup').value = data.preferred_work_setup || '';
+      document.getElementById('linkedin').value = data.linkedin || '';
+      document.getElementById('portfolio').value = data.portfolio_url || '';
       document.getElementById('experience').value = data.experience_summary || '';
     }
   }
@@ -720,18 +777,24 @@
 
       const full_name = document.getElementById('full_name').value.trim();
       const email = document.getElementById('email').value.trim().toLowerCase();
-      const phone = document.getElementById('phone').value.trim();
+      const phone = normalizePhone(document.getElementById('phone').value);
       const location = document.getElementById('location').value.trim();
+      const headline = document.getElementById('headline').value.trim();
+      const salaryRaw = document.getElementById('salary').value.trim();
+      const work_setup = document.getElementById('work_setup').value.trim();
+      const linkedin = document.getElementById('linkedin').value.trim();
+      const portfolio = document.getElementById('portfolio').value.trim();
       const experience = document.getElementById('experience').value.trim();
       const file = document.getElementById('resume').files[0];
 
-      if (!full_name) {
-        throw new Error('Full name is required.');
+      if (!full_name) throw new Error('Full name is required.');
+      if (!email) throw new Error('Email is required.');
+      if (!headline) throw new Error('Please select your target role.');
+      if (phone && !validatePhone(phone)) {
+        throw new Error('Please enter a valid PH mobile number in this format: 09XXXXXXXXX');
       }
 
-      if (!email) {
-        throw new Error('Email is required.');
-      }
+      const expected_salary = salaryRaw ? Number(salaryRaw) : null;
 
       let resume_path = existingProfile?.resume_path || null;
       let resume_url = existingProfile?.resume_url || null;
@@ -742,17 +805,25 @@
         resume_url = null;
       }
 
+      const payload = {
+        full_name,
+        email,
+        phone,
+        location,
+        headline,
+        expected_salary,
+        preferred_work_setup: work_setup,
+        linkedin,
+        portfolio_url: portfolio,
+        experience_summary: experience,
+        resume_path,
+        resume_url
+      };
+
       if (existingProfile) {
         const { data, error } = await supabaseClient
           .from('applicant_profiles')
-          .update({
-            full_name,
-            phone,
-            location,
-            experience_summary: experience,
-            resume_path,
-            resume_url
-          })
+          .update(payload)
           .eq('email', email)
           .select()
           .single();
@@ -762,15 +833,7 @@
       } else {
         const { data, error } = await supabaseClient
           .from('applicant_profiles')
-          .insert([{
-            full_name,
-            email,
-            phone,
-            location,
-            experience_summary: experience,
-            resume_path,
-            resume_url
-          }])
+          .insert([payload])
           .select()
           .single();
 
