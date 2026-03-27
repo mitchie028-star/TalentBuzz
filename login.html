@@ -21,6 +21,7 @@
       --white:#ffffff;
       --danger:#b91c1c;
       --success:#166534;
+      --info:#1d4ed8;
       --shadow:0 14px 40px rgba(30,58,138,.08),0 3px 10px rgba(15,23,42,.04);
     }
 
@@ -182,6 +183,12 @@
       border:1px solid #bbf7d0;
     }
 
+    .msg.info{
+      background:#eff6ff;
+      color:var(--info);
+      border:1px solid #bfdbfe;
+    }
+
     .links{
       margin-top:18px;
       display:flex;
@@ -294,6 +301,27 @@
       messageBox.className = 'msg';
     }
 
+    function getNextRoute() {
+      const params = new URLSearchParams(window.location.search);
+      const next = params.get('next');
+
+      if (next === 'create-profile') return 'create-profile.html';
+      if (next === 'dashboard') return 'dashboard.html';
+
+      return 'dashboard.html';
+    }
+
+    function showMessageFromUrl() {
+      const params = new URLSearchParams(window.location.search);
+      const message = params.get('message');
+
+      if (message === 'login_required_profile') {
+        showMessage('Please log in first to create or update your profile.', 'info');
+      } else if (message === 'login_required_dashboard') {
+        showMessage('Please log in to access your dashboard.', 'info');
+      }
+    }
+
     async function ensureApplicantProfile(user) {
       if (!user?.email) return;
 
@@ -323,16 +351,6 @@
 
       if (insertError) {
         console.error('Profile create error:', insertError);
-      }
-    }
-
-    async function redirectIfLoggedIn() {
-      const {
-        data: { session }
-      } = await supabaseClient.auth.getSession();
-
-      if (session?.user) {
-        window.location.href = 'dashboard.html';
       }
     }
 
@@ -375,7 +393,7 @@
         await ensureApplicantProfile(data.user);
 
         showMessage('Login successful.', 'success');
-        window.location.href = 'dashboard.html';
+        window.location.href = getNextRoute();
       } catch (error) {
         const msg = String(error?.message || 'Login failed.');
         const lower = msg.toLowerCase();
@@ -400,7 +418,7 @@
       const { error } = await supabaseClient.auth.signInWithOAuth({
         provider: 'google',
         options: {
-          redirectTo: `${window.location.origin}/dashboard.html`
+          redirectTo: `${window.location.origin}/${getNextRoute()}`
         }
       });
 
@@ -415,7 +433,7 @@
       const { error } = await supabaseClient.auth.signInWithOAuth({
         provider: 'linkedin_oidc',
         options: {
-          redirectTo: `${window.location.origin}/dashboard.html`
+          redirectTo: `${window.location.origin}/${getNextRoute()}`
         }
       });
 
@@ -424,7 +442,7 @@
       }
     });
 
-    redirectIfLoggedIn();
+    showMessageFromUrl();
   </script>
 </body>
 </html>
