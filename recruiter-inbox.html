@@ -23,18 +23,22 @@
       --danger:#b91c1c;
       --shadow:0 14px 40px rgba(30,58,138,.08),0 3px 10px rgba(15,23,42,.04);
     }
+
     *{box-sizing:border-box}
+
     body{
       margin:0;
       font-family:'Manrope',sans-serif;
       background:linear-gradient(180deg,#f8fbff 0%,#eef4ff 100%);
       color:var(--text);
     }
+
     .container{
       max-width:1320px;
       margin:auto;
       padding:24px 20px 40px;
     }
+
     .topbar{
       display:flex;
       justify-content:space-between;
@@ -43,15 +47,24 @@
       flex-wrap:wrap;
       margin-bottom:20px;
     }
+
     .topbar h1{
       margin:0 0 6px;
       color:var(--blue);
       font-size:2rem;
     }
+
     .subtitle{
       margin:0;
       color:var(--muted);
     }
+
+    .top-actions{
+      display:flex;
+      gap:10px;
+      flex-wrap:wrap;
+    }
+
     .btn{
       display:inline-flex;
       align-items:center;
@@ -66,19 +79,35 @@
       font-family:inherit;
       background:#fff;
     }
+
     .btn-primary{
       background:linear-gradient(135deg,var(--blue),var(--blue-light));
       color:#fff;
     }
+
     .btn-outline{
       color:var(--blue);
       border-color:var(--line);
       background:#fff;
     }
+
+    .btn-danger{
+      color:var(--danger);
+      border-color:#fecaca;
+      background:#fff;
+    }
+
+    .btn-small{
+      padding:8px 10px;
+      font-size:.82rem;
+      border-radius:10px;
+    }
+
     .btn:disabled{
       opacity:.7;
       cursor:not-allowed;
     }
+
     .notice{
       display:none;
       margin-bottom:16px;
@@ -88,6 +117,7 @@
       font-weight:700;
       white-space:pre-wrap;
     }
+
     .notice.show{display:block}
     .notice.success{background:#ecfdf5;color:var(--success);border:1px solid #bbf7d0}
     .notice.error{background:#fef2f2;color:var(--danger);border:1px solid #fecaca}
@@ -119,6 +149,13 @@
       padding:12px 14px;
       font:inherit;
       margin-bottom:14px;
+      outline:none;
+      background:#fff;
+    }
+
+    .search:focus{
+      border-color:#93c5fd;
+      box-shadow:0 0 0 3px rgba(147,197,253,.25);
     }
 
     .thread-list{
@@ -134,6 +171,12 @@
       padding:12px;
       cursor:pointer;
       background:#fff;
+      transition:.15s ease;
+    }
+
+    .thread-item:hover{
+      border-color:#bfdbfe;
+      background:#f8fbff;
     }
 
     .thread-item.active{
@@ -158,6 +201,10 @@
       color:#334155;
       font-size:.9rem;
       line-height:1.4;
+      display:-webkit-box;
+      -webkit-line-clamp:2;
+      -webkit-box-orient:vertical;
+      overflow:hidden;
     }
 
     .empty{
@@ -242,6 +289,13 @@
       border-radius:14px;
       padding:12px 14px;
       font:inherit;
+      outline:none;
+      background:#fff;
+    }
+
+    textarea:focus{
+      border-color:#93c5fd;
+      box-shadow:0 0 0 3px rgba(147,197,253,.25);
     }
 
     .helper{
@@ -250,15 +304,52 @@
       line-height:1.5;
     }
 
+    .info-grid{
+      display:grid;
+      grid-template-columns:repeat(2, minmax(0,1fr));
+      gap:12px;
+      margin:14px 0 0;
+    }
+
+    .mini-card{
+      border:1px solid var(--line);
+      border-radius:14px;
+      padding:12px;
+      background:#fff;
+    }
+
+    .mini-label{
+      display:block;
+      color:var(--muted);
+      font-size:.75rem;
+      text-transform:uppercase;
+      letter-spacing:.06em;
+      font-weight:800;
+      margin-bottom:4px;
+    }
+
+    .mini-value{
+      color:var(--text);
+      font-size:.92rem;
+      line-height:1.5;
+      word-break:break-word;
+    }
+
     @media (max-width: 980px){
       .layout{
         grid-template-columns:1fr;
       }
+
       .thread-list{
         max-height:none;
       }
+
       .messages{
         max-height:45vh;
+      }
+
+      .info-grid{
+        grid-template-columns:1fr;
       }
     }
   </style>
@@ -270,7 +361,8 @@
         <h1>Applicant Inbox</h1>
         <p class="subtitle">Review and reply to applicant messages from BuzzHire.</p>
       </div>
-      <div>
+
+      <div class="top-actions">
         <a href="recruiter-dashboard.html" class="btn btn-outline">Back to Dashboard</a>
       </div>
     </div>
@@ -280,7 +372,7 @@
     <div class="layout">
       <div class="card">
         <h2>Conversations</h2>
-        <input id="searchInput" class="search" type="text" placeholder="Search by email or name..." />
+        <input id="searchInput" class="search" type="text" placeholder="Search by email, name, or role..." />
         <div id="threadList" class="thread-list">
           <div class="empty">Loading conversations...</div>
         </div>
@@ -309,6 +401,7 @@
     let currentRecruiter = null;
     let allThreads = [];
     let activeThreadEmail = null;
+    let liveChannel = null;
 
     const ALLOWED_RECRUITERS = [
       'michelle.giray@talentbuzz.pro',
@@ -367,6 +460,32 @@
       return session.user;
     }
 
+    async function sendApplicantReplyNotification({ applicantEmail, applicantName, recruiterName, messagePreview }) {
+      try {
+        const { data, error } = await supabaseClient.functions.invoke(
+          'send-applicant-message-notification',
+          {
+            body: {
+              applicant_email: applicantEmail,
+              applicant_name: applicantName,
+              recruiter_name: recruiterName,
+              message_preview: messagePreview
+            }
+          }
+        );
+
+        if (error || !data?.success) {
+          console.error('Applicant message notification failed:', error || data);
+          return false;
+        }
+
+        return true;
+      } catch (error) {
+        console.error('Applicant message notification error:', error);
+        return false;
+      }
+    }
+
     async function loadThreads() {
       const { data: messages, error } = await supabaseClient
         .from('applicant_messages')
@@ -385,7 +504,8 @@
           threadMap.set(msg.applicant_email, {
             applicant_email: msg.applicant_email,
             latest_message: msg.message,
-            latest_created_at: msg.created_at
+            latest_created_at: msg.created_at,
+            latest_sender_type: msg.sender_type
           });
         }
       }
@@ -398,16 +518,17 @@
       if (emails.length) {
         const { data: profiles } = await supabaseClient
           .from('applicant_profiles')
-          .select('id, email, full_name')
+          .select('id, email, full_name, phone, location')
           .in('email', emails);
 
         const { data: apps } = await supabaseClient
           .from('applications')
-          .select('email, job_title, status, created_at')
+          .select('id, email, job_title, status, recruiter_email, created_at')
           .in('email', emails)
           .order('created_at', { ascending: false });
 
         profileMap = new Map((profiles || []).map(p => [p.email, p]));
+
         for (const app of apps || []) {
           if (!appMap.has(app.email)) appMap.set(app.email, app);
         }
@@ -420,8 +541,11 @@
         return {
           ...thread,
           full_name: profile?.full_name || '',
+          phone: profile?.phone || '',
+          location: profile?.location || '',
           latest_job_title: latestApp?.job_title || '',
-          latest_status: latestApp?.status || ''
+          latest_status: latestApp?.status || '',
+          latest_application_id: latestApp?.id || null
         };
       });
 
@@ -435,6 +559,8 @@
         const haystack = [
           thread.applicant_email,
           thread.full_name,
+          thread.phone,
+          thread.location,
           thread.latest_job_title
         ].join(' ').toLowerCase();
 
@@ -474,7 +600,7 @@
 
       const { data: profile } = await supabaseClient
         .from('applicant_profiles')
-        .select('id, email, full_name, phone, location')
+        .select('id, email, full_name, phone, location, resume_url')
         .eq('email', applicantEmail)
         .maybeSingle();
 
@@ -501,20 +627,34 @@
         <div class="thread-header">
           <div>
             <h2 class="thread-title">${escapeHtml(profile?.full_name || applicantEmail)}</h2>
-            <p class="thread-subtitle">
-              ${escapeHtml(applicantEmail)}
-              ${profile?.phone ? `<br>Phone: ${escapeHtml(profile.phone)}` : ''}
-              ${profile?.location ? `<br>Location: ${escapeHtml(profile.location)}` : ''}
-              ${latestApp?.job_title ? `<br>Latest role: ${escapeHtml(latestApp.job_title)}` : ''}
-              ${latestApp?.status ? `<br>Latest status: ${escapeHtml(latestApp.status)}` : ''}
-            </p>
+            <p class="thread-subtitle">${escapeHtml(applicantEmail)}</p>
           </div>
-          <div style="display:flex; gap:10px; flex-wrap:wrap;">
-            <a href="mailto:${escapeHtml(applicantEmail)}" class="btn btn-outline">Email Applicant</a>
+          <div class="top-actions">
+            <a href="mailto:${escapeHtml(applicantEmail)}" class="btn btn-outline btn-small">Email Applicant</a>
+            ${profile?.resume_url ? `<a href="${escapeHtml(profile.resume_url)}" target="_blank" rel="noopener noreferrer" class="btn btn-outline btn-small">View Resume</a>` : ''}
           </div>
         </div>
 
-        <div id="messagesBox" class="messages">
+        <div class="info-grid">
+          <div class="mini-card">
+            <span class="mini-label">Phone</span>
+            <div class="mini-value">${escapeHtml(profile?.phone || '-')}</div>
+          </div>
+          <div class="mini-card">
+            <span class="mini-label">Location</span>
+            <div class="mini-value">${escapeHtml(profile?.location || '-')}</div>
+          </div>
+          <div class="mini-card">
+            <span class="mini-label">Latest Role</span>
+            <div class="mini-value">${escapeHtml(latestApp?.job_title || '-')}</div>
+          </div>
+          <div class="mini-card">
+            <span class="mini-label">Latest Status</span>
+            <div class="mini-value">${escapeHtml(latestApp?.status || '-')}</div>
+          </div>
+        </div>
+
+        <div id="messagesBox" class="messages" style="margin-top:16px;">
           ${
             !messages || !messages.length
               ? `<div class="empty">No messages in this conversation yet.</div>`
@@ -533,7 +673,7 @@
             <button id="sendReplyBtn" class="btn btn-primary" type="button">Send Reply</button>
           </div>
           <div class="helper">
-            Messages sent here will appear in the applicant's dashboard chat.
+            This reply will appear in the applicant dashboard chat and an email notification will also be sent.
           </div>
         </div>
       `;
@@ -542,11 +682,16 @@
       messagesBox.scrollTop = messagesBox.scrollHeight;
 
       document.getElementById('sendReplyBtn').addEventListener('click', async () => {
-        await sendReply(applicantEmail, profile?.id || null, latestApp?.id || null);
+        await sendReply(
+          applicantEmail,
+          profile?.id || null,
+          latestApp?.id || null,
+          profile?.full_name || applicantEmail
+        );
       });
     }
 
-    async function sendReply(applicantEmail, applicantProfileId, applicationId) {
+    async function sendReply(applicantEmail, applicantProfileId, applicationId, applicantName) {
       const replyInput = document.getElementById('replyInput');
       const sendReplyBtn = document.getElementById('sendReplyBtn');
       const message = replyInput.value.trim();
@@ -572,8 +717,27 @@
 
         if (error) throw error;
 
+        const recruiterName =
+          currentRecruiter?.user_metadata?.full_name ||
+          currentRecruiter?.user_metadata?.name ||
+          currentRecruiter?.email ||
+          'TalentBuzz Recruitment Team';
+
+        const emailSent = await sendApplicantReplyNotification({
+          applicantEmail,
+          applicantName,
+          recruiterName,
+          messagePreview: message
+        });
+
         replyInput.value = '';
-        showNotice('Reply sent successfully.', 'success');
+        showNotice(
+          emailSent
+            ? 'Reply sent successfully. Applicant notification email was also sent.'
+            : 'Reply sent successfully, but notification email could not be sent.',
+          emailSent ? 'success' : 'error'
+        );
+
         await loadThreads();
         await openThread(applicantEmail);
       } catch (error) {
@@ -582,6 +746,28 @@
         sendReplyBtn.disabled = false;
         sendReplyBtn.textContent = 'Send Reply';
       }
+    }
+
+    function subscribeRealtime() {
+      if (liveChannel) return;
+
+      liveChannel = supabaseClient
+        .channel('applicant-messages-realtime')
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'applicant_messages'
+          },
+          async () => {
+            await loadThreads();
+            if (activeThreadEmail) {
+              await openThread(activeThreadEmail);
+            }
+          }
+        )
+        .subscribe();
     }
 
     els.searchInput.addEventListener('input', renderThreadList);
@@ -603,6 +789,8 @@
       } else {
         els.threadPanel.innerHTML = `<div class="empty">No applicant conversations yet.</div>`;
       }
+
+      subscribeRealtime();
     })();
   </script>
 </body>
