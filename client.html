@@ -24,6 +24,10 @@
       --white:#ffffff;
       --success:#166534;
       --error:#b91c1c;
+      --info:#4338ca;
+      --warning:#9a3412;
+      --warning-bg:#fff7ed;
+      --warning-line:#fed7aa;
       --shadow:0 18px 40px rgba(30,58,138,.08), 0 4px 14px rgba(15,23,42,.06);
     }
 
@@ -97,20 +101,29 @@
     }
 
     .notice.show{ display:block; }
+
     .notice.error{
       background:#fef2f2;
       color:var(--error);
       border-color:#fecaca;
     }
+
     .notice.success{
       background:#ecfdf5;
       color:var(--success);
       border-color:#bbf7d0;
     }
+
     .notice.info{
       background:#eef2ff;
-      color:#4338ca;
+      color:var(--info);
       border-color:#c7d2fe;
+    }
+
+    .notice.warning{
+      background:var(--warning-bg);
+      color:var(--warning);
+      border-color:var(--warning-line);
     }
 
     form{
@@ -139,6 +152,35 @@
     .field input:focus{
       border-color:#93c5fd;
       box-shadow:0 0 0 3px rgba(147,197,253,.25);
+    }
+
+    .password-wrap{
+      position:relative;
+    }
+
+    .password-wrap input{
+      padding-right:86px;
+    }
+
+    .toggle-password{
+      position:absolute;
+      top:50%;
+      right:10px;
+      transform:translateY(-50%);
+      border:none;
+      border-radius:10px;
+      background:#eff6ff;
+      color:var(--blue);
+      font:inherit;
+      font-size:.82rem;
+      font-weight:800;
+      padding:8px 10px;
+      cursor:pointer;
+      transition:.18s ease;
+    }
+
+    .toggle-password:hover{
+      background:#dbeafe;
     }
 
     .btn{
@@ -186,6 +228,11 @@
       text-decoration:underline;
     }
 
+    .links a.is-disabled{
+      pointer-events:none;
+      opacity:.6;
+    }
+
     .footnote{
       margin-top:16px;
       color:var(--muted);
@@ -217,7 +264,10 @@
 
       <div class="field">
         <label for="password">Password</label>
-        <input id="password" name="password" type="password" autocomplete="current-password" required />
+        <div class="password-wrap">
+          <input id="password" name="password" type="password" autocomplete="current-password" required />
+          <button type="button" id="togglePassword" class="toggle-password">Show</button>
+        </div>
       </div>
 
       <div class="actions">
@@ -247,7 +297,8 @@
       password: document.getElementById("password"),
       loginBtn: document.getElementById("loginBtn"),
       notice: document.getElementById("notice"),
-      forgotPasswordLink: document.getElementById("forgotPasswordLink")
+      forgotPasswordLink: document.getElementById("forgotPasswordLink"),
+      togglePassword: document.getElementById("togglePassword")
     };
 
     function normalizeEmail(value) {
@@ -267,6 +318,12 @@
     function setBusy(isBusy, label = "Login") {
       els.loginBtn.disabled = isBusy;
       els.loginBtn.textContent = isBusy ? "Signing in..." : label;
+
+      if (isBusy) {
+        els.forgotPasswordLink.classList.add("is-disabled");
+      } else {
+        els.forgotPasswordLink.classList.remove("is-disabled");
+      }
     }
 
     async function checkClientPortalAccess(email) {
@@ -278,9 +335,7 @@
         .eq("email", normalized)
         .limit(1);
 
-      if (error) {
-        throw error;
-      }
+      if (error) throw error;
 
       return Array.isArray(data) && data.length > 0 ? data[0] : null;
     }
@@ -313,7 +368,6 @@
 
         if (!clientUser) {
           showNotice("This email is not authorized for client portal access.", "error");
-          setBusy(false);
           return;
         }
 
@@ -324,7 +378,6 @@
 
         if (error) {
           showNotice(error.message || "Unable to sign in.", "error");
-          setBusy(false);
           return;
         }
 
@@ -338,11 +391,11 @@
       }
     }
 
-    async function sendResetLink(email) {
+    async function createPasswordResetRequest(email) {
       const normalized = normalizeEmail(email);
 
       if (!normalized) {
-        showNotice("Enter your email first so we can send a reset link.", "error");
+        showNotice("Enter your email first so the administrator knows which account needs help.", "error");
         els.email.focus();
         return;
       }
@@ -355,20 +408,43 @@
           return;
         }
 
-        const { error } = await supabaseClient.auth.resetPasswordForEmail(normalized, {
-          redirectTo: `${window.location.origin}/client-reset-password.html`
-        });
+        const { data: existing, error: existingError } = await supabaseClient
+          .from("password_reset_requests")
+          .select("id, status")
+          .eq("email", normalized)
+          .eq("portal", "client")
+          .eq("status", "pending")
+          .limit(1);
 
-        if (error) {
-          showNotice(error.message || "Unable to send reset link.", "error");
+        if (existingError) throw existingError;
+
+        if (existing && existing.length > 0) {
+          showNotice("A password reset request is already pending for this account.", "warning");
           return;
         }
 
-        showNotice("Password reset link sent. Please check your email.", "success");
+        const { error: insertError } = await supabaseClient
+          .from("password_reset_requests")
+          .insert([{
+            email: normalized,
+            requested_by: normalized,
+            portal: "client",
+            status: "pending"
+          }]);
+
+        if (insertError) throw insertError;
+
+        showNotice("Your password reset request has been sent to the administrator.", "success");
       } catch (error) {
-        console.error("Reset password error:", error);
-        showNotice(error.message || "Unable to send reset link.", "error");
+        console.error("Password reset request error:", error);
+        showNotice(error.message || "Unable to send your request to the administrator.", "error");
       }
+    }
+
+    function togglePasswordVisibility() {
+      const isHidden = els.password.type === "password";
+      els.password.type = isHidden ? "text" : "password";
+      els.togglePassword.textContent = isHidden ? "Hide" : "Show";
     }
 
     els.form.addEventListener("submit", async (event) => {
@@ -378,8 +454,10 @@
 
     els.forgotPasswordLink.addEventListener("click", async (event) => {
       event.preventDefault();
-      await sendResetLink(els.email.value);
+      await createPasswordResetRequest(els.email.value);
     });
+
+    els.togglePassword.addEventListener("click", togglePasswordVisibility);
 
     redirectIfAlreadySignedIn();
   </script>
