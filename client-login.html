@@ -342,13 +342,16 @@
 
       const { data, error } = await supabaseClient
         .from("client_users")
-        .select("id, email, full_name, client_id")
+        .select("id, email, full_name, client_id, active")
         .eq("email", normalized)
-        .limit(1);
+        .eq("active", true)
+        .maybeSingle();
 
-      if (error) throw error;
+      if (error) {
+        throw error;
+      }
 
-      return Array.isArray(data) && data.length > 0 ? data[0] : null;
+      return data || null;
     }
 
     async function redirectIfAlreadySignedIn() {
@@ -375,20 +378,23 @@
       setBusy(true);
 
       try {
-        const clientUser = await checkClientPortalAccess(email);
+        const normalizedEmail = normalizeEmail(email);
 
-        if (!clientUser) {
-          showNotice("This email is not authorized for client portal access.", "error");
-          return;
-        }
-
-        const { error } = await supabaseClient.auth.signInWithPassword({
-          email: normalizeEmail(email),
+        const { error: signInError } = await supabaseClient.auth.signInWithPassword({
+          email: normalizedEmail,
           password
         });
 
-        if (error) {
-          showNotice(error.message || "Unable to sign in.", "error");
+        if (signInError) {
+          showNotice(signInError.message || "Unable to sign in.", "error");
+          return;
+        }
+
+        const clientUser = await checkClientPortalAccess(normalizedEmail);
+
+        if (!clientUser) {
+          await supabaseClient.auth.signOut();
+          showNotice("This email is not authorized for client portal access.", "error");
           return;
         }
 
@@ -412,13 +418,6 @@
       }
 
       try {
-        const clientUser = await checkClientPortalAccess(normalized);
-
-        if (!clientUser) {
-          showNotice("This email is not authorized for client portal access.", "error");
-          return;
-        }
-
         const { data: existing, error: existingError } = await supabaseClient
           .from("password_reset_requests")
           .select("id, status")
