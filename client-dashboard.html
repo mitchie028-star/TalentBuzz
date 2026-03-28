@@ -28,6 +28,7 @@
       --soft-blue:#eef2ff;
       --soft-green:#ecfdf5;
       --soft-red:#fef2f2;
+      --soft-amber:#fff7ed;
       --shadow:0 20px 45px rgba(30,58,138,.08),0 4px 14px rgba(15,23,42,.06);
     }
 
@@ -58,21 +59,16 @@
     .brand-line{
       display:flex;
       align-items:center;
-      gap:12px;
+      gap:16px;
       margin-bottom:8px;
     }
 
-    .brand-badge{
-      width:46px;
-      height:46px;
-      border-radius:14px;
-      display:grid;
-      place-items:center;
-      background:linear-gradient(135deg,var(--blue),var(--blue-light));
-      color:#fff;
-      font-weight:800;
-      font-size:1rem;
-      box-shadow:var(--shadow);
+    .brand-logo{
+      height:50px;
+      width:auto;
+      object-fit:contain;
+      display:block;
+      flex-shrink:0;
     }
 
     h1{
@@ -113,6 +109,7 @@
     }
 
     .btn:hover{ transform:translateY(-1px); }
+    .btn:disabled{ opacity:.7; cursor:not-allowed; transform:none; }
 
     .btn-primary{
       background:linear-gradient(135deg,var(--blue),var(--blue-light));
@@ -207,7 +204,7 @@
 
     .filters{
       display:grid;
-      grid-template-columns:1.3fr 1fr 1fr;
+      grid-template-columns:1.5fr 1fr 1fr 1fr;
       gap:12px;
       margin-bottom:16px;
     }
@@ -236,7 +233,7 @@
 
     table{
       width:100%;
-      min-width:1150px;
+      min-width:1280px;
       border-collapse:collapse;
       background:#fff;
     }
@@ -311,8 +308,42 @@
       font-weight:700;
     }
 
+    .rating-group{
+      display:flex;
+      gap:6px;
+      flex-wrap:wrap;
+      margin-top:8px;
+    }
+
+    .rating-btn{
+      border:1px solid #cbd5e1;
+      background:#fff;
+      color:#334155;
+      border-radius:10px;
+      min-width:38px;
+      height:36px;
+      font-weight:800;
+      cursor:pointer;
+    }
+
+    .rating-btn.active{
+      background:linear-gradient(135deg,var(--blue),var(--blue-light));
+      color:#fff;
+      border-color:transparent;
+    }
+
+    .section-title{
+      font-size:.8rem;
+      text-transform:uppercase;
+      letter-spacing:.08em;
+      color:var(--muted);
+      font-weight:800;
+      margin-bottom:8px;
+    }
+
     @media (max-width: 1100px){
       .stats{ grid-template-columns:repeat(2,minmax(0,1fr)); }
+      .filters{ grid-template-columns:repeat(2,minmax(0,1fr)); }
     }
 
     @media (max-width: 760px){
@@ -321,6 +352,7 @@
       .stats{ grid-template-columns:1fr; }
       h1{ font-size:1.7rem; }
       .panel{ padding:14px; }
+      .brand-logo{ height:42px; }
     }
   </style>
 </head>
@@ -329,11 +361,11 @@
     <div class="top">
       <div>
         <div class="brand-line">
-          <div class="brand-badge">TB</div>
+          <img src="logo.png" class="brand-logo" alt="TalentBuzz Logo" />
           <div>
             <h1>Client Dashboard</h1>
             <div class="subtitle">
-              View candidates endorsed to your company and send feedback to the TalentBuzz team.
+              View candidates endorsed to your company, review only your open requisitions, and send feedback to the TalentBuzz team.
             </div>
           </div>
         </div>
@@ -355,21 +387,21 @@
       </div>
 
       <div class="stat">
-        <div class="stat-label">Endorsed Candidates</div>
+        <div class="stat-label">Visible Endorsements</div>
         <div id="statTotal" class="stat-value">0</div>
-        <div class="stat-note">Total candidate records visible to this client</div>
+        <div class="stat-note">Only records linked to your client account</div>
       </div>
 
       <div class="stat">
-        <div class="stat-label">Roles</div>
+        <div class="stat-label">Your Requisitions</div>
         <div id="statRoles" class="stat-value">0</div>
-        <div class="stat-note">Unique roles with endorsements</div>
+        <div class="stat-note">Unique requisitions tied to your company</div>
       </div>
 
       <div class="stat">
         <div class="stat-label">Pending Feedback</div>
         <div id="statPending" class="stat-value">0</div>
-        <div class="stat-note">Candidates without client response status yet</div>
+        <div class="stat-note">Candidates without client response yet</div>
       </div>
     </div>
 
@@ -377,7 +409,7 @@
       <div class="filters">
         <input id="searchInput" name="search" placeholder="Search candidate name" />
         <select id="roleFilter" name="roleFilter">
-          <option value="">All roles</option>
+          <option value="">All requisitions</option>
         </select>
         <select id="statusFilter" name="statusFilter">
           <option value="">All feedback statuses</option>
@@ -387,6 +419,14 @@
           <option value="rejected_by_client">Rejected</option>
           <option value="need_more_profiles">Need More Profiles</option>
         </select>
+        <select id="ratingFilter" name="ratingFilter">
+          <option value="">All ratings</option>
+          <option value="5">5 / 5</option>
+          <option value="4">4 / 5</option>
+          <option value="3">3 / 5</option>
+          <option value="2">2 / 5</option>
+          <option value="1">1 / 5</option>
+        </select>
       </div>
 
       <div class="table-wrap">
@@ -394,18 +434,19 @@
           <thead>
             <tr>
               <th>Candidate</th>
-              <th>Role</th>
+              <th>Requisition</th>
               <th>Experience</th>
               <th>Location</th>
               <th>Work Setup</th>
               <th>Resume</th>
+              <th>Rating</th>
               <th>Your Feedback</th>
               <th>Notes</th>
               <th>Actions</th>
             </tr>
           </thead>
           <tbody id="endorsementsTable">
-            <tr><td colspan="9" class="empty">Loading candidates...</td></tr>
+            <tr><td colspan="10" class="empty">Loading candidates...</td></tr>
           </tbody>
         </table>
       </div>
@@ -430,6 +471,7 @@
       searchInput: document.getElementById("searchInput"),
       roleFilter: document.getElementById("roleFilter"),
       statusFilter: document.getElementById("statusFilter"),
+      ratingFilter: document.getElementById("ratingFilter"),
       logoutBtn: document.getElementById("logoutBtn"),
       refreshBtn: document.getElementById("refreshBtn"),
       statClientName: document.getElementById("statClientName"),
@@ -460,6 +502,10 @@
     function clearNotice() {
       els.notice.textContent = "";
       els.notice.className = "notice";
+    }
+
+    function getRoleName(row) {
+      return row.job_title_from_jobs || row.job_title || row.requisition_title || "-";
     }
 
     function getStatusLabel(status) {
@@ -515,7 +561,7 @@
 
       const clientUser = await getAuthorizedClientUser(session.user.email);
 
-      if (!clientUser) {
+      if (!clientUser || !clientUser.client_id) {
         await supabaseClient.auth.signOut();
         alert(`This account is not authorized for client access. Logged in as: ${session.user.email}`);
         await redirectToLogin();
@@ -538,9 +584,7 @@
         "-";
 
       const uniqueRoles = new Set(
-        rows
-          .map(r => r.job_title_from_jobs || r.job_title || "")
-          .filter(Boolean)
+        rows.map(r => getRoleName(r)).filter(Boolean)
       );
 
       const pendingFeedback = rows.filter(r => !normalize(r.client_response_status)).length;
@@ -557,12 +601,12 @@
 
       const roles = [...new Set(
         state.rows
-          .map(r => r.job_title_from_jobs || r.job_title)
+          .map(r => getRoleName(r))
           .filter(Boolean)
       )].sort((a, b) => a.localeCompare(b));
 
       els.roleFilter.innerHTML =
-        '<option value="">All roles</option>' +
+        '<option value="">All requisitions</option>' +
         roles.map(role => `
           <option value="${escapeHtml(role)}">${escapeHtml(role)}</option>
         `).join("");
@@ -576,31 +620,53 @@
       const search = normalize(els.searchInput.value);
       const role = normalize(els.roleFilter.value);
       const status = normalize(els.statusFilter.value);
+      const rating = normalize(els.ratingFilter.value);
 
       return state.rows.filter(row => {
         const candidateName = normalize(row.full_name);
-        const roleName = normalize(row.job_title_from_jobs || row.job_title);
+        const roleName = normalize(getRoleName(row));
         const feedbackStatus = normalize(row.client_response_status);
+        const score = String(row.client_rating ?? "");
 
         return (
           (!search || candidateName.includes(search)) &&
           (!role || roleName === role) &&
-          (!status || feedbackStatus === status)
+          (!status || feedbackStatus === status) &&
+          (!rating || score === rating)
         );
       });
+    }
+
+    function createRatingButtons(row) {
+      const currentRating = Number(row.client_rating || 0);
+
+      return `
+        <div class="rating-group" data-rating-group="${escapeHtml(row.endorsement_id)}">
+          ${[1,2,3,4,5].map(score => `
+            <button
+              type="button"
+              class="rating-btn ${currentRating === score ? "active" : ""}"
+              data-rating-id="${escapeHtml(row.endorsement_id)}"
+              data-score="${score}"
+              title="Rate ${score} out of 5"
+            >${score}</button>
+          `).join("")}
+        </div>
+      `;
     }
 
     function renderRows() {
       const rows = getFilteredRows();
 
       if (!rows.length) {
-        els.table.innerHTML = `<tr><td colspan="9" class="empty">No endorsed candidates found.</td></tr>`;
+        els.table.innerHTML = `<tr><td colspan="10" class="empty">No endorsed candidates found for your requisitions.</td></tr>`;
         return;
       }
 
       els.table.innerHTML = rows.map(row => {
         const feedbackStatus = normalize(row.client_response_status);
         const displayStatus = getStatusLabel(feedbackStatus);
+        const ratingLabel = row.client_rating ? `${row.client_rating}/5` : "Not rated";
 
         return `
           <tr>
@@ -609,7 +675,10 @@
               <div class="small">${escapeHtml(row.current_title || "")}</div>
             </td>
 
-            <td>${escapeHtml(row.job_title_from_jobs || row.job_title || "-")}</td>
+            <td>
+              <div>${escapeHtml(getRoleName(row))}</div>
+              <div class="small">${escapeHtml(row.job_id || "")}</div>
+            </td>
 
             <td>${escapeHtml(row.years_of_experience ?? "-")}</td>
 
@@ -623,6 +692,11 @@
                   ? `<a class="btn btn-soft resume-link" href="${escapeHtml(row.resume_url)}" target="_blank" rel="noopener">View Resume</a>`
                   : `<span class="small">No resume</span>`
               }
+            </td>
+
+            <td>
+              <div class="pill">${escapeHtml(ratingLabel)}</div>
+              ${createRatingButtons(row)}
             </td>
 
             <td>
@@ -661,34 +735,37 @@
 
     async function loadRows() {
       clearNotice();
-      els.table.innerHTML = `<tr><td colspan="9" class="empty">Loading candidates...</td></tr>`;
+      els.table.innerHTML = `<tr><td colspan="10" class="empty">Loading candidates...</td></tr>`;
 
       if (!state.currentClientUser?.client_id) {
-        els.table.innerHTML = `<tr><td colspan="9" class="empty">No client is linked to this portal user.</td></tr>`;
+        els.table.innerHTML = `<tr><td colspan="10" class="empty">No client is linked to this portal user.</td></tr>`;
         updateStats([]);
         return;
       }
+
+      const clientId = state.currentClientUser.client_id;
 
       const { data, error } = await supabaseClient
         .from("client_endorsement_view")
         .select("*")
-        .eq("client_id", state.currentClientUser.client_id)
+        .eq("client_id", clientId)
         .order("sent_at", { ascending: false });
 
       if (error) {
         console.error("Failed loading client endorsements:", error);
-        els.table.innerHTML = `<tr><td colspan="9" class="empty">${escapeHtml(error.message)}</td></tr>`;
-
+        els.table.innerHTML = `<tr><td colspan="10" class="empty">${escapeHtml(error.message)}</td></tr>`;
         showNotice(
-          "Unable to load endorsements. If the view does not expose client_id yet, update client_endorsement_view to include client_id.",
+          "Unable to load endorsements. Make sure client_endorsement_view includes client_id and only returns endorsements tied to that client.",
           "error"
         );
-
         updateStats([]);
         return;
       }
 
-      state.rows = Array.isArray(data) ? data : [];
+      state.rows = Array.isArray(data)
+        ? data.filter(row => String(row.client_id || "") === String(clientId))
+        : [];
+
       populateRoleFilter();
       updateStats(state.rows);
       renderRows();
@@ -712,12 +789,20 @@
       }
     }
 
+    function setRowRatingVisual(endorsementId, score) {
+      const buttons = document.querySelectorAll(`[data-rating-id="${CSS.escape(endorsementId)}"]`);
+      buttons.forEach(btn => {
+        btn.classList.toggle("active", Number(btn.dataset.score) === Number(score));
+      });
+    }
+
     async function saveFeedback(endorsementId, buttonEl) {
       const statusEl = document.querySelector(`.feedback-status[data-id="${CSS.escape(endorsementId)}"]`);
       const notesEl = document.querySelector(`.feedback-notes[data-id="${CSS.escape(endorsementId)}"]`);
 
       if (!statusEl || !notesEl) return;
 
+      const currentRow = state.rows.find(row => String(row.endorsement_id) === String(endorsementId));
       const originalLabel = buttonEl ? buttonEl.textContent : "Save";
 
       if (buttonEl) {
@@ -728,6 +813,7 @@
       const payload = {
         client_response_status: statusEl.value || null,
         client_response_notes: notesEl.value.trim() || null,
+        client_rating: currentRow?.client_rating ? Number(currentRow.client_rating) : null,
         client_responded_at: new Date().toISOString()
       };
 
@@ -751,6 +837,32 @@
       await loadRows();
     }
 
+    async function updateRating(endorsementId, score) {
+      const currentRow = state.rows.find(row => String(row.endorsement_id) === String(endorsementId));
+      if (!currentRow) return;
+
+      setRowRatingVisual(endorsementId, score);
+
+      const { error } = await supabaseClient
+        .from("application_endorsements")
+        .update({
+          client_rating: Number(score),
+          client_responded_at: new Date().toISOString()
+        })
+        .eq("id", endorsementId);
+
+      if (error) {
+        console.error("Failed to update rating:", error);
+        showNotice(error.message || "Failed to save rating.", "error");
+        await loadRows();
+        return;
+      }
+
+      currentRow.client_rating = Number(score);
+      showNotice("Candidate rating updated.", "success");
+      renderRows();
+    }
+
     async function logout() {
       await supabaseClient.auth.signOut();
       window.location.href = "client.html";
@@ -759,11 +871,19 @@
     els.searchInput.addEventListener("input", renderRows);
     els.roleFilter.addEventListener("change", renderRows);
     els.statusFilter.addEventListener("change", renderRows);
+    els.ratingFilter.addEventListener("change", renderRows);
 
     els.table.addEventListener("click", async (event) => {
-      const btn = event.target.closest(".save-feedback");
-      if (!btn) return;
-      await saveFeedback(btn.dataset.id, btn);
+      const saveBtn = event.target.closest(".save-feedback");
+      if (saveBtn) {
+        await saveFeedback(saveBtn.dataset.id, saveBtn);
+        return;
+      }
+
+      const ratingBtn = event.target.closest(".rating-btn");
+      if (ratingBtn) {
+        await updateRating(ratingBtn.dataset.ratingId, ratingBtn.dataset.score);
+      }
     });
 
     els.logoutBtn.addEventListener("click", logout);
@@ -777,7 +897,7 @@
       } catch (error) {
         console.error("Client dashboard initialization failed:", error);
         showNotice(error.message || "Failed to initialize client dashboard.", "error");
-        els.table.innerHTML = `<tr><td colspan="9" class="empty">Failed to load dashboard.</td></tr>`;
+        els.table.innerHTML = `<tr><td colspan="10" class="empty">Failed to load dashboard.</td></tr>`;
       }
     })();
   </script>
