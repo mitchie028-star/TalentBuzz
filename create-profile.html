@@ -235,6 +235,34 @@
       margin-top: 8px;
     }
 
+    .photo-wrap {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+
+    .photo-preview {
+      width: 90px;
+      height: 90px;
+      border-radius: 24px;
+      border: 1px solid var(--line);
+      background: linear-gradient(135deg, #dbeafe, #eff6ff);
+      display: grid;
+      place-items: center;
+      overflow: hidden;
+      color: var(--blue);
+      font-weight: 800;
+      font-size: 1.4rem;
+      flex-shrink: 0;
+    }
+
+    .photo-preview img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+
     .mini-card {
       margin-top: 16px;
       border: 1px solid var(--line);
@@ -393,7 +421,6 @@
       </div>
 
       <form id="profileForm">
-        <!-- STEP 1 -->
         <section class="step active" data-step="1">
           <div class="step-header">
             <h2 class="step-title">Basic information</h2>
@@ -403,6 +430,17 @@
           </div>
 
           <div class="grid">
+            <div class="field full">
+              <label for="profile_photo">Profile Photo</label>
+              <div class="photo-wrap">
+                <div class="photo-preview" id="photoPreview">TB</div>
+                <div style="flex:1; min-width:240px;">
+                  <input id="profile_photo" type="file" accept="image/jpeg,image/png,image/webp">
+                  <div class="hint">Optional. Upload a clear professional photo. JPG, PNG, or WEBP.</div>
+                </div>
+              </div>
+            </div>
+
             <div class="field full">
               <label for="full_name">Full Name</label>
               <input id="full_name" required>
@@ -484,7 +522,6 @@
           </div>
         </section>
 
-        <!-- STEP 2 -->
         <section class="step" data-step="2">
           <div class="step-header">
             <h2 class="step-title">Resume</h2>
@@ -510,7 +547,6 @@
           </div>
         </section>
 
-        <!-- STEP 3 -->
         <section class="step" data-step="3">
           <div class="step-header">
             <h2 class="step-title">Optional extras</h2>
@@ -580,10 +616,11 @@
   const saveBtn = document.getElementById('saveBtn');
   const nextBtn = document.getElementById('nextBtn');
   const backBtn = document.getElementById('backBtn');
-
   const progressFill = document.getElementById('progressFill');
   const progressLabel = document.getElementById('progressLabel');
   const progressMeta = document.getElementById('progressMeta');
+  const photoPreview = document.getElementById('photoPreview');
+  const profilePhotoInput = document.getElementById('profile_photo');
 
   const steps = Array.from(document.querySelectorAll('.step'));
   let currentStep = 1;
@@ -617,12 +654,26 @@
     );
   }
 
+  function getInitials(name) {
+    const parts = String(name || '').trim().split(/\s+/).filter(Boolean);
+    if (!parts.length) return 'TB';
+    return parts.slice(0, 2).map(p => p[0].toUpperCase()).join('');
+  }
+
   function validateResumeFile(file) {
     if (!file) return;
     const allowedExtensions = ['.pdf', '.doc', '.docx'];
     const lowerName = file.name.toLowerCase();
     const isValid = allowedExtensions.some(ext => lowerName.endsWith(ext));
     if (!isValid) throw new Error('Please upload a PDF, DOC, or DOCX file only.');
+  }
+
+  function validateImageFile(file) {
+    if (!file) return;
+    const allowedTypes = ['image/jpeg', 'image/png', 'image/webp'];
+    if (!allowedTypes.includes(file.type)) {
+      throw new Error('Please upload a JPG, PNG, or WEBP image for your profile photo.');
+    }
   }
 
   function normalizePhone(phone) {
@@ -632,6 +683,11 @@
   function validatePhone(phone) {
     if (!phone) return true;
     return /^09\d{9}$/.test(phone);
+  }
+
+  function updatePhotoPreviewFromName() {
+    const fullName = document.getElementById('full_name').value.trim();
+    photoPreview.innerHTML = getInitials(fullName || currentUser?.email || 'TB');
   }
 
   function updateStepUI() {
@@ -660,6 +716,7 @@
       const email = document.getElementById('email').value.trim();
       const phone = normalizePhone(document.getElementById('phone').value);
       const headline = document.getElementById('headline').value.trim();
+      const profilePhoto = profilePhotoInput.files[0];
 
       if (!fullName) throw new Error('Please enter your full name.');
       if (!email) throw new Error('Email is required.');
@@ -667,6 +724,7 @@
       if (phone && !validatePhone(phone)) {
         throw new Error('Please enter a valid PH mobile number in this format: 09XXXXXXXXX');
       }
+      if (profilePhoto) validateImageFile(profilePhoto);
     }
 
     if (currentStep === 2) {
@@ -696,6 +754,33 @@
     }
   });
 
+  document.getElementById('full_name').addEventListener('input', () => {
+    if (!profilePhotoInput.files[0] && !existingProfile?.profile_photo_url) {
+      updatePhotoPreviewFromName();
+    }
+  });
+
+  profilePhotoInput.addEventListener('change', (e) => {
+    const file = e.target.files?.[0];
+    if (!file) {
+      updatePhotoPreviewFromName();
+      return;
+    }
+
+    try {
+      validateImageFile(file);
+      const reader = new FileReader();
+      reader.onload = function(evt) {
+        photoPreview.innerHTML = `<img src="${evt.target.result}" alt="Profile preview">`;
+      };
+      reader.readAsDataURL(file);
+    } catch (err) {
+      showMessage(err.message || 'Invalid image file.', 'error');
+      e.target.value = '';
+      updatePhotoPreviewFromName();
+    }
+  });
+
   async function loadUser() {
     const { data: { user }, error } = await supabaseClient.auth.getUser();
 
@@ -708,6 +793,7 @@
 
     document.getElementById('email').value = user.email || '';
     document.getElementById('full_name').value = getFullName(user);
+    updatePhotoPreviewFromName();
 
     const { data, error: profileError } = await supabaseClient
       .from('applicant_profiles')
@@ -732,6 +818,12 @@
       document.getElementById('linkedin').value = data.linkedin || '';
       document.getElementById('portfolio').value = data.portfolio_url || '';
       document.getElementById('experience').value = data.experience_summary || '';
+
+      if (data.profile_photo_url) {
+        photoPreview.innerHTML = `<img src="${data.profile_photo_url}" alt="Profile preview">`;
+      } else {
+        updatePhotoPreviewFromName();
+      }
     }
   }
 
@@ -751,6 +843,29 @@
     if (error) throw error;
 
     return { path };
+  }
+
+  async function uploadProfilePhoto(file) {
+    validateImageFile(file);
+
+    const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+    const safeFolder = (currentUser.email || currentUser.id || 'unknown')
+      .replace(/[^a-zA-Z0-9._-]/g, '_');
+    const path = `profile-photos/${safeFolder}/${Date.now()}-${safeName}`;
+
+    const { error } = await supabaseClient
+      .storage
+      .from('resumes')
+      .upload(path, file, { upsert: false });
+
+    if (error) throw error;
+
+    const { data } = supabaseClient
+      .storage
+      .from('resumes')
+      .getPublicUrl(path);
+
+    return data.publicUrl;
   }
 
   function redirectAfterSave() {
@@ -786,6 +901,7 @@
       const portfolio = document.getElementById('portfolio').value.trim();
       const experience = document.getElementById('experience').value.trim();
       const file = document.getElementById('resume').files[0];
+      const profilePhotoFile = profilePhotoInput.files[0];
 
       if (!full_name) throw new Error('Full name is required.');
       if (!email) throw new Error('Email is required.');
@@ -798,11 +914,16 @@
 
       let resume_path = existingProfile?.resume_path || null;
       let resume_url = existingProfile?.resume_url || null;
+      let profile_photo_url = existingProfile?.profile_photo_url || null;
 
       if (file) {
         const uploaded = await uploadResume(file);
         resume_path = uploaded.path;
         resume_url = null;
+      }
+
+      if (profilePhotoFile) {
+        profile_photo_url = await uploadProfilePhoto(profilePhotoFile);
       }
 
       const payload = {
@@ -816,6 +937,7 @@
         linkedin,
         portfolio_url: portfolio,
         experience_summary: experience,
+        profile_photo_url,
         resume_path,
         resume_url
       };
