@@ -1486,12 +1486,16 @@
         return [];
       }
 
-      function parseCandidateSkills(profile) {
+      function parseCandidateSkills(profile, app) {
         const sources = [];
         sources.push(...parseStringArray(profile?.skills));
         sources.push(...parseStringArray(profile?.target_roles));
+        sources.push(...parseStringArray(app?.skills));
+        sources.push(...parseStringArray(app?.keywords));
         sources.push(...String(profile?.headline || "").split(/[,/|]/g).map((v) => v.trim()).filter(Boolean));
-        sources.push(...String(profile?.summary || "").split(/[,/|\n]/g).map((v) => v.trim()).filter(Boolean));
+        sources.push(...String(profile?.summary || "").split(/[,/|
+]/g).map((v) => v.trim()).filter(Boolean));
+        sources.push(...String(app?.job_title || "").split(/[,/|]/g).map((v) => v.trim()).filter(Boolean));
         const unique = [...new Set(sources.map((v) => normalizeText(v)).filter(Boolean))];
         return unique;
       }
@@ -1517,9 +1521,9 @@
         const scoreWeights = aiConfig.scores || {};
         const requiredSkills = parseStringArray(job.required_skills).map(normalizeText);
         const niceSkills = parseStringArray(job.nice_to_have_skills).map(normalizeText);
-        const candidateSkills = parseCandidateSkills(profile);
+        const candidateSkills = parseCandidateSkills(profile, app);
         const workSetup = normalizeText(job.work_setup);
-        const preferredWorkSetup = normalizeText(profile?.preferred_work_setup || profile?.work_setup || "");
+        const preferredWorkSetup = normalizeText(profile?.preferred_work_setup || profile?.work_setup || app?.preferred_work_setup || "");
         const candidateLocation = normalizeText(profile?.location || "");
         const jobLocation = normalizeText(job.location || [job.city, job.state, job.country].filter(Boolean).join(", "));
         const years = getCandidateYearsExperience(profile, app);
@@ -1553,7 +1557,7 @@
 
         const stabilityWeight = Number(scoreWeights.stability || 3) * 4;
         maxPoints += stabilityWeight;
-        const profileTenureSignal = normalizeText(profile?.stability_signal || profile?.tenure_signal || "");
+        const profileTenureSignal = normalizeText(profile?.stability_signal || profile?.tenure_signal || app?.stability_signal || app?.tenure_signal || "");
         if (profileTenureSignal === "strong") points += stabilityWeight;
         else if (profileTenureSignal === "medium") points += stabilityWeight * 0.7;
         else points += stabilityWeight * 0.45;
@@ -2097,17 +2101,7 @@
                 phone,
                 location,
                 resume_url,
-                resume_path,
-                years_experience,
-                experience_years,
-                preferred_work_setup,
-                work_setup,
-                skills,
-                target_roles,
-                headline,
-                summary,
-                stability_signal,
-                tenure_signal
+                resume_path
               )
             `)
             .order("created_at", { ascending: false });
