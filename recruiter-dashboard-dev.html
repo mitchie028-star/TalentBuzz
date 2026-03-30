@@ -1614,16 +1614,10 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function getExperienceDisplay(profile) {
-  const raw =
-    profile?.years_of_experience ??
-    profile?.experience ??
-    profile?.experience_years ??
-    profile?.total_experience ??
-    "";
-
-  if (raw === null || raw === undefined || String(raw).trim() === "") {
-    return "-";
-  }
+  const value = profile?.years_of_experience;
+  if (value === null || value === undefined || String(value).trim() === "") return "-";
+  return String(value).trim();
+}
 
   return String(raw).trim();
 }
@@ -2598,129 +2592,134 @@ TalentBuzz`;
     renderTable();
   }
 
-  async function loadApplications() {
-    try {
-      if (els.applicationsTable) {
-        els.applicationsTable.innerHTML = `
-          <tr>
-            <td colspan="22" class="empty loading">Loading candidates...</td>
-          </tr>
-        `;
-      }
+ async function loadApplications() {
+  try {
+    if (els.applicationsTable) {
+      els.applicationsTable.innerHTML = `
+        <tr>
+          <td colspan="22" class="empty loading">Loading candidates...</td>
+        </tr>
+      `;
+    }
 
-      if (els.refreshBtn) {
-        els.refreshBtn.disabled = true;
-        els.refreshBtn.textContent = "Refreshing...";
-      }
+    if (els.refreshBtn) {
+      els.refreshBtn.disabled = true;
+      els.refreshBtn.textContent = "Refreshing...";
+    }
 
-      const { data, error } = await supabaseClient
-        .from("applications")
-        .select(`
+    const { data, error } = await supabaseClient
+      .from("applications")
+      .select(`
+        id,
+        email,
+        job_id,
+        job_title,
+        status,
+        recruiter_email,
+        application_source,
+        created_at,
+        applicant_profile_id,
+        stage_note_code,
+        stage_note_label,
+        endorsement_status,
+        endorsement_sent_at,
+        endorsed_by,
+        endorsement_sent_to,
+        sla_status,
+        sla_due_at,
+        applicant_profiles (
           id,
+          full_name,
           email,
-          job_id,
-          job_title,
-          status,
-          recruiter_email,
-          application_source,
-          created_at,
-          applicant_profile_id,
-          stage_note_code,
-          stage_note_label,
-          endorsement_status,
-          endorsement_sent_at,
-          endorsed_by,
-          endorsement_sent_to,
-          sla_status,
-          sla_due_at,
-          applicant_profiles (
-            id,
-            full_name,
-            email,
-            phone,
-            location,
-            years_of_experience,
-            experience,
-            resume_url,
-            resume_path
-          ),
-          jobs (
-            id,
-            title,
-            client_name,
-            client_uuid
-          ),
-          interview_notes (
-            application_id,
-            decision_status,
-            optimized_notes
-          ),
-          application_screening_reviews (
-            application_id,
-            profile_score,
-            screening_score_normalized,
-            final_score,
-            recruiter_override_decision,
-            recruiter_override_notes,
-            screening_summary,
-            strengths,
-            risks,
-            recommendation
-          )
-        `)
-        .order("created_at", { ascending: false });
+          phone,
+          location,
+          years_of_experience,
+          resume_url,
+          resume_path
+        ),
+        jobs (
+          id,
+          title,
+          client_name,
+          client_uuid
+        ),
+        interview_notes (
+          application_id,
+          decision_status,
+          optimized_notes
+        ),
+        application_screening_reviews (
+          application_id,
+          profile_score,
+          screening_score_normalized,
+          final_score,
+          recruiter_override_decision,
+          recruiter_override_notes,
+          screening_summary,
+          strengths,
+          risks,
+          recommendation
+        )
+      `)
+      .order("created_at", { ascending: false });
 
-      if (els.refreshBtn) {
-        els.refreshBtn.disabled = false;
-        els.refreshBtn.textContent = "Refresh Dashboard";
-      }
+    if (els.refreshBtn) {
+      els.refreshBtn.disabled = false;
+      els.refreshBtn.textContent = "Refresh Dashboard";
+    }
 
-      if (error) {
-        console.error(error);
-        if (els.applicationsTable) {
-          els.applicationsTable.innerHTML = `
-            <tr>
-              <td colspan="22" class="empty">${escapeHtml(error.message || "Failed to load candidates.")}</td>
-            </tr>
-          `;
-        }
-        return;
-      }
-
-      state.allApplications = (data || []).map((item) => ({
-        ...item,
-        interview_notes: Array.isArray(item.interview_notes)
-          ? (item.interview_notes[0] || null)
-          : item.interview_notes,
-        application_screening_reviews: Array.isArray(item.application_screening_reviews)
-          ? (item.application_screening_reviews[0] || null)
-          : item.application_screening_reviews
-      }));
-
-      for (const app of state.allApplications) {
-        try {
-          const updatedReview = await ensureApplicationScores(app.id);
-          app.application_screening_reviews = updatedReview;
-        } catch (scoreErr) {
-          console.error("Scoring build failed:", app.id, scoreErr);
-        }
-      }
-
-      populateFilters();
-      renderStats();
-      setHeaderBadges();
-      await renderTable();
-    } catch (err) {
-      console.error(err);
+    if (error) {
+      console.error(error);
       if (els.applicationsTable) {
         els.applicationsTable.innerHTML = `
           <tr>
-            <td colspan="22" class="empty">Error loading candidates.</td>
+            <td colspan="22" class="empty">${escapeHtml(error.message || "Failed to load candidates.")}</td>
           </tr>
         `;
+      }
+      return;
+    }
+
+    state.allApplications = (data || []).map((item) => ({
+      ...item,
+      interview_notes: Array.isArray(item.interview_notes)
+        ? (item.interview_notes[0] || null)
+        : item.interview_notes,
+      application_screening_reviews: Array.isArray(item.application_screening_reviews)
+        ? (item.application_screening_reviews[0] || null)
+        : item.application_screening_reviews
+    }));
+
+    for (const app of state.allApplications) {
+      try {
+        const updatedReview = await ensureApplicationScores(app.id);
+        app.application_screening_reviews = updatedReview;
+      } catch (scoreErr) {
+        console.error("Scoring build failed:", app.id, scoreErr);
       }
     }
+
+    populateFilters();
+    renderStats();
+    setHeaderBadges();
+    await renderTable();
+  } catch (err) {
+    console.error(err);
+
+    if (els.refreshBtn) {
+      els.refreshBtn.disabled = false;
+      els.refreshBtn.textContent = "Refresh Dashboard";
+    }
+
+    if (els.applicationsTable) {
+      els.applicationsTable.innerHTML = `
+        <tr>
+          <td colspan="22" class="empty">Error loading candidates.</td>
+        </tr>
+      `;
+    }
   }
+}
 
   async function refreshAll() {
     try {
