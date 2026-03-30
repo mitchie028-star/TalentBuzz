@@ -1132,6 +1132,18 @@
           <input type="hidden" id="notesJobTitle" />
 
           <div id="interviewNotesContext" class="small" style="margin-bottom:16px;"></div>
+          <div class="panel" style="margin-bottom:16px; padding:16px;">
+          <div class="panel-head-row" style="margin-bottom:10px;">
+          <h2 style="font-size:1rem; margin:0;">Screening Snapshot</h2>
+          <button class="btn btn-outline" id="openScreeningFromNotesBtn" type="button">
+          Open Full Screening Review
+         </button>
+      </div>
+
+   <div id="notesScreeningWrap">
+     <div id="notesScreeningList" class="small">No screening responses yet.</div>
+   </div>
+ </div>
 
           <div class="notes-grid">
             <div class="field full">
@@ -1552,6 +1564,36 @@ function getExperienceDisplay(profile) {
   }
 
   return "-";
+  function renderScreeningSnapshotInNotes(responses = []) {
+  if (!els.notesScreeningList) return;
+
+  if (!Array.isArray(responses) || responses.length === 0) {
+    els.notesScreeningList.innerHTML = `<div class="small">No screening responses yet.</div>`;
+    return;
+  }
+
+  els.notesScreeningList.innerHTML = responses.map((response, index) => {
+    const recruiterScore =
+      response?.recruiter_score != null && response?.recruiter_score !== ""
+        ? `${response.recruiter_score}/5`
+        : "Not scored";
+
+    return `
+      <div class="screening-question-card" style="margin-bottom:10px;">
+        <h4 style="margin-bottom:6px;">Question ${index + 1}</h4>
+        <div class="screening-question-meta">${escapeHtml(response.question_type || "General")}</div>
+        <div style="margin-bottom:8px;"><strong>${escapeHtml(response.question_text || "-")}</strong></div>
+        <div class="small" style="margin-bottom:8px;">
+          <strong>Candidate Answer:</strong><br>
+          ${escapeHtml(response.candidate_answer || "No answer provided")}
+        </div>
+        <div class="small">
+          <strong>Recruiter Score:</strong> ${escapeHtml(recruiterScore)}
+        </div>
+      </div>
+    `;
+  }).join("");
+}
 }
       function renderNoteOptionsByStatus(status, selectedCode) {
         const options = STAGE_NOTE_OPTIONS[status] || [{ code: "", label: "Select note" }];
@@ -1843,6 +1885,8 @@ function getExperienceDisplay(profile) {
 
         if (els.interviewNotesContext) els.interviewNotesContext.innerHTML = "";
         clearNotesSaveMessage();
+        if (els.notesScreeningList) {
+        els.notesScreeningList.innerHTML = `<div class="small">No screening responses yet.</div>`;
       }
 
       function generateOptimizedNotesPreview() {
@@ -1889,7 +1933,7 @@ function getExperienceDisplay(profile) {
         }
 
         const notes = await getInterviewNotesByApplicationId(app.id);
-
+        const screeningResponses = await loadScreeningResponses(app.id);renderScreeningSnapshotInNotes(screeningResponses);
         if (notes) {
           if (els.notesStrengths) els.notesStrengths.value = notes.strengths || "";
           if (els.notesRisks) els.notesRisks.value = notes.risks || "";
