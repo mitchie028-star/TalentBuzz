@@ -1614,10 +1614,19 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function getExperienceDisplay(profile) {
-    const value = profile?.years_of_experience ?? profile?.experience ?? "";
-    if (value === null || value === undefined || value === "") return "-";
-    return String(value);
+  const raw =
+    profile?.years_of_experience ??
+    profile?.experience ??
+    profile?.experience_years ??
+    profile?.total_experience ??
+    "";
+
+  if (raw === null || raw === undefined || String(raw).trim() === "") {
+    return "-";
   }
+
+  return String(raw).trim();
+}
 
   function computeProfileScore(app) {
     const profile = getProfileFromApplication(app);
@@ -3046,72 +3055,70 @@ TalentBuzz`;
   }
 
   function pushScreeningToInterviewNotes() {
-    const app = state.currentScreeningApplication;
-    if (!app) return;
+  const app = state.currentScreeningApplication;
+  if (!app) return;
 
-    const profile = getProfileFromApplication(app);
-    const candidateName = profile?.full_name || app.email || "Candidate";
-    const jobTitle = app.jobs?.title || app.job_title || "Role";
+  const profile = getProfileFromApplication(app);
+  const candidateName = profile?.full_name || app.email || "Candidate";
+  const jobTitle = app.jobs?.title || app.job_title || "Role";
 
-    const scoredResponses = state.currentScreeningResponses
-      .map((item, index) => {
-        const q = item.question_text || `Question ${index + 1}`;
-        const a = item.candidate_answer || "No answer provided";
-        const s = item.recruiter_score ? `Score: ${item.recruiter_score}/5` : "Score: Not scored";
-        return `• ${q}\nAnswer: ${a}\n${s}`;
-      })
-      .join("\n\n");
+  const scoredResponses = state.currentScreeningResponses
+    .map((item, index) => {
+      const q = item.question_text || `Question ${index + 1}`;
+      const a = item.candidate_answer || "No answer provided";
+      const s = item.recruiter_score ? `Score: ${item.recruiter_score}/5` : "Score: Not scored";
+      return `• ${q}\nAnswer: ${a}\n${s}`;
+    })
+    .join("\n\n");
 
-    if (els.notesApplicationId) els.notesApplicationId.value = app.id || "";
-    if (els.notesApplicantProfileId) els.notesApplicantProfileId.value = app.applicant_profile_id || profile?.id || "";
-    if (els.notesJobId) els.notesJobId.value = app.jobs?.id || app.job_id || "";
-    if (els.notesRecruiterEmail) els.notesRecruiterEmail.value = state.currentUser?.email || "";
-    if (els.notesCandidateName) els.notesCandidateName.value = candidateName;
-    if (els.notesJobTitle) els.notesJobTitle.value = jobTitle;
+  const screeningSummary = getSafeValue(els.screeningSummary).trim() || buildScreeningSummaryFromResponses();
+  const screeningDecision = getSafeValue(els.screeningDecision).trim();
+  const strengths = getSafeValue(els.screeningStrengths).trim();
+  const risks = getSafeValue(els.screeningRisks).trim();
 
-    if (els.notesStrengths) {
-      els.notesStrengths.value = getSafeValue(els.screeningStrengths).trim();
-    }
+  if (els.notesApplicationId) els.notesApplicationId.value = app.id || "";
+  if (els.notesApplicantProfileId) els.notesApplicantProfileId.value = app.applicant_profile_id || profile?.id || "";
+  if (els.notesJobId) els.notesJobId.value = app.jobs?.id || app.job_id || "";
+  if (els.notesRecruiterEmail) els.notesRecruiterEmail.value = state.currentUser?.email || "";
+  if (els.notesCandidateName) els.notesCandidateName.value = candidateName;
+  if (els.notesJobTitle) els.notesJobTitle.value = jobTitle;
+  if (els.notesStrengths) els.notesStrengths.value = strengths;
+  if (els.notesRisks) els.notesRisks.value = risks;
 
-    if (els.notesRisks) {
-      els.notesRisks.value = getSafeValue(els.screeningRisks).trim();
-    }
-
-    const screeningSummary = getSafeValue(els.screeningSummary).trim();
-    const screeningDecision = getSafeValue(els.screeningDecision).trim();
-
-    if (els.notesSummary) {
-      els.notesSummary.value = [
-        screeningSummary ? `Screening Summary:\n${screeningSummary}` : "",
-        screeningDecision ? `Recommendation:\n${screeningDecision}` : "",
-        scoredResponses ? `Screening Responses:\n${scoredResponses}` : ""
-      ].filter(Boolean).join("\n\n");
-    }
-
-    if (els.notesDecisionStatus && screeningDecision) {
-      els.notesDecisionStatus.value = screeningDecision;
-    }
-
-    generateOptimizedNotesPreview();
-    closeScreeningModal();
-
-    if (els.interviewNotesTitle) {
-      els.interviewNotesTitle.textContent = `Interview Notes - ${candidateName}`;
-    }
-
-    if (els.interviewNotesContext) {
-      els.interviewNotesContext.innerHTML = `
-        <strong>Candidate:</strong> ${escapeHtml(candidateName)}<br>
-        <strong>Role:</strong> ${escapeHtml(jobTitle)}<br>
-        <strong>Client:</strong> ${escapeHtml(app.jobs?.client_name || "-")}
-      `;
-    }
-
-    if (els.interviewNotesModal) {
-      els.interviewNotesModal.classList.add("show");
-      document.body.style.overflow = "hidden";
-    }
+  if (els.notesSummary) {
+    els.notesSummary.value = [
+      screeningSummary ? `Screening Summary:\n${screeningSummary}` : "",
+      screeningDecision ? `Recommendation:\n${screeningDecision}` : "",
+      scoredResponses ? `Screening Questions & Responses:\n${scoredResponses}` : ""
+    ].filter(Boolean).join("\n\n");
   }
+
+  if (els.notesDecisionStatus) {
+    els.notesDecisionStatus.value = screeningDecision || "";
+  }
+
+  generateOptimizedNotesPreview();
+  closeScreeningModal();
+
+  if (els.interviewNotesTitle) {
+    els.interviewNotesTitle.textContent = `Interview Notes - ${candidateName}`;
+  }
+
+  if (els.interviewNotesContext) {
+    els.interviewNotesContext.innerHTML = `
+      <strong>Candidate:</strong> ${escapeHtml(candidateName)}<br>
+      <strong>Role:</strong> ${escapeHtml(jobTitle)}<br>
+      <strong>Client:</strong> ${escapeHtml(app.jobs?.client_name || "-")}
+    `;
+  }
+
+  if (els.interviewNotesModal) {
+    els.interviewNotesModal.classList.add("show");
+    document.body.style.overflow = "hidden";
+  }
+
+  showNotice("Screening questions pushed to notes.", "success");
+}
 
   async function handleScreeningFieldChange(target) {
     const responseId = target.dataset.id;
