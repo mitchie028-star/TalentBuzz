@@ -85,6 +85,12 @@
       border-color: #fecaca;
     }
 
+    .btn-success {
+      background: #eff6ff;
+      color: var(--primary);
+      border-color: #bfdbfe;
+    }
+
     .table-btn {
       padding: 9px 12px;
       font-size: 0.84rem;
@@ -466,7 +472,8 @@
     .field input:focus,
     .field select:focus,
     .field textarea:focus,
-    .table-select:focus {
+    .table-select:focus,
+    .table-phone-input:focus {
       border-color: #93c5fd;
       box-shadow: 0 0 0 3px rgba(147, 197, 253, 0.25);
     }
@@ -482,7 +489,7 @@
       width: 100%;
       border-collapse: separate;
       border-spacing: 0;
-      min-width: 2800px;
+      min-width: 3050px;
       background: white;
     }
 
@@ -518,11 +525,6 @@
       letter-spacing: 0.06em;
     }
 
-
-
-
-
-
     .candidate-cell {
       min-width: 220px;
     }
@@ -552,6 +554,24 @@
       outline: none;
     }
 
+    .table-phone-wrap {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 220px;
+    }
+
+    .table-phone-input {
+      width: 100%;
+      min-width: 145px;
+      padding: 9px 10px;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      font: inherit;
+      background: white;
+      outline: none;
+    }
+
     .table-note-meta {
       margin-top: 6px;
       font-size: 0.78rem;
@@ -563,7 +583,7 @@
       display: flex;
       flex-wrap: wrap;
       gap: 8px;
-      min-width: 220px;
+      min-width: 250px;
     }
 
     .empty {
@@ -630,8 +650,7 @@
       background: #dcfce7;
       color: #166534;
     }
-
-    .modal {
+        .modal {
       display: none;
       position: fixed;
       inset: 0;
@@ -740,6 +759,7 @@
     }
 
     .notes-save-message.show { display: block; }
+
     .notes-save-message.success {
       background: #ecfdf5;
       color: var(--success);
@@ -770,6 +790,29 @@
       color: var(--muted);
       font-size: 0.8rem;
       margin-bottom: 8px;
+    }
+
+    .profile-card {
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 16px;
+      background: #f8fbff;
+    }
+
+    .profile-block-label {
+      font-size: 0.78rem;
+      font-weight: 800;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      margin-bottom: 6px;
+    }
+
+    .profile-block-value {
+      color: var(--text);
+      font-size: 0.95rem;
+      line-height: 1.6;
+      word-break: break-word;
     }
 
     @media (max-width: 1280px) {
@@ -821,6 +864,11 @@
 
       .modal-content {
         height: 90vh;
+      }
+
+      .table-phone-wrap {
+        flex-direction: column;
+        align-items: stretch;
       }
     }
   </style>
@@ -999,8 +1047,7 @@
         </table>
       </div>
     </div>
-
-    <div class="modal" id="resumeModal">
+        <div class="modal" id="resumeModal">
       <div class="modal-content">
         <div class="modal-header">
           <h3>Resume Preview</h3>
@@ -1195,6 +1242,19 @@
       </div>
     </div>
 
+    <div class="modal" id="profileModal">
+      <div class="notes-modal-content" style="max-width:920px;">
+        <div class="modal-header">
+          <h3 id="profileModalTitle">Applicant Profile</h3>
+          <button class="modal-close" id="closeProfileModal" type="button">&times;</button>
+        </div>
+
+        <div class="notes-modal-body">
+          <div id="profileModalBody"></div>
+        </div>
+      </div>
+    </div>
+
     <script>
       document.addEventListener("DOMContentLoaded", () => {
         const SUPABASE_URL = "https://dilalntcxmvdcmwxjcct.supabase.co";
@@ -1352,10 +1412,14 @@
           screeningDecision: getElement("screeningDecision"),
           generateScreeningBtn: getElement("generateScreeningBtn"),
           saveScreeningReviewBtn: getElement("saveScreeningReviewBtn"),
-          pushToInterviewNotesBtn: getElement("pushToInterviewNotesBtn")
-        };
+          pushToInterviewNotesBtn: getElement("pushToInterviewNotesBtn"),
 
-        const state = {
+          profileModal: getElement("profileModal"),
+          closeProfileModal: getElement("closeProfileModal"),
+          profileModalTitle: getElement("profileModalTitle"),
+          profileModalBody: getElement("profileModalBody")
+        };
+                const state = {
           allApplications: [],
           allRecruitersMap: {},
           currentUser: null,
@@ -1525,7 +1589,7 @@
           els.menuDropdown.classList.toggle("show");
         }
 
-                function setHeaderBadges() {
+        function setHeaderBadges() {
           if (els.chatUnreadBadge) els.chatUnreadBadge.textContent = "0";
           const unassignedWebApplicants = state.allApplications.filter((app) => {
             return normalizeText(app.application_source) === "website" && !normalizeText(app.recruiter_email);
@@ -1669,7 +1733,83 @@
           document.body.style.overflow = "";
         }
 
-        async function getInterviewNotesByApplicationId(applicationId) {
+        function openProfileModal(app) {
+          const profile = getProfileFromApplication(app);
+          const candidateName = profile?.full_name || app.email || "Candidate";
+          const experienceDisplay = getExperienceDisplay(profile);
+
+          if (els.profileModalTitle) {
+            els.profileModalTitle.textContent = `Applicant Profile - ${candidateName}`;
+          }
+
+          if (els.profileModalBody) {
+            els.profileModalBody.innerHTML = `
+              <div class="notes-grid">
+                <div class="profile-card">
+                  <div class="profile-block-label">Full Name</div>
+                  <div class="profile-block-value">${escapeHtml(candidateName)}</div>
+                </div>
+
+                <div class="profile-card">
+                  <div class="profile-block-label">Email</div>
+                  <div class="profile-block-value">${escapeHtml(profile?.email || app.email || "-")}</div>
+                </div>
+
+                <div class="profile-card">
+                  <div class="profile-block-label">Phone</div>
+                  <div class="profile-block-value">${escapeHtml(profile?.phone || "-")}</div>
+                </div>
+
+                <div class="profile-card">
+                  <div class="profile-block-label">Location</div>
+                  <div class="profile-block-value">${escapeHtml(profile?.location || "-")}</div>
+                </div>
+
+                <div class="profile-card">
+                  <div class="profile-block-label">Experience</div>
+                  <div class="profile-block-value">${escapeHtml(experienceDisplay)}</div>
+                </div>
+
+                <div class="profile-card">
+                  <div class="profile-block-label">Applied Role</div>
+                  <div class="profile-block-value">${escapeHtml(app.jobs?.title || app.job_title || "-")}</div>
+                </div>
+
+                <div class="profile-card">
+                  <div class="profile-block-label">Client</div>
+                  <div class="profile-block-value">${escapeHtml(app.jobs?.client_name || "-")}</div>
+                </div>
+
+                <div class="profile-card">
+                  <div class="profile-block-label">Source</div>
+                  <div class="profile-block-value">${escapeHtml(app.application_source || "-")}</div>
+                </div>
+
+                <div class="profile-card">
+                  <div class="profile-block-label">Applied On</div>
+                  <div class="profile-block-value">${escapeHtml(formatDate(app.created_at))}</div>
+                </div>
+
+                <div class="profile-card">
+                  <div class="profile-block-label">Assigned Recruiter</div>
+                  <div class="profile-block-value">${escapeHtml(getRecruiterName(app.recruiter_email))}</div>
+                </div>
+              </div>
+            `;
+          }
+
+          if (els.profileModal) {
+            els.profileModal.classList.add("show");
+            document.body.style.overflow = "hidden";
+          }
+        }
+
+        function closeProfileModal() {
+          if (els.profileModal) els.profileModal.classList.remove("show");
+          document.body.style.overflow = "";
+          if (els.profileModalBody) els.profileModalBody.innerHTML = "";
+        }
+                async function getInterviewNotesByApplicationId(applicationId) {
           if (!applicationId) return null;
           try {
             const { data, error } = await supabaseClient
@@ -2065,13 +2205,13 @@
               application_id: applicationId,
               applicant_profile_id: getSafeValue(els.notesApplicantProfileId) || null,
               job_id: getSafeValue(els.notesJobId) || null,
-              recruiter_email: getSafeValue(els.notesRecruiterEmail) || null,
+              recruiter_email: getSafeValue(els.notesRecruiterEmail) || state.currentUser?.email || null,
               candidate_name: getSafeValue(els.notesCandidateName) || null,
               job_title: getSafeValue(els.notesJobTitle) || null,
               strengths: getSafeValue(els.notesStrengths).trim() || null,
               risks: getSafeValue(els.notesRisks).trim() || null,
               interview_summary: getSafeValue(els.notesSummary).trim() || null,
-              decision_status: getSafeValue(els.notesDecisionStatus) || null,
+              decision_status: getSafeValue(els.notesDecisionStatus).trim() || null,
               optimized_notes: optimizedNotes || null
             };
 
@@ -2084,82 +2224,45 @@
               return;
             }
 
-            showNotesSaveMessage("Interview notes saved successfully.", "success");
+            showNotesSaveMessage("Interview notes saved.", "success");
             showNotice("Interview notes saved.", "success");
             await loadApplications();
           } catch (err) {
             console.error(err);
-            showNotesSaveMessage("Error saving notes.", "error");
+            showNotesSaveMessage("Error saving interview notes.", "error");
           }
-        }
-
-        async function fetchClientRecipient(clientUuid) {
-          if (!clientUuid) return "";
-          try {
-            const { data, error } = await supabaseClient
-              .from("client_users")
-              .select("email")
-              .eq("client_id", clientUuid)
-              .eq("active", true)
-              .limit(1);
-
-            if (error) return "";
-            return data?.[0]?.email || "";
-          } catch {
-            return "";
-          }
-        }
-
-        async function buildEndorsementSubject(app) {
-          const profile = getProfileFromApplication(app);
-          const candidateName = profile?.full_name || "Candidate";
-          const jobTitle = app.jobs?.title || app.job_title || "Role";
-          const clientName = app.jobs?.client_name || "Client";
-          return `Candidate Endorsement: ${candidateName} for ${jobTitle} | ${clientName}`;
-        }
-
-        async function buildEndorsementBody(app) {
-          const profile = getProfileFromApplication(app);
-          const recruiterName = state.currentRecruiterRecord?.full_name || state.currentUser?.email || "TalentBuzz";
-          const clientName = app.jobs?.client_name || "Hiring Team";
-          const candidateName = profile?.full_name || "Candidate";
-          const jobTitle = app.jobs?.title || app.job_title || "Role";
-
-          const notes = await getInterviewNotesByApplicationId(app.id);
-          const optimizedNotes = String(notes?.optimized_notes || "").trim();
-
-          return `Hi ${clientName} Team,
-
-Good day.
-
-We would like to endorse ${candidateName} for your ${jobTitle} opening.
-
-${optimizedNotes ? `Recruiter Notes:\n${optimizedNotes}\n\n` : ""}Please review the attached or linked resume.
-
-Best regards,
-${recruiterName}
-TalentBuzz`;
         }
 
         async function openEndorseModal(app) {
           state.selectedEndorsementApp = app;
-
           const profile = getProfileFromApplication(app);
-          const candidateName = profile?.full_name || "Unnamed";
-          const jobTitle = app.jobs?.title || app.job_title || "-";
-          const clientName = app.jobs?.client_name || "-";
+          const candidateName = profile?.full_name || app.email || "Candidate";
+          const roleName = app.jobs?.title || app.job_title || "Role";
+          const clientName = app.jobs?.client_name || "Client";
 
           if (els.endorseSummary) {
             els.endorseSummary.innerHTML = `
               <strong>Candidate:</strong> ${escapeHtml(candidateName)}<br>
-              <strong>Role:</strong> ${escapeHtml(jobTitle)}<br>
+              <strong>Role:</strong> ${escapeHtml(roleName)}<br>
               <strong>Client:</strong> ${escapeHtml(clientName)}
             `;
           }
 
-          if (els.endorseSubject) els.endorseSubject.value = await buildEndorsementSubject(app);
-          if (els.endorseBody) els.endorseBody.value = await buildEndorsementBody(app);
-          if (els.endorseRecipient) els.endorseRecipient.value = await fetchClientRecipient(app.jobs?.client_uuid || "");
+          if (els.endorseRecipient) els.endorseRecipient.value = app.endorsement_sent_to || "";
+          if (els.endorseSubject) els.endorseSubject.value = `Candidate Endorsement: ${candidateName} for ${roleName}`;
+          if (els.endorseBody) {
+            els.endorseBody.value =
+`Hi,
+
+Please find below the candidate endorsement for your review.
+
+Candidate: ${candidateName}
+Role: ${roleName}
+Client: ${clientName}
+
+Regards,
+TalentBuzz`;
+          }
 
           if (els.endorseModal) {
             els.endorseModal.classList.add("show");
@@ -2168,79 +2271,12 @@ TalentBuzz`;
         }
 
         function closeEndorseModal() {
-          state.selectedEndorsementApp = null;
-          if (els.endorseSubject) els.endorseSubject.value = "";
-          if (els.endorseBody) els.endorseBody.value = "";
-          if (els.endorseRecipient) els.endorseRecipient.value = "";
-          if (els.endorseSummary) els.endorseSummary.innerHTML = "";
           if (els.endorseModal) els.endorseModal.classList.remove("show");
           document.body.style.overflow = "";
-        }
-
-        async function handleSaveEndorsementDraft() {
-          try {
-            if (!state.selectedEndorsementApp) return;
-
-            const { error } = await supabaseClient
-              .from("applications")
-              .update({
-                endorsement_status: "draft_ready",
-                endorsed_by: state.currentUser?.email || null,
-                endorsement_sent_to: getSafeValue(els.endorseRecipient) || null
-              })
-              .eq("id", state.selectedEndorsementApp.id);
-
-            if (error) {
-              showNotice(error.message || "Failed to save endorsement draft.", "error");
-              return;
-            }
-
-            showNotice("Endorsement draft saved.", "success");
-            await loadApplications();
-          } catch (err) {
-            console.error(err);
-            showNotice("Error saving endorsement draft.", "error");
-          }
-        }
-
-        async function handleSendEndorsement() {
-          try {
-            if (!state.selectedEndorsementApp) return;
-
-            const recipient = getSafeValue(els.endorseRecipient).trim();
-            if (!recipient) {
-              showNotice("Recipient email is required.", "error");
-              return;
-            }
-
-            const { error } = await supabaseClient
-              .from("applications")
-              .update({
-                endorsement_status: "sent",
-                endorsement_sent_at: new Date().toISOString(),
-                endorsed_by: state.currentUser?.email || null,
-                endorsement_sent_to: recipient
-              })
-              .eq("id", state.selectedEndorsementApp.id);
-
-            if (error) {
-              showNotice(error.message || "Failed to mark endorsement as sent.", "error");
-              return;
-            }
-
-            showNotice("Endorsement marked as sent.", "success");
-            closeEndorseModal();
-            await loadApplications();
-          } catch (err) {
-            console.error(err);
-            showNotice("Error sending endorsement.", "error");
-          }
+          state.selectedEndorsementApp = null;
         }
 
         function openInviteRecruiterModal() {
-          if (els.inviteRecruiterName) els.inviteRecruiterName.value = "";
-          if (els.inviteRecruiterEmail) els.inviteRecruiterEmail.value = "";
-
           if (els.inviteRecruiterModal) {
             els.inviteRecruiterModal.classList.add("show");
             document.body.style.overflow = "hidden";
@@ -2320,42 +2356,53 @@ TalentBuzz`;
           const jobs = unique(state.allApplications.map((app) => app.jobs?.title || app.job_title));
           const clients = unique(state.allApplications.map((app) => app.jobs?.client_name));
 
-          const fillSelect = (el, items, placeholder) => {
-            if (!el) return;
-            const current = el.value;
-            el.innerHTML = `<option value="">${placeholder}</option>` + items.map((item) => {
-              const label = item === current && el === els.recruiterFilter ? getRecruiterName(item) : item;
-              return `<option value="${escapeHtml(item)}">${escapeHtml(label)}</option>`;
-            }).join("");
-            el.value = current || "";
-          };
-
-          fillSelect(els.statusFilter, statuses, "All statuses");
-          fillSelect(els.sourceFilter, sources, "All sources");
-          fillSelect(els.jobFilter, jobs, "All jobs");
-          fillSelect(els.clientFilter, clients, "All clients");
+          if (els.statusFilter) {
+            const current = els.statusFilter.value;
+            els.statusFilter.innerHTML = `<option value="">All statuses</option>` +
+              statuses.map((value) => `<option value="${escapeHtml(value)}">${escapeHtml(value)}</option>`).join("");
+            els.statusFilter.value = current;
+          }
 
           if (els.recruiterFilter) {
             const current = els.recruiterFilter.value;
-            els.recruiterFilter.innerHTML =
-              `<option value="">All recruiters</option>` +
-              recruiters.map((email) => `<option value="${escapeHtml(email)}">${escapeHtml(getRecruiterName(email))}</option>`).join("");
-            els.recruiterFilter.value = current || "";
+            els.recruiterFilter.innerHTML = `<option value="">All recruiters</option>` +
+              recruiters.map((value) => `<option value="${escapeHtml(value)}">${escapeHtml(getRecruiterName(value))}</option>`).join("");
+            els.recruiterFilter.value = current;
+          }
+
+          if (els.sourceFilter) {
+            const current = els.sourceFilter.value;
+            els.sourceFilter.innerHTML = `<option value="">All sources</option>` +
+              sources.map((value) => `<option value="${escapeHtml(value)}">${escapeHtml(value)}</option>`).join("");
+            els.sourceFilter.value = current;
+          }
+
+          if (els.jobFilter) {
+            const current = els.jobFilter.value;
+            els.jobFilter.innerHTML = `<option value="">All jobs</option>` +
+              jobs.map((value) => `<option value="${escapeHtml(value)}">${escapeHtml(value)}</option>`).join("");
+            els.jobFilter.value = current;
+          }
+
+          if (els.clientFilter) {
+            const current = els.clientFilter.value;
+            els.clientFilter.innerHTML = `<option value="">All clients</option>` +
+              clients.map((value) => `<option value="${escapeHtml(value)}">${escapeHtml(value)}</option>`).join("");
+            els.clientFilter.value = current;
           }
         }
 
         function renderStats() {
           const applications = getFilteredApplications();
-
           const total = applications.length;
           const endorsed = applications.filter((app) => normalizeText(app.status) === "endorsed").length;
           const rejected = applications.filter((app) => REJECTED_STATUSES.includes(normalizeText(app.status))).length;
           const interviewed = applications.filter((app) => INTERVIEWED_STATUSES.includes(normalizeText(app.status))).length;
           const hired = applications.filter((app) => HIRED_STATUSES.includes(normalizeText(app.status))).length;
-          const overdue = applications.filter((app) => normalizeText(computeSlaStatus(app)) === "overdue").length;
+          const overdue = applications.filter((app) => computeSlaStatus(app) === "overdue").length;
           const active = applications.filter((app) => !REJECTED_STATUSES.includes(normalizeText(app.status)) && !HIRED_STATUSES.includes(normalizeText(app.status))).length;
-          const endorseRate = total ? `${Math.round((endorsed / total) * 100)}%` : "0%";
-          const slaRisk = applications.filter((app) => ["due_soon", "overdue"].includes(normalizeText(computeSlaStatus(app)))).length;
+          const endorseRate = total ? Math.round((endorsed / total) * 100) : 0;
+          const slaRisk = applications.filter((app) => ["due_soon", "overdue"].includes(computeSlaStatus(app))).length;
 
           if (els.statTotal) els.statTotal.textContent = String(total);
           if (els.statEndorsed) els.statEndorsed.textContent = String(endorsed);
@@ -2365,7 +2412,7 @@ TalentBuzz`;
           if (els.statOverdue) els.statOverdue.textContent = String(overdue);
 
           if (els.metricActive) els.metricActive.textContent = String(active);
-          if (els.metricEndorseRate) els.metricEndorseRate.textContent = endorseRate;
+          if (els.metricEndorseRate) els.metricEndorseRate.textContent = `${endorseRate}%`;
           if (els.metricInterview) els.metricInterview.textContent = String(interviewed);
           if (els.metricSlaRisk) els.metricSlaRisk.textContent = String(slaRisk);
         }
@@ -2384,22 +2431,25 @@ TalentBuzz`;
             return;
           }
 
-          const rows = await Promise.all(applications.map(async (app) => {
+          const rows = applications.map((app) => {
             const profile = getProfileFromApplication(app);
-            const notes = await getInterviewNotesByApplicationId(app.id);
             const slaStatus = computeSlaStatus(app);
             const resumeAvailable = hasResumeFile(app);
-            const experienceDisplay = getExperienceDisplay(profile);
 
             return `
               <tr>
                 <td class="candidate-cell">
                   <div class="candidate-name">${escapeHtml(profile?.full_name || app.email || "Candidate")}</div>
-                  <div class="small">${escapeHtml(app.email || "-")}</div>
+                  <div class="small">${escapeHtml(profile?.email || app.email || "-")}</div>
                 </td>
 
-                <td>${escapeHtml(app.jobs?.title || app.job_title || "-")}</td>
-                <td>${escapeHtml(app.jobs?.client_name || "-")}</td>
+                <td>
+                  ${escapeHtml(app.jobs?.title || app.job_title || "-")}
+                </td>
+
+                <td>
+                  ${escapeHtml(app.jobs?.client_name || "-")}
+                </td>
 
                 <td>
                   <span class="status-pill ${getStatusClass(app.status)}">
@@ -2409,21 +2459,42 @@ TalentBuzz`;
 
                 <td>
                   ${escapeHtml(getRecruiterName(app.recruiter_email))}
-                  <div class="small">${escapeHtml(app.recruiter_email || "-")}</div>
+                  <div class="small">${escapeHtml(app.recruiter_email || "Unassigned")}</div>
                 </td>
 
                 <td>${escapeHtml(app.application_source || "-")}</td>
                 <td>${escapeHtml(formatDate(app.created_at))}</td>
-                <td>${escapeHtml(profile?.phone || "-")}</td>
-                <td>${escapeHtml(profile?.location || "-")}</td>
-                <td>${escapeHtml(experienceDisplay)}</td>
 
                 <td>
-                  ${
-                    resumeAvailable
-                      ? `<button class="btn btn-outline table-btn resume-btn" data-id="${escapeHtml(app.id)}" type="button">View Resume</button>`
-                      : `<span class="small">No resume</span>`
-                  }
+                  <div class="table-phone-wrap">
+                    <input
+                      type="text"
+                      class="table-phone-input phone-input"
+                      data-id="${escapeHtml(app.id)}"
+                      data-profile-id="${escapeHtml(profile?.id || app.applicant_profile_id || "")}"
+                      value="${escapeHtml(profile?.phone || "")}"
+                      placeholder="Enter phone number"
+                    />
+                    <button
+                      class="btn btn-success table-btn save-phone-btn"
+                      data-id="${escapeHtml(app.id)}"
+                      data-profile-id="${escapeHtml(profile?.id || app.applicant_profile_id || "")}"
+                      type="button"
+                    >
+                      Save
+                    </button>
+                  </div>
+                </td>
+
+                <td>${escapeHtml(profile?.location || "-")}</td>
+                <td>${escapeHtml(getExperienceDisplay(profile))}</td>
+
+                <td>
+                  <div class="table-actions">
+                    <button class="btn btn-outline table-btn resume-btn" data-id="${escapeHtml(app.id)}" type="button" ${resumeAvailable ? "" : "disabled"}>
+                      ${resumeAvailable ? "View Resume" : "No Resume"}
+                    </button>
+                  </div>
                 </td>
 
                 <td>
@@ -2431,12 +2502,13 @@ TalentBuzz`;
                     <button class="btn btn-outline table-btn notes-btn" data-id="${escapeHtml(app.id)}" type="button">Notes</button>
                     <button class="btn btn-outline table-btn screening-btn" data-id="${escapeHtml(app.id)}" type="button">Screening</button>
                   </div>
-                  ${notes?.decision_status ? `<div class="table-note-meta">${escapeHtml(notes.decision_status)}</div>` : ""}
                 </td>
 
                 <td>
-                  <button class="btn btn-outline table-btn endorse-btn" data-id="${escapeHtml(app.id)}" type="button">Endorse</button>
-                  ${app.endorsement_status ? `<div class="table-note-meta">${escapeHtml(app.endorsement_status)}</div>` : ""}
+                  <div class="table-actions">
+                    <button class="btn btn-outline table-btn endorse-btn" data-id="${escapeHtml(app.id)}" type="button">Endorse</button>
+                    ${app.endorsement_status ? `<div class="table-note-meta">${escapeHtml(app.endorsement_status)}</div>` : ""}
+                  </div>
                 </td>
 
                 <td>
@@ -2474,12 +2546,12 @@ TalentBuzz`;
 
                 <td>
                   <div class="table-actions">
-                    <button class="btn btn-danger table-btn delete-app-btn" data-id="${escapeHtml(app.id)}" type="button">Delete</button>
+                    <button class="btn btn-outline table-btn view-profile-btn" data-id="${escapeHtml(app.id)}" type="button">View Profile</button>
                   </div>
                 </td>
               </tr>
             `;
-          }));
+          });
 
           els.applicationsTable.innerHTML = rows.join("");
         }
@@ -2681,26 +2753,30 @@ TalentBuzz`;
           }
         }
 
-        async function deleteApplication(applicationId) {
-          const confirmed = window.confirm("Are you sure you want to remove this application?");
-          if (!confirmed) return;
-
+        async function updateApplicantPhone(profileId, phoneNumber) {
           try {
-            const { error } = await supabaseClient
-              .from("applications")
-              .delete()
-              .eq("id", applicationId);
-
-            if (error) {
-              showNotice(error.message || "Failed to remove application.", "error");
+            if (!profileId) {
+              showNotice("Applicant profile ID is missing.", "error");
               return;
             }
 
-            showNotice("Application removed successfully.", "success");
+            const cleanPhone = String(phoneNumber || "").trim();
+
+            const { error } = await supabaseClient
+              .from("applicant_profiles")
+              .update({ phone: cleanPhone || null })
+              .eq("id", profileId);
+
+            if (error) {
+              showNotice(error.message || "Failed to update phone number.", "error");
+              return;
+            }
+
+            showNotice("Phone number updated.", "success");
             await loadApplications();
           } catch (err) {
             console.error(err);
-            showNotice("Error deleting application.", "error");
+            showNotice("Error updating phone number.", "error");
           }
         }
 
@@ -2727,12 +2803,6 @@ TalentBuzz`;
         if (els.slaFilter) els.slaFilter.addEventListener("change", async () => { renderStats(); await renderTable(); });
         if (els.clearFiltersBtn) els.clearFiltersBtn.addEventListener("click", clearAllFilters);
         if (els.refreshBtn) els.refreshBtn.addEventListener("click", refreshAll);
-        if (els.closeModal) els.closeModal.addEventListener("click", closeResumeModal);
-        if (els.closeInterviewNotesModal) els.closeInterviewNotesModal.addEventListener("click", closeInterviewNotesModal);
-        if (els.closeEndorseModal) els.closeEndorseModal.addEventListener("click", closeEndorseModal);
-        if (els.openInviteRecruiterBtn) els.openInviteRecruiterBtn.addEventListener("click", openInviteRecruiterModal);
-        if (els.closeInviteRecruiterModal) els.closeInviteRecruiterModal.addEventListener("click", closeInviteRecruiterModal);
-        if (els.closeScreeningModal) els.closeScreeningModal.addEventListener("click", closeScreeningModal);
 
         if (els.logoutBtn) {
           els.logoutBtn.addEventListener("click", async () => {
@@ -2741,8 +2811,46 @@ TalentBuzz`;
           });
         }
 
-        if (els.saveInterviewNotesBtn) els.saveInterviewNotesBtn.addEventListener("click", saveInterviewNotes);
-        if (els.refreshOptimizedNotesBtn) els.refreshOptimizedNotesBtn.addEventListener("click", generateOptimizedNotesPreview);
+        if (els.closeModal) els.closeModal.addEventListener("click", closeResumeModal);
+        if (els.closeInterviewNotesModal) els.closeInterviewNotesModal.addEventListener("click", closeInterviewNotesModal);
+        if (els.closeEndorseModal) els.closeEndorseModal.addEventListener("click", closeEndorseModal);
+        if (els.openInviteRecruiterBtn) els.openInviteRecruiterBtn.addEventListener("click", openInviteRecruiterModal);
+        if (els.closeInviteRecruiterModal) els.closeInviteRecruiterModal.addEventListener("click", closeInviteRecruiterModal);
+        if (els.closeScreeningModal) els.closeScreeningModal.addEventListener("click", closeScreeningModal);
+        if (els.closeProfileModal) els.closeProfileModal.addEventListener("click", closeProfileModal);
+
+        if (els.sendInviteRecruiterBtn) {
+          els.sendInviteRecruiterBtn.addEventListener("click", async () => {
+            try {
+              els.sendInviteRecruiterBtn.disabled = true;
+              const original = els.sendInviteRecruiterBtn.textContent;
+              els.sendInviteRecruiterBtn.textContent = "Sending...";
+              await inviteRecruiter();
+              showNotice("Recruiter invite sent.", "success");
+              if (els.inviteRecruiterName) els.inviteRecruiterName.value = "";
+              if (els.inviteRecruiterEmail) els.inviteRecruiterEmail.value = "";
+              closeInviteRecruiterModal();
+              els.sendInviteRecruiterBtn.textContent = original;
+              els.sendInviteRecruiterBtn.disabled = false;
+            } catch (err) {
+              console.error(err);
+              showNotice(err.message || "Failed to invite recruiter.", "error");
+              els.sendInviteRecruiterBtn.disabled = false;
+              els.sendInviteRecruiterBtn.textContent = "Send Invite";
+            }
+          });
+        }
+
+        if (els.refreshOptimizedNotesBtn) {
+          els.refreshOptimizedNotesBtn.addEventListener("click", () => {
+            generateOptimizedNotesPreview();
+            showNotesSaveMessage("Optimized preview refreshed.", "success");
+          });
+        }
+
+        if (els.saveInterviewNotesBtn) {
+          els.saveInterviewNotesBtn.addEventListener("click", saveInterviewNotes);
+        }
 
         if (els.openScreeningFromNotesBtn) {
           els.openScreeningFromNotesBtn.addEventListener("click", async () => {
@@ -2754,22 +2862,6 @@ TalentBuzz`;
 
             closeInterviewNotesModal();
             await openScreeningReview(applicationId);
-          });
-        }
-
-        if (els.saveEndorseBtn) els.saveEndorseBtn.addEventListener("click", handleSaveEndorsementDraft);
-        if (els.sendEndorseBtn) els.sendEndorseBtn.addEventListener("click", handleSendEndorsement);
-
-        if (els.sendInviteRecruiterBtn) {
-          els.sendInviteRecruiterBtn.addEventListener("click", async () => {
-            try {
-              await inviteRecruiter();
-              showNotice("Recruiter invite sent.", "success");
-              closeInviteRecruiterModal();
-            } catch (err) {
-              console.error(err);
-              showNotice(err.message || "Failed to invite recruiter.", "error");
-            }
           });
         }
 
@@ -2789,6 +2881,61 @@ TalentBuzz`;
           els.pushToInterviewNotesBtn.addEventListener("click", pushScreeningToInterviewNotes);
         }
 
+        if (els.saveEndorseBtn) {
+          els.saveEndorseBtn.addEventListener("click", async () => {
+            const app = state.selectedEndorsementApp;
+            if (!app) return;
+
+            const payload = {
+              endorsement_status: "draft_ready",
+              endorsement_sent_to: getSafeValue(els.endorseRecipient).trim() || null,
+              endorsed_by: state.currentUser?.email || null
+            };
+
+            const { error } = await supabaseClient
+              .from("applications")
+              .update(payload)
+              .eq("id", app.id);
+
+            if (error) {
+              showNotice(error.message || "Failed to save endorsement draft.", "error");
+              return;
+            }
+
+            showNotice("Endorsement draft saved.", "success");
+            await loadApplications();
+            closeEndorseModal();
+          });
+        }
+
+        if (els.sendEndorseBtn) {
+          els.sendEndorseBtn.addEventListener("click", async () => {
+            const app = state.selectedEndorsementApp;
+            if (!app) return;
+
+            const payload = {
+              endorsement_status: "sent",
+              endorsement_sent_to: getSafeValue(els.endorseRecipient).trim() || null,
+              endorsed_by: state.currentUser?.email || null,
+              endorsement_sent_at: new Date().toISOString()
+            };
+
+            const { error } = await supabaseClient
+              .from("applications")
+              .update(payload)
+              .eq("id", app.id);
+
+            if (error) {
+              showNotice(error.message || "Failed to mark endorsement as sent.", "error");
+              return;
+            }
+
+            showNotice("Endorsement marked as sent.", "success");
+            await loadApplications();
+            closeEndorseModal();
+          });
+        }
+
         if (els.screeningContainer) {
           els.screeningContainer.addEventListener("change", async (e) => {
             const target = e.target;
@@ -2800,7 +2947,7 @@ TalentBuzz`;
 
             try {
               if (target.classList.contains("screening-score-select")) {
-                response.recruiter_score = target.value ? Number(target.value) : null;
+                response.recruiter_score = target.value || null;
                 await saveSingleScreeningAnswer(responseId, { recruiter_score: response.recruiter_score });
               }
             } catch (err) {
@@ -2809,7 +2956,7 @@ TalentBuzz`;
             }
           });
 
-          els.screeningContainer.addEventListener("input", (e) => {
+          els.screeningContainer.addEventListener("blur", async (e) => {
             const target = e.target;
             const responseId = target.dataset?.id;
             if (!responseId) return;
@@ -2819,24 +2966,12 @@ TalentBuzz`;
 
             if (target.classList.contains("screening-answer-input")) {
               response.candidate_answer = target.value || "";
-            }
-          });
-
-          els.screeningContainer.addEventListener("focusout", async (e) => {
-            const target = e.target;
-            const responseId = target.dataset?.id;
-            if (!responseId) return;
-
-            const response = state.currentScreeningResponses.find((item) => String(item.id) === String(responseId));
-            if (!response) return;
-
-            try {
-              if (target.classList.contains("screening-answer-input")) {
+              try {
                 await saveSingleScreeningAnswer(responseId, { candidate_answer: response.candidate_answer || "" });
+              } catch (err) {
+                console.error(err);
+                showNotice("Failed to save screening answer.", "error");
               }
-            } catch (err) {
-              console.error(err);
-              showNotice("Failed to save screening answer.", "error");
             }
           }, true);
         }
@@ -2847,6 +2982,20 @@ TalentBuzz`;
             if (!button) return;
 
             const applicationId = button.dataset?.id;
+            const profileId = button.dataset?.profileId;
+
+            if (button.classList.contains("save-phone-btn")) {
+              if (!profileId) {
+                showNotice("Applicant profile not found.", "error");
+                return;
+              }
+
+              const phoneInput = button.closest(".table-phone-wrap")?.querySelector(".phone-input");
+              const nextPhone = phoneInput ? phoneInput.value : "";
+              await updateApplicantPhone(profileId, nextPhone);
+              return;
+            }
+
             if (!applicationId) return;
 
             const app = state.allApplications.find((item) => String(item.id) === String(applicationId));
@@ -2877,8 +3026,9 @@ TalentBuzz`;
               return;
             }
 
-            if (button.classList.contains("delete-app-btn")) {
-              await deleteApplication(applicationId);
+            if (button.classList.contains("view-profile-btn")) {
+              openProfileModal(app);
+              return;
             }
           });
 
@@ -2907,6 +3057,7 @@ TalentBuzz`;
           if (e.target === els.endorseModal) closeEndorseModal();
           if (e.target === els.inviteRecruiterModal) closeInviteRecruiterModal();
           if (e.target === els.screeningModal) closeScreeningModal();
+          if (e.target === els.profileModal) closeProfileModal();
         });
 
         (async function init() {
