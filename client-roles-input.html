@@ -30,6 +30,7 @@
       --info: #4338ca;
       --shadow: 0 12px 32px rgba(30, 58, 138, 0.06), 0 2px 10px rgba(15, 23, 42, 0.04);
       --soft-bg: #f8fbff;
+      --soft-blue: #eff6ff;
     }
 
     * { box-sizing: border-box; }
@@ -249,6 +250,40 @@
       line-height: 1.7;
     }
 
+    .location-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 14px;
+    }
+
+    .location-field {
+      position: relative;
+    }
+
+    .location-field input {
+      padding-left: 42px;
+      background:
+        linear-gradient(0deg, #fff, #fff) padding-box,
+        linear-gradient(135deg, rgba(30,58,138,0.08), rgba(37,99,235,0.08)) border-box;
+      border: 1px solid var(--border);
+    }
+
+    .location-icon {
+      position: absolute;
+      left: 14px;
+      top: 39px;
+      color: var(--primary-light);
+      font-size: 0.95rem;
+      pointer-events: none;
+      font-weight: 800;
+    }
+
+    .location-helper {
+      margin-top: 2px;
+      font-size: 0.8rem;
+      color: var(--muted);
+    }
+
     .actions {
       display: flex;
       gap: 10px;
@@ -455,24 +490,6 @@
       font-size: 0.92rem;
     }
 
-    .meta-row {
-      display: flex;
-      gap: 8px;
-      flex-wrap: wrap;
-      margin: 6px 0 12px;
-    }
-
-    .meta-tag {
-      display: inline-flex;
-      align-items: center;
-      padding: 5px 9px;
-      border-radius: 999px;
-      background: #f1f5f9;
-      color: #334155;
-      font-size: 0.76rem;
-      font-weight: 800;
-    }
-
     .screening-grid {
       display: grid;
       grid-template-columns: 1fr 150px 150px 140px;
@@ -599,13 +616,6 @@
       margin-bottom: 10px;
     }
 
-    .ai-preview-group-title {
-      margin: 16px 0 8px;
-      color: var(--primary);
-      font-size: 0.95rem;
-      font-weight: 800;
-    }
-
     .ai-question-card p {
       margin: 7px 0;
       line-height: 1.6;
@@ -616,6 +626,8 @@
     }
 
     @media (max-width: 980px) {
+      .grid,
+      .location-grid,
       .question-grid,
       .screening-grid,
       .screening-grid-2,
@@ -627,7 +639,6 @@
     }
 
     @media (max-width: 760px) {
-      .grid { grid-template-columns: 1fr; }
       .container { padding: 18px 14px 30px; }
       .brand-text h1 { font-size: 1.7rem; }
       .brand-logo,
@@ -762,28 +773,38 @@
                   <option value="lead">Lead</option>
                 </select>
               </div>
+            </div>
 
-              <div class="field">
-                <label for="country">Country</label>
-                <select id="country" required>
-                  <option value="">Loading countries...</option>
-                </select>
+            <div class="section-divider">
+              <div class="section-kicker">Location</div>
+              <div class="location-grid">
+                <div class="field location-field">
+                  <label for="country">Country</label>
+                  <span class="location-icon">🌐</span>
+                  <input id="country" list="countryList" placeholder="Search country" required autocomplete="off" />
+                  <datalist id="countryList"></datalist>
+                  <div class="location-helper">Start typing to search countries</div>
+                </div>
+
+                <div class="field location-field">
+                  <label for="state">State / Province / Region</label>
+                  <span class="location-icon">📍</span>
+                  <input id="state" list="stateList" placeholder="Search state / province / region" required autocomplete="off" />
+                  <datalist id="stateList"></datalist>
+                  <div class="location-helper">Choose a country first</div>
+                </div>
+
+                <div class="field location-field">
+                  <label for="city">City</label>
+                  <span class="location-icon">🏙️</span>
+                  <input id="city" list="cityList" placeholder="Search city" required autocomplete="off" />
+                  <datalist id="cityList"></datalist>
+                  <div class="location-helper">Choose a state first</div>
+                </div>
               </div>
+            </div>
 
-              <div class="field">
-                <label for="state">State / Province / Region</label>
-                <select id="state" required>
-                  <option value="">Select country first</option>
-                </select>
-              </div>
-
-              <div class="field">
-                <label for="city">City</label>
-                <select id="city" required>
-                  <option value="">Select state first</option>
-                </select>
-              </div>
-
+            <div class="grid">
               <div class="field">
                 <label for="work_setup">Work Setup</label>
                 <select id="work_setup">
@@ -1151,7 +1172,7 @@
 
       const DATASET_URLS = ["./geography/countries-states-cities.json"];
 
-      const state = {
+      const pageState = {
         editingJobId: null,
         jobs: [],
         geography: [],
@@ -1184,6 +1205,9 @@
         country: document.getElementById("country"),
         state: document.getElementById("state"),
         city: document.getElementById("city"),
+        countryList: document.getElementById("countryList"),
+        stateList: document.getElementById("stateList"),
+        cityList: document.getElementById("cityList"),
         workSetup: document.getElementById("work_setup"),
         industry: document.getElementById("industry"),
         employmentType: document.getElementById("employment_type"),
@@ -1368,61 +1392,44 @@
       }
 
       function populateCountries(selectedCountryName = "") {
-        const countries = Array.isArray(state.geography) ? state.geography : [];
+        const countries = Array.isArray(pageState.geography) ? pageState.geography : [];
 
-        els.country.innerHTML =
-          `<option value="">Select country</option>` +
-          countries
-            .map(
-              (country) =>
-                `<option value="${escapeHtml(country.name)}" ${
-                  country.name === selectedCountryName ? "selected" : ""
-                }>${escapeHtml(country.name)}</option>`
-            )
-            .join("");
+        els.countryList.innerHTML = countries
+          .map((country) => `<option value="${escapeHtml(country.name)}"></option>`)
+          .join("");
 
-        state.selectedCountry =
+        els.country.value = selectedCountryName || "";
+        pageState.selectedCountry =
           countries.find((country) => country.name === selectedCountryName) || null;
       }
 
       function populateStates(states, selectedStateName = "") {
         const safeStates = Array.isArray(states) ? states : [];
 
-        els.state.innerHTML =
-          `<option value="">Select state / province / region</option>` +
-          safeStates
-            .map(
-              (item) =>
-                `<option value="${escapeHtml(item.name)}" ${
-                  item.name === selectedStateName ? "selected" : ""
-                }>${escapeHtml(item.name)}</option>`
-            )
-            .join("");
+        els.stateList.innerHTML = safeStates
+          .map((item) => `<option value="${escapeHtml(item.name)}"></option>`)
+          .join("");
 
-        state.selectedState =
+        els.state.value = selectedStateName || "";
+        pageState.selectedState =
           safeStates.find((item) => item.name === selectedStateName) || null;
       }
 
       function populateCities(cities, selectedCityName = "") {
         const normalizedCities = normalizeCityList(Array.isArray(cities) ? cities : []);
 
-        els.city.innerHTML =
-          `<option value="">Select city</option>` +
-          normalizedCities
-            .map(
-              (city) =>
-                `<option value="${escapeHtml(city)}" ${
-                  city === selectedCityName ? "selected" : ""
-                }>${escapeHtml(city)}</option>`
-            )
-            .join("");
+        els.cityList.innerHTML = normalizedCities
+          .map((city) => `<option value="${escapeHtml(city)}"></option>`)
+          .join("");
+
+        els.city.value = selectedCityName || "";
       }
 
       async function loadGeography() {
         try {
-          els.country.innerHTML = `<option value="">Loading countries...</option>`;
-          els.state.innerHTML = `<option value="">Select country first</option>`;
-          els.city.innerHTML = `<option value="">Select state first</option>`;
+          els.country.placeholder = "Loading countries...";
+          els.state.placeholder = "Select country first";
+          els.city.placeholder = "Select state first";
 
           let loadedData = null;
           let lastError = null;
@@ -1451,17 +1458,17 @@
             throw lastError || new Error("No valid geography dataset found.");
           }
 
-          state.geography = loadedData;
+          pageState.geography = loadedData;
           populateCountries();
           populateStates([]);
           populateCities([]);
           clearNotice();
         } catch (error) {
           console.error("Failed to load geography:", error);
-          state.geography = [];
-          els.country.innerHTML = `<option value="">Unable to load countries</option>`;
-          els.state.innerHTML = `<option value="">Unable to load states</option>`;
-          els.city.innerHTML = `<option value="">Unable to load cities</option>`;
+          pageState.geography = [];
+          els.country.value = "";
+          els.state.value = "";
+          els.city.value = "";
           showNotice("Unable to load geography dataset.", "error");
         }
       }
@@ -1470,12 +1477,11 @@
         populateCountries(countryName);
 
         const selectedCountry =
-          (state.geography || []).find(
+          (pageState.geography || []).find(
             (country) => String(country.name || "").trim() === String(countryName || "").trim()
           ) || null;
 
-        state.selectedCountry = selectedCountry;
-
+        pageState.selectedCountry = selectedCountry;
         populateStates(selectedCountry?.states || [], stateName);
 
         const selectedState =
@@ -1483,8 +1489,35 @@
             (item) => String(item.name || "").trim() === String(stateName || "").trim()
           ) || null;
 
-        state.selectedState = selectedState;
+        pageState.selectedState = selectedState;
         populateCities(selectedState?.cities || [], cityName);
+      }
+
+      function syncSelectedCountry() {
+        const selectedCountryName = String(els.country.value || "").trim();
+
+        const selectedCountry =
+          (pageState.geography || []).find(
+            (country) => String(country.name || "").trim().toLowerCase() === selectedCountryName.toLowerCase()
+          ) || null;
+
+        pageState.selectedCountry = selectedCountry;
+        pageState.selectedState = null;
+
+        populateStates(selectedCountry?.states || []);
+        populateCities([]);
+      }
+
+      function syncSelectedState() {
+        const selectedStateName = String(els.state.value || "").trim();
+
+        const selectedState =
+          (pageState.selectedCountry?.states || []).find(
+            (item) => String(item.name || "").trim().toLowerCase() === selectedStateName.toLowerCase()
+          ) || null;
+
+        pageState.selectedState = selectedState;
+        populateCities(selectedState?.cities || []);
       }
 
       function formatDisplayDate(value) {
@@ -1508,9 +1541,9 @@
       }
 
       function renderSkillPriorityChips() {
-        renderChipGroup(state.requiredSkills, els.requiredSkillsChips, "removeRequiredSkill");
-        renderChipGroup(state.niceToHaveSkills, els.niceSkillsChips, "removeNiceSkill");
-        renderChipGroup(state.clientPriorities, els.prioritiesChips, "removePriority");
+        renderChipGroup(pageState.requiredSkills, els.requiredSkillsChips, "removeRequiredSkill");
+        renderChipGroup(pageState.niceToHaveSkills, els.niceSkillsChips, "removeNiceSkill");
+        renderChipGroup(pageState.clientPriorities, els.prioritiesChips, "removePriority");
       }
 
       function addUniqueItem(list, rawValue) {
@@ -1524,17 +1557,17 @@
       }
 
       window.removeRequiredSkill = function(index) {
-        state.requiredSkills.splice(index, 1);
+        pageState.requiredSkills.splice(index, 1);
         renderSkillPriorityChips();
       };
 
       window.removeNiceSkill = function(index) {
-        state.niceToHaveSkills.splice(index, 1);
+        pageState.niceToHaveSkills.splice(index, 1);
         renderSkillPriorityChips();
       };
 
       window.removePriority = function(index) {
-        state.clientPriorities.splice(index, 1);
+        pageState.clientPriorities.splice(index, 1);
         renderSkillPriorityChips();
       };
 
@@ -1648,7 +1681,7 @@
           question_style: "Standard recruiter screen",
           recruiter_note: ""
         });
-        state.aiDraftQuestions = [];
+        pageState.aiDraftQuestions = [];
         renderAIQuestions();
       }
 
@@ -1657,12 +1690,12 @@
       }
 
       function renderAIQuestions() {
-        if (!state.aiDraftQuestions.length) {
+        if (!pageState.aiDraftQuestions.length) {
           els.aiQuestions.innerHTML = `<div class="ai-empty">No AI questions yet. Click <strong>Generate AI Questions</strong>.</div>`;
           return;
         }
 
-        els.aiQuestions.innerHTML = state.aiDraftQuestions.map(item => `
+        els.aiQuestions.innerHTML = pageState.aiDraftQuestions.map(item => `
           <div class="ai-question-card">
             <div class="ai-question-title">${escapeHtml(item.type || "Question")}</div>
             <p><strong>Question:</strong> ${escapeHtml(item.question || "")}</p>
@@ -1675,10 +1708,10 @@
 
       function buildLocalAIQuestions() {
         const role = String(els.title.value || "this role").trim() || "this role";
-        const topSkills = state.requiredSkills.length ? state.requiredSkills : ["relevant experience"];
+        const topSkills = pageState.requiredSkills.length ? pageState.requiredSkills : ["relevant experience"];
         const workSetup = String(els.workSetup.value || "the required work setup").trim();
         const roleFamilyLabel = els.roleFamily.options[els.roleFamily.selectedIndex]?.text || "the role";
-        const priorities = state.clientPriorities.length ? state.clientPriorities : ["communication"];
+        const priorities = pageState.clientPriorities.length ? pageState.clientPriorities : ["communication"];
 
         return [
           buildQuestionObject(
@@ -1720,12 +1753,12 @@
       }
 
       function renderQuestions() {
-        if (!state.questions.length) {
+        if (!pageState.questions.length) {
           els.questionsList.innerHTML = `<div class="question-empty">No manual questions yet. Click <strong>+ Add Question</strong>.</div>`;
           return;
         }
 
-        els.questionsList.innerHTML = state.questions.map((q, index) => `
+        els.questionsList.innerHTML = pageState.questions.map((q, index) => `
           <div class="question-item">
             <div class="question-item-head">
               <div class="question-title">Question ${index + 1}</div>
@@ -1755,9 +1788,9 @@
       }
 
       function swapQuestions(a, b) {
-        const temp = state.questions[a];
-        state.questions[a] = state.questions[b];
-        state.questions[b] = temp;
+        const temp = pageState.questions[a];
+        pageState.questions[a] = pageState.questions[b];
+        pageState.questions[b] = temp;
         renderQuestions();
       }
 
@@ -1777,9 +1810,9 @@
           salary_min: els.salaryMin.value ? Number(els.salaryMin.value) : null,
           salary_max: els.salaryMax.value ? Number(els.salaryMax.value) : null,
           keywords: parseStringArray(els.keywords.value),
-          required_skills: state.requiredSkills,
-          nice_to_have_skills: state.niceToHaveSkills,
-          client_priorities: state.clientPriorities,
+          required_skills: pageState.requiredSkills,
+          nice_to_have_skills: pageState.niceToHaveSkills,
+          client_priorities: pageState.clientPriorities,
           job_description: String(els.jobDescription.value || "").trim() || null,
           featured: String(els.featured.value) === "true",
           status: els.status.value || "open",
@@ -1788,8 +1821,8 @@
       }
 
       function resetScreeningDraftUI() {
-        state.activeDraftScreeningSet = null;
-        state.activeDraftScreeningItems = [];
+        pageState.activeDraftScreeningSet = null;
+        pageState.activeDraftScreeningItems = [];
         els.draftSetName.textContent = "—";
         els.draftSetStatus.textContent = "—";
         els.draftSetCount.textContent = "0";
@@ -1798,16 +1831,16 @@
       }
 
       function resetForm() {
-        state.editingJobId = null;
+        pageState.editingJobId = null;
         els.formTitle.textContent = "Add Role";
         els.jobForm.reset();
         els.salaryCurrency.value = "PHP";
         els.featured.value = "false";
         els.status.value = "open";
-        state.questions = [];
-        state.requiredSkills = [];
-        state.niceToHaveSkills = [];
-        state.clientPriorities = [];
+        pageState.questions = [];
+        pageState.requiredSkills = [];
+        pageState.niceToHaveSkills = [];
+        pageState.clientPriorities = [];
         renderQuestions();
         renderSkillPriorityChips();
         resetAIConfigUI();
@@ -1824,7 +1857,7 @@
             window.location.href = "recruiter-login.html";
             return false;
           }
-          state.currentRecruiterEmail = normalizeEmail(session.user.email || "");
+          pageState.currentRecruiterEmail = normalizeEmail(session.user.email || "");
           return true;
         } catch (error) {
           console.error(error);
@@ -1841,7 +1874,7 @@
           .order("updated_at", { ascending: false });
 
         if (error) {
-          state.screeningSetSummaryMap = new Map();
+          pageState.screeningSetSummaryMap = new Map();
           return;
         }
 
@@ -1850,11 +1883,11 @@
           if (!byJob.has(item.job_id)) byJob.set(item.job_id, []);
           byJob.get(item.job_id).push(item);
         });
-        state.screeningSetSummaryMap = byJob;
+        pageState.screeningSetSummaryMap = byJob;
       }
 
       function getScreeningSetSummaryForJob(jobId) {
-        const list = state.screeningSetSummaryMap.get(jobId) || [];
+        const list = pageState.screeningSetSummaryMap.get(jobId) || [];
         const draft = list.find(x => x.status === "draft");
         const active = list.find(x => x.status === "active");
         return { draft, active, all: list };
@@ -1878,8 +1911,8 @@
             return;
           }
 
-          state.jobs = jobs || [];
-          const jobIds = state.jobs.map(job => job.id);
+          pageState.jobs = jobs || [];
+          const jobIds = pageState.jobs.map(job => job.id);
           let questionsMap = new Map();
 
           if (jobIds.length) {
@@ -1897,12 +1930,12 @@
 
           await loadScreeningSetSummaryMap();
 
-          if (!state.jobs.length) {
+          if (!pageState.jobs.length) {
             els.jobsTable.innerHTML = `<tr><td colspan="11" class="empty">No roles found yet.</td></tr>`;
             return;
           }
 
-          els.jobsTable.innerHTML = state.jobs.map(job => {
+          els.jobsTable.innerHTML = pageState.jobs.map(job => {
             const questions = questionsMap.get(job.id) || [];
             const currencyCode = formatCurrencyCode(job.salary_currency || "PHP");
             const salaryRange = job.salary_min || job.salary_max
@@ -1958,12 +1991,12 @@
 
         if (error) {
           console.error(error);
-          state.questions = [];
+          pageState.questions = [];
           renderQuestions();
           return;
         }
 
-        state.questions = (data || []).map(item => ({
+        pageState.questions = (data || []).map(item => ({
           question: item.question || "",
           type: item.type || "text",
           required: item.required !== false
@@ -1984,7 +2017,7 @@
         if (setsError || !sets?.length) return;
 
         const selectedSet = sets.find(x => x.status === "draft") || sets[0];
-        state.activeDraftScreeningSet = selectedSet;
+        pageState.activeDraftScreeningSet = selectedSet;
 
         const { data: items, error: itemsError } = await supabaseClient
           .from("role_screening_items")
@@ -1997,27 +2030,27 @@
           return;
         }
 
-        state.activeDraftScreeningItems = items || [];
+        pageState.activeDraftScreeningItems = items || [];
         renderScreeningDraft();
       }
 
       function renderScreeningDraft() {
-        if (!state.activeDraftScreeningSet) {
+        if (!pageState.activeDraftScreeningSet) {
           resetScreeningDraftUI();
           return;
         }
 
-        els.draftSetName.textContent = state.activeDraftScreeningSet.set_name || "Draft";
-        els.draftSetStatus.textContent = state.activeDraftScreeningSet.status || "draft";
-        els.draftSetCount.textContent = String(state.activeDraftScreeningItems.length || 0);
-        els.draftSetUpdated.textContent = formatDisplayDate(state.activeDraftScreeningSet.updated_at);
+        els.draftSetName.textContent = pageState.activeDraftScreeningSet.set_name || "Draft";
+        els.draftSetStatus.textContent = pageState.activeDraftScreeningSet.status || "draft";
+        els.draftSetCount.textContent = String(pageState.activeDraftScreeningItems.length || 0);
+        els.draftSetUpdated.textContent = formatDisplayDate(pageState.activeDraftScreeningSet.updated_at);
 
-        if (!state.activeDraftScreeningItems.length) {
+        if (!pageState.activeDraftScreeningItems.length) {
           els.screeningItemsContainer.innerHTML = `<div class="screening-empty">Draft loaded, but no questions found.</div>`;
           return;
         }
 
-        els.screeningItemsContainer.innerHTML = state.activeDraftScreeningItems.map((item, index) => `
+        els.screeningItemsContainer.innerHTML = pageState.activeDraftScreeningItems.map((item, index) => `
           <div class="screening-item">
             <div class="screening-item-head">
               <div class="screening-title">Question ${index + 1}</div>
@@ -2079,9 +2112,9 @@
 
         if (deleteError) throw deleteError;
 
-        if (!state.questions.length) return;
+        if (!pageState.questions.length) return;
 
-        const rows = state.questions.map((item, index) => ({
+        const rows = pageState.questions.map((item, index) => ({
           job_id: jobId,
           question: item.question,
           type: item.type || "text",
@@ -2108,13 +2141,13 @@
 
         setBusy(true);
         try {
-          let savedJobId = state.editingJobId;
+          let savedJobId = pageState.editingJobId;
 
-          if (state.editingJobId) {
+          if (pageState.editingJobId) {
             const { error } = await supabaseClient
               .from("jobs")
               .update(payload)
-              .eq("id", state.editingJobId);
+              .eq("id", pageState.editingJobId);
 
             if (error) throw error;
           } else {
@@ -2126,7 +2159,7 @@
 
             if (error) throw error;
             savedJobId = data.id;
-            state.editingJobId = savedJobId;
+            pageState.editingJobId = savedJobId;
           }
 
           await persistManualQuestions(savedJobId);
@@ -2143,10 +2176,10 @@
       }
 
       async function loadRoleForEdit(jobId) {
-        const job = state.jobs.find(item => String(item.id) === String(jobId));
+        const job = pageState.jobs.find(item => String(item.id) === String(jobId));
         if (!job) return;
 
-        state.editingJobId = job.id;
+        pageState.editingJobId = job.id;
         els.formTitle.textContent = "Edit Role";
         els.deleteBtn.classList.remove("hidden");
 
@@ -2165,9 +2198,9 @@
         els.featured.value = job.featured ? "true" : "false";
         els.status.value = job.status || "open";
 
-        state.requiredSkills = parseStringArray(job.required_skills);
-        state.niceToHaveSkills = parseStringArray(job.nice_to_have_skills);
-        state.clientPriorities = parseStringArray(job.client_priorities);
+        pageState.requiredSkills = parseStringArray(job.required_skills);
+        pageState.niceToHaveSkills = parseStringArray(job.nice_to_have_skills);
+        pageState.clientPriorities = parseStringArray(job.client_priorities);
         renderSkillPriorityChips();
 
         applyAIConfigToUI(job.ai_config || {});
@@ -2180,7 +2213,7 @@
       }
 
       async function deleteRole(jobId) {
-        const id = jobId || state.editingJobId;
+        const id = jobId || pageState.editingJobId;
         if (!id) return;
 
         const confirmed = window.confirm("Delete this role?");
@@ -2194,7 +2227,7 @@
 
           if (error) throw error;
 
-          if (String(state.editingJobId) === String(id)) resetForm();
+          if (String(pageState.editingJobId) === String(id)) resetForm();
           await loadRoles();
           showNotice("Role deleted successfully.", "success");
         } catch (error) {
@@ -2204,7 +2237,7 @@
       }
 
       async function ensureDraftSet(jobId) {
-        if (state.activeDraftScreeningSet?.id) return state.activeDraftScreeningSet.id;
+        if (pageState.activeDraftScreeningSet?.id) return pageState.activeDraftScreeningSet.id;
 
         const setName = `${els.title.value || "Role"} Screening Set`;
         const { data, error } = await supabaseClient
@@ -2219,7 +2252,7 @@
 
         if (error) throw error;
 
-        state.activeDraftScreeningSet = data;
+        pageState.activeDraftScreeningSet = data;
         return data.id;
       }
 
@@ -2232,7 +2265,7 @@
         if (deleteError) throw deleteError;
 
         if (!items.length) {
-          state.activeDraftScreeningItems = [];
+          pageState.activeDraftScreeningItems = [];
           renderScreeningDraft();
           return;
         }
@@ -2261,18 +2294,18 @@
 
         if (error) throw error;
 
-        state.activeDraftScreeningItems = data || [];
+        pageState.activeDraftScreeningItems = data || [];
         renderScreeningDraft();
       }
 
       async function persistDraftItems() {
-        if (!state.editingJobId) {
+        if (!pageState.editingJobId) {
           showNotice("Save the role first before editing the screening set.", "warning");
           return;
         }
 
-        const screeningSetId = await ensureDraftSet(state.editingJobId);
-        await replaceDraftItems(screeningSetId, state.activeDraftScreeningItems);
+        const screeningSetId = await ensureDraftSet(pageState.editingJobId);
+        await replaceDraftItems(screeningSetId, pageState.activeDraftScreeningItems);
 
         const { data: refreshedSet } = await supabaseClient
           .from("role_screening_sets")
@@ -2280,19 +2313,19 @@
           .eq("id", screeningSetId)
           .single();
 
-        if (refreshedSet) state.activeDraftScreeningSet = refreshedSet;
+        if (refreshedSet) pageState.activeDraftScreeningSet = refreshedSet;
         await loadScreeningSetSummaryMap();
         renderScreeningDraft();
       }
 
       async function generateScreeningSetFromManualQuestions() {
-        if (!state.editingJobId) {
+        if (!pageState.editingJobId) {
           showNotice("Save the role first before generating a screening set.", "warning");
           return;
         }
 
-        const sourceQuestions = state.questions.length
-          ? state.questions
+        const sourceQuestions = pageState.questions.length
+          ? pageState.questions
           : buildLocalAIQuestions().map(item => ({
               question: item.question,
               type: "text",
@@ -2309,9 +2342,9 @@
         }));
 
         try {
-          const screeningSetId = await ensureDraftSet(state.editingJobId);
+          const screeningSetId = await ensureDraftSet(pageState.editingJobId);
           await replaceDraftItems(screeningSetId, items);
-          await loadDraftScreeningSet(state.editingJobId);
+          await loadDraftScreeningSet(pageState.editingJobId);
           showNotice("Draft screening set generated.", "success");
         } catch (error) {
           console.error(error);
@@ -2320,16 +2353,16 @@
       }
 
       async function addCustomScreeningItem() {
-        if (!state.editingJobId) {
+        if (!pageState.editingJobId) {
           showNotice("Save the role first before adding screening items.", "warning");
           return;
         }
 
-        if (!state.activeDraftScreeningSet) {
-          await ensureDraftSet(state.editingJobId);
+        if (!pageState.activeDraftScreeningSet) {
+          await ensureDraftSet(pageState.editingJobId);
         }
 
-        state.activeDraftScreeningItems.push(createEmptyScreeningItem(state.activeDraftScreeningItems.length + 1));
+        pageState.activeDraftScreeningItems.push(createEmptyScreeningItem(pageState.activeDraftScreeningItems.length + 1));
         try {
           await persistDraftItems();
           showNotice("Custom screening question added.", "success");
@@ -2340,7 +2373,7 @@
       }
 
       async function activateDraftScreeningSet() {
-        if (!state.activeDraftScreeningSet?.id) {
+        if (!pageState.activeDraftScreeningSet?.id) {
           showNotice("No draft screening set to activate.", "warning");
           return;
         }
@@ -2349,7 +2382,7 @@
           const { error: archiveError } = await supabaseClient
             .from("role_screening_sets")
             .update({ status: "archived" })
-            .eq("job_id", state.editingJobId)
+            .eq("job_id", pageState.editingJobId)
             .eq("status", "active");
 
           if (archiveError) throw archiveError;
@@ -2357,11 +2390,11 @@
           const { error } = await supabaseClient
             .from("role_screening_sets")
             .update({ status: "active" })
-            .eq("id", state.activeDraftScreeningSet.id);
+            .eq("id", pageState.activeDraftScreeningSet.id);
 
           if (error) throw error;
 
-          await loadDraftScreeningSet(state.editingJobId);
+          await loadDraftScreeningSet(pageState.editingJobId);
           await loadRoles();
           showNotice("Draft screening set activated.", "success");
         } catch (error) {
@@ -2371,17 +2404,17 @@
       }
 
       function buildGeneratedManualQuestions() {
-        state.aiDraftQuestions = buildLocalAIQuestions();
+        pageState.aiDraftQuestions = buildLocalAIQuestions();
         renderAIQuestions();
       }
 
       function applyAiQuestionsToManual() {
-        if (!state.aiDraftQuestions.length) {
+        if (!pageState.aiDraftQuestions.length) {
           showNotice("Generate AI questions first.", "warning");
           return;
         }
 
-        state.questions = state.aiDraftQuestions.map(item => ({
+        pageState.questions = pageState.aiDraftQuestions.map(item => ({
           question: item.question,
           type: "text",
           required: true
@@ -2401,50 +2434,50 @@
         els.activateScreeningBtn.addEventListener("click", activateDraftScreeningSet);
 
         els.addRequiredSkillBtn.addEventListener("click", () => {
-          if (addUniqueItem(state.requiredSkills, els.requiredSkillInput.value)) {
+          if (addUniqueItem(pageState.requiredSkills, els.requiredSkillInput.value)) {
             els.requiredSkillInput.value = "";
             renderSkillPriorityChips();
           }
         });
 
         els.addNiceSkillBtn.addEventListener("click", () => {
-          if (addUniqueItem(state.niceToHaveSkills, els.niceSkillInput.value)) {
+          if (addUniqueItem(pageState.niceToHaveSkills, els.niceSkillInput.value)) {
             els.niceSkillInput.value = "";
             renderSkillPriorityChips();
           }
         });
 
         els.addPriorityBtn.addEventListener("click", () => {
-          if (addUniqueItem(state.clientPriorities, els.priorityInput.value)) {
+          if (addUniqueItem(pageState.clientPriorities, els.priorityInput.value)) {
             els.priorityInput.value = "";
             renderSkillPriorityChips();
           }
         });
 
         els.addQuestionBtn.addEventListener("click", () => {
-          state.questions.push(createEmptyQuestion());
+          pageState.questions.push(createEmptyQuestion());
           renderQuestions();
         });
 
         els.questionsList.addEventListener("input", (event) => {
           const index = Number(event.target.dataset.index);
-          if (Number.isNaN(index) || !state.questions[index]) return;
+          if (Number.isNaN(index) || !pageState.questions[index]) return;
 
           if (event.target.classList.contains("question-text")) {
-            state.questions[index].question = event.target.value;
+            pageState.questions[index].question = event.target.value;
           }
         });
 
         els.questionsList.addEventListener("change", (event) => {
           const index = Number(event.target.dataset.index);
-          if (Number.isNaN(index) || !state.questions[index]) return;
+          if (Number.isNaN(index) || !pageState.questions[index]) return;
 
           if (event.target.classList.contains("question-type")) {
-            state.questions[index].type = event.target.value;
+            pageState.questions[index].type = event.target.value;
           }
 
           if (event.target.classList.contains("question-required-input")) {
-            state.questions[index].required = !!event.target.checked;
+            pageState.questions[index].required = !!event.target.checked;
           }
         });
 
@@ -2455,7 +2488,7 @@
           if (removeBtn) {
             const index = Number(removeBtn.dataset.index);
             if (!Number.isNaN(index)) {
-              state.questions.splice(index, 1);
+              pageState.questions.splice(index, 1);
               renderQuestions();
             }
           }
@@ -2466,37 +2499,16 @@
           }
         });
 
-        els.country.addEventListener("change", () => {
-          const selectedCountryName = String(els.country.value || "").trim();
+        els.country.addEventListener("change", syncSelectedCountry);
+        els.country.addEventListener("blur", syncSelectedCountry);
 
-          const selectedCountry =
-            (state.geography || []).find(
-              (country) => String(country.name || "").trim() === selectedCountryName
-            ) || null;
-
-          state.selectedCountry = selectedCountry;
-          state.selectedState = null;
-
-          populateStates(selectedCountry?.states || []);
-          populateCities([]);
-        });
-
-        els.state.addEventListener("change", () => {
-          const selectedStateName = String(els.state.value || "").trim();
-
-          const selectedState =
-            (state.selectedCountry?.states || []).find(
-              (item) => String(item.name || "").trim() === selectedStateName
-            ) || null;
-
-          state.selectedState = selectedState;
-          populateCities(selectedState?.cities || []);
-        });
+        els.state.addEventListener("change", syncSelectedState);
+        els.state.addEventListener("blur", syncSelectedState);
 
         els.screeningItemsContainer.addEventListener("input", (event) => {
           const index = Number(event.target.dataset.index);
-          if (Number.isNaN(index) || !state.activeDraftScreeningItems[index]) return;
-          const item = state.activeDraftScreeningItems[index];
+          if (Number.isNaN(index) || !pageState.activeDraftScreeningItems[index]) return;
+          const item = pageState.activeDraftScreeningItems[index];
 
           if (event.target.classList.contains("screening-question-text")) item.question_text = event.target.value;
           if (event.target.classList.contains("screening-weight")) item.weight = Number(event.target.value || 1);
@@ -2506,8 +2518,8 @@
 
         els.screeningItemsContainer.addEventListener("change", async (event) => {
           const index = Number(event.target.dataset.index);
-          if (Number.isNaN(index) || !state.activeDraftScreeningItems[index]) return;
-          const item = state.activeDraftScreeningItems[index];
+          if (Number.isNaN(index) || !pageState.activeDraftScreeningItems[index]) return;
+          const item = pageState.activeDraftScreeningItems[index];
 
           if (event.target.classList.contains("screening-question-type")) item.question_type = event.target.value;
           if (event.target.classList.contains("screening-answer-format")) item.answer_format = event.target.value;
@@ -2528,7 +2540,7 @@
           const index = Number(removeBtn.dataset.index);
           if (Number.isNaN(index)) return;
 
-          state.activeDraftScreeningItems.splice(index, 1);
+          pageState.activeDraftScreeningItems.splice(index, 1);
           try {
             await persistDraftItems();
             showNotice("Screening item removed.", "success");
