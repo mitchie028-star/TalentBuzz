@@ -312,14 +312,10 @@
     .status-sourced,
     .status-reviewing,
     .status-invite_sent,
-    .status-invite-opened,
     .status-invite_opened,
     .status-profile_started,
-    .status-profile-started,
     .status-profile_completed,
-    .status-profile-completed,
-    .status-marketplace_active,
-    .status-marketplace-active {
+    .status-marketplace_active {
       background: #eef2ff;
       color: #4338ca;
       border-color: #c7d2fe;
@@ -486,14 +482,14 @@
       flex-wrap: wrap;
     }
 
-    code.inline-code {
+    .inline-code {
       background: #eff6ff;
       border: 1px solid #bfdbfe;
       color: #1d4ed8;
       padding: 2px 8px;
       border-radius: 999px;
       font-size: 0.85rem;
-      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
     }
 
     @media (max-width: 1200px) {
@@ -742,7 +738,7 @@
   <script>
     document.addEventListener("DOMContentLoaded", async () => {
       const SUPABASE_URL = "https://dilalntcxmvdcmwxjcct.supabase.co";
-      const SUPABASE_ANON_KEY = "sb_publishable_HrLVIUwnaRo54yijtrbWBQ_1aeb4ezs";
+      const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRpbGFsbnRjeG12ZGNtd3hqY2N0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM4OTk4NTQsImV4cCI6MjA4OTQ3NTg1NH0.nlltxL-K-b0tsge2UR3VPPE0ZBPADuCY8pU_G_Ygmkw";
       const RESUME_BUCKET = "resumes";
 
       const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
@@ -786,9 +782,14 @@
         uploadedResumeFile: null,
         extractedResumeText: "",
         parsedCandidate: null,
-        prospectsHasResumeColumns: false,
         bulkInviteResults: [],
-        bulkInviteCsvText: ""
+        bulkInviteCsvText: "",
+        prospectSchema: {
+          hasSuggestedRoles: false,
+          hasTopMatchRole: false,
+          hasResumeUrl: false,
+          hasResumePath: false
+        }
       };
 
       const els = {
@@ -1169,13 +1170,22 @@
         }
       }
 
-      async function detectResumeColumns() {
-        const { error } = await supabase
-          .from("prospects")
-          .select("resume_url,resume_path")
-          .limit(1);
+      async function detectProspectSchema() {
+        const checks = [
+          { key: "hasSuggestedRoles", column: "suggested_roles" },
+          { key: "hasTopMatchRole", column: "top_match_role" },
+          { key: "hasResumeUrl", column: "resume_url" },
+          { key: "hasResumePath", column: "resume_path" }
+        ];
 
-        state.prospectsHasResumeColumns = !error;
+        for (const check of checks) {
+          const { error } = await supabase
+            .from("prospects")
+            .select(check.column)
+            .limit(1);
+
+          state.prospectSchema[check.key] = !error;
+        }
       }
 
       async function parseResumeAndPrefill(file) {
@@ -1514,46 +1524,64 @@
         els.tableBody.innerHTML = `<tr><td colspan="14" class="empty loading">Loading BuzzPool...</td></tr>`;
 
         try {
+          const prospectFields = [
+            "id",
+            "full_name",
+            "current_title",
+            "current_company",
+            "location",
+            "linkedin_url",
+            "work_email",
+            "personal_email",
+            "phone"
+          ];
+
+          if (state.prospectSchema.hasSuggestedRoles) {
+            prospectFields.push("suggested_roles");
+          }
+
+          if (state.prospectSchema.hasTopMatchRole) {
+            prospectFields.push("top_match_role");
+          }
+
+          if (state.prospectSchema.hasResumeUrl) {
+            prospectFields.push("resume_url");
+          }
+
+          if (state.prospectSchema.hasResumePath) {
+            prospectFields.push("resume_path");
+          }
+
+          const query = `
+            id,
+            prospect_id,
+            job_id,
+            status,
+            recruiter_email,
+            notes,
+            source,
+            match_score,
+            location_rank,
+            created_at,
+            updated_at,
+            prospects (
+              ${prospectFields.join(",")}
+            ),
+            jobs (
+              id,
+              title,
+              client_name
+            )
+          `;
+
           const { data, error } = await supabase
             .from("prospect_pipeline")
-            .select(`
-              id,
-              prospect_id,
-              job_id,
-              status,
-              recruiter_email,
-              notes,
-              source,
-              match_score,
-              location_rank,
-              created_at,
-              updated_at,
-              prospects (
-                id,
-                full_name,
-                current_title,
-                current_company,
-                location,
-                linkedin_url,
-                work_email,
-                personal_email,
-                phone,
-                suggested_roles,
-                top_match_role,
-                resume_url,
-                resume_path
-              ),
-              jobs (
-                id,
-                title,
-                client_name
-              )
-            `)
+            .select(query)
             .order("created_at", { ascending: false });
 
           if (error) throw error;
 
-          state.rows = (data || []).map(r => {
+          state.rows = (data || []).map((r) => {
             const p = Array.isArray(r.prospects) ? (r.prospects[0] || {}) : (r.prospects || {});
             const j = Array.isArray(r.jobs) ? (r.jobs[0] || {}) : (r.jobs || {});
 
@@ -1571,10 +1599,10 @@
               linkedin_url: p.linkedin_url || "",
               email: p.personal_email || p.work_email || "",
               phone: p.phone || "",
-              resume_url: p.resume_url || "",
-              resume_path: p.resume_path || "",
-              suggested_roles: safeArrayParse(p.suggested_roles),
-              top_match_role: p.top_match_role || "",
+              resume_url: state.prospectSchema.hasResumeUrl ? (p.resume_url || "") : "",
+              resume_path: state.prospectSchema.hasResumePath ? (p.resume_path || "") : "",
+              suggested_roles: state.prospectSchema.hasSuggestedRoles ? safeArrayParse(p.suggested_roles) : [],
+              top_match_role: state.prospectSchema.hasTopMatchRole ? (p.top_match_role || "") : "",
               job_title: j.title || "",
               client_name: j.client_name || ""
             };
@@ -1667,17 +1695,25 @@
 
             const prospectId = crypto.randomUUID();
 
-            prospectsPayload.push({
+            const prospectRow = {
               id: prospectId,
               full_name: fullName,
               current_title: currentTitle,
               current_company: currentCompany,
               location: location,
               linkedin_url: linkedin,
-              personal_email: email,
-              suggested_roles: roleInfo.suggested_roles,
-              top_match_role: roleInfo.top_match_role
-            });
+              personal_email: email
+            };
+
+            if (state.prospectSchema.hasSuggestedRoles) {
+              prospectRow.suggested_roles = roleInfo.suggested_roles;
+            }
+
+            if (state.prospectSchema.hasTopMatchRole) {
+              prospectRow.top_match_role = roleInfo.top_match_role;
+            }
+
+            prospectsPayload.push(prospectRow);
 
             pipelinePayload.push({
               prospect_id: prospectId,
@@ -1795,13 +1831,22 @@
             location,
             personal_email,
             phone,
-            linkedin_url,
-            suggested_roles,
-            top_match_role
+            linkedin_url
           };
 
-          if (state.prospectsHasResumeColumns) {
+          if (state.prospectSchema.hasSuggestedRoles) {
+            prospectPayload.suggested_roles = suggested_roles;
+          }
+
+          if (state.prospectSchema.hasTopMatchRole) {
+            prospectPayload.top_match_role = top_match_role;
+          }
+
+          if (state.prospectSchema.hasResumeUrl) {
             prospectPayload.resume_url = storageData.resume_url;
+          }
+
+          if (state.prospectSchema.hasResumePath) {
             prospectPayload.resume_path = storageData.resume_path;
           }
 
@@ -2192,7 +2237,7 @@
       if (!allowed) return;
 
       await loadOpenJobs();
-      await detectResumeColumns();
+      await detectProspectSchema();
       await loadData();
     });
   </script>
