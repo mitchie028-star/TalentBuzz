@@ -134,6 +134,12 @@
       background: #eef2ff;
     }
 
+    .btn-compact {
+      padding: 7px 10px;
+      font-size: 0.76rem;
+      border-radius: 10px;
+    }
+
     .notice {
       display: none;
       margin-bottom: 18px;
@@ -256,7 +262,7 @@
       width: 100%;
       border-collapse: collapse;
       background: white;
-      min-width: 1700px;
+      min-width: 1820px;
     }
 
     th, td {
@@ -362,6 +368,13 @@
     }
 
     .loading { color: var(--muted); }
+
+    .action-stack {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      min-width: 170px;
+    }
 
     .modal-backdrop {
       position: fixed;
@@ -525,6 +538,7 @@
         <button id="uploadResumeBtn" class="btn btn-secondary" type="button">Upload Resume</button>
         <button id="bulkUploadBtn" class="btn btn-secondary" type="button">Bulk Upload</button>
         <button id="bulkInviteBtn" class="btn btn-primary" type="button">Bulk Invite</button>
+        <button id="inviteAllSourcedBtn" class="btn btn-primary" type="button">Invite All Sourced</button>
         <button id="refreshBtn" class="btn btn-primary" type="button">Refresh</button>
         <button id="logoutBtn" class="btn btn-danger" type="button">Logout</button>
       </div>
@@ -539,6 +553,7 @@
           <p>Import prospects from CSV and instantly add them into your talent pool.</p>
           <p style="margin-top:8px;"><strong>CSV format:</strong> full_name,title,company,location,email,linkedin</p>
           <p style="margin-top:6px;"><strong>Bulk invite format:</strong> full_name,email</p>
+          <p style="margin-top:6px;"><strong>Invite All Sourced:</strong> only candidates with valid emails will receive invites.</p>
         </div>
         <div style="display:flex; gap:10px; flex-wrap:wrap;">
           <button id="downloadSampleBtn" class="btn btn-outline" type="button">Download Sample CSV</button>
@@ -803,6 +818,7 @@
         resumeUploadInput: document.getElementById("resumeUploadInput"),
         bulkInviteBtn: document.getElementById("bulkInviteBtn"),
         bulkInviteInput: document.getElementById("bulkInviteInput"),
+        inviteAllSourcedBtn: document.getElementById("inviteAllSourcedBtn"),
         downloadSampleBtn: document.getElementById("downloadSampleBtn"),
         downloadInviteSampleBtn: document.getElementById("downloadInviteSampleBtn"),
         searchInput: document.getElementById("searchInput"),
@@ -1299,33 +1315,6 @@
         URL.revokeObjectURL(url);
       }
 
-      function isValidEmail(email) {
-        return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(email || "").trim());
-      }
-
-      function generateInviteToken() {
-        return crypto.randomUUID().replace(/-/g, "") + Date.now().toString(36);
-      }
-
-      function buildInviteLink(token) {
-        return `${window.location.origin}/create-profile.html?invite=${encodeURIComponent(token)}`;
-      }
-
-      function openBulkInviteModal() {
-        els.bulkInviteModalBackdrop.classList.add("show");
-      }
-
-      function closeBulkInviteModal() {
-        els.bulkInviteModalBackdrop.classList.remove("show");
-      }
-
-      function resetBulkInviteResults() {
-        state.bulkInviteResults = [];
-        state.bulkInviteCsvText = "";
-        if (els.bulkInviteResults) els.bulkInviteResults.value = "";
-        if (els.bulkInviteInput) els.bulkInviteInput.value = "";
-      }
-
       function downloadInviteSampleCsv() {
         const sample = [
           "full_name,email",
@@ -1381,6 +1370,33 @@
         a.click();
         a.remove();
         URL.revokeObjectURL(url);
+      }
+
+      function isValidEmail(email) {
+        return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(email || "").trim());
+      }
+
+      function generateInviteToken() {
+        return crypto.randomUUID().replace(/-/g, "") + Date.now().toString(36);
+      }
+
+      function buildInviteLink(token) {
+        return `${window.location.origin}/create-profile.html?invite=${encodeURIComponent(token)}`;
+      }
+
+      function openBulkInviteModal() {
+        els.bulkInviteModalBackdrop.classList.add("show");
+      }
+
+      function closeBulkInviteModal() {
+        els.bulkInviteModalBackdrop.classList.remove("show");
+      }
+
+      function resetBulkInviteResults() {
+        state.bulkInviteResults = [];
+        state.bulkInviteCsvText = "";
+        if (els.bulkInviteResults) els.bulkInviteResults.value = "";
+        if (els.bulkInviteInput) els.bulkInviteInput.value = "";
       }
 
       async function protectPage() {
@@ -1469,6 +1485,38 @@
         return arr.map(role => `<span class="tag-pill">${escapeHtml(role)}</span>`).join("");
       }
 
+      function renderInviteButton(row) {
+        const hasEmail = !!String(row.email || "").trim();
+        const validEmail = isValidEmail(row.email || "");
+        const sourced = normalizeText(row.status) === "sourced";
+        const canInvite = sourced && hasEmail && validEmail;
+
+        if (!canInvite) {
+          let label = "Send Invite";
+          if (!hasEmail) label = "No Email";
+          else if (!validEmail) label = "Invalid Email";
+          else if (!sourced) label = "Not Sourced";
+
+          return `
+            <button class="btn btn-secondary btn-compact" type="button" disabled>
+              ${escapeHtml(label)}
+            </button>
+          `;
+        }
+
+        return `
+          <button
+            class="btn btn-secondary btn-compact send-invite-btn"
+            type="button"
+            data-id="${escapeHtml(row.pipeline_id)}"
+            data-name="${escapeHtml(row.full_name)}"
+            data-email="${escapeHtml(row.email)}"
+          >
+            Send Invite
+          </button>
+        `;
+      }
+
       function renderTable() {
         const rows = state.filteredRows;
 
@@ -1511,9 +1559,12 @@
               <td>${resume}</td>
               <td>${escapeHtml(row.notes || "-")}</td>
               <td>
-                <select class="table-select status-select" data-id="${escapeHtml(row.pipeline_id)}">
-                  ${statusOptions}
-                </select>
+                <div class="action-stack">
+                  <select class="table-select status-select" data-id="${escapeHtml(row.pipeline_id)}">
+                    ${statusOptions}
+                  </select>
+                  ${renderInviteButton(row)}
+                </div>
               </td>
             </tr>
           `;
@@ -1587,6 +1638,7 @@
 
             return {
               pipeline_id: r.id,
+              prospect_id: r.prospect_id,
               status: r.status,
               notes: r.notes,
               source: r.source,
@@ -2001,6 +2053,179 @@
         return data;
       }
 
+      async function sendInviteEmail({ full_name, email, inviteLink }) {
+        const { data, error } = await supabase.functions.invoke("send-buzzpool-invite", {
+          body: {
+            full_name,
+            email,
+            invite_link: inviteLink
+          }
+        });
+
+        if (error) {
+          throw new Error(error.message || "Failed to send invite email.");
+        }
+
+        if (data?.error) {
+          throw new Error(data.error);
+        }
+
+        return data;
+      }
+
+      async function sendSingleInvite({ pipelineId, full_name, email }) {
+        const cleanEmail = String(email || "").trim().toLowerCase();
+        const cleanName = String(full_name || "").trim();
+
+        if (!cleanEmail) {
+          showNotice("Candidate has no email.", "warning");
+          return;
+        }
+
+        if (!isValidEmail(cleanEmail)) {
+          showNotice("Invalid email format.", "warning");
+          return;
+        }
+
+        try {
+          const existingInvite = await getExistingActiveInvite(cleanEmail);
+          let inviteLink = "";
+
+          if (existingInvite?.invite_token) {
+            inviteLink = buildInviteLink(existingInvite.invite_token);
+          } else {
+            const prospect = await findOrCreateProspect({
+              full_name: cleanName,
+              email: cleanEmail
+            });
+
+            await ensurePipelineInviteStatus(prospect.prospect_id);
+
+            const invite = await createBuzzpoolInvite({
+              prospectId: prospect.prospect_id,
+              full_name: cleanName,
+              email: cleanEmail
+            });
+
+            inviteLink = buildInviteLink(invite.invite_token);
+          }
+
+          await sendInviteEmail({
+            full_name: cleanName,
+            email: cleanEmail,
+            inviteLink
+          });
+
+          await supabase
+            .from("prospect_pipeline")
+            .update({
+              status: "invite_sent",
+              updated_at: new Date().toISOString()
+            })
+            .eq("id", pipelineId);
+
+          showNotice("Invite email sent successfully.", "success");
+          await loadData();
+        } catch (err) {
+          console.error("Send invite error:", err);
+          showNotice(err.message || "Failed to send invite.", "error");
+        }
+      }
+
+      function getInvitableSourcedCandidates() {
+        return state.rows.filter((row) => {
+          const status = normalizeText(row.status);
+          const email = String(row.email || "").trim().toLowerCase();
+
+          return (
+            status === "sourced" &&
+            !!email &&
+            isValidEmail(email)
+          );
+        });
+      }
+
+      async function sendInviteToAllSourcedCandidates() {
+        const candidates = getInvitableSourcedCandidates();
+
+        if (!candidates.length) {
+          showNotice("No sourced candidates with valid emails found.", "warning");
+          return;
+        }
+
+        els.inviteAllSourcedBtn.disabled = true;
+        const originalText = els.inviteAllSourcedBtn.textContent;
+        els.inviteAllSourcedBtn.textContent = "Sending...";
+
+        let sentCount = 0;
+        let skippedCount = 0;
+        let errorCount = 0;
+
+        try {
+          for (const candidate of candidates) {
+            const email = String(candidate.email || "").trim().toLowerCase();
+            const full_name = String(candidate.full_name || "").trim();
+
+            try {
+              const existingInvite = await getExistingActiveInvite(email);
+              let inviteLink = "";
+
+              if (existingInvite?.invite_token) {
+                skippedCount++;
+                continue;
+              }
+
+              const prospect = await findOrCreateProspect({
+                full_name,
+                email
+              });
+
+              await ensurePipelineInviteStatus(prospect.prospect_id);
+
+              const invite = await createBuzzpoolInvite({
+                prospectId: prospect.prospect_id,
+                full_name,
+                email
+              });
+
+              inviteLink = buildInviteLink(invite.invite_token);
+
+              await sendInviteEmail({
+                full_name,
+                email,
+                inviteLink
+              });
+
+              await supabase
+                .from("prospect_pipeline")
+                .update({
+                  status: "invite_sent",
+                  updated_at: new Date().toISOString()
+                })
+                .eq("id", candidate.pipeline_id);
+
+              sentCount++;
+            } catch (rowError) {
+              console.error("Auto invite row error:", rowError);
+              errorCount++;
+            }
+          }
+
+          showNotice(
+            `Auto invite finished. Sent: ${sentCount}, Skipped: ${skippedCount}, Errors: ${errorCount}`,
+            sentCount > 0 ? "success" : "info"
+          );
+
+          await loadData();
+        } catch (err) {
+          console.error("Invite all sourced error:", err);
+          showNotice(err.message || "Failed to send sourced invites.", "error");
+        } finally {
+          els.inviteAllSourcedBtn.disabled = false;
+          els.inviteAllSourcedBtn.textContent = originalText;
+        }
+      }
+
       async function handleBulkInvite(file) {
         if (!file) return;
 
@@ -2170,13 +2395,69 @@
         await handleBulkUpload(file);
       });
 
+      els.bulkInviteBtn.addEventListener("click", () => {
+        resetBulkInviteResults();
+        openBulkInviteModal();
+      });
+
+      els.pickBulkInviteBtn.addEventListener("click", () => {
+        els.bulkInviteInput.click();
+      });
+
+      els.bulkInviteInput.addEventListener("change", async (e) => {
+        const file = e.target.files?.[0];
+        await handleBulkInvite(file);
+      });
+
+      els.inviteAllSourcedBtn.addEventListener("click", async () => {
+        const candidates = getInvitableSourcedCandidates();
+
+        if (!candidates.length) {
+          showNotice("No sourced candidates with valid emails found.", "warning");
+          return;
+        }
+
+        const confirmed = window.confirm(
+          `Send profile invites to ${candidates.length} sourced candidate(s) with valid emails?`
+        );
+
+        if (!confirmed) return;
+
+        await sendInviteToAllSourcedCandidates();
+      });
+
       els.downloadSampleBtn.addEventListener("click", downloadSampleCsv);
       els.downloadInviteSampleBtn.addEventListener("click", downloadInviteSampleCsv);
+      els.downloadBulkInviteResultsBtn.addEventListener("click", downloadBulkInviteResultsCsv);
 
       els.tableBody.addEventListener("change", async (e) => {
         const t = e.target;
         if (t.classList.contains("status-select")) {
           await updateStatus(t.dataset.id, t.value);
+        }
+      });
+
+      document.addEventListener("click", async (e) => {
+        const btn = e.target.closest(".send-invite-btn");
+        if (!btn) return;
+
+        const pipelineId = btn.dataset.id;
+        const full_name = btn.dataset.name;
+        const email = btn.dataset.email;
+
+        btn.disabled = true;
+        const originalText = btn.textContent;
+        btn.textContent = "Sending...";
+
+        try {
+          await sendSingleInvite({
+            pipelineId,
+            full_name,
+            email
+          });
+        } finally {
+          btn.disabled = false;
+          btn.textContent = originalText;
         }
       });
 
@@ -2207,20 +2488,6 @@
 
       els.saveResumeCandidateBtn.addEventListener("click", saveResumeCandidate);
 
-      els.bulkInviteBtn.addEventListener("click", () => {
-        resetBulkInviteResults();
-        openBulkInviteModal();
-      });
-
-      els.pickBulkInviteBtn.addEventListener("click", () => {
-        els.bulkInviteInput.click();
-      });
-
-      els.bulkInviteInput.addEventListener("change", async (e) => {
-        const file = e.target.files?.[0];
-        await handleBulkInvite(file);
-      });
-
       els.closeBulkInviteModalBtn.addEventListener("click", () => {
         closeBulkInviteModal();
       });
@@ -2230,8 +2497,6 @@
           closeBulkInviteModal();
         }
       });
-
-      els.downloadBulkInviteResultsBtn.addEventListener("click", downloadBulkInviteResultsCsv);
 
       const allowed = await protectPage();
       if (!allowed) return;
