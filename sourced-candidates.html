@@ -310,7 +310,16 @@
     }
 
     .status-sourced,
-    .status-reviewing {
+    .status-reviewing,
+    .status-invite_sent,
+    .status-invite-opened,
+    .status-invite_opened,
+    .status-profile_started,
+    .status-profile-started,
+    .status-profile_completed,
+    .status-profile-completed,
+    .status-marketplace_active,
+    .status-marketplace-active {
       background: #eef2ff;
       color: #4338ca;
       border-color: #c7d2fe;
@@ -477,6 +486,16 @@
       flex-wrap: wrap;
     }
 
+    code.inline-code {
+      background: #eff6ff;
+      border: 1px solid #bfdbfe;
+      color: #1d4ed8;
+      padding: 2px 8px;
+      border-radius: 999px;
+      font-size: 0.85rem;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+
     @media (max-width: 1200px) {
       .filters-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .resume-grid { grid-template-columns: 1fr; }
@@ -505,9 +524,11 @@
 
         <input type="file" id="bulkUploadInput" accept=".csv" hidden />
         <input type="file" id="resumeUploadInput" accept=".pdf,.doc,.docx" hidden />
+        <input type="file" id="bulkInviteInput" accept=".csv" hidden />
 
         <button id="uploadResumeBtn" class="btn btn-secondary" type="button">Upload Resume</button>
         <button id="bulkUploadBtn" class="btn btn-secondary" type="button">Bulk Upload</button>
+        <button id="bulkInviteBtn" class="btn btn-primary" type="button">Bulk Invite</button>
         <button id="refreshBtn" class="btn btn-primary" type="button">Refresh</button>
         <button id="logoutBtn" class="btn btn-danger" type="button">Logout</button>
       </div>
@@ -521,9 +542,11 @@
           <h2>Bulk Upload to BuzzPool</h2>
           <p>Import prospects from CSV and instantly add them into your talent pool.</p>
           <p style="margin-top:8px;"><strong>CSV format:</strong> full_name,title,company,location,email,linkedin</p>
+          <p style="margin-top:6px;"><strong>Bulk invite format:</strong> full_name,email</p>
         </div>
-        <div>
+        <div style="display:flex; gap:10px; flex-wrap:wrap;">
           <button id="downloadSampleBtn" class="btn btn-outline" type="button">Download Sample CSV</button>
+          <button id="downloadInviteSampleBtn" class="btn btn-outline" type="button">Download Invite CSV</button>
         </div>
       </div>
     </div>
@@ -684,15 +707,61 @@
     </div>
   </div>
 
+  <div id="bulkInviteModalBackdrop" class="modal-backdrop">
+    <div class="modal">
+      <div class="modal-header">
+        <div>
+          <h2 class="modal-title">Bulk Invite to Buzzpool</h2>
+          <p class="modal-subtitle">Upload a CSV with full_name and email to generate Buzzpool invite links.</p>
+        </div>
+        <button id="closeBulkInviteModalBtn" class="icon-btn" type="button">&times;</button>
+      </div>
+
+      <div class="upload-dropzone">
+        <strong>Invite format</strong><br />
+        Use this CSV format: <span class="inline-code">full_name,email</span>
+      </div>
+
+      <div class="field" style="margin-bottom:16px;">
+        <label for="bulkInviteResults">Invite Results</label>
+        <textarea
+          id="bulkInviteResults"
+          rows="14"
+          readonly
+          placeholder="No invite upload yet."
+        ></textarea>
+      </div>
+
+      <div class="modal-actions">
+        <button id="pickBulkInviteBtn" class="btn btn-outline" type="button">Choose CSV</button>
+        <button id="downloadBulkInviteResultsBtn" class="btn btn-secondary" type="button">Download Results</button>
+      </div>
+    </div>
+  </div>
+
   <script>
     document.addEventListener("DOMContentLoaded", async () => {
       const SUPABASE_URL = "https://dilalntcxmvdcmwxjcct.supabase.co";
-      const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRpbGFsbnRjeG12ZGNtd3hqY2N0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM4OTk4NTQsImV4cCI6MjA4OTQ3NTg1NH0.nlltxL-K-b0tsge2UR3VPPE0ZBPADuCY8pU_G_Ygmkw";
+      const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJIUzI1NiIsInR5cCI6IkpXVCJ9";
       const RESUME_BUCKET = "resumes";
 
       const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-      const STATUS_OPTIONS = ["sourced", "reviewing", "shortlisted", "contacted", "endorsed", "interview", "rejected", "archived"];
+      const STATUS_OPTIONS = [
+        "sourced",
+        "invite_sent",
+        "invite_opened",
+        "profile_started",
+        "profile_completed",
+        "marketplace_active",
+        "reviewing",
+        "shortlisted",
+        "contacted",
+        "endorsed",
+        "interview",
+        "rejected",
+        "archived"
+      ];
 
       const ROLE_KEYWORDS = [
         { role: "Customer Service Representative", keywords: ["customer service", "csr", "call center", "customer support", "inbound", "outbound", "voice", "non-voice"] },
@@ -717,7 +786,9 @@
         uploadedResumeFile: null,
         extractedResumeText: "",
         parsedCandidate: null,
-        prospectsHasResumeColumns: false
+        prospectsHasResumeColumns: false,
+        bulkInviteResults: [],
+        bulkInviteCsvText: ""
       };
 
       const els = {
@@ -729,7 +800,10 @@
         bulkUploadInput: document.getElementById("bulkUploadInput"),
         uploadResumeBtn: document.getElementById("uploadResumeBtn"),
         resumeUploadInput: document.getElementById("resumeUploadInput"),
+        bulkInviteBtn: document.getElementById("bulkInviteBtn"),
+        bulkInviteInput: document.getElementById("bulkInviteInput"),
         downloadSampleBtn: document.getElementById("downloadSampleBtn"),
+        downloadInviteSampleBtn: document.getElementById("downloadInviteSampleBtn"),
         searchInput: document.getElementById("searchInput"),
         jobFilter: document.getElementById("jobFilter"),
         clientFilter: document.getElementById("clientFilter"),
@@ -756,7 +830,13 @@
         candidateLocation: document.getElementById("candidateLocation"),
         candidateTopMatch: document.getElementById("candidateTopMatch"),
         candidateNotes: document.getElementById("candidateNotes"),
-        suggestedRolesWrap: document.getElementById("suggestedRolesWrap")
+        suggestedRolesWrap: document.getElementById("suggestedRolesWrap"),
+
+        bulkInviteModalBackdrop: document.getElementById("bulkInviteModalBackdrop"),
+        closeBulkInviteModalBtn: document.getElementById("closeBulkInviteModalBtn"),
+        pickBulkInviteBtn: document.getElementById("pickBulkInviteBtn"),
+        bulkInviteResults: document.getElementById("bulkInviteResults"),
+        downloadBulkInviteResultsBtn: document.getElementById("downloadBulkInviteResultsBtn")
       };
 
       function normalizeText(value) {
@@ -1209,6 +1289,90 @@
         URL.revokeObjectURL(url);
       }
 
+      function isValidEmail(email) {
+        return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(email || "").trim());
+      }
+
+      function generateInviteToken() {
+        return crypto.randomUUID().replace(/-/g, "") + Date.now().toString(36);
+      }
+
+      function buildInviteLink(token) {
+        return `${window.location.origin}/create-profile.html?invite=${encodeURIComponent(token)}`;
+      }
+
+      function openBulkInviteModal() {
+        els.bulkInviteModalBackdrop.classList.add("show");
+      }
+
+      function closeBulkInviteModal() {
+        els.bulkInviteModalBackdrop.classList.remove("show");
+      }
+
+      function resetBulkInviteResults() {
+        state.bulkInviteResults = [];
+        state.bulkInviteCsvText = "";
+        if (els.bulkInviteResults) els.bulkInviteResults.value = "";
+        if (els.bulkInviteInput) els.bulkInviteInput.value = "";
+      }
+
+      function downloadInviteSampleCsv() {
+        const sample = [
+          "full_name,email",
+          "Juan Dela Cruz,juan@email.com",
+          "Maria Santos,maria@email.com"
+        ].join("\n");
+
+        const blob = new Blob([sample], { type: "text/csv;charset=utf-8;" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = "buzzpool-invite-sample.csv";
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+      }
+
+      function downloadBulkInviteResultsCsv() {
+        const rows = state.bulkInviteResults || [];
+        if (!rows.length) {
+          showNotice("No bulk invite results to download yet.", "warning");
+          return;
+        }
+
+        const header = ["full_name", "email", "status", "invite_link", "notes"];
+
+        const escapeCsv = (value) => {
+          const str = String(value || "");
+          if (/[",\n]/.test(str)) {
+            return `"${str.replace(/"/g, '""')}"`;
+          }
+          return str;
+        };
+
+        const csv = [
+          header.join(","),
+          ...rows.map((row) => [
+            escapeCsv(row.full_name),
+            escapeCsv(row.email),
+            escapeCsv(row.status),
+            escapeCsv(row.invite_link),
+            escapeCsv(row.notes)
+          ].join(","))
+        ].join("\n");
+
+        const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = "buzzpool-bulk-invite-results.csv";
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+      }
+
       async function protectPage() {
         const { data: { session } } = await supabase.auth.getSession();
         if (!session?.user) {
@@ -1375,7 +1539,9 @@
                 personal_email,
                 phone,
                 suggested_roles,
-                top_match_role
+                top_match_role,
+                resume_url,
+                resume_path
               ),
               jobs (
                 id,
@@ -1674,6 +1840,262 @@
         }
       }
 
+      async function findOrCreateProspect({ full_name, email }) {
+        const cleanEmail = String(email || "").trim().toLowerCase();
+        const cleanName = String(full_name || "").trim();
+
+        const { data: existingProspect, error: existingError } = await supabase
+          .from("prospects")
+          .select("id, full_name, personal_email")
+          .eq("personal_email", cleanEmail)
+          .maybeSingle();
+
+        if (existingError) throw existingError;
+
+        if (existingProspect?.id) {
+          return {
+            prospect_id: existingProspect.id,
+            created: false
+          };
+        }
+
+        const prospectId = crypto.randomUUID();
+
+        const { error: insertError } = await supabase
+          .from("prospects")
+          .insert({
+            id: prospectId,
+            full_name: cleanName,
+            personal_email: cleanEmail
+          });
+
+        if (insertError) throw insertError;
+
+        return {
+          prospect_id: prospectId,
+          created: true
+        };
+      }
+
+      async function getExistingActiveInvite(email) {
+        const cleanEmail = String(email || "").trim().toLowerCase();
+
+        const { data, error } = await supabase
+          .from("buzzpool_invites")
+          .select("id, invite_token, invite_status")
+          .eq("invite_email", cleanEmail)
+          .in("invite_status", ["invite_sent", "invite_opened", "profile_started"])
+          .limit(1)
+          .maybeSingle();
+
+        if (error) throw error;
+        return data || null;
+      }
+
+      async function ensurePipelineInviteStatus(prospectId) {
+        const { data: existing, error: existingError } = await supabase
+          .from("prospect_pipeline")
+          .select("id, status")
+          .eq("prospect_id", prospectId)
+          .limit(1)
+          .maybeSingle();
+
+        if (existingError) throw existingError;
+
+        if (existing?.id) {
+          const { error: updateError } = await supabase
+            .from("prospect_pipeline")
+            .update({
+              status: "invite_sent",
+              recruiter_email: state.sessionUser?.email || null,
+              source: "bulk_invite",
+              updated_at: new Date().toISOString()
+            })
+            .eq("id", existing.id);
+
+          if (updateError) throw updateError;
+          return existing.id;
+        }
+
+        const { error: insertError } = await supabase
+          .from("prospect_pipeline")
+          .insert({
+            prospect_id: prospectId,
+            status: "invite_sent",
+            recruiter_email: state.sessionUser?.email || null,
+            notes: "Added via BuzzPool bulk invite",
+            source: "bulk_invite",
+            match_score: 0,
+            location_rank: 0
+          });
+
+        if (insertError) throw insertError;
+        return null;
+      }
+
+      async function createBuzzpoolInvite({ prospectId, full_name, email }) {
+        const token = generateInviteToken();
+
+        const { data, error } = await supabase
+          .from("buzzpool_invites")
+          .insert({
+            prospect_id: prospectId,
+            full_name: String(full_name || "").trim(),
+            invite_email: String(email || "").trim().toLowerCase(),
+            recruiter_email: state.sessionUser?.email || null,
+            invite_token: token,
+            invite_status: "invite_sent",
+            notes: "Generated via bulk invite",
+            sent_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          })
+          .select("id, invite_token, invite_status")
+          .single();
+
+        if (error) throw error;
+        return data;
+      }
+
+      async function handleBulkInvite(file) {
+        if (!file) return;
+
+        const fileName = file.name || "";
+        if (!fileName.toLowerCase().endsWith(".csv")) {
+          showNotice("Please upload a CSV file only.", "warning");
+          return;
+        }
+
+        resetBulkInviteResults();
+        openBulkInviteModal();
+
+        els.bulkInviteBtn.disabled = true;
+        els.bulkInviteBtn.textContent = "Processing...";
+
+        try {
+          const text = await file.text();
+          state.bulkInviteCsvText = text;
+
+          const parsed = parseCsv(text);
+          const headers = parsed.headers || [];
+          const rows = parsed.rows || [];
+
+          const requiredHeaders = ["full_name", "email"];
+          const missingHeaders = requiredHeaders.filter((h) => !headers.includes(h));
+
+          if (missingHeaders.length) {
+            throw new Error(`Missing required CSV column(s): ${missingHeaders.join(", ")}`);
+          }
+
+          if (!rows.length) {
+            throw new Error("The CSV file has no data rows.");
+          }
+
+          const results = [];
+
+          for (const row of rows) {
+            const full_name = String(row.full_name || "").trim();
+            const email = String(row.email || "").trim().toLowerCase();
+
+            if (!full_name || !email) {
+              results.push({
+                full_name,
+                email,
+                status: "skipped_missing_fields",
+                invite_link: "",
+                notes: "Missing full_name or email"
+              });
+              continue;
+            }
+
+            if (!isValidEmail(email)) {
+              results.push({
+                full_name,
+                email,
+                status: "skipped_invalid_email",
+                invite_link: "",
+                notes: "Invalid email format"
+              });
+              continue;
+            }
+
+            try {
+              const existingInvite = await getExistingActiveInvite(email);
+
+              if (existingInvite?.invite_token) {
+                results.push({
+                  full_name,
+                  email,
+                  status: "already_invited",
+                  invite_link: buildInviteLink(existingInvite.invite_token),
+                  notes: existingInvite.invite_status
+                });
+                continue;
+              }
+
+              const prospect = await findOrCreateProspect({ full_name, email });
+              await ensurePipelineInviteStatus(prospect.prospect_id);
+
+              const invite = await createBuzzpoolInvite({
+                prospectId: prospect.prospect_id,
+                full_name,
+                email
+              });
+
+              results.push({
+                full_name,
+                email,
+                status: prospect.created ? "invite_created_new_prospect" : "invite_created_existing_prospect",
+                invite_link: buildInviteLink(invite.invite_token),
+                notes: invite.invite_status
+              });
+            } catch (rowError) {
+              results.push({
+                full_name,
+                email,
+                status: "error",
+                invite_link: "",
+                notes: rowError.message || "Unknown error"
+              });
+            }
+          }
+
+          state.bulkInviteResults = results;
+
+          els.bulkInviteResults.value = results.map((item) => {
+            return [
+              `Name: ${item.full_name || "-"}`,
+              `Email: ${item.email || "-"}`,
+              `Status: ${item.status || "-"}`,
+              `Invite Link: ${item.invite_link || "-"}`,
+              `Notes: ${item.notes || "-"}`,
+              "------------------------------"
+            ].join("\n");
+          }).join("\n");
+
+          const createdCount = results.filter((r) => String(r.status).startsWith("invite_created")).length;
+          const existingCount = results.filter((r) => r.status === "already_invited").length;
+          const invalidCount = results.filter((r) => String(r.status).startsWith("skipped")).length;
+          const errorCount = results.filter((r) => r.status === "error").length;
+
+          showNotice(
+            `Bulk invite finished. Created: ${createdCount}, Already invited: ${existingCount}, Skipped: ${invalidCount}, Errors: ${errorCount}`,
+            createdCount > 0 ? "success" : "info"
+          );
+
+          await loadData();
+        } catch (err) {
+          console.error("Bulk invite error:", err);
+          showNotice(err.message || "Bulk invite failed.", "error");
+          if (els.bulkInviteResults) {
+            els.bulkInviteResults.value = err.message || "Bulk invite failed.";
+          }
+        } finally {
+          els.bulkInviteBtn.disabled = false;
+          els.bulkInviteBtn.textContent = "Bulk Invite";
+          els.bulkInviteInput.value = "";
+        }
+      }
+
       els.searchInput.addEventListener("input", applyFilters);
       els.jobFilter.addEventListener("change", applyFilters);
       els.clientFilter.addEventListener("change", applyFilters);
@@ -1704,6 +2126,7 @@
       });
 
       els.downloadSampleBtn.addEventListener("click", downloadSampleCsv);
+      els.downloadInviteSampleBtn.addEventListener("click", downloadInviteSampleCsv);
 
       els.tableBody.addEventListener("change", async (e) => {
         const t = e.target;
@@ -1738,6 +2161,32 @@
       });
 
       els.saveResumeCandidateBtn.addEventListener("click", saveResumeCandidate);
+
+      els.bulkInviteBtn.addEventListener("click", () => {
+        resetBulkInviteResults();
+        openBulkInviteModal();
+      });
+
+      els.pickBulkInviteBtn.addEventListener("click", () => {
+        els.bulkInviteInput.click();
+      });
+
+      els.bulkInviteInput.addEventListener("change", async (e) => {
+        const file = e.target.files?.[0];
+        await handleBulkInvite(file);
+      });
+
+      els.closeBulkInviteModalBtn.addEventListener("click", () => {
+        closeBulkInviteModal();
+      });
+
+      els.bulkInviteModalBackdrop.addEventListener("click", (e) => {
+        if (e.target === els.bulkInviteModalBackdrop) {
+          closeBulkInviteModal();
+        }
+      });
+
+      els.downloadBulkInviteResultsBtn.addEventListener("click", downloadBulkInviteResultsCsv);
 
       const allowed = await protectPage();
       if (!allowed) return;
