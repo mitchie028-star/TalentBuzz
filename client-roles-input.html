@@ -642,7 +642,7 @@
       right: 24px;
       bottom: 24px;
       min-width: 260px;
-      max-width: 440px;
+      max-width: 520px;
       border-radius: 18px;
       padding: 14px 16px;
       border: 1px solid var(--soft-line);
@@ -654,6 +654,7 @@
       transform: translateY(10px);
       transition: 0.2s ease;
       z-index: 999;
+      white-space: pre-wrap;
     }
 
     .notice.show {
@@ -813,7 +814,7 @@
                       <div class="field field-full">
                         <label for="jdUpload">Upload JD File</label>
                         <input id="jdUpload" type="file" accept=".txt,.md,.docx,.pdf" />
-                        <div class="helper">Best results: structured JD with headings like Requirements, Nice to Have, Non-Negotiables, or Preferred Qualifications.</div>
+                        <div class="helper">Best results: text PDF, DOCX, TXT, or pasted JD text. If the PDF is image-based or scanned, paste mode is more reliable.</div>
                       </div>
 
                       <div class="field field-full">
@@ -1179,7 +1180,7 @@ Fill in the role fields and click “Refresh Preview”.
               <br /><br />
 
               <strong>JD Upload + Parse</strong><br />
-              Upload or paste a JD and auto-fill key fields so recruiters start from a strong draft.
+              Upload or paste a JD and auto-fill key fields so recruiters start from a stronger draft.
               <br /><br />
 
               <strong>Non-Negotiables + Red Flags</strong><br />
@@ -1271,7 +1272,7 @@ Fill in the role fields and click “Refresh Preview”.
       window.clearTimeout(showNotice._timer);
       showNotice._timer = window.setTimeout(() => {
         els.notice.className = "notice";
-      }, 3200);
+      }, 4200);
     }
 
     function safeText(value) {
@@ -1297,7 +1298,7 @@ Fill in the role fields and click “Refresh Preview”.
     function buildRequirementBullets(text) {
       const lines = normalizeLines(text);
       if (!lines.length) return "Not specified";
-      return lines.map(line => `- ${line.replace(/^-\s*/, "")}`).join("\n");
+      return lines.map(line => `- ${line.replace(/^[-•*]\s*/, "")}`).join("\n");
     }
 
     function cleanListLines(lines = []) {
@@ -1323,7 +1324,7 @@ Fill in the role fields and click “Refresh Preview”.
     function extractSectionByHeading(text, headings = []) {
       const escaped = headings.map(h => h.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
       const pattern = new RegExp(
-        `(?:^|\\n)\\s*(?:${escaped.join("|")})\\s*:?\\s*\\n([\\s\\S]*?)(?=\\n\\s*[A-Z][A-Za-z /&()-]{2,40}\\s*:?\\s*\\n|$)`,
+        `(?:^|\\n)\\s*(?:${escaped.join("|")})\\s*:?\\s*\\n([\\s\\S]*?)(?=\\n\\s*[A-Z][A-Za-z /&()\\-]{2,60}\\s*:?\\s*\\n|$)`,
         "i"
       );
       const match = text.match(pattern);
@@ -1340,7 +1341,7 @@ Fill in the role fields and click “Refresh Preview”.
       const lines = splitIntoLines(text).slice(0, 12);
       const candidates = lines.filter(line =>
         line.length >= 4 &&
-        line.length <= 90 &&
+        line.length <= 100 &&
         !/^(about|overview|responsibilities|required|requirements|qualifications|preferred|nice to have|job summary)$/i.test(line)
       );
       return candidates[0] || "";
@@ -1348,7 +1349,7 @@ Fill in the role fields and click “Refresh Preview”.
 
     function detectOverviewFromText(text) {
       const overview =
-        extractSectionByHeading(text, ["Job Summary", "Role Overview", "Overview", "About the Role", "Position Summary"]) ||
+        extractSectionByHeading(text, ["Job Summary", "Role Overview", "Overview", "About the Role", "Position Summary", "Summary"]) ||
         splitIntoLines(text).slice(0, 8).join("\n");
       return safeText(overview);
     }
@@ -1364,9 +1365,9 @@ Fill in the role fields and click “Refresh Preview”.
 
       if (directSection.length) return directSection;
 
-      return requiredSkills.filter(line =>
-        /must|required|mandatory|minimum|proven|hands[- ]on|willing/i.test(line)
-      );
+      return uniqueLines(requiredSkills.filter(line =>
+        /must|required|mandatory|minimum|proven|hands[- ]on|willing|at least/i.test(line)
+      ));
     }
 
     function inferRedFlags(fullText = "") {
@@ -1414,7 +1415,8 @@ Fill in the role fields and click “Refresh Preview”.
         "Qualifications",
         "Minimum Qualifications",
         "What We're Looking For",
-        "What We Are Looking For"
+        "What We Are Looking For",
+        "Essential Qualifications"
       ]);
 
       if (direct.length) return direct;
@@ -1433,7 +1435,7 @@ Fill in the role fields and click “Refresh Preview”.
       requiredSkills.forEach(line => {
         const isCritical =
           nonNegotiables.some(nn => line.toLowerCase().includes(nn.toLowerCase())) ||
-          /must|mandatory|required|hands[- ]on|expert|strong/i.test(line);
+          /must|mandatory|required|hands[- ]on|expert|strong|at least/i.test(line);
 
         boosted.push(isCritical ? `${line} - Critical` : `${line} - High`);
       });
@@ -1497,14 +1499,25 @@ Fill in the role fields and click “Refresh Preview”.
 
     async function extractTextFromPdf(file) {
       const arrayBuffer = await file.arrayBuffer();
-      const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+
+      const loadingTask = pdfjsLib.getDocument({
+        data: arrayBuffer,
+        useWorkerFetch: true,
+        isEvalSupported: false
+      });
+
+      const pdf = await loadingTask.promise;
       let text = "";
 
       for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
         const page = await pdf.getPage(pageNum);
-        const content = await page.getTextContent();
+        const content = await page.getTextContent({ normalizeWhitespace: true });
         const pageText = content.items.map(item => item.str).join(" ");
         text += pageText + "\n\n";
+      }
+
+      if (!safeText(text)) {
+        throw new Error("PDF text extraction returned empty. The PDF may be scanned or image-based.");
       }
 
       return text;
@@ -1513,7 +1526,13 @@ Fill in the role fields and click “Refresh Preview”.
     async function extractTextFromDocx(file) {
       const arrayBuffer = await file.arrayBuffer();
       const result = await window.mammoth.extractRawText({ arrayBuffer });
-      return result.value || "";
+      const text = result.value || "";
+
+      if (!safeText(text)) {
+        throw new Error("DOCX extraction returned empty text.");
+      }
+
+      return text;
     }
 
     async function getJDTextFromInput() {
@@ -1526,7 +1545,11 @@ Fill in the role fields and click “Refresh Preview”.
       const name = file.name.toLowerCase();
 
       if (name.endsWith(".txt") || name.endsWith(".md")) {
-        return await file.text();
+        const text = await file.text();
+        if (!safeText(text)) {
+          throw new Error("The uploaded text file is empty.");
+        }
+        return text;
       }
 
       if (name.endsWith(".docx")) {
@@ -1537,7 +1560,7 @@ Fill in the role fields and click “Refresh Preview”.
         return await extractTextFromPdf(file);
       }
 
-      return "";
+      throw new Error("Unsupported file type. Use PDF, DOCX, TXT, or pasted JD text.");
     }
 
     function getSignalCalibrationPayload() {
@@ -1656,16 +1679,33 @@ Fill in the role fields and click “Refresh Preview”.
     async function handleParseJD() {
       try {
         const text = await getJDTextFromInput();
+
+        console.log("JD TEXT LENGTH:", text ? text.length : 0);
+        console.log("JD TEXT SAMPLE:", (text || "").slice(0, 300));
+
         if (!safeText(text)) {
-          showNotice("Please upload a JD file or paste JD text first.", "error");
+          if (safeText(els.jdRawText.value)) {
+            const parsedFromPaste = parseJDTextToFields(els.jdRawText.value);
+            applyParsedJDToForm(parsedFromPaste);
+            showNotice("Using pasted JD text.");
+            return;
+          }
+
+          showNotice("JD text could not be extracted. Try paste mode or a different file.", "error");
           return;
         }
 
         const parsed = parseJDTextToFields(text);
+
+        if (!parsed) {
+          showNotice("JD parsed but no usable structure was detected.", "error");
+          return;
+        }
+
         applyParsedJDToForm(parsed);
       } catch (error) {
-        console.error("JD parse error:", error);
-        showNotice("Failed to parse JD file.", "error");
+        console.error("FULL JD ERROR:", error);
+        showNotice(`Failed to parse JD file: ${error?.message || "Unknown error"}`, "error");
       }
     }
 
