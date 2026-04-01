@@ -6,6 +6,12 @@
   <title>Client Roles Input | TalentBuzz</title>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.4.168/pdf.min.js"></script>
+  <script>
+    pdfjsLib.GlobalWorkerOptions.workerSrc =
+      "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.4.168/pdf.worker.min.js";
+  </script>
+  <script src="https://unpkg.com/mammoth@1.8.0/mammoth.browser.min.js"></script>
 
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -404,6 +410,7 @@
       font-weight: 700;
     }
 
+    .jd-panel,
     .signal-panel,
     .screening-panel {
       margin-top: 22px;
@@ -792,7 +799,38 @@
                 <button class="ghost-btn" id="generateSummaryBtn" type="button">Generate Summary</button>
               </div>
 
-              <div class="section-title">
+              <div class="jd-panel">
+                <div class="panel" style="background: rgba(255,255,255,0.03); border-radius:20px;">
+                  <div class="panel-inner" style="padding:18px;">
+                    <div class="section-title" style="margin-bottom:12px;">
+                      <div>
+                        <h3>JD Upload + Parse</h3>
+                        <p>Upload a job description and auto-fill priorities, nice-to-haves, non-negotiables, and deal breakers.</p>
+                      </div>
+                    </div>
+
+                    <div class="form-grid">
+                      <div class="field field-full">
+                        <label for="jdUpload">Upload JD File</label>
+                        <input id="jdUpload" type="file" accept=".txt,.md,.docx,.pdf" />
+                        <div class="helper">Best results: structured JD with headings like Requirements, Nice to Have, Non-Negotiables, or Preferred Qualifications.</div>
+                      </div>
+
+                      <div class="field field-full">
+                        <label for="jdRawText">Or Paste JD Text</label>
+                        <textarea id="jdRawText" placeholder="Paste the JD here if you do not want to upload a file."></textarea>
+                      </div>
+                    </div>
+
+                    <div class="top-actions" style="margin-top:12px;">
+                      <button class="signal-btn" type="button" id="parseJDBtn">Parse JD</button>
+                      <button class="ghost-btn" type="button" id="clearJDBtn">Clear JD Input</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="section-title" style="margin-top:22px;">
                 <div>
                   <h3>Role Intake Form</h3>
                   <p>Create or update roles using a cleaner recruiter workflow.</p>
@@ -1140,12 +1178,12 @@ Fill in the role fields and click “Refresh Preview”.
               Recruiters define what actually matters in the role instead of relying only on the JD.
               <br /><br />
 
-              <strong>Non-Negotiables + Red Flags</strong><br />
-              This creates sharper filtering logic and better candidate questioning.
+              <strong>JD Upload + Parse</strong><br />
+              Upload or paste a JD and auto-fill key fields so recruiters start from a strong draft.
               <br /><br />
 
-              <strong>Importance Weighting</strong><br />
-              Must-have items can be scored by importance so screening depth becomes intentional.
+              <strong>Non-Negotiables + Red Flags</strong><br />
+              This creates sharper filtering logic and better candidate questioning.
               <br /><br />
 
               <strong>Better Navigation</strong><br />
@@ -1180,6 +1218,11 @@ Fill in the role fields and click “Refresh Preview”.
       requirements: document.getElementById("requirements"),
       prioritySkills: document.getElementById("prioritySkills"),
       niceToHaveSkills: document.getElementById("niceToHaveSkills"),
+
+      jdUpload: document.getElementById("jdUpload"),
+      jdRawText: document.getElementById("jdRawText"),
+      parseJDBtn: document.getElementById("parseJDBtn"),
+      clearJDBtn: document.getElementById("clearJDBtn"),
 
       signalNonNegotiables: document.getElementById("signalNonNegotiables"),
       signalRedFlags: document.getElementById("signalRedFlags"),
@@ -1257,6 +1300,246 @@ Fill in the role fields and click “Refresh Preview”.
       return lines.map(line => `- ${line.replace(/^-\s*/, "")}`).join("\n");
     }
 
+    function cleanListLines(lines = []) {
+      return lines
+        .map(line => safeText(line)
+          .replace(/^[-•*]\s*/, "")
+          .replace(/^\d+[\).\s-]+/, "")
+        )
+        .filter(Boolean);
+    }
+
+    function uniqueLines(lines = []) {
+      return [...new Set(cleanListLines(lines))];
+    }
+
+    function splitIntoLines(text) {
+      return safeText(text)
+        .split(/\r?\n/)
+        .map(line => line.trim())
+        .filter(Boolean);
+    }
+
+    function extractSectionByHeading(text, headings = []) {
+      const escaped = headings.map(h => h.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+      const pattern = new RegExp(
+        `(?:^|\\n)\\s*(?:${escaped.join("|")})\\s*:?\\s*\\n([\\s\\S]*?)(?=\\n\\s*[A-Z][A-Za-z /&()-]{2,40}\\s*:?\\s*\\n|$)`,
+        "i"
+      );
+      const match = text.match(pattern);
+      return match ? safeText(match[1]) : "";
+    }
+
+    function extractBulletsFromSection(text, headings = []) {
+      const section = extractSectionByHeading(text, headings);
+      if (!section) return [];
+      return uniqueLines(splitIntoLines(section));
+    }
+
+    function detectTitleFromText(text) {
+      const lines = splitIntoLines(text).slice(0, 12);
+      const candidates = lines.filter(line =>
+        line.length >= 4 &&
+        line.length <= 90 &&
+        !/^(about|overview|responsibilities|required|requirements|qualifications|preferred|nice to have|job summary)$/i.test(line)
+      );
+      return candidates[0] || "";
+    }
+
+    function detectOverviewFromText(text) {
+      const overview =
+        extractSectionByHeading(text, ["Job Summary", "Role Overview", "Overview", "About the Role", "Position Summary"]) ||
+        splitIntoLines(text).slice(0, 8).join("\n");
+      return safeText(overview);
+    }
+
+    function inferNonNegotiables(requiredSkills = [], fullText = "") {
+      const directSection = extractBulletsFromSection(fullText, [
+        "Non-Negotiables",
+        "Must Have",
+        "Must-Have",
+        "Mandatory Requirements",
+        "Minimum Qualifications"
+      ]);
+
+      if (directSection.length) return directSection;
+
+      return requiredSkills.filter(line =>
+        /must|required|mandatory|minimum|proven|hands[- ]on|willing/i.test(line)
+      );
+    }
+
+    function inferRedFlags(fullText = "") {
+      const directSection = extractBulletsFromSection(fullText, [
+        "Deal Breakers",
+        "Red Flags",
+        "Disqualifiers",
+        "What will not work"
+      ]);
+
+      if (directSection.length) return directSection;
+
+      const lines = splitIntoLines(fullText);
+      return uniqueLines(
+        lines.filter(line =>
+          /not suitable|will not consider|disqualif|must not|no experience in|unable to|cannot/i.test(line)
+        )
+      );
+    }
+
+    function inferNiceToHave(fullText = "") {
+      const direct = extractBulletsFromSection(fullText, [
+        "Nice to Have",
+        "Nice-to-Have",
+        "Preferred Qualifications",
+        "Preferred Skills",
+        "Good to Have",
+        "Preferred"
+      ]);
+
+      if (direct.length) return direct;
+
+      const lines = splitIntoLines(fullText);
+      return uniqueLines(
+        lines.filter(line =>
+          /preferred|nice to have|good to have|plus|bonus/i.test(line)
+        )
+      );
+    }
+
+    function inferRequiredSkills(fullText = "") {
+      const direct = extractBulletsFromSection(fullText, [
+        "Requirements",
+        "Required Skills",
+        "Qualifications",
+        "Minimum Qualifications",
+        "What We're Looking For",
+        "What We Are Looking For"
+      ]);
+
+      if (direct.length) return direct;
+
+      const lines = splitIntoLines(fullText);
+      return uniqueLines(
+        lines.filter(line =>
+          /experience|skill|proficien|knowledge|ability|must|required|hands[- ]on/i.test(line)
+        )
+      ).slice(0, 15);
+    }
+
+    function rankPrioritySkills(requiredSkills = [], nonNegotiables = []) {
+      const boosted = [];
+
+      requiredSkills.forEach(line => {
+        const isCritical =
+          nonNegotiables.some(nn => line.toLowerCase().includes(nn.toLowerCase())) ||
+          /must|mandatory|required|hands[- ]on|expert|strong/i.test(line);
+
+        boosted.push(isCritical ? `${line} - Critical` : `${line} - High`);
+      });
+
+      return uniqueLines(boosted).slice(0, 12);
+    }
+
+    function buildAIScreeningConfigFromJD(text, parsed) {
+      return {
+        source: "jd_upload_parse",
+        parsed_at: new Date().toISOString(),
+        source_length: text.length,
+        non_negotiables: parsed.nonNegotiables,
+        red_flags: parsed.redFlags,
+        must_have_skills: parsed.prioritySkills,
+        success_signals: [],
+        setup_criticality: parsed.workSetup ? "High" : "",
+        environment_notes: "",
+        communication_weight: "",
+        stakeholder_weight: "",
+        autonomy_level: "",
+        decision_making: "",
+        business_priorities: []
+      };
+    }
+
+    function parseJDTextToFields(text) {
+      const safe = safeText(text);
+      if (!safe) return null;
+
+      const title = detectTitleFromText(safe);
+      const overview = detectOverviewFromText(safe);
+      const requiredSkills = inferRequiredSkills(safe);
+      const niceToHave = inferNiceToHave(safe);
+      const nonNegotiables = inferNonNegotiables(requiredSkills, safe);
+      const redFlags = inferRedFlags(safe);
+
+      const workSetupMatch = safe.match(/\b(remote|hybrid|onsite|on-site)\b/i);
+      const employmentTypeMatch = safe.match(/\b(full[- ]time|part[- ]time|contract|project[- ]based|consulting)\b/i);
+
+      const prioritySkills = rankPrioritySkills(requiredSkills, nonNegotiables);
+
+      return {
+        title,
+        overview,
+        requiredSkills,
+        prioritySkills,
+        niceToHave,
+        nonNegotiables,
+        redFlags,
+        workSetup: workSetupMatch ? workSetupMatch[1].replace(/on-site/i, "Onsite") : "",
+        employmentType: employmentTypeMatch ? employmentTypeMatch[1] : "",
+        aiScreeningConfig: buildAIScreeningConfigFromJD(safe, {
+          nonNegotiables,
+          redFlags,
+          prioritySkills,
+          workSetup: workSetupMatch ? workSetupMatch[1] : ""
+        })
+      };
+    }
+
+    async function extractTextFromPdf(file) {
+      const arrayBuffer = await file.arrayBuffer();
+      const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+      let text = "";
+
+      for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+        const page = await pdf.getPage(pageNum);
+        const content = await page.getTextContent();
+        const pageText = content.items.map(item => item.str).join(" ");
+        text += pageText + "\n\n";
+      }
+
+      return text;
+    }
+
+    async function extractTextFromDocx(file) {
+      const arrayBuffer = await file.arrayBuffer();
+      const result = await window.mammoth.extractRawText({ arrayBuffer });
+      return result.value || "";
+    }
+
+    async function getJDTextFromInput() {
+      const pastedText = safeText(els.jdRawText.value);
+      if (pastedText) return pastedText;
+
+      const file = els.jdUpload.files?.[0];
+      if (!file) return "";
+
+      const name = file.name.toLowerCase();
+
+      if (name.endsWith(".txt") || name.endsWith(".md")) {
+        return await file.text();
+      }
+
+      if (name.endsWith(".docx")) {
+        return await extractTextFromDocx(file);
+      }
+
+      if (name.endsWith(".pdf")) {
+        return await extractTextFromPdf(file);
+      }
+
+      return "";
+    }
+
     function getSignalCalibrationPayload() {
       return {
         non_negotiables: normalizeLines(els.signalNonNegotiables.value),
@@ -1309,6 +1592,87 @@ Fill in the role fields and click “Refresh Preview”.
       const signal = getSignalCalibrationPayload();
       els.signalSummaryOutput.textContent = buildSignalSummaryText(signal);
       showNotice("Signal Intelligence summary generated.");
+    }
+
+    function applyParsedJDToForm(parsed) {
+      if (!parsed) {
+        showNotice("Could not parse JD content.", "error");
+        return;
+      }
+
+      if (!safeText(els.jobTitle.value) && parsed.title) {
+        els.jobTitle.value = parsed.title;
+      }
+
+      if (!safeText(els.jobDescription.value) && parsed.overview) {
+        els.jobDescription.value = parsed.overview;
+      }
+
+      if (!safeText(els.requirements.value) && parsed.requiredSkills.length) {
+        els.requirements.value = parsed.requiredSkills.join("\n");
+      }
+
+      if (parsed.prioritySkills.length) {
+        els.prioritySkills.value = parsed.prioritySkills.join("\n");
+      }
+
+      if (parsed.niceToHave.length) {
+        els.niceToHaveSkills.value = parsed.niceToHave.join("\n");
+      }
+
+      if (parsed.nonNegotiables.length) {
+        els.signalNonNegotiables.value = parsed.nonNegotiables.join("\n");
+      }
+
+      if (parsed.redFlags.length) {
+        els.signalRedFlags.value = parsed.redFlags.join("\n");
+      }
+
+      if (parsed.prioritySkills.length) {
+        els.signalMustHaveSkills.value = parsed.prioritySkills.join("\n");
+      }
+
+      if (!safeText(els.workSetup.value) && parsed.workSetup) {
+        const normalized = parsed.workSetup.toLowerCase();
+        if (normalized.includes("remote")) els.workSetup.value = "Remote";
+        if (normalized.includes("hybrid")) els.workSetup.value = "Hybrid";
+        if (normalized.includes("onsite") || normalized.includes("on-site")) els.workSetup.value = "Onsite";
+      }
+
+      if (!safeText(els.employmentType.value) && parsed.employmentType) {
+        const normalized = parsed.employmentType.toLowerCase();
+        if (normalized.includes("full")) els.employmentType.value = "Full-time";
+        else if (normalized.includes("part")) els.employmentType.value = "Part-time";
+        else if (normalized.includes("contract")) els.employmentType.value = "Contract";
+        else if (normalized.includes("project")) els.employmentType.value = "Project-based";
+        else if (normalized.includes("consult")) els.employmentType.value = "Consulting";
+      }
+
+      els.signalSummaryOutput.textContent = buildSignalSummaryText(getSignalCalibrationPayload());
+      refreshPreview();
+      showNotice("JD parsed and mapped to role fields.");
+    }
+
+    async function handleParseJD() {
+      try {
+        const text = await getJDTextFromInput();
+        if (!safeText(text)) {
+          showNotice("Please upload a JD file or paste JD text first.", "error");
+          return;
+        }
+
+        const parsed = parseJDTextToFields(text);
+        applyParsedJDToForm(parsed);
+      } catch (error) {
+        console.error("JD parse error:", error);
+        showNotice("Failed to parse JD file.", "error");
+      }
+    }
+
+    function clearJDInput() {
+      els.jdUpload.value = "";
+      els.jdRawText.value = "";
+      showNotice("JD input cleared.");
     }
 
     function getEnhancedRolePayload() {
@@ -1924,6 +2288,8 @@ ${niceToHave}`;
       questionItems = [];
       els.screeningSummaryOutput.textContent = "No summary generated yet.";
       els.signalSummaryOutput.textContent = buildSignalSummaryText(getSignalCalibrationPayload());
+      els.jdUpload.value = "";
+      els.jdRawText.value = "";
       renderQuestions();
       refreshPreview();
       if (showMessage) showNotice("Form cleared.");
@@ -1981,6 +2347,8 @@ ${niceToHave}`;
     });
 
     els.buildSignalBtn.addEventListener("click", buildSignalSummary);
+    els.parseJDBtn.addEventListener("click", handleParseJD);
+    els.clearJDBtn.addEventListener("click", clearJDInput);
 
     els.addQuestionBtn.addEventListener("click", () => {
       questionItems.push(createEmptyQuestion());
@@ -2019,7 +2387,8 @@ ${niceToHave}`;
       els.signalStakeholderWeight,
       els.signalAutonomyLevel,
       els.signalDecisionMaking,
-      els.signalBusinessPriorities
+      els.signalBusinessPriorities,
+      els.jdRawText
     ].forEach(el => {
       el.addEventListener("input", refreshPreview);
       el.addEventListener("change", () => {
