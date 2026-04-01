@@ -1265,10 +1265,7 @@
         }
       ];
 
-      const DATASET_URLS = [
-        "/geography/countries-states-cities.json",
-        "https://cdn.jsdelivr.net/gh/dr5hn/countries-states-cities-database@master/countries+states+cities.json",
-        "https://raw.githubusercontent.com/dr5hn/countries-states-cities-database/master/countries+states+cities.json"
+      const DATASET_URLS = ["./geography/countries-states-cities.json"
       ];
 
       const SCREENING_MIX_BY_ROLE = {
@@ -1483,16 +1480,190 @@
         };
       }
 
-      function normalizeCityList(cities) {
-        if (!Array.isArray(cities)) return [];
-        return cities
-          .map(city => {
-            if (typeof city === "string") return city.trim();
-            if (city && typeof city === "object") return String(city.name || city.city || "").trim();
-            return "";
-          })
-          .filter(Boolean)
-          .sort((a, b) => a.localeCompare(b));
+    function normalizeCityList(cities) {
+  if (!Array.isArray(cities)) return [];
+  return [...new Set(
+    cities
+      .map((city) => {
+        if (typeof city === "string") return city.trim();
+        if (city && typeof city === "object") {
+          return String(city.name || city.city || city.city_name || "").trim();
+        }
+        return "";
+      })
+      .filter(Boolean)
+  )].sort((a, b) => a.localeCompare(b));
+}
+
+function normalizeCountryDataset(raw) {
+  if (!Array.isArray(raw)) return [];
+
+  return raw
+    .map((country) => {
+      const countryName = String(
+        country?.name ||
+        country?.country_name ||
+        ""
+      ).trim();
+
+      const states = Array.isArray(country?.states)
+        ? country.states
+        : Array.isArray(country?.provinces)
+          ? country.provinces
+          : [];
+
+      const normalizedStates = states
+        .map((stateItem) => {
+          const stateName = String(
+            stateItem?.name ||
+            stateItem?.state_name ||
+            stateItem?.province_name ||
+            ""
+          ).trim();
+
+          const citiesRaw =
+            stateItem?.cities ||
+            stateItem?.towns ||
+            stateItem?.municipalities ||
+            [];
+
+          return {
+            name: stateName,
+            cities: normalizeCityList(citiesRaw)
+          };
+        })
+        .filter((item) => item.name)
+        .sort((a, b) => a.name.localeCompare(b.name));
+
+      return {
+        name: countryName,
+        states: normalizedStates
+      };
+    })
+    .filter((country) => country.name)
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+function populateCountries(selectedCountryName = "") {
+  const countries = Array.isArray(state.geography) ? state.geography : [];
+
+  els.country.innerHTML =
+    `<option value="">Select country</option>` +
+    countries
+      .map(
+        (country) =>
+          `<option value="${escapeHtml(country.name)}" ${
+            country.name === selectedCountryName ? "selected" : ""
+          }>${escapeHtml(country.name)}</option>`
+      )
+      .join("");
+
+  state.selectedCountry =
+    countries.find((country) => country.name === selectedCountryName) || null;
+}
+
+function populateStates(states, selectedStateName = "") {
+  const safeStates = Array.isArray(states) ? states : [];
+
+  els.state.innerHTML =
+    `<option value="">Select state / province / region</option>` +
+    safeStates
+      .map(
+        (item) =>
+          `<option value="${escapeHtml(item.name)}" ${
+            item.name === selectedStateName ? "selected" : ""
+          }>${escapeHtml(item.name)}</option>`
+      )
+      .join("");
+
+  state.selectedState =
+    safeStates.find((item) => item.name === selectedStateName) || null;
+}
+
+function populateCities(cities, selectedCityName = "") {
+  const normalizedCities = normalizeCityList(Array.isArray(cities) ? cities : []);
+
+  els.city.innerHTML =
+    `<option value="">Select city</option>` +
+    normalizedCities
+      .map(
+        (city) =>
+          `<option value="${escapeHtml(city)}" ${
+            city === selectedCityName ? "selected" : ""
+          }>${escapeHtml(city)}</option>`
+      )
+      .join("");
+}
+
+async function loadGeography() {
+  try {
+    els.country.innerHTML = `<option value="">Loading countries...</option>`;
+    els.state.innerHTML = `<option value="">Select country first</option>`;
+    els.city.innerHTML = `<option value="">Select state first</option>`;
+
+    let loadedData = null;
+    let lastError = null;
+
+    for (const url of DATASET_URLS) {
+      try {
+        const response = await fetch(url, { cache: "no-store" });
+        if (!response.ok) {
+          throw new Error(`Request failed with status ${response.status}`);
+        }
+
+        const raw = await response.json();
+        const normalized = normalizeCountryDataset(raw);
+
+        if (normalized.length) {
+          loadedData = normalized;
+          break;
+        }
+
+        throw new Error("Dataset response was empty or invalid.");
+      } catch (error) {
+        lastError = error;
+        console.warn("Geography source failed:", url, error);
+      }
+    }
+
+    if (!loadedData || !loadedData.length) {
+      throw lastError || new Error("No valid geography dataset found.");
+    }
+
+    state.geography = loadedData;
+    populateCountries();
+    populateStates([]);
+    populateCities([]);
+    clearNotice();
+  } catch (error) {
+    console.error("Failed to load geography:", error);
+    state.geography = [];
+    els.country.innerHTML = `<option value="">Unable to load countries</option>`;
+    els.state.innerHTML = `<option value="">Unable to load states</option>`;
+    els.city.innerHTML = `<option value="">Unable to load cities</option>`;
+    showNotice("Unable to load geography dataset.", "error");
+  }
+}
+
+function applyLocationSelection(countryName = "", stateName = "", cityName = "") {
+  populateCountries(countryName);
+
+  const selectedCountry =
+    (state.geography || []).find(
+      (country) => String(country.name || "").trim() === String(countryName || "").trim()
+    ) || null;
+
+  state.selectedCountry = selectedCountry;
+
+  populateStates(selectedCountry?.states || [], stateName);
+
+  const selectedState =
+    (selectedCountry?.states || []).find(
+      (item) => String(item.name || "").trim() === String(stateName || "").trim()
+    ) || null;
+
+  state.selectedState = selectedState;
+  populateCities(selectedState?.cities || [], cityName);
       }
 
       function isMetroManilaSelection(countryName, stateName) {
@@ -2881,27 +3052,31 @@
         });
 
         els.country.addEventListener("change", () => {
-          const selectedCountryName = els.country.value;
-          const selectedCountry = (state.geography || []).find(
-            country => String(country.name || "").trim() === selectedCountryName
-          ) || null;
+  const selectedCountryName = String(els.country.value || "").trim();
 
-          state.selectedCountry = selectedCountry;
-          populateStates(selectedCountry?.states || []);
-          populateCities([]);
-        });
+  const selectedCountry =
+    (state.geography || []).find(
+      (country) => String(country.name || "").trim() === selectedCountryName
+    ) || null;
 
-        els.state.addEventListener("change", () => {
-          const selectedStateName = els.state.value;
-          const countryName = els.country.value;
+  state.selectedCountry = selectedCountry;
+  state.selectedState = null;
 
-          const stateObj = (state.selectedCountry?.states || []).find(
-            item => String(item?.name || "").trim() === selectedStateName
-          ) || null;
+  populateStates(selectedCountry?.states || []);
+  populateCities([]);
+});
 
-          state.selectedState = stateObj;
-          populateCities(getCitiesForSelectedState(countryName, stateObj, selectedStateName));
-        });
+els.state.addEventListener("change", () => {
+  const selectedStateName = String(els.state.value || "").trim();
+
+  const selectedState =
+    (state.selectedCountry?.states || []).find(
+      (item) => String(item.name || "").trim() === selectedStateName
+    ) || null;
+
+  state.selectedState = selectedState;
+  populateCities(selectedState?.cities || []);
+});
 
         els.addRequiredSkillBtn.addEventListener("click", () => {
           if (addUniqueItem(state.requiredSkills, els.requiredSkillInput.value)) {
