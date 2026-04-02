@@ -204,7 +204,7 @@
 
     .signal-grid {
       display: grid;
-      grid-template-columns: 1.2fr 1fr 1fr 1fr 1fr auto;
+      grid-template-columns: 1.2fr 1fr 1fr 1fr 1fr 1fr;
       gap: 12px;
       align-items: end;
       margin-bottom: 16px;
@@ -1089,6 +1089,47 @@
         if (s >= 45) return { label: "Good Match", className: "band-good" };
         if (s >= 30) return { label: "Stretch", className: "band-stretch" };
         return { label: "Weak Match", className: "band-weak" };
+      }
+
+      async function invokeEdgeFunction(functionName, payload = {}) {
+        try {
+          const { data, error } = await supabase.functions.invoke(functionName, {
+            body: payload
+          });
+
+          if (error) {
+            console.error(`Edge Function invoke error [${functionName}]:`, error);
+
+            const message =
+              error.message ||
+              error.context ||
+              `Failed to send a request to the Edge Function: ${functionName}`;
+
+            throw new Error(message);
+          }
+
+          if (data?.error) {
+            throw new Error(data.error);
+          }
+
+          return data;
+        } catch (err) {
+          console.error(`Edge Function request failed [${functionName}]:`, err);
+
+          const message = String(err?.message || "");
+
+          if (
+            message.toLowerCase().includes("failed to send a request") ||
+            message.toLowerCase().includes("fetch failed") ||
+            message.toLowerCase().includes("networkerror")
+          ) {
+            throw new Error(
+              `Could not reach Edge Function "${functionName}". Check that it is deployed, the name is correct, and your SUPABASE_URL matches this project.`
+            );
+          }
+
+          throw err;
+        }
       }
 
       function openResumeModal() {
@@ -2287,8 +2328,8 @@
             location_rank: 0
           });
 
-        if (insertError) throw insertError;
-        return null;
+          if (insertError) throw insertError;
+          return null;
       }
 
       async function createBuzzpoolInvite({ prospectId, full_name, email }) {
@@ -2345,25 +2386,13 @@
       }
 
       async function sendInviteEmail({ full_name, email, inviteLink }) {
-        const { data, error } = await supabase.functions.invoke("send-buzzpool-invite", {
-          body: {
-            full_name,
-            email,
-            invite_link: inviteLink
-          }
+        const data = await invokeEdgeFunction("send-buzzpool-invite", {
+          full_name,
+          email,
+          invite_link: inviteLink
         });
 
-        console.log("send-buzzpool-invite data:", data);
-        console.log("send-buzzpool-invite error:", error);
-
-        if (error) {
-          throw new Error(error.message || "Failed to send invite email.");
-        }
-
-        if (data?.error) {
-          throw new Error(data.error);
-        }
-
+        console.log("send-buzzpool-invite response:", data);
         return data;
       }
 
@@ -2760,12 +2789,7 @@
           els.runSignalBtn.textContent = "Running Signal...";
           showNotice("TalentBuzz Signal is sourcing candidates...", "info");
 
-          const { data, error } = await supabase.functions.invoke("search-prospects-v2", {
-            body: payload
-          });
-
-          if (error) throw error;
-          if (data?.error) throw new Error(data.error);
+          const data = await invokeEdgeFunction("search-prospects-v2", payload);
 
           const rows = (data?.data || []).map((p) => ({
             pipeline_id: `signal_${p.id || crypto.randomUUID()}`,
