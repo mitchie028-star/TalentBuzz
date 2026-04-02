@@ -92,6 +92,7 @@
     </div>
 
     <div class="pipeline-tracker" id="pipelineTracker">
+      <div class="tracker-card"><h3 id="countTotal">0</h3><p>Total Profiles</p></div>
       <div class="tracker-card"><h3 id="countSourced">0</h3><p>Sourced</p></div>
       <div class="tracker-card"><h3 id="countEmailsSent">0</h3><p>Emails Sent Successfully</p></div>
       <div class="tracker-card"><h3 id="countContacted">0</h3><p>Contacted</p></div>
@@ -162,7 +163,7 @@
             <div class="field"><label for="candidateCompany">Current Company</label><input id="candidateCompany" type="text" /></div>
             <div class="field full-span"><label for="candidateLocation">Location</label><input id="candidateLocation" type="text" /></div>
             <div class="field full-span"><label for="candidateTopMatch">Top Match Role</label><input id="candidateTopMatch" type="text" /></div>
-            <div class="field full-span"><label for="candidateJobId">Assign Job</label><select id="candidateJobId"><option value="">Select a job</option></select></div>
+            <div class="field full-span"><label for="candidateJobId">Assign Job <span class="small">(optional)</span></label><select id="candidateJobId"><option value="">No job selected yet</option></select></div>
             <div class="field full-span"><label>Suggested Roles</label><div id="suggestedRolesWrap" class="tag-list"></div></div>
             <div class="field full-span"><label for="candidateNotes">Notes</label><textarea id="candidateNotes" rows="4" placeholder="Optional recruiter notes..."></textarea></div>
           </div>
@@ -229,7 +230,7 @@
         helloRecruiter: document.getElementById("helloRecruiter"), notice: document.getElementById("notice"), refreshBtn: document.getElementById("refreshBtn"), logoutBtn: document.getElementById("logoutBtn"),
         bulkUploadBtn: document.getElementById("bulkUploadBtn"), bulkUploadInput: document.getElementById("bulkUploadInput"), uploadResumeBtn: document.getElementById("uploadResumeBtn"), resumeUploadInput: document.getElementById("resumeUploadInput"), bulkInviteBtn: document.getElementById("bulkInviteBtn"), bulkInviteInput: document.getElementById("bulkInviteInput"), inviteAllSourcedBtn: document.getElementById("inviteAllSourcedBtn"),
         downloadSampleBtn: document.getElementById("downloadSampleBtn"), downloadInviteSampleBtn: document.getElementById("downloadInviteSampleBtn"), searchInput: document.getElementById("searchInput"), jobFilter: document.getElementById("jobFilter"), clientFilter: document.getElementById("clientFilter"), statusFilter: document.getElementById("statusFilter"), clearFiltersBtn: document.getElementById("clearFiltersBtn"), tableBody: document.getElementById("tableBody"),
-        countSourced: document.getElementById("countSourced"), countEmailsSent: document.getElementById("countEmailsSent"), countContacted: document.getElementById("countContacted"), countShortlisted: document.getElementById("countShortlisted"), countInterview: document.getElementById("countInterview"),
+        countTotal: document.getElementById("countTotal"), countSourced: document.getElementById("countSourced"), countEmailsSent: document.getElementById("countEmailsSent"), countContacted: document.getElementById("countContacted"), countShortlisted: document.getElementById("countShortlisted"), countInterview: document.getElementById("countInterview"),
         signalTitle: document.getElementById("signalTitle"), signalCountry: document.getElementById("signalCountry"), signalState: document.getElementById("signalState"), signalCity: document.getElementById("signalCity"), signalSeniority: document.getElementById("signalSeniority"), signalKeywords: document.getElementById("signalKeywords"), signalNiceToHaveKeywords: document.getElementById("signalNiceToHaveKeywords"), signalRoleLink: document.getElementById("signalRoleLink"), runSignalBtn: document.getElementById("runSignalBtn"), clearSignalBtn: document.getElementById("clearSignalBtn"), backToPipelineBtn: document.getElementById("backToPipelineBtn"),
         resumeModalBackdrop: document.getElementById("resumeModalBackdrop"), closeResumeModalBtn: document.getElementById("closeResumeModalBtn"), pickResumeBtn: document.getElementById("pickResumeBtn"), saveResumeCandidateBtn: document.getElementById("saveResumeCandidateBtn"), resumeTextPreview: document.getElementById("resumeTextPreview"), resumeFileName: document.getElementById("resumeFileName"), candidateFullName: document.getElementById("candidateFullName"), candidateEmail: document.getElementById("candidateEmail"), candidatePhone: document.getElementById("candidatePhone"), candidateLinkedIn: document.getElementById("candidateLinkedIn"), candidateTitle: document.getElementById("candidateTitle"), candidateCompany: document.getElementById("candidateCompany"), candidateLocation: document.getElementById("candidateLocation"), candidateTopMatch: document.getElementById("candidateTopMatch"), candidateJobId: document.getElementById("candidateJobId"), candidateNotes: document.getElementById("candidateNotes"), suggestedRolesWrap: document.getElementById("suggestedRolesWrap"),
         bulkInviteModalBackdrop: document.getElementById("bulkInviteModalBackdrop"), closeBulkInviteModalBtn: document.getElementById("closeBulkInviteModalBtn"), pickBulkInviteBtn: document.getElementById("pickBulkInviteBtn"), bulkInviteResults: document.getElementById("bulkInviteResults"), downloadBulkInviteResultsBtn: document.getElementById("downloadBulkInviteResultsBtn")
@@ -348,7 +349,26 @@
         els.clientFilter.innerHTML = `<option value="">All clients</option>${clients.map(v => `<option value="${escapeHtml(v)}">${escapeHtml(v)}</option>`).join("")}`;
         els.statusFilter.innerHTML = `<option value="">All statuses</option>${STATUS_OPTIONS.map(v => `<option value="${escapeHtml(v)}">${escapeHtml(v)}</option>`).join("")}`;
       }
-      function updatePipelineTracker() { const counts = { sourced: 0, contacted: 0, shortlisted: 0, interview: 0 }; state.filteredRows.forEach(r => { const s = normalizeText(r.status); if (counts[s] !== undefined) counts[s]++; }); els.countSourced.textContent = counts.sourced; els.countContacted.textContent = counts.contacted; els.countShortlisted.textContent = counts.shortlisted; els.countInterview.textContent = counts.interview; els.countEmailsSent.textContent = state.emailStats.sent || 0; }
+      function updatePipelineTracker() {
+        const baseRows = state.signalMode ? state.filteredRows : state.persistedRows;
+        const counts = { total: 0, sourced: 0, contacted: 0, shortlisted: 0, interview: 0 };
+
+        baseRows.forEach((row) => {
+          const s = normalizeText(row.status);
+          counts.total += 1;
+          if (s === "sourced") counts.sourced += 1;
+          if (s === "contacted") counts.contacted += 1;
+          if (s === "shortlisted") counts.shortlisted += 1;
+          if (s === "interview") counts.interview += 1;
+        });
+
+        if (els.countTotal) els.countTotal.textContent = counts.total;
+        els.countSourced.textContent = counts.sourced;
+        els.countContacted.textContent = counts.contacted;
+        els.countShortlisted.textContent = counts.shortlisted;
+        els.countInterview.textContent = counts.interview;
+        els.countEmailsSent.textContent = state.emailStats.sent || 0;
+      }
       function renderSuggestedRolesCell(roles) { const arr = safeArrayParse(roles); return arr.length ? arr.map(role => `<span class="tag-pill">${escapeHtml(role)}</span>`).join("") : "-"; }
       function renderScoreBreakdown(b = {}) { const mk = Array.isArray(b.matched_keywords) ? b.matched_keywords : []; const mn = Array.isArray(b.matched_nice_to_haves) ? b.matched_nice_to_haves : []; return `<div class="small score-breakdown"><div><strong>Base:</strong> ${escapeHtml(String(b.base_score || 0))}</div><div><strong>Title:</strong> ${escapeHtml(String(b.title_score || 0))}</div><div><strong>Role fit:</strong> ${escapeHtml(String(b.role_fit_score || 0))}</div><div><strong>Location:</strong> ${escapeHtml(String(b.location_score || 0))}</div><div><strong>Keywords:</strong> ${escapeHtml(String(b.keyword_score || 0))}</div><div><strong>Nice-to-have:</strong> ${escapeHtml(String(b.nice_to_have_score || 0))}</div><div><strong>Seniority:</strong> ${escapeHtml(String(b.seniority_score || 0))}</div><div style="margin-top:4px;"><strong>Matched keywords:</strong> ${escapeHtml(mk.join(", ") || "-")}</div><div><strong>Nice-to-have:</strong> ${escapeHtml(mn.join(", ") || "-")}</div><div><strong>Location level:</strong> ${escapeHtml(b.matched_location_level || "-")}</div><div><strong>Seniority detected:</strong> ${escapeHtml(b.candidate_seniority || "-")}</div></div>`; }
       function renderInviteButton(row) { const hasEmail = !!String(row.email || "").trim(); const validEmail = isValidEmail(row.email || ""); const sourced = normalizeText(row.status) === "sourced"; const canInvite = sourced && hasEmail && validEmail && !row.is_signal_result; if (!canInvite) { let label = "Send Invite"; if (row.is_signal_result) label = "Save First"; else if (!hasEmail) label = "No Email"; else if (!validEmail) label = "Invalid Email"; else if (!sourced) label = "Not Sourced"; return `<button class="btn btn-secondary btn-compact" type="button" disabled>${escapeHtml(label)}</button>`; } return `<button class="btn btn-secondary btn-compact send-invite-btn" type="button" data-id="${escapeHtml(row.pipeline_id)}" data-name="${escapeHtml(row.full_name)}" data-email="${escapeHtml(row.email)}">Send Invite</button>`; }
@@ -380,7 +400,8 @@
         if (!state.uploadedResumeFile) return showNotice("Please choose a resume first.", "warning");
         const full_name = els.candidateFullName.value.trim(); const personal_email = els.candidateEmail.value.trim(); const phone = els.candidatePhone.value.trim(); const linkedin_url = els.candidateLinkedIn.value.trim(); const current_title = els.candidateTitle.value.trim(); const current_company = els.candidateCompany.value.trim(); const location = els.candidateLocation.value.trim(); const top_match_role = els.candidateTopMatch.value.trim(); const notes = els.candidateNotes.value.trim(); const job_id = els.candidateJobId.value.trim();
         let suggested_roles = Array.from(els.suggestedRolesWrap.querySelectorAll(".tag-pill")).map(el => el.textContent.trim()).filter(Boolean); if (!suggested_roles.length && top_match_role) suggested_roles = [top_match_role];
-        if (!full_name) return showNotice("Full name is required.", "warning"); if (state.pipelineSchema.jobRequired && !job_id) return showNotice("Please select a job before saving this candidate.", "warning");
+        if (!full_name) return showNotice("Full name is required.", "warning"); // Resume uploads can be added to the pool without assigning a job first.
+        // This supports inviting candidates to create a profile before role assignment.
         els.saveResumeCandidateBtn.disabled = true; els.saveResumeCandidateBtn.textContent = "Saving...";
         try {
           const storageData = await uploadResumeToStorage(state.uploadedResumeFile); const prospectId = crypto.randomUUID();
