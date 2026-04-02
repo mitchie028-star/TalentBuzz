@@ -337,10 +337,17 @@
     }
 
     .status-rejected,
-    .status-archived {
+    .status-archived,
+    .status-send_failed {
       background: #fef2f2;
       color: #b91c1c;
       border-color: #fecaca;
+    }
+
+    .status-pending {
+      background: #fff7ed;
+      color: #b45309;
+      border-color: #fed7aa;
     }
 
     .inline-link {
@@ -564,6 +571,7 @@
 
     <div class="pipeline-tracker" id="pipelineTracker">
       <div class="tracker-card"><h3 id="countSourced">0</h3><p>Sourced</p></div>
+      <div class="tracker-card"><h3 id="countEmailsSent">0</h3><p>Emails Sent Successfully</p></div>
       <div class="tracker-card"><h3 id="countContacted">0</h3><p>Contacted</p></div>
       <div class="tracker-card"><h3 id="countShortlisted">0</h3><p>Shortlisted</p></div>
       <div class="tracker-card"><h3 id="countInterview">0</h3><p>Interview</p></div>
@@ -799,6 +807,9 @@
         parsedCandidate: null,
         bulkInviteResults: [],
         bulkInviteCsvText: "",
+        emailStats: {
+          sent: 0
+        },
         prospectSchema: {
           hasSuggestedRoles: false,
           hasTopMatchRole: false,
@@ -828,6 +839,7 @@
         clearFiltersBtn: document.getElementById("clearFiltersBtn"),
         tableBody: document.getElementById("tableBody"),
         countSourced: document.getElementById("countSourced"),
+        countEmailsSent: document.getElementById("countEmailsSent"),
         countContacted: document.getElementById("countContacted"),
         countShortlisted: document.getElementById("countShortlisted"),
         countInterview: document.getElementById("countInterview"),
@@ -1063,9 +1075,7 @@
               score += 1;
             }
           }
-          if (score > 0) {
-            scores.push({ role: item.role, score });
-          }
+          if (score > 0) scores.push({ role: item.role, score });
         }
 
         scores.sort((a, b) => b.score - a.score);
@@ -1089,9 +1099,7 @@
             if (haystack.includes(word)) score += 1;
           }
 
-          if (score > 0) {
-            matches.push({ role: title, score });
-          }
+          if (score > 0) matches.push({ role: title, score });
         }
 
         matches.sort((a, b) => b.score - a.score);
@@ -1164,13 +1172,8 @@
       async function extractResumeText(file) {
         const name = (file.name || "").toLowerCase();
 
-        if (name.endsWith(".pdf")) {
-          return await extractTextFromPdf(file);
-        }
-
-        if (name.endsWith(".docx") || name.endsWith(".doc")) {
-          return await extractTextFromDocx(file);
-        }
+        if (name.endsWith(".pdf")) return await extractTextFromPdf(file);
+        if (name.endsWith(".docx") || name.endsWith(".doc")) return await extractTextFromDocx(file);
 
         throw new Error("Unsupported file type. Please upload PDF, DOC, or DOCX.");
       }
@@ -1181,9 +1184,7 @@
           .select("id, title, client_name")
           .order("created_at", { ascending: false });
 
-        if (!error) {
-          state.openJobs = data || [];
-        }
+        if (!error) state.openJobs = data || [];
       }
 
       async function detectProspectSchema() {
@@ -1201,6 +1202,38 @@
             .limit(1);
 
           state.prospectSchema[check.key] = !error;
+        }
+      }
+
+      async function loadInviteStats() {
+        try {
+          const recruiterEmail = state.sessionUser?.email || "";
+          let query = supabase
+            .from("buzzpool_invites")
+            .select("invite_status,sent_at,recruiter_email");
+
+          if (recruiterEmail) {
+            query = query.eq("recruiter_email", recruiterEmail);
+          }
+
+          const { data, error } = await query;
+          if (error) throw error;
+
+          const rows = data || [];
+          const sentCount = rows.filter((row) => {
+            const status = normalizeText(row.invite_status);
+            return !!row.sent_at && ["invite_sent", "invite_opened", "profile_started", "profile_completed"].includes(status);
+          }).length;
+
+          state.emailStats.sent = sentCount;
+          if (els.countEmailsSent) {
+            els.countEmailsSent.textContent = sentCount;
+          }
+        } catch (err) {
+          console.error("Invite stats load error:", err);
+          if (els.countEmailsSent) {
+            els.countEmailsSent.textContent = "0";
+          }
         }
       }
 
@@ -1445,6 +1478,7 @@
         els.countContacted.textContent = counts.contacted;
         els.countShortlisted.textContent = counts.shortlisted;
         els.countInterview.textContent = counts.interview;
+        els.countEmailsSent.textContent = state.emailStats.sent || 0;
       }
 
       function applyFilters() {
@@ -1650,6 +1684,7 @@
           });
 
           populateFilters(state.rows);
+          await loadInviteStats();
           applyFilters();
         } catch (error) {
           console.error("BuzzPool load error:", error);
@@ -1762,9 +1797,7 @@
             });
           }
 
-          if (!prospectsPayload.length) {
-            throw new Error("No valid rows were found to upload.");
-          }
+          if (!prospectsPayload.length) throw new Error("No valid rows were found to upload.");
 
           const { error: prospectsError } = await supabase.from("prospects").insert(prospectsPayload);
           if (prospectsError) throw prospectsError;
@@ -1938,9 +1971,10 @@
 
         const { data, error } = await supabase
           .from("buzzpool_invites")
-          .select("id, invite_token, invite_status")
+          .select("id, invite_token, invite_status, sent_at")
           .eq("invite_email", cleanEmail)
-          .in("invite_status", ["invite_sent", "invite_opened", "profile_started"])
+          .in("invite_status", ["pending", "invite_sent", "invite_opened", "profile_started"])
+          .order("updated_at", { ascending: false })
           .limit(1)
           .maybeSingle();
 
@@ -2000,16 +2034,46 @@
             invite_email: String(email || "").trim().toLowerCase(),
             recruiter_email: state.sessionUser?.email || null,
             invite_token: token,
-            invite_status: "invite_sent",
-            notes: "Generated via bulk invite",
-            sent_at: new Date().toISOString(),
+            invite_status: "pending",
+            notes: "Generated via BuzzPool invite flow",
+            sent_at: null,
             updated_at: new Date().toISOString()
           })
-          .select("id, invite_token, invite_status")
+          .select("id, invite_token, invite_status, sent_at")
           .single();
 
         if (error) throw error;
         return data;
+      }
+
+      async function markInviteSent(inviteId) {
+        const { error } = await supabase
+          .from("buzzpool_invites")
+          .update({
+            invite_status: "invite_sent",
+            sent_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          })
+          .eq("id", inviteId);
+
+        if (error) throw error;
+      }
+
+      async function markInviteFailed(inviteId, errorMessage) {
+        if (!inviteId) return;
+
+        const { error } = await supabase
+          .from("buzzpool_invites")
+          .update({
+            invite_status: "send_failed",
+            notes: String(errorMessage || "Send failed"),
+            updated_at: new Date().toISOString()
+          })
+          .eq("id", inviteId);
+
+        if (error) {
+          console.error("Failed to mark invite failed:", error);
+        }
       }
 
       async function sendInviteEmail({ full_name, email, inviteLink }) {
@@ -2049,27 +2113,33 @@
           return;
         }
 
+        let inviteRecord = null;
+
         try {
           const existingInvite = await getExistingActiveInvite(cleanEmail);
           let inviteLink = "";
 
-          if (existingInvite?.invite_token) {
+          if (existingInvite?.id) {
+            inviteRecord = existingInvite;
             inviteLink = buildInviteLink(existingInvite.invite_token);
+
+            if (normalizeText(existingInvite.invite_status) !== "pending") {
+              showNotice("Candidate already has an active invite.", "info");
+              return;
+            }
           } else {
             const prospect = await findOrCreateProspect({
               full_name: cleanName,
               email: cleanEmail
             });
 
-            await ensurePipelineInviteStatus(prospect.prospect_id);
-
-            const invite = await createBuzzpoolInvite({
+            inviteRecord = await createBuzzpoolInvite({
               prospectId: prospect.prospect_id,
               full_name: cleanName,
               email: cleanEmail
             });
 
-            inviteLink = buildInviteLink(invite.invite_token);
+            inviteLink = buildInviteLink(inviteRecord.invite_token);
           }
 
           await sendInviteEmail({
@@ -2077,6 +2147,8 @@
             email: cleanEmail,
             inviteLink
           });
+
+          await markInviteSent(inviteRecord.id);
 
           await supabase
             .from("prospect_pipeline")
@@ -2090,7 +2162,12 @@
           await loadData();
         } catch (err) {
           console.error("Send invite error:", err);
+          if (inviteRecord?.id) {
+            await markInviteFailed(inviteRecord.id, err.message || "Failed to send invite.");
+          }
           showNotice(err.message || "Failed to send invite.", "error");
+          await loadInviteStats();
+          updatePipelineTracker();
         }
       }
 
@@ -2099,11 +2176,7 @@
           const status = normalizeText(row.status);
           const email = String(row.email || "").trim().toLowerCase();
 
-          return (
-            status === "sourced" &&
-            !!email &&
-            isValidEmail(email)
-          );
+          return status === "sourced" && !!email && isValidEmail(email);
         });
       }
 
@@ -2127,35 +2200,42 @@
           for (const candidate of candidates) {
             const email = String(candidate.email || "").trim().toLowerCase();
             const full_name = String(candidate.full_name || "").trim();
+            let inviteRecord = null;
 
             try {
               const existingInvite = await getExistingActiveInvite(email);
+              let inviteLink = "";
 
-              if (existingInvite?.invite_token) {
-                skippedCount++;
-                continue;
+              if (existingInvite?.id) {
+                if (normalizeText(existingInvite.invite_status) !== "pending") {
+                  skippedCount++;
+                  continue;
+                }
+
+                inviteRecord = existingInvite;
+                inviteLink = buildInviteLink(existingInvite.invite_token);
+              } else {
+                const prospect = await findOrCreateProspect({
+                  full_name,
+                  email
+                });
+
+                inviteRecord = await createBuzzpoolInvite({
+                  prospectId: prospect.prospect_id,
+                  full_name,
+                  email
+                });
+
+                inviteLink = buildInviteLink(inviteRecord.invite_token);
               }
-
-              const prospect = await findOrCreateProspect({
-                full_name,
-                email
-              });
-
-              await ensurePipelineInviteStatus(prospect.prospect_id);
-
-              const invite = await createBuzzpoolInvite({
-                prospectId: prospect.prospect_id,
-                full_name,
-                email
-              });
-
-              const inviteLink = buildInviteLink(invite.invite_token);
 
               await sendInviteEmail({
                 full_name,
                 email,
                 inviteLink
               });
+
+              await markInviteSent(inviteRecord.id);
 
               await supabase
                 .from("prospect_pipeline")
@@ -2168,6 +2248,9 @@
               sentCount++;
             } catch (rowError) {
               console.error("Auto invite row error:", rowError);
+              if (inviteRecord?.id) {
+                await markInviteFailed(inviteRecord.id, rowError.message || "Failed to send invite.");
+              }
               errorCount++;
             }
           }
@@ -2264,7 +2347,6 @@
               }
 
               const prospect = await findOrCreateProspect({ full_name, email });
-              await ensurePipelineInviteStatus(prospect.prospect_id);
 
               const invite = await createBuzzpoolInvite({
                 prospectId: prospect.prospect_id,
