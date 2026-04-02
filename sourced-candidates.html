@@ -872,6 +872,14 @@
         return String(value || "").trim().toLowerCase();
       }
 
+      function normalizeHeader(value) {
+        return String(value || "")
+          .replace(/^\uFEFF/, "")
+          .trim()
+          .toLowerCase()
+          .replace(/\s+/g, "_");
+      }
+
       function escapeHtml(value) {
         return String(value || "")
           .replace(/&/g, "&amp;")
@@ -1317,7 +1325,41 @@
 
         if (!lines.length) return { headers: [], rows: [] };
 
-        const headers = parseCsvLine(lines[0]).map(h => normalizeText(h));
+        const rawHeaders = parseCsvLine(lines[0]).map(h => normalizeHeader(h));
+
+        const headerAliasMap = {
+          full_name: "full_name",
+          name: "full_name",
+          full_name_: "full_name",
+          fullname: "full_name",
+          full_name__1: "full_name",
+          full_name__2: "full_name",
+          full_name__3: "full_name",
+          full_name__4: "full_name",
+          full_name__5: "full_name",
+          full_name__6: "full_name",
+          full_name__7: "full_name",
+          full_name__8: "full_name",
+          full_name__9: "full_name",
+          title: "title",
+          job_title: "title",
+          current_title: "title",
+          company: "company",
+          employer: "company",
+          current_company: "company",
+          location: "location",
+          city: "location",
+          email: "email",
+          email_address: "email",
+          personal_email: "email",
+          work_email: "email",
+          linkedin: "linkedin",
+          linkedin_url: "linkedin",
+          linkedin_profile: "linkedin"
+        };
+
+        const headers = rawHeaders.map(h => headerAliasMap[h] || h);
+
         const rows = lines.slice(1).map(line => {
           const values = parseCsvLine(line);
           const obj = {};
@@ -1726,8 +1768,8 @@
         try {
           const text = await file.text();
           const parsed = parseCsv(text);
-          const headers = parsed.headers;
-          const rows = parsed.rows;
+          const headers = parsed.headers || [];
+          const rows = parsed.rows || [];
 
           const requiredHeaders = ["full_name", "title", "company", "location", "email", "linkedin"];
           const missingHeaders = requiredHeaders.filter(h => !headers.includes(h));
@@ -2175,7 +2217,6 @@
         return state.rows.filter((row) => {
           const status = normalizeText(row.status);
           const email = String(row.email || "").trim().toLowerCase();
-
           return status === "sourced" && !!email && isValidEmail(email);
         });
       }
@@ -2188,8 +2229,8 @@
           return;
         }
 
-        els.inviteAllSourcedBtn.disabled = true;
         const originalText = els.inviteAllSourcedBtn.textContent;
+        els.inviteAllSourcedBtn.disabled = true;
         els.inviteAllSourcedBtn.textContent = "Sending...";
 
         let sentCount = 0;
@@ -2332,36 +2373,63 @@
               continue;
             }
 
+            let inviteRecord = null;
+
             try {
               const existingInvite = await getExistingActiveInvite(email);
+              let inviteLink = "";
+              let prospectId = null;
 
-              if (existingInvite?.invite_token) {
+              if (existingInvite?.id) {
+                inviteRecord = existingInvite;
+                inviteLink = buildInviteLink(existingInvite.invite_token);
+
                 results.push({
                   full_name,
                   email,
                   status: "already_invited",
-                  invite_link: buildInviteLink(existingInvite.invite_token),
-                  notes: existingInvite.invite_status
+                  invite_link: inviteLink,
+                  notes: existingInvite.invite_status || "Existing active invite"
                 });
                 continue;
               }
 
               const prospect = await findOrCreateProspect({ full_name, email });
+              prospectId = prospect.prospect_id;
 
-              const invite = await createBuzzpoolInvite({
-                prospectId: prospect.prospect_id,
+              inviteRecord = await createBuzzpoolInvite({
+                prospectId,
                 full_name,
                 email
               });
 
+              inviteLink = buildInviteLink(inviteRecord.invite_token);
+
+              await sendInviteEmail({
+                full_name,
+                email,
+                inviteLink
+              });
+
+              await markInviteSent(inviteRecord.id);
+              await ensurePipelineInviteStatus(prospectId);
+
               results.push({
                 full_name,
                 email,
-                status: prospect.created ? "invite_created_new_prospect" : "invite_created_existing_prospect",
-                invite_link: buildInviteLink(invite.invite_token),
-                notes: invite.invite_status
+                status: prospect.created
+                  ? "invite_sent_new_prospect"
+                  : "invite_sent_existing_prospect",
+                invite_link: inviteLink,
+                notes: "Invite email sent successfully"
               });
             } catch (rowError) {
+              console.error("Bulk invite row error:", rowError);
+
+              if (inviteRecord?.id) {
+                await markInviteFailed(inviteRecord.id, rowError.message || "Failed to send invite.");
+              }
+
               results.push({
                 full_name,
                 email,
@@ -2385,14 +2453,14 @@
             ].join("\n");
           }).join("\n");
 
-          const createdCount = results.filter((r) => String(r.status).startsWith("invite_created")).length;
+          const sentCount = results.filter((r) => String(r.status).startsWith("invite_sent")).length;
           const existingCount = results.filter((r) => r.status === "already_invited").length;
           const invalidCount = results.filter((r) => String(r.status).startsWith("skipped")).length;
           const errorCount = results.filter((r) => r.status === "error").length;
 
           showNotice(
-            `Bulk invite finished. Created: ${createdCount}, Already invited: ${existingCount}, Skipped: ${invalidCount}, Errors: ${errorCount}`,
-            createdCount > 0 ? "success" : "info"
+            `Bulk invite finished. Sent: ${sentCount}, Already invited: ${existingCount}, Skipped: ${invalidCount}, Errors: ${errorCount}`,
+            sentCount > 0 ? "success" : "info"
           );
 
           await loadData();
@@ -2433,64 +2501,81 @@
         els.bulkUploadInput.click();
       });
 
-      els.bulkUploadInput.addEventListener("change", async (e) => {
-        const file = e.target.files?.[0];
+      els.bulkUploadInput.addEventListener("change", async (event) => {
+        const file = event.target.files?.[0];
         await handleBulkUpload(file);
       });
 
+      els.uploadResumeBtn.addEventListener("click", () => {
+        openResumeModal();
+      });
+
+      els.pickResumeBtn.addEventListener("click", () => {
+        els.resumeUploadInput.click();
+      });
+
+      els.resumeUploadInput.addEventListener("change", async (event) => {
+        const file = event.target.files?.[0];
+        await parseResumeAndPrefill(file);
+      });
+
+      els.saveResumeCandidateBtn.addEventListener("click", saveResumeCandidate);
+      els.closeResumeModalBtn.addEventListener("click", closeResumeModal);
+
+      els.resumeModalBackdrop.addEventListener("click", (event) => {
+        if (event.target === els.resumeModalBackdrop) {
+          closeResumeModal();
+        }
+      });
+
       els.bulkInviteBtn.addEventListener("click", () => {
-        resetBulkInviteResults();
-        openBulkInviteModal();
+        els.bulkInviteInput.click();
       });
 
       els.pickBulkInviteBtn.addEventListener("click", () => {
         els.bulkInviteInput.click();
       });
 
-      els.bulkInviteInput.addEventListener("change", async (e) => {
-        const file = e.target.files?.[0];
+      els.bulkInviteInput.addEventListener("change", async (event) => {
+        const file = event.target.files?.[0];
         await handleBulkInvite(file);
       });
 
-      els.inviteAllSourcedBtn.addEventListener("click", async () => {
-        const candidates = getInvitableSourcedCandidates();
+      els.closeBulkInviteModalBtn.addEventListener("click", closeBulkInviteModal);
 
-        if (!candidates.length) {
-          showNotice("No sourced candidates with valid emails found.", "warning");
-          return;
+      els.bulkInviteModalBackdrop.addEventListener("click", (event) => {
+        if (event.target === els.bulkInviteModalBackdrop) {
+          closeBulkInviteModal();
         }
-
-        const confirmed = window.confirm(
-          `Send profile invites to ${candidates.length} sourced candidate(s) with valid emails?`
-        );
-
-        if (!confirmed) return;
-
-        await sendInviteToAllSourcedCandidates();
       });
 
       els.downloadSampleBtn.addEventListener("click", downloadSampleCsv);
       els.downloadInviteSampleBtn.addEventListener("click", downloadInviteSampleCsv);
       els.downloadBulkInviteResultsBtn.addEventListener("click", downloadBulkInviteResultsCsv);
+      els.inviteAllSourcedBtn.addEventListener("click", sendInviteToAllSourcedCandidates);
 
-      els.tableBody.addEventListener("change", async (e) => {
-        const t = e.target;
-        if (t.classList.contains("status-select")) {
-          await updateStatus(t.dataset.id, t.value);
+      els.tableBody.addEventListener("change", async (event) => {
+        const target = event.target;
+        if (target.classList.contains("status-select")) {
+          const id = target.dataset.id;
+          const status = target.value;
+          if (id && status) {
+            await updateStatus(id, status);
+          }
         }
       });
 
-      document.addEventListener("click", async (e) => {
-        const btn = e.target.closest(".send-invite-btn");
-        if (!btn) return;
+      els.tableBody.addEventListener("click", async (event) => {
+        const button = event.target.closest(".send-invite-btn");
+        if (!button) return;
 
-        const pipelineId = btn.dataset.id;
-        const full_name = btn.dataset.name;
-        const email = btn.dataset.email;
+        const pipelineId = button.dataset.id;
+        const full_name = button.dataset.name || "";
+        const email = button.dataset.email || "";
 
-        btn.disabled = true;
-        const originalText = btn.textContent;
-        btn.textContent = "Sending...";
+        button.disabled = true;
+        const originalText = button.textContent;
+        button.textContent = "Sending...";
 
         try {
           await sendSingleInvite({
@@ -2499,53 +2584,16 @@
             email
           });
         } finally {
-          btn.disabled = false;
-          btn.textContent = originalText;
+          button.disabled = false;
+          button.textContent = originalText;
         }
       });
 
-      els.uploadResumeBtn.addEventListener("click", () => {
-        resetResumeForm();
-        openResumeModal();
-      });
+      const isAllowed = await protectPage();
+      if (!isAllowed) return;
 
-      els.closeResumeModalBtn.addEventListener("click", () => {
-        closeResumeModal();
-      });
-
-      els.resumeModalBackdrop.addEventListener("click", (e) => {
-        if (e.target === els.resumeModalBackdrop) {
-          closeResumeModal();
-        }
-      });
-
-      els.pickResumeBtn.addEventListener("click", () => {
-        els.resumeUploadInput.click();
-      });
-
-      els.resumeUploadInput.addEventListener("change", async (e) => {
-        const file = e.target.files?.[0];
-        if (!file) return;
-        await parseResumeAndPrefill(file);
-      });
-
-      els.saveResumeCandidateBtn.addEventListener("click", saveResumeCandidate);
-
-      els.closeBulkInviteModalBtn.addEventListener("click", () => {
-        closeBulkInviteModal();
-      });
-
-      els.bulkInviteModalBackdrop.addEventListener("click", (e) => {
-        if (e.target === els.bulkInviteModalBackdrop) {
-          closeBulkInviteModal();
-        }
-      });
-
-      const allowed = await protectPage();
-      if (!allowed) return;
-
-      await loadOpenJobs();
       await detectProspectSchema();
+      await loadOpenJobs();
       await loadData();
     });
   </script>
