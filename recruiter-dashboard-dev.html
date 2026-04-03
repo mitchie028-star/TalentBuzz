@@ -280,10 +280,10 @@
     </div>
 
     <div class="stats-grid">
-      <div class="stat-card"><div class="stat-label">Total Profiles</div><div class="stat-value" id="statProfiles">0</div><div class="stat-sub">All profiles in applicant_profiles</div></div>
+      <div class="stat-card"><div class="stat-label">Total Profiles</div><div class="stat-value" id="statProfiles">0</div><div class="stat-sub">Unified applicant + sourced talent pool</div></div>
       <div class="stat-card"><div class="stat-label">Total Applications</div><div class="stat-value" id="statApplications">0</div><div class="stat-sub">All rows in applications</div></div>
       <div class="stat-card"><div class="stat-label">Profiles w/ Applications</div><div class="stat-value" id="statProfilesWithApps">0</div><div class="stat-sub">Unique candidate profiles with at least one app</div></div>
-      <div class="stat-card"><div class="stat-label">Talent Pool Only</div><div class="stat-value" id="statProfilesNoApps">0</div><div class="stat-sub">Profiles with no applications yet</div></div>
+      <div class="stat-card"><div class="stat-label">Talent Pool Only</div><div class="stat-value" id="statProfilesNoApps">0</div><div class="stat-sub">Sourced prospects with no applications yet</div></div>
       <div class="stat-card"><div class="stat-label">Endorsed</div><div class="stat-value" id="statEndorsed">0</div><div class="stat-sub">Candidates endorsed to clients</div></div>
       <div class="stat-card"><div class="stat-label">Rejected</div><div class="stat-value" id="statRejected">0</div><div class="stat-sub">Failed screening, withdrawn, or rejected</div></div>
       <div class="stat-card"><div class="stat-label">In Interview</div><div class="stat-value" id="statInterviewed">0</div><div class="stat-sub">Assessment, initial, or final stage</div></div>
@@ -481,7 +481,7 @@
         };
 
         const state = {
-          allApplications: [], allProfiles: [], allRecruitersMap: {}, currentUser: null, currentRecruiterRecord: null,
+          allApplications: [], allProfiles: [], allProspects: [], allRecruitersMap: {}, currentUser: null, currentRecruiterRecord: null,
           selectedEndorsementApp: null, currentScreeningAppId: null, currentScreeningApplication: null, currentScreeningResponses: [], currentProfileResumeUrl: ""
         };
 
@@ -517,6 +517,22 @@
         function getStageNoteLabel(status, code) { const options = STAGE_NOTE_OPTIONS[status] || []; const match = options.find((option) => String(option.code || "") === String(code || "")); return match?.label || null; }
         function getApplicationHistoryForProfile(profileId) { return state.allApplications.filter((app) => String(getProfileId(app) || "") === String(profileId || "")).sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime()); }
         function getProfileType(profileId) { return getApplicationHistoryForProfile(profileId).length > 0 ? "Applied Candidate" : "Marketplace Profile"; }
+        function getProspectEmail(prospect) {
+          return normalizeEmail(prospect?.personal_email || prospect?.work_email || prospect?.email || "");
+        }
+        function buildUnifiedCandidateKey(candidate, fallbackPrefix = "candidate") {
+          const email = normalizeEmail(candidate?.email || candidate?.personal_email || candidate?.work_email || "");
+          if (email) return `email:${email}`;
+
+          const id = String(candidate?.id || "").trim();
+          if (id) return `${fallbackPrefix}:${id}`;
+
+          const fullName = normalizeText(candidate?.full_name || "");
+          const phone = normalizeText(candidate?.phone || "");
+          if (fullName || phone) return `person:${fullName}|${phone}`;
+
+          return "";
+        }
         async function fetchAllRows(queryFactory, pageSize = 1000) {
           const rows = [];
           let from = 0;
@@ -587,6 +603,23 @@
           } catch (err) {
             console.error("loadProfiles catch:", err);
             state.allProfiles = [];
+          }
+        }
+
+        async function loadProspects() {
+          try {
+            const rows = await fetchAllRows((from, to) =>
+              supabaseClient
+                .from("prospects")
+                .select("id, full_name, personal_email, work_email, phone, location, created_at")
+                .order("created_at", { ascending: false })
+                .range(from, to)
+            );
+
+            state.allProspects = rows;
+          } catch (err) {
+            console.error("loadProspects catch:", err);
+            state.allProspects = [];
           }
         }
 
@@ -683,7 +716,6 @@
         }
 
         function renderStats() {
-          const totalProfiles = state.allProfiles.length;
           const totalApplications = state.allApplications.length;
 
           const profileIdsWithApps = new Set();
@@ -698,17 +730,61 @@
             if (profileEmail) profileEmailsWithApps.add(profileEmail);
           });
 
-          const profilesWithApps = state.allProfiles.filter((profile) => {
-            const profileId = String(profile?.id || "");
-            const profileEmail = normalizeEmail(profile?.email || "");
-            return (profileId && profileIdsWithApps.has(profileId)) || (profileEmail && profileEmailsWithApps.has(profileEmail));
-          }).length;
+          const unifiedCandidates = new Map();
 
-          const profilesNoApps = state.allProfiles.filter((profile) => {
-            const profileId = String(profile?.id || "");
-            const profileEmail = normalizeEmail(profile?.email || "");
-            const hasApplication = (profileId && profileIdsWithApps.has(profileId)) || (profileEmail && profileEmailsWithApps.has(profileEmail));
-            return !hasApplication;
+          state.allProfiles.forEach((profile) => {
+            const key = buildUnifiedCandidateKey(profile, "applicant");
+            if (!key) return;
+            if (!unifiedCandidates.has(key)) {
+              unifiedCandidates.set(key, {
+                key,
+                applicantProfileId: String(profile?.id || "").trim(),
+                email: normalizeEmail(profile?.email || ""),
+                prospectId: "",
+                sources: new Set(["applicant_profile"])
+              });
+            } else {
+              const existing = unifiedCandidates.get(key);
+              existing.applicantProfileId = existing.applicantProfileId || String(profile?.id || "").trim();
+              existing.email = existing.email || normalizeEmail(profile?.email || "");
+              existing.sources.add("applicant_profile");
+            }
+          });
+
+          state.allProspects.forEach((prospect) => {
+            const key = buildUnifiedCandidateKey(prospect, "prospect");
+            if (!key) return;
+            if (!unifiedCandidates.has(key)) {
+              unifiedCandidates.set(key, {
+                key,
+                applicantProfileId: "",
+                email: getProspectEmail(prospect),
+                prospectId: String(prospect?.id || "").trim(),
+                sources: new Set(["prospect"])
+              });
+            } else {
+              const existing = unifiedCandidates.get(key);
+              existing.prospectId = existing.prospectId || String(prospect?.id || "").trim();
+              existing.email = existing.email || getProspectEmail(prospect);
+              existing.sources.add("prospect");
+            }
+          });
+
+          const totalProfiles = unifiedCandidates.size;
+          let profilesWithApps = 0;
+
+          unifiedCandidates.forEach((candidate) => {
+            const applicantProfileId = String(candidate?.applicantProfileId || "").trim();
+            const email = normalizeEmail(candidate?.email || "");
+            const hasApplication = (applicantProfileId && profileIdsWithApps.has(applicantProfileId)) || (email && profileEmailsWithApps.has(email));
+            if (hasApplication) profilesWithApps += 1;
+          });
+
+          const talentPoolOnly = state.allProspects.filter((prospect) => {
+            const prospectId = String(prospect?.id || "").trim();
+            const email = getProspectEmail(prospect);
+            const matchesApplication = (email && profileEmailsWithApps.has(email)) || (prospectId && profileIdsWithApps.has(prospectId));
+            return !matchesApplication;
           }).length;
 
           const endorsed = state.allApplications.filter((app) => normalizeText(app.status) === "endorsed").length;
@@ -723,7 +799,7 @@
           if (els.statProfiles) els.statProfiles.textContent = String(totalProfiles);
           if (els.statApplications) els.statApplications.textContent = String(totalApplications);
           if (els.statProfilesWithApps) els.statProfilesWithApps.textContent = String(profilesWithApps);
-          if (els.statProfilesNoApps) els.statProfilesNoApps.textContent = String(profilesNoApps);
+          if (els.statProfilesNoApps) els.statProfilesNoApps.textContent = String(talentPoolOnly);
           if (els.statEndorsed) els.statEndorsed.textContent = String(endorsed);
           if (els.statRejected) els.statRejected.textContent = String(rejected);
           if (els.statInterviewed) els.statInterviewed.textContent = String(interviewed);
@@ -738,6 +814,7 @@
           try {
             await loadRecruitersMap();
             await loadProfiles();
+            await loadProspects();
             await loadApplications();
           } catch (err) {
             console.error("refreshAll fatal:", err);
