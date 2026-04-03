@@ -21,6 +21,8 @@
       --success-text: #166534;
       --error-bg: #fef2f2;
       --error-text: #b91c1c;
+      --info-bg: #eff6ff;
+      --info-text: #1d4ed8;
       --shadow: 0 14px 40px rgba(15, 23, 42, 0.08);
     }
 
@@ -51,6 +53,18 @@
     .topbar {
       margin-bottom: 18px;
       text-align: center;
+    }
+
+    .logo-wrap {
+      display: flex;
+      justify-content: center;
+      margin-bottom: 14px;
+    }
+
+    .logo {
+      height: 46px;
+      width: auto;
+      object-fit: contain;
     }
 
     .eyebrow {
@@ -91,6 +105,18 @@
       background: rgba(255,255,255,0.94);
       box-shadow: var(--shadow);
       backdrop-filter: blur(8px);
+    }
+
+    .auth-mode-banner {
+      margin-bottom: 18px;
+      border: 1px solid #bfdbfe;
+      background: #eff6ff;
+      color: #1e40af;
+      border-radius: 16px;
+      padding: 14px 16px;
+      font-size: 0.92rem;
+      line-height: 1.6;
+      font-weight: 700;
     }
 
     .progress-wrap {
@@ -284,6 +310,27 @@
       font-size: 0.92rem;
     }
 
+    .auth-section {
+      margin-top: 18px;
+      border: 1px solid var(--line);
+      background: #fcfdff;
+      border-radius: 16px;
+      padding: 16px;
+    }
+
+    .auth-section h3 {
+      margin: 0 0 8px;
+      color: var(--blue);
+      font-size: 1rem;
+    }
+
+    .auth-section p {
+      margin: 0 0 14px;
+      color: var(--muted);
+      line-height: 1.7;
+      font-size: 0.92rem;
+    }
+
     .actions {
       display: flex;
       gap: 12px;
@@ -331,6 +378,16 @@
       border: 1px solid transparent;
     }
 
+    .link-btn {
+      background: transparent;
+      border: none;
+      padding: 0;
+      color: #2563eb;
+      font: inherit;
+      font-weight: 800;
+      cursor: pointer;
+    }
+
     .message {
       margin-top: 14px;
       padding: 12px 14px;
@@ -352,12 +409,22 @@
       color: var(--error-text);
     }
 
+    .info {
+      display: block;
+      background: var(--info-bg);
+      color: var(--info-text);
+    }
+
     .footer-note {
       margin-top: 18px;
       color: var(--muted);
       font-size: 0.88rem;
       line-height: 1.6;
       text-align: center;
+    }
+
+    .hidden {
+      display: none !important;
     }
 
     @keyframes fadeIn {
@@ -401,6 +468,9 @@
 <div class="page">
   <div class="shell">
     <div class="topbar">
+      <div class="logo-wrap">
+        <img src="logo.png" alt="TalentBuzz" class="logo" onerror="this.style.display='none'">
+      </div>
       <div class="eyebrow">TalentBuzz Profile</div>
       <h1>Complete your profile</h1>
       <p class="subtitle">
@@ -410,6 +480,8 @@
     </div>
 
     <div class="card">
+      <div id="authModeBanner" class="auth-mode-banner hidden"></div>
+
       <div class="progress-wrap">
         <div class="progress-top">
           <div class="progress-label" id="progressLabel">Step 1 of 3 · Basic Info</div>
@@ -448,7 +520,7 @@
 
             <div class="field">
               <label for="email">Email</label>
-              <input id="email" readonly>
+              <input id="email" type="email" autocomplete="email" placeholder="you@example.com" required>
             </div>
 
             <div class="field">
@@ -574,6 +646,30 @@
             </div>
           </div>
 
+          <div id="newUserAuthSection" class="auth-section hidden">
+            <h3>Create your TalentBuzz account</h3>
+            <p>
+              New users need a password so they can sign in and continue updating their profile later.
+            </p>
+
+            <div class="grid">
+              <div class="field">
+                <label for="password">Password</label>
+                <input id="password" type="password" autocomplete="new-password" placeholder="Minimum 8 characters">
+              </div>
+
+              <div class="field">
+                <label for="confirm_password">Confirm Password</label>
+                <input id="confirm_password" type="password" autocomplete="new-password" placeholder="Re-enter your password">
+              </div>
+            </div>
+
+            <div class="hint">
+              Already have an account?
+              <button type="button" class="link-btn" id="goToLoginBtn">Sign in here</button>
+            </div>
+          </div>
+
           <div class="mini-card">
             <h3>What happens next</h3>
             <p>
@@ -621,11 +717,17 @@
   const progressMeta = document.getElementById('progressMeta');
   const photoPreview = document.getElementById('photoPreview');
   const profilePhotoInput = document.getElementById('profile_photo');
+  const authModeBanner = document.getElementById('authModeBanner');
+  const newUserAuthSection = document.getElementById('newUserAuthSection');
+  const goToLoginBtn = document.getElementById('goToLoginBtn');
 
   const steps = Array.from(document.querySelectorAll('.step'));
+
   let currentStep = 1;
   let currentUser = null;
   let existingProfile = null;
+  let isExistingAuthenticatedUser = false;
+  let pendingProfilePhotoDataUrl = null;
 
   function showMessage(text, type) {
     message.textContent = text;
@@ -645,19 +747,19 @@
   }
 
   function getFullName(user) {
-    const m = user.user_metadata || {};
+    const m = user?.user_metadata || {};
     return (
       m.full_name ||
       m.name ||
       `${m.given_name || ''} ${m.family_name || ''}`.trim() ||
-      (user.email ? user.email.split('@')[0] : '')
+      (user?.email ? user.email.split('@')[0] : '')
     );
   }
 
   function getInitials(name) {
     const parts = String(name || '').trim().split(/\s+/).filter(Boolean);
     if (!parts.length) return 'TB';
-    return parts.slice(0, 2).map(p => p[0].toUpperCase()).join('');
+    return parts.slice(0, 2).map(part => part[0].toUpperCase()).join('');
   }
 
   function validateResumeFile(file) {
@@ -665,7 +767,9 @@
     const allowedExtensions = ['.pdf', '.doc', '.docx'];
     const lowerName = file.name.toLowerCase();
     const isValid = allowedExtensions.some(ext => lowerName.endsWith(ext));
-    if (!isValid) throw new Error('Please upload a PDF, DOC, or DOCX file only.');
+    if (!isValid) {
+      throw new Error('Please upload a PDF, DOC, or DOCX file only.');
+    }
   }
 
   function validateImageFile(file) {
@@ -677,7 +781,7 @@
   }
 
   function normalizePhone(phone) {
-    return phone.replace(/\s+/g, '').trim();
+    return String(phone || '').replace(/\s+/g, '').trim();
   }
 
   function validatePhone(phone) {
@@ -685,9 +789,57 @@
     return /^09\d{9}$/.test(phone);
   }
 
+  function isValidEmail(email) {
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(email || '').trim());
+  }
+
+  function sanitizeFileName(name) {
+    return String(name || 'file').replace(/[^a-zA-Z0-9._-]/g, '_');
+  }
+
+  function sanitizeFolderName(name) {
+    return String(name || 'unknown').replace(/[^a-zA-Z0-9._-]/g, '_');
+  }
+
+  function getEmailInput() {
+    return document.getElementById('email');
+  }
+
+  function getFullNameInput() {
+    return document.getElementById('full_name');
+  }
+
   function updatePhotoPreviewFromName() {
-    const fullName = document.getElementById('full_name').value.trim();
-    photoPreview.innerHTML = getInitials(fullName || currentUser?.email || 'TB');
+    const fullName = getFullNameInput().value.trim();
+    photoPreview.innerHTML = getInitials(fullName || currentUser?.email || 'TalentBuzz');
+  }
+
+  function setAuthModeBanner(text, isVisible) {
+    authModeBanner.textContent = text || '';
+    authModeBanner.classList.toggle('hidden', !isVisible);
+  }
+
+  function syncAuthModeUI() {
+    const emailInput = getEmailInput();
+
+    if (currentUser) {
+      isExistingAuthenticatedUser = true;
+      emailInput.readOnly = true;
+      newUserAuthSection.classList.add('hidden');
+      setAuthModeBanner(
+        'You are signed in. You can complete or update your TalentBuzz profile below.',
+        true
+      );
+      return;
+    }
+
+    isExistingAuthenticatedUser = false;
+    emailInput.readOnly = false;
+    newUserAuthSection.classList.remove('hidden');
+    setAuthModeBanner(
+      'New here? Complete your profile and create your TalentBuzz account in one flow.',
+      true
+    );
   }
 
   function updateStepUI() {
@@ -712,14 +864,15 @@
 
   function validateCurrentStep() {
     if (currentStep === 1) {
-      const fullName = document.getElementById('full_name').value.trim();
-      const email = document.getElementById('email').value.trim();
+      const fullName = getFullNameInput().value.trim();
+      const email = getEmailInput().value.trim().toLowerCase();
       const phone = normalizePhone(document.getElementById('phone').value);
       const headline = document.getElementById('headline').value.trim();
       const profilePhoto = profilePhotoInput.files[0];
 
       if (!fullName) throw new Error('Please enter your full name.');
       if (!email) throw new Error('Email is required.');
+      if (!isValidEmail(email)) throw new Error('Please enter a valid email address.');
       if (!headline) throw new Error('Please select your target role.');
       if (phone && !validatePhone(phone)) {
         throw new Error('Please enter a valid PH mobile number in this format: 09XXXXXXXXX');
@@ -731,152 +884,38 @@
       const file = document.getElementById('resume').files[0];
       if (file) validateResumeFile(file);
     }
-  }
 
-  nextBtn.addEventListener('click', () => {
-    clearMessage();
-    try {
-      validateCurrentStep();
-      if (currentStep < 3) {
-        currentStep += 1;
-        updateStepUI();
-      }
-    } catch (err) {
-      showMessage(err.message || 'Please check your details.', 'error');
-    }
-  });
+    if (currentStep === 3 && !currentUser) {
+      const password = document.getElementById('password').value;
+      const confirmPassword = document.getElementById('confirm_password').value;
 
-  backBtn.addEventListener('click', () => {
-    clearMessage();
-    if (currentStep > 1) {
-      currentStep -= 1;
-      updateStepUI();
-    }
-  });
-
-  document.getElementById('full_name').addEventListener('input', () => {
-    if (!profilePhotoInput.files[0] && !existingProfile?.profile_photo_url) {
-      updatePhotoPreviewFromName();
-    }
-  });
-
-  profilePhotoInput.addEventListener('change', (e) => {
-    const file = e.target.files?.[0];
-    if (!file) {
-      updatePhotoPreviewFromName();
-      return;
-    }
-
-    try {
-      validateImageFile(file);
-      const reader = new FileReader();
-      reader.onload = function(evt) {
-        photoPreview.innerHTML = `<img src="${evt.target.result}" alt="Profile preview">`;
-      };
-      reader.readAsDataURL(file);
-    } catch (err) {
-      showMessage(err.message || 'Invalid image file.', 'error');
-      e.target.value = '';
-      updatePhotoPreviewFromName();
-    }
-  });
-
-  async function loadUser() {
-    const { data: { user }, error } = await supabaseClient.auth.getUser();
-
-    if (error || !user) {
-      const currentParams = new URLSearchParams(window.location.search);
-      const attemptedEmail = currentParams.get('email') || '';
-
-      const loginParams = new URLSearchParams();
-      loginParams.set('message', 'account_exists_signin');
-      loginParams.set('next', 'create-profile');
-
-      if (attemptedEmail) {
-        loginParams.set('email', attemptedEmail);
-      }
-
-      window.location.href = `login.html?${loginParams.toString()}`;
-      return;
-    }
-
-    currentUser = user;
-
-    document.getElementById('email').value = user.email || '';
-    document.getElementById('full_name').value = getFullName(user);
-    updatePhotoPreviewFromName();
-
-    const { data, error: profileError } = await supabaseClient
-      .from('applicant_profiles')
-      .select('*')
-      .eq('email', user.email)
-      .maybeSingle();
-
-    if (profileError) {
-      showMessage(profileError.message || 'Unable to load profile.', 'error');
-      return;
-    }
-
-    if (data) {
-      existingProfile = data;
-
-      document.getElementById('full_name').value = data.full_name || getFullName(user);
-      document.getElementById('phone').value = data.phone || '';
-      document.getElementById('location').value = data.location || '';
-      document.getElementById('headline').value = data.headline || '';
-      document.getElementById('salary').value = data.expected_salary || '';
-      document.getElementById('work_setup').value = data.preferred_work_setup || '';
-      document.getElementById('linkedin').value = data.linkedin || '';
-      document.getElementById('portfolio').value = data.portfolio_url || '';
-      document.getElementById('experience').value = data.experience_summary || '';
-
-      if (data.profile_photo_url) {
-        photoPreview.innerHTML = `<img src="${data.profile_photo_url}" alt="Profile preview">`;
-      } else {
-        updatePhotoPreviewFromName();
-      }
+      if (!password) throw new Error('Please create a password.');
+      if (password.length < 8) throw new Error('Password must be at least 8 characters.');
+      if (password !== confirmPassword) throw new Error('Passwords do not match.');
     }
   }
 
-  async function uploadResume(file) {
-    validateResumeFile(file);
+  function getLoginUrl(email) {
+    const loginParams = new URLSearchParams();
+    loginParams.set('next', 'create-profile');
 
-    const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
-    const safeFolder = (currentUser.email || currentUser.id || 'unknown')
-      .replace(/[^a-zA-Z0-9._-]/g, '_');
-    const path = `manual/${safeFolder}/${Date.now()}-${safeName}`;
+    if (email) {
+      loginParams.set('email', email);
+    }
 
-    const { error } = await supabaseClient
-      .storage
-      .from('resumes')
-      .upload(path, file, { upsert: false });
+    if (job) {
+      loginParams.set('job', job);
+    }
 
-    if (error) throw error;
+    if (fromApply) {
+      loginParams.set('fromApply', fromApply);
+    }
 
-    return { path };
-  }
+    if (redirect) {
+      loginParams.set('redirect', redirect);
+    }
 
-  async function uploadProfilePhoto(file) {
-    validateImageFile(file);
-
-    const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
-    const safeFolder = (currentUser.email || currentUser.id || 'unknown')
-      .replace(/[^a-zA-Z0-9._-]/g, '_');
-    const path = `profile-photos/${safeFolder}/${Date.now()}-${safeName}`;
-
-    const { error } = await supabaseClient
-      .storage
-      .from('resumes')
-      .upload(path, file, { upsert: false });
-
-    if (error) throw error;
-
-    const { data } = supabaseClient
-      .storage
-      .from('resumes')
-      .getPublicUrl(path);
-
-    return data.publicUrl;
+    return `login.html?${loginParams.toString()}`;
   }
 
   function redirectAfterSave() {
@@ -893,6 +932,197 @@
     window.location.href = 'dashboard.html';
   }
 
+  async function ensureProfileStorageUpload(file, folderPrefix) {
+    const safeName = sanitizeFileName(file.name);
+    const safeFolder = sanitizeFolderName(currentUser?.email || currentUser?.id || getEmailInput().value || 'unknown');
+    const path = `${folderPrefix}/${safeFolder}/${Date.now()}-${safeName}`;
+
+    const { error } = await supabaseClient
+      .storage
+      .from('resumes')
+      .upload(path, file, { upsert: false });
+
+    if (error) throw error;
+
+    return path;
+  }
+
+  async function uploadResume(file) {
+    validateResumeFile(file);
+    const path = await ensureProfileStorageUpload(file, 'manual');
+    return { path };
+  }
+
+  async function uploadProfilePhoto(file) {
+    validateImageFile(file);
+    const path = await ensureProfileStorageUpload(file, 'profile-photos');
+
+    const { data } = supabaseClient
+      .storage
+      .from('resumes')
+      .getPublicUrl(path);
+
+    return data?.publicUrl || null;
+  }
+
+  async function findExistingProfileByEmail(email) {
+    const { data, error } = await supabaseClient
+      .from('applicant_profiles')
+      .select('*')
+      .eq('email', email)
+      .maybeSingle();
+
+    if (error) throw error;
+    return data || null;
+  }
+
+  async function loadExistingProfileIntoForm(profile) {
+    if (!profile) return;
+
+    existingProfile = profile;
+
+    getFullNameInput().value = profile.full_name || getFullNameInput().value || '';
+    document.getElementById('phone').value = profile.phone || '';
+    document.getElementById('location').value = profile.location || '';
+    document.getElementById('headline').value = profile.headline || '';
+    document.getElementById('salary').value = profile.expected_salary || '';
+    document.getElementById('work_setup').value = profile.preferred_work_setup || '';
+    document.getElementById('linkedin').value = profile.linkedin || '';
+    document.getElementById('portfolio').value = profile.portfolio_url || '';
+    document.getElementById('experience').value = profile.experience_summary || '';
+
+    if (profile.profile_photo_url) {
+      photoPreview.innerHTML = `<img src="${profile.profile_photo_url}" alt="Profile preview">`;
+    } else if (pendingProfilePhotoDataUrl) {
+      photoPreview.innerHTML = `<img src="${pendingProfilePhotoDataUrl}" alt="Profile preview">`;
+    } else {
+      updatePhotoPreviewFromName();
+    }
+  }
+
+  async function bootstrapPage() {
+    clearMessage();
+
+    const emailFromUrl = (params.get('email') || '').trim();
+    if (emailFromUrl) {
+      getEmailInput().value = emailFromUrl;
+    }
+
+    try {
+      const { data, error } = await supabaseClient.auth.getUser();
+
+      if (error) {
+        currentUser = null;
+        syncAuthModeUI();
+        updatePhotoPreviewFromName();
+        return;
+      }
+
+      const user = data?.user || null;
+
+      if (!user) {
+        currentUser = null;
+        syncAuthModeUI();
+        updatePhotoPreviewFromName();
+
+        if (emailFromUrl) {
+          try {
+            const profile = await findExistingProfileByEmail(emailFromUrl.toLowerCase());
+            if (profile) {
+              await loadExistingProfileIntoForm(profile);
+            }
+          } catch (profileErr) {
+            console.warn('Unable to pre-load profile by email:', profileErr);
+          }
+        }
+
+        return;
+      }
+
+      currentUser = user;
+      getEmailInput().value = user.email || emailFromUrl || '';
+      getFullNameInput().value = getFullName(user);
+      syncAuthModeUI();
+      updatePhotoPreviewFromName();
+
+      const profile = await findExistingProfileByEmail((user.email || '').toLowerCase());
+      if (profile) {
+        await loadExistingProfileIntoForm(profile);
+      }
+    } catch (err) {
+      currentUser = null;
+      syncAuthModeUI();
+      updatePhotoPreviewFromName();
+      showMessage(err.message || 'Unable to initialize profile form.', 'error');
+    }
+  }
+
+  nextBtn.addEventListener('click', () => {
+    clearMessage();
+
+    try {
+      validateCurrentStep();
+
+      if (currentStep < 3) {
+        currentStep += 1;
+        updateStepUI();
+      }
+    } catch (err) {
+      showMessage(err.message || 'Please check your details.', 'error');
+    }
+  });
+
+  backBtn.addEventListener('click', () => {
+    clearMessage();
+
+    if (currentStep > 1) {
+      currentStep -= 1;
+      updateStepUI();
+    }
+  });
+
+  getFullNameInput().addEventListener('input', () => {
+    if (!profilePhotoInput.files[0] && !existingProfile?.profile_photo_url) {
+      updatePhotoPreviewFromName();
+    }
+  });
+
+  goToLoginBtn.addEventListener('click', () => {
+    const email = getEmailInput().value.trim().toLowerCase();
+    window.location.href = getLoginUrl(email);
+  });
+
+  profilePhotoInput.addEventListener('change', (e) => {
+    const file = e.target.files?.[0];
+
+    if (!file) {
+      pendingProfilePhotoDataUrl = null;
+
+      if (existingProfile?.profile_photo_url) {
+        photoPreview.innerHTML = `<img src="${existingProfile.profile_photo_url}" alt="Profile preview">`;
+      } else {
+        updatePhotoPreviewFromName();
+      }
+      return;
+    }
+
+    try {
+      validateImageFile(file);
+
+      const reader = new FileReader();
+      reader.onload = function(evt) {
+        pendingProfilePhotoDataUrl = evt.target?.result || null;
+        photoPreview.innerHTML = `<img src="${pendingProfilePhotoDataUrl}" alt="Profile preview">`;
+      };
+      reader.readAsDataURL(file);
+    } catch (err) {
+      showMessage(err.message || 'Invalid image file.', 'error');
+      e.target.value = '';
+      pendingProfilePhotoDataUrl = null;
+      updatePhotoPreviewFromName();
+    }
+  });
+
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
     clearMessage();
@@ -901,8 +1131,8 @@
       validateCurrentStep();
       setSavingState(true);
 
-      const full_name = document.getElementById('full_name').value.trim();
-      const email = document.getElementById('email').value.trim().toLowerCase();
+      const full_name = getFullNameInput().value.trim();
+      const email = getEmailInput().value.trim().toLowerCase();
       const phone = normalizePhone(document.getElementById('phone').value);
       const location = document.getElementById('location').value.trim();
       const headline = document.getElementById('headline').value.trim();
@@ -911,14 +1141,67 @@
       const linkedin = document.getElementById('linkedin').value.trim();
       const portfolio = document.getElementById('portfolio').value.trim();
       const experience = document.getElementById('experience').value.trim();
-      const file = document.getElementById('resume').files[0];
+      const resumeFile = document.getElementById('resume').files[0];
       const profilePhotoFile = profilePhotoInput.files[0];
+      const password = document.getElementById('password').value;
+      const confirmPassword = document.getElementById('confirm_password').value;
 
       if (!full_name) throw new Error('Full name is required.');
       if (!email) throw new Error('Email is required.');
+      if (!isValidEmail(email)) throw new Error('Please enter a valid email address.');
       if (!headline) throw new Error('Please select your target role.');
       if (phone && !validatePhone(phone)) {
         throw new Error('Please enter a valid PH mobile number in this format: 09XXXXXXXXX');
+      }
+
+      if (!currentUser) {
+        if (!password) throw new Error('Please create a password.');
+        if (password.length < 8) throw new Error('Password must be at least 8 characters.');
+        if (password !== confirmPassword) throw new Error('Passwords do not match.');
+
+        const existingEmailProfile = await findExistingProfileByEmail(email);
+        if (existingEmailProfile) {
+          existingProfile = existingEmailProfile;
+        }
+
+        const { data: signUpData, error: signUpError } = await supabaseClient.auth.signUp({
+          email,
+          password,
+          options: {
+            data: {
+              full_name
+            }
+          }
+        });
+
+        if (signUpError) {
+          const signUpMessage = String(signUpError.message || '').toLowerCase();
+
+          if (
+            signUpMessage.includes('already registered') ||
+            signUpMessage.includes('already been registered') ||
+            signUpMessage.includes('user already registered')
+          ) {
+            window.location.href = getLoginUrl(email);
+            return;
+          }
+
+          throw signUpError;
+        }
+
+        currentUser = signUpData?.user || null;
+        syncAuthModeUI();
+
+        if (!currentUser) {
+          showMessage(
+            'Your account was created. Please check your email to confirm your account, then sign in to continue.',
+            'info'
+          );
+          setTimeout(() => {
+            window.location.href = getLoginUrl(email);
+          }, 1800);
+          return;
+        }
       }
 
       const expected_salary = salaryRaw ? Number(salaryRaw) : null;
@@ -927,9 +1210,9 @@
       let resume_url = existingProfile?.resume_url || null;
       let profile_photo_url = existingProfile?.profile_photo_url || null;
 
-      if (file) {
-        const uploaded = await uploadResume(file);
-        resume_path = uploaded.path;
+      if (resumeFile) {
+        const uploadedResume = await uploadResume(resumeFile);
+        resume_path = uploadedResume.path;
         resume_url = null;
       }
 
@@ -953,6 +1236,8 @@
         resume_url
       };
 
+      let savedProfile = null;
+
       if (existingProfile) {
         const { data, error } = await supabaseClient
           .from('applicant_profiles')
@@ -962,7 +1247,7 @@
           .single();
 
         if (error) throw error;
-        existingProfile = data;
+        savedProfile = data;
       } else {
         const { data, error } = await supabaseClient
           .from('applicant_profiles')
@@ -971,24 +1256,26 @@
           .single();
 
         if (error) throw error;
-        existingProfile = data;
+        savedProfile = data;
       }
+
+      existingProfile = savedProfile || payload;
 
       showMessage('Profile saved successfully.', 'success');
 
       setTimeout(() => {
         redirectAfterSave();
       }, 700);
-
     } catch (err) {
-      showMessage(err.message || 'Error saving profile.', 'error');
+      const msg = err?.message || 'Error saving profile.';
+      showMessage(msg, 'error');
     } finally {
       setSavingState(false);
     }
   });
 
   updateStepUI();
-  loadUser();
+  bootstrapPage();
 </script>
 
 </body>
