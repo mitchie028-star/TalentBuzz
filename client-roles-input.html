@@ -640,6 +640,20 @@
       color: #fecaca;
     }
 
+    .budget-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 7px 10px;
+      border-radius: 999px;
+      background: rgba(37, 99, 235, 0.12);
+      border: 1px solid rgba(59,130,246,0.22);
+      color: #bfdbfe;
+      font-size: 0.76rem;
+      font-weight: 800;
+      white-space: nowrap;
+    }
+
     .table-actions {
       display: flex;
       flex-wrap: wrap;
@@ -941,6 +955,48 @@
                     </select>
                   </div>
 
+                  <div class="field">
+                    <label for="salaryCurrency">Salary Currency</label>
+                    <select id="salaryCurrency">
+                      <option value="PHP">PHP (₱)</option>
+                      <option value="USD">USD ($)</option>
+                      <option value="HKD">HKD (HK$)</option>
+                      <option value="SGD">SGD (S$)</option>
+                      <option value="EUR">EUR (€)</option>
+                      <option value="GBP">GBP (£)</option>
+                      <option value="AUD">AUD (A$)</option>
+                      <option value="CAD">CAD (C$)</option>
+                      <option value="JPY">JPY (¥)</option>
+                    </select>
+                  </div>
+
+                  <div class="field">
+                    <label for="salaryPeriod">Salary Period</label>
+                    <select id="salaryPeriod">
+                      <option value="Monthly">Monthly</option>
+                      <option value="Annual">Annual</option>
+                      <option value="Hourly">Hourly</option>
+                      <option value="Daily">Daily</option>
+                      <option value="Project-Based">Project-Based</option>
+                    </select>
+                  </div>
+
+                  <div class="field">
+                    <label for="salaryMin">Salary Budget Min</label>
+                    <input id="salaryMin" type="number" min="0" step="0.01" placeholder="e.g. 30000" />
+                  </div>
+
+                  <div class="field">
+                    <label for="salaryMax">Salary Budget Max</label>
+                    <input id="salaryMax" type="number" min="0" step="0.01" placeholder="e.g. 50000" />
+                  </div>
+
+                  <div class="field-full">
+                    <label for="salaryNotes">Salary Notes</label>
+                    <textarea id="salaryNotes" placeholder="e.g. Open to strong candidates, plus incentives, negotiable based on experience"></textarea>
+                    <div class="helper">Native salary fields save to jobs. Salary period and notes stay in AI screening config compensation meta.</div>
+                  </div>
+
                   <div class="field-full">
                     <label for="jobDescription">Role Overview / Job Description</label>
                     <textarea id="jobDescription" placeholder="Write the role overview, impact, and day-to-day responsibilities."></textarea>
@@ -1221,6 +1277,11 @@ Fill in the role fields and click “Refresh Preview”.
       requirements: document.getElementById("requirements"),
       prioritySkills: document.getElementById("prioritySkills"),
       niceToHaveSkills: document.getElementById("niceToHaveSkills"),
+      salaryCurrency: document.getElementById("salaryCurrency"),
+      salaryPeriod: document.getElementById("salaryPeriod"),
+      salaryMin: document.getElementById("salaryMin"),
+      salaryMax: document.getElementById("salaryMax"),
+      salaryNotes: document.getElementById("salaryNotes"),
 
       jdUpload: document.getElementById("jdUpload"),
       jdRawText: document.getElementById("jdRawText"),
@@ -1838,6 +1899,11 @@ Fill in the role fields and click “Refresh Preview”.
     }
 
     function clearJDInput() {
+      els.salaryCurrency.value = "PHP";
+      els.salaryPeriod.value = "Monthly";
+      els.salaryMin.value = "";
+      els.salaryMax.value = "";
+      els.salaryNotes.value = "";
       els.jdUpload.value = "";
       els.jdRawText.value = "";
       showNotice("JD input cleared.");
@@ -2278,6 +2344,8 @@ ${niceToHave}`;
             ? `<span class="pill pill-closed">${escapeHtml(role.status || "Closed")}</span>`
             : `<span class="pill pill-open">${escapeHtml(role.status || "Open")}</span>`;
 
+        const budgetText = formatSalaryBudgetLine(role.salary_budget || {}).replace(/^Salary Budget:\s*/, "");
+
         return `
           <tr>
             <td>
@@ -2286,11 +2354,13 @@ ${niceToHave}`;
                 ${escapeHtml(role.role_family || "Uncategorized")}
                 ${role.seniority ? ` • ${escapeHtml(role.seniority)}` : ""}
               </div>
+              ${budgetText ? `<div style="margin-top:8px;"><span class="budget-pill">${escapeHtml(budgetText)}</span></div>` : ""}
             </td>
             <td><div>${escapeHtml(role.client_name || "No client")}</div></td>
             <td>
               <div>${escapeHtml(role.work_setup || "Not set")}</div>
               <div class="subtext">${escapeHtml(role.location || "No location")}</div>
+              ${budgetText ? `<div class="subtext">${escapeHtml(budgetText)}</div>` : ""}
             </td>
             <td>${statusPill}</td>
             <td>
@@ -2443,6 +2513,11 @@ ${niceToHave}`;
       els.employmentType.value = hydrated.employment_type || "";
       els.seniority.value = hydrated.seniority || "";
       els.roleStatus.value = hydrated.status || "Open";
+      els.salaryCurrency.value = hydrated.salary_currency || hydrated.salary_budget?.currency || "PHP";
+      els.salaryPeriod.value = hydrated.salary_budget?.period || "Monthly";
+      els.salaryMin.value = hydrated.salary_min ?? "";
+      els.salaryMax.value = hydrated.salary_max ?? "";
+      els.salaryNotes.value = hydrated.salary_budget?.notes || "";
       els.jobDescription.value = hydrated.job_description || "";
       els.requirements.value = hydrated.requirements || "";
       els.prioritySkills.value = hydrated.priority_skills || "";
@@ -2462,6 +2537,11 @@ ${niceToHave}`;
       questionItems = [];
       els.screeningSummaryOutput.textContent = "No summary generated yet.";
       els.signalSummaryOutput.textContent = buildSignalSummaryText(getSignalCalibrationPayload());
+      els.salaryCurrency.value = "PHP";
+      els.salaryPeriod.value = "Monthly";
+      els.salaryMin.value = "";
+      els.salaryMax.value = "";
+      els.salaryNotes.value = "";
       els.jdUpload.value = "";
       els.jdRawText.value = "";
       renderQuestions();
@@ -2546,6 +2626,11 @@ ${niceToHave}`;
       els.requirements,
       els.prioritySkills,
       els.niceToHaveSkills,
+      els.salaryCurrency,
+      els.salaryPeriod,
+      els.salaryMin,
+      els.salaryMax,
+      els.salaryNotes,
       els.signalNonNegotiables,
       els.signalRedFlags,
       els.signalMustHaveSkills,
