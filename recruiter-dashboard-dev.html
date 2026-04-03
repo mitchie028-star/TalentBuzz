@@ -509,7 +509,16 @@
         function clearNotesSaveMessage() { if (!els.notesSaveMessage) return; els.notesSaveMessage.textContent = ""; els.notesSaveMessage.className = "notes-save-message"; }
         function getRecruiterName(email) { const cleanEmail = normalizeEmail(email); return state.allRecruitersMap[cleanEmail] || cleanEmail || "Unassigned"; }
         function toggleMenu(forceClose = false) { if (!els.menuDropdown) return; if (forceClose) { els.menuDropdown.classList.remove("show"); return; } els.menuDropdown.classList.toggle("show"); }
-        function setHeaderBadges() { if (els.chatUnreadBadge) els.chatUnreadBadge.textContent = "0"; const unassignedWebApplicants = state.allApplications.filter((app) => normalizeText(app.application_source) === "website" && !normalizeText(app.recruiter_email)).length; if (els.newApplicantsBadge) els.newApplicantsBadge.textContent = String(unassignedWebApplicants); }
+        function setHeaderBadges() {
+          if (els.chatUnreadBadge) els.chatUnreadBadge.textContent = "0";
+
+          const unassignedApplicants = state.allApplications.filter((app) => {
+            const recruiterEmail = normalizeEmail(app?.recruiter_email || "");
+            return !recruiterEmail;
+          }).length;
+
+          if (els.newApplicantsBadge) els.newApplicantsBadge.textContent = String(unassignedApplicants);
+        }
         function normalizeBulletText(rawText) { return String(rawText || "").split("\n").map((line) => line.trim()).filter(Boolean).map((line) => line.replace(/^[•\-*]\s*/, "")).filter(Boolean); }
         function buildOptimizedInterviewNotes({ candidateName, jobTitle, strengths, risks, summary, decisionStatus }) { const strengthLines = normalizeBulletText(strengths); const riskLines = normalizeBulletText(risks); const summaryText = String(summary || "").trim(); const decisionText = String(decisionStatus || "").trim(); const parts = []; if (decisionText) parts.push(`Recommendation: ${decisionText}`); if (summaryText) parts.push(`Interview Summary:\n${summaryText}`); if (strengthLines.length) parts.push(`Key Strengths:\n${strengthLines.map((line) => `• ${line}`).join("\n")}`); if (riskLines.length) parts.push(`Considerations:\n${riskLines.map((line) => `• ${line}`).join("\n")}`); if (!parts.length) return `Candidate ${candidateName || "Candidate"} was interviewed for ${jobTitle || "the role"}.`; return parts.join("\n\n"); }
         function computeSlaStatus(app) { const stored = normalizeText(app?.sla_status); if (stored) return stored; const dueAt = app?.sla_due_at ? new Date(app.sla_due_at).getTime() : null; if (!dueAt) return "on_track"; const now = Date.now(); if (now > dueAt) return "overdue"; const hoursLeft = (dueAt - now) / (1000 * 60 * 60); if (hoursLeft <= 12) return "due_soon"; return "on_track"; }
