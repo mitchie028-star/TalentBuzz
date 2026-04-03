@@ -537,8 +537,23 @@
           try { const { data: { session } } = await supabaseClient.auth.getSession(); if (!session?.user) { window.location.href = "recruiter-login.html"; return null; } const recruiterRecord = await verifyRecruiterAccess(session.user.email); state.currentUser = session.user; state.currentRecruiterRecord = recruiterRecord; return session.user; } catch (error) { console.error(error); alert(error.message || "Access denied."); await supabaseClient.auth.signOut(); window.location.href = "recruiter-login.html"; return null; }
         }
         async function loadProfiles() {
-          const { data, error } = await supabaseClient.from("applicant_profiles").select("id, full_name, email, phone, location, experience, experience_summary, years_experience, years_of_experience, experience_years, total_experience, resume_url, resume_path, created_at, updated_at").order("created_at", { ascending: false });
-          if (error) throw error; state.allProfiles = data || [];
+          try {
+            const { data, error } = await supabaseClient
+              .from("applicant_profiles")
+              .select("id, full_name, email, phone, location, experience, experience_summary, years_experience, years_of_experience, experience_years, total_experience, resume_url, resume_path, created_at, updated_at")
+              .order("created_at", { ascending: false });
+
+            if (error) {
+              console.error("loadProfiles error:", error);
+              state.allProfiles = [];
+              return;
+            }
+
+            state.allProfiles = data || [];
+          } catch (err) {
+            console.error("loadProfiles catch:", err);
+            state.allProfiles = [];
+          }
         }
         async function loadApplications() {
           try {
@@ -591,14 +606,15 @@
           if (els.metricSlaRisk) els.metricSlaRisk.textContent = String(slaRisk);
           if (els.metricAppsPerProfile) els.metricAppsPerProfile.textContent = String(avgAppsPerProfile);
         }
-        async function refreshAll() { try { await loadRecruitersMap(); await loadProfiles(); await loadApplications(); } catch (err) { console.error(err); showNotice("Error refreshing data.", "error"); } }
-        function getFilteredApplications() {
-          const search = normalizeText(getSafeValue(els.searchInput)); const job = normalizeText(getSafeValue(els.jobFilter)); const client = normalizeText(getSafeValue(els.clientFilter)); const status = normalizeText(getSafeValue(els.statusFilter)); const recruiter = normalizeText(getSafeValue(els.recruiterFilter)); const source = normalizeText(getSafeValue(els.sourceFilter)); const sla = normalizeText(getSafeValue(els.slaFilter));
-          return state.allApplications.filter((app) => {
-            const profile = getProfileFromApplication(app); const combinedSearch = [profile?.full_name, app.email, profile?.phone, profile?.location, app.jobs?.title, app.job_title, app.jobs?.client_name].map((item) => normalizeText(item)).join(" ");
-            const slaStatus = computeSlaStatus(app); const recruiterName = normalizeText(getRecruiterName(app.recruiter_email));
-            return ((!search || combinedSearch.includes(search)) && (!job || normalizeText(app.jobs?.title || app.job_title).includes(job)) && (!client || normalizeText(app.jobs?.client_name).includes(client)) && (!status || normalizeText(app.status) === status) && (!recruiter || recruiterName.includes(recruiter)) && (!source || normalizeText(app.application_source) === source) && (!sla || normalizeText(slaStatus) === sla));
-          });
+        async function refreshAll() {
+          try {
+            await loadRecruitersMap();
+            await loadProfiles();
+            await loadApplications();
+          } catch (err) {
+            console.error("refreshAll fatal:", err);
+            showNotice(err?.message || "Error refreshing data.", "error");
+          }
         }
         function getFileExtension(url) { try { const cleanUrl = String(url || "").split("?")[0].split("#")[0]; const parts = cleanUrl.split("."); return parts.length > 1 ? parts.pop().toLowerCase() : ""; } catch { return ""; } }
         function cleanResumePath(path) { return String(path || "").trim().replace(/^\/+/, "").replace(/^resumes\//i, ""); }
