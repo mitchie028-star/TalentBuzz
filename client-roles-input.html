@@ -1297,6 +1297,91 @@ Fill in the role fields and click “Refresh Preview”.
         .replace(/'/g, "&#039;");
     }
 
+    function parseBudgetNumber(value) {
+      const cleaned = String(value ?? "").replace(/[^\d.\-]/g, "").trim();
+      if (!cleaned) return null;
+      const parsed = Number(cleaned);
+      return Number.isFinite(parsed) ? parsed : null;
+    }
+
+    function getCurrencySymbol(currency = "PHP") {
+      const map = {
+        PHP: "₱",
+        USD: "$",
+        HKD: "HK$",
+        SGD: "S$",
+        EUR: "€",
+        GBP: "£",
+        AUD: "A$",
+        CAD: "C$",
+        JPY: "¥"
+      };
+      return map[currency] || currency;
+    }
+
+    function formatBudgetValue(value, currency = "PHP") {
+      const parsed = parseBudgetNumber(value);
+      if (parsed === null) return "";
+      return `${getCurrencySymbol(currency)}${parsed.toLocaleString(undefined, {
+        minimumFractionDigits: parsed % 1 === 0 ? 0 : 2,
+        maximumFractionDigits: 2
+      })}`;
+    }
+
+    function buildCompensationMeta() {
+      return {
+        period: safeText(els.salaryPeriod?.value) || "Monthly",
+        notes: safeText(els.salaryNotes?.value)
+      };
+    }
+
+    function getCompensationMetaFromConfig(config = {}) {
+      const meta = config?.compensation_meta;
+      return {
+        period: safeText(meta?.period) || "Monthly",
+        notes: safeText(meta?.notes)
+      };
+    }
+
+    function buildSalaryBudget() {
+      const compensationMeta = buildCompensationMeta();
+      return {
+        currency: safeText(els.salaryCurrency?.value) || "PHP",
+        period: compensationMeta.period,
+        min: parseBudgetNumber(els.salaryMin?.value),
+        max: parseBudgetNumber(els.salaryMax?.value),
+        notes: compensationMeta.notes
+      };
+    }
+
+    function getSalaryBudgetFromRole(role = {}) {
+      const aiConfig = typeof role?.ai_screening_config === "object" && role?.ai_screening_config !== null
+        ? role.ai_screening_config
+        : {};
+      const compensationMeta = getCompensationMetaFromConfig(aiConfig);
+
+      return {
+        currency: safeText(role?.salary_currency) || "PHP",
+        period: compensationMeta.period || "Monthly",
+        min: parseBudgetNumber(role?.salary_min),
+        max: parseBudgetNumber(role?.salary_max),
+        notes: compensationMeta.notes
+      };
+    }
+
+    function formatSalaryBudgetLine(budget = {}) {
+      const currency = budget.currency || "PHP";
+      const period = budget.period || "Monthly";
+      const minText = formatBudgetValue(budget.min, currency);
+      const maxText = formatBudgetValue(budget.max, currency);
+
+      if (minText && maxText) return `Salary Budget: ${minText} - ${maxText} (${period})`;
+      if (minText) return `Salary Budget: From ${minText} (${period})`;
+      if (maxText) return `Salary Budget: Up to ${maxText} (${period})`;
+      if (budget.notes) return `Salary Budget: ${budget.notes}`;
+      return "";
+    }
+
     function buildRequirementBullets(text) {
       const lines = normalizeLines(text);
       if (!lines.length) return "Not specified";
@@ -1477,7 +1562,29 @@ Fill in the role fields and click “Refresh Preview”.
 
       const workSetupMatch = safe.match(/\b(remote|hybrid|onsite|on-site)\b/i);
       const employmentTypeMatch = safe.match(/\b(full[- ]time|part[- ]time|contract|project[- ]based|consulting)\b/i);
+      const salaryMatch = safe.match(/(?:salary|budget|compensation)[^\n\r]{0,80}?(₱|PHP|\$|USD|HK\$|HKD|S\$|SGD|€|EUR|£|GBP|A\$|AUD)?\s*([\d,]+(?:\.\d+)?)\s*(?:-|to)\s*(?:₱|PHP|\$|USD|HK\$|HKD|S\$|SGD|€|EUR|£|GBP|A\$|AUD)?\s*([\d,]+(?:\.\d+)?)/i);
       const prioritySkills = rankPrioritySkills(requiredSkills, nonNegotiables);
+
+      let salaryBudget = null;
+      if (salaryMatch) {
+        const currencyToken = (salaryMatch[1] || "").toUpperCase();
+        let currency = "PHP";
+        if (currencyToken.includes("$") || currencyToken === "USD") currency = "USD";
+        if (currencyToken.includes("HK") || currencyToken === "HKD") currency = "HKD";
+        if (currencyToken.includes("S$") || currencyToken === "SGD") currency = "SGD";
+        if (currencyToken.includes("€") || currencyToken === "EUR") currency = "EUR";
+        if (currencyToken.includes("£") || currencyToken === "GBP") currency = "GBP";
+        if (currencyToken.includes("A$") || currencyToken === "AUD") currency = "AUD";
+        if (currencyToken.includes("₱") || currencyToken === "PHP") currency = "PHP";
+
+        salaryBudget = {
+          currency,
+          period: /annual|yearly|per year/i.test(safe) ? "Annual" : /hour|hourly|per hour/i.test(safe) ? "Hourly" : "Monthly",
+          min: parseBudgetNumber(salaryMatch[2]),
+          max: parseBudgetNumber(salaryMatch[3]),
+          notes: ""
+        };
+      }
 
       return {
         title,
@@ -1489,6 +1596,7 @@ Fill in the role fields and click “Refresh Preview”.
         redFlags,
         workSetup: workSetupMatch ? workSetupMatch[1].replace(/on-site/i, "Onsite") : "",
         employmentType: employmentTypeMatch ? employmentTypeMatch[1] : "",
+        salaryBudget,
         aiScreeningConfig: buildAIScreeningConfigFromJD(safe, {
           nonNegotiables,
           redFlags,
@@ -1678,6 +1786,19 @@ Fill in the role fields and click “Refresh Preview”.
         else if (normalized.includes("consult")) els.employmentType.value = "Consulting";
       }
 
+      if (parsed.salaryBudget) {
+        if (!safeText(els.salaryMin.value) && parsed.salaryBudget.min !== null) {
+          els.salaryCurrency.value = parsed.salaryBudget.currency || els.salaryCurrency.value || "PHP";
+          els.salaryPeriod.value = parsed.salaryBudget.period || els.salaryPeriod.value || "Monthly";
+          els.salaryMin.value = parsed.salaryBudget.min;
+        }
+        if (!safeText(els.salaryMax.value) && parsed.salaryBudget.max !== null) {
+          els.salaryCurrency.value = parsed.salaryBudget.currency || els.salaryCurrency.value || "PHP";
+          els.salaryPeriod.value = parsed.salaryBudget.period || els.salaryPeriod.value || "Monthly";
+          els.salaryMax.value = parsed.salaryBudget.max;
+        }
+      }
+
       els.signalSummaryOutput.textContent = buildSignalSummaryText(getSignalCalibrationPayload());
       refreshPreview();
       showNotice("JD parsed and mapped to role fields.");
@@ -1723,6 +1844,9 @@ Fill in the role fields and click “Refresh Preview”.
     }
 
     function getEnhancedRolePayload() {
+      const signalConfig = getSignalCalibrationPayload();
+      signalConfig.compensation_meta = buildCompensationMeta();
+
       return {
         client_name: safeText(els.clientName.value),
         title: safeText(els.jobTitle.value),
@@ -1732,17 +1856,26 @@ Fill in the role fields and click “Refresh Preview”.
         employment_type: safeText(els.employmentType.value),
         seniority_level: safeText(els.seniority.value),
         status: safeText(els.roleStatus.value) || "Open",
+        salary_min: parseBudgetNumber(els.salaryMin.value),
+        salary_max: parseBudgetNumber(els.salaryMax.value),
+        salary_currency: safeText(els.salaryCurrency.value) || "PHP",
+        salary_budget: buildSalaryBudget(),
         job_description: safeText(els.jobDescription.value),
         required_skills: safeText(els.requirements.value),
         priority_skills: safeText(els.prioritySkills.value),
         nice_to_have_skills: safeText(els.niceToHaveSkills.value),
         screening_summary: safeText(els.screeningSummaryOutput.textContent),
         screening_config: questionItems,
-        ai_screening_config: getSignalCalibrationPayload()
+        ai_screening_config: signalConfig
       };
     }
 
     function hydrateRole(role) {
+      const aiConfig = typeof role?.ai_screening_config === "object" && role?.ai_screening_config !== null
+        ? role.ai_screening_config
+        : {};
+      const salaryBudget = getSalaryBudgetFromRole(role);
+
       return {
         ...role,
         job_title: role?.title || "",
@@ -1751,11 +1884,13 @@ Fill in the role fields and click “Refresh Preview”.
         is_on_hold: role?.is_on_hold ?? false,
         priority_skills: role?.priority_skills || "",
         nice_to_have_skills: role?.nice_to_have_skills || "",
+        salary_min: parseBudgetNumber(role?.salary_min),
+        salary_max: parseBudgetNumber(role?.salary_max),
+        salary_currency: safeText(role?.salary_currency) || "PHP",
         screening_config: Array.isArray(role?.screening_config) ? role.screening_config : [],
         screening_summary: role?.screening_summary || "",
-        ai_screening_config: typeof role?.ai_screening_config === "object" && role?.ai_screening_config !== null
-          ? role.ai_screening_config
-          : {}
+        salary_budget: salaryBudget,
+        ai_screening_config: aiConfig
       };
     }
 
@@ -2202,6 +2337,9 @@ ${niceToHave}`;
             screening_summary,
             screening_config,
             ai_screening_config,
+            salary_min,
+            salary_max,
+            salary_currency,
             is_on_hold,
             created_at
           `)
@@ -2255,6 +2393,9 @@ ${niceToHave}`;
         employment_type: payload.employment_type,
         seniority_level: payload.seniority_level,
         status: payload.status,
+        salary_min: payload.salary_min,
+        salary_max: payload.salary_max,
+        salary_currency: payload.salary_currency,
         job_description: payload.job_description,
         required_skills: payload.required_skills,
         priority_skills: payload.priority_skills,
