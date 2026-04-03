@@ -1075,6 +1075,26 @@
         return data;
       }
 
+      async function fetchAllRows(buildQuery, pageSize = 1000) {
+        const allRows = [];
+        let from = 0;
+
+        while (true) {
+          const to = from + pageSize - 1;
+          const query = buildQuery(from, to);
+          const { data, error } = await query;
+          if (error) throw error;
+
+          const batch = Array.isArray(data) ? data : [];
+          allRows.push(...batch);
+
+          if (batch.length < pageSize) break;
+          from += pageSize;
+        }
+
+        return allRows;
+      }
+
       async function detectSchemas() {
         const checks = [
           { bucket: "prospectSchema", key: "hasSuggestedRoles", table: "prospects", column: "suggested_roles" },
@@ -1569,24 +1589,37 @@
 
       async function loadInviteStats() {
         try {
-          let query = supabase.from("buzzpool_invites").select("invite_status,sent_at,recruiter_email");
-          if (state.sessionUser?.email) {
-            query = query.eq("recruiter_email", state.sessionUser.email);
-          }
+          const rows = await fetchAllRows((from, to) => {
+            let query = supabase
+              .from("buzzpool_invites")
+              .select("invite_status,sent_at,recruiter_email")
+              .order("created_at", { ascending: false })
+              .range(from, to);
 
-          const { data, error } = await query;
-          if (error) throw error;
+            if (state.sessionUser?.email) {
+              query = query.eq("recruiter_email", state.sessionUser.email);
+            }
 
-          const rows = data || [];
+            return query;
+          });
+
+          const sentStatuses = new Set([
+            "invite_sent",
+            "invite_opened",
+            "profile_started",
+            "profile_completed",
+            "marketplace_active"
+          ]);
+
           const sentCount = rows.filter(row =>
-            !!row.sent_at &&
-            ["invite_sent", "invite_opened", "profile_started", "profile_completed"].includes(normalizeText(row.invite_status))
+            !!row.sent_at && sentStatuses.has(normalizeText(row.invite_status))
           ).length;
 
           state.emailStats.sent = sentCount;
-          els.countEmailsSent.textContent = sentCount;
+          els.countEmailsSent.textContent = String(sentCount);
         } catch (err) {
           console.error(err);
+          state.emailStats.sent = 0;
           els.countEmailsSent.textContent = "0";
         }
       }
@@ -1816,16 +1849,23 @@
             jobs (id, title, client_name)
           `;
 
-          const { data, error } = await supabase
-            .from("prospect_pipeline")
-            .select(selectQuery)
-            .order("created_at", { ascending: false });
-
-          if (error) throw error;
+          const data = await fetchAllRows((from, to) =>
+            supabase
+              .from("prospect_pipeline")
+              .select(selectQuery)
+              .order("created_at", { ascending: false })
+              .range(from, to)
+          );
 
           const rows = (data || []).map(r => {
             const p = Array.isArray(r.prospects) ? (r.prospects[0] || {}) : (r.prospects || {});
             const j = Array.isArray(r.jobs) ? (r.jobs[0] || {}) : (r.jobs || {});
+
+            let resolvedResumeUrl = state.prospectSchema.hasResumeUrl ? (p.resume_url || "") : "";
+            if (!resolvedResumeUrl && state.prospectSchema.hasResumePath && p.resume_path) {
+              const publicUrl = supabase.storage.from(RESUME_BUCKET).getPublicUrl(p.resume_path);
+              resolvedResumeUrl = publicUrl?.data?.publicUrl || "";
+            }
 
             return {
               pipeline_id: r.id,
@@ -1843,7 +1883,7 @@
               linkedin_url: p.linkedin_url || "",
               email: p.personal_email || p.work_email || "",
               phone: p.phone || "",
-              resume_url: state.prospectSchema.hasResumeUrl ? (p.resume_url || "") : "",
+              resume_url: resolvedResumeUrl,
               resume_path: state.prospectSchema.hasResumePath ? (p.resume_path || "") : "",
               suggested_roles: state.prospectSchema.hasSuggestedRoles ? safeArrayParse(p.suggested_roles) : [],
               top_match_role: state.prospectSchema.hasTopMatchRole ? (p.top_match_role || "") : "",
@@ -1861,7 +1901,7 @@
             state.filteredRows = [...rows];
           }
 
-          populateFilters(state.rows);
+          populateFilters(state.persistedRows);
           await loadInviteStats();
           applyFilters();
         } catch (error) {
