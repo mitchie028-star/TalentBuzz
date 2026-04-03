@@ -45,7 +45,7 @@
     }
 
     .container {
-      max-width: 1700px;
+      max-width: 1780px;
       margin: 0 auto;
       padding: 24px 20px 44px;
     }
@@ -284,7 +284,7 @@
       width: 100%;
       border-collapse: collapse;
       background: white;
-      min-width: 2300px;
+      min-width: 2450px;
     }
 
     th, td {
@@ -600,7 +600,7 @@
         <div>
           <h2>Bulk Upload to TalentBuzz</h2>
           <p>Import candidates from CSV and immediately add them into your sourced pipeline.</p>
-          <p style="margin-top:8px;"><strong>CSV format:</strong> full_name,title,email,phone</p>
+          <p style="margin-top:8px;"><strong>CSV format:</strong> full_name,title,total_experience,email,phone</p>
           <p style="margin-top:6px;"><strong>Bulk invite format:</strong> full_name,email</p>
           <p style="margin-top:6px;"><strong>Invite All Sourced:</strong> only candidates with valid emails will receive invites.</p>
         </div>
@@ -694,7 +694,7 @@
       <div class="filters-grid">
         <div class="field">
           <label for="searchInput">Search</label>
-          <input id="searchInput" type="text" placeholder="Name, company, email, title" />
+          <input id="searchInput" type="text" placeholder="Name, company, email, title, experience" />
         </div>
 
         <div class="field">
@@ -721,6 +721,7 @@
             <tr>
               <th>Prospect</th>
               <th>Title</th>
+              <th>Total Experience</th>
               <th>Company</th>
               <th>Suggested Roles</th>
               <th>Top Match</th>
@@ -739,7 +740,7 @@
             </tr>
           </thead>
           <tbody id="tableBody">
-            <tr><td colspan="17" class="empty loading">Loading sourced candidates...</td></tr>
+            <tr><td colspan="18" class="empty loading">Loading sourced candidates...</td></tr>
           </tbody>
         </table>
       </div>
@@ -940,7 +941,8 @@
           hasSuggestedRoles: false,
           hasTopMatchRole: false,
           hasResumeUrl: false,
-          hasResumePath: false
+          hasResumePath: false,
+          hasTotalExperience: false
         },
         pipelineSchema: {
           jobRequired: false
@@ -1079,6 +1081,7 @@
           { bucket: "prospectSchema", key: "hasTopMatchRole", table: "prospects", column: "top_match_role" },
           { bucket: "prospectSchema", key: "hasResumeUrl", table: "prospects", column: "resume_url" },
           { bucket: "prospectSchema", key: "hasResumePath", table: "prospects", column: "resume_path" },
+          { bucket: "prospectSchema", key: "hasTotalExperience", table: "prospects", column: "total_experience" },
           { bucket: "pipelineSchema", key: "jobRequired", table: "prospect_pipeline", column: "job_id" }
         ];
 
@@ -1304,6 +1307,7 @@
           parsed.current_title,
           parsed.current_company,
           parsed.location,
+          parsed.total_experience,
           parsed.resume_text
         ].join(" ");
 
@@ -1385,6 +1389,7 @@
             current_title: extractTitle(resumeText),
             current_company: extractCompany(resumeText),
             location: extractLocation(resumeText),
+            total_experience: "",
             resume_text: resumeText
           };
 
@@ -1463,6 +1468,11 @@
           job_title: "title",
           current_title: "title",
 
+          total_experience: "total_experience",
+          experience: "total_experience",
+          total_years_experience: "total_experience",
+          years_of_experience: "total_experience",
+
           company: "company",
           employer: "company",
           current_company: "company",
@@ -1519,9 +1529,9 @@
         downloadCsv(
           "sourced-candidates-sample.csv",
           [
-            "full_name,title,email,phone",
-            "Juan Dela Cruz,Customer Service Representative,juan@email.com,09171234567",
-            "Maria Santos,QA Analyst,maria@email.com,09181234567"
+            "full_name,title,total_experience,email,phone",
+            "Juan Dela Cruz,Customer Service Representative,3 years,juan@email.com,09171234567",
+            "Maria Santos,QA Analyst,5 years,maria@email.com,09181234567"
           ].join("\n")
         );
       }
@@ -1678,7 +1688,7 @@
 
       function renderTable() {
         if (!state.filteredRows.length) {
-          els.tableBody.innerHTML = `<tr><td colspan="17" class="empty">No candidates found.</td></tr>`;
+          els.tableBody.innerHTML = `<tr><td colspan="18" class="empty">No candidates found.</td></tr>`;
           return;
         }
 
@@ -1706,6 +1716,7 @@
                 <div class="small">${escapeHtml(row.location || "-")}</div>
               </td>
               <td>${escapeHtml(row.current_title || "-")}</td>
+              <td>${escapeHtml(row.total_experience || "-")}</td>
               <td>${escapeHtml(row.current_company || "-")}</td>
               <td>${renderSuggestedRolesCell(row.suggested_roles)}</td>
               <td>${escapeHtml(row.top_match_role || "-")}</td>
@@ -1746,6 +1757,7 @@
             row.current_company,
             row.email,
             row.current_title,
+            row.total_experience,
             row.top_match_role,
             (row.suggested_roles || []).join(" "),
             row.phone,
@@ -1767,7 +1779,7 @@
       }
 
       async function loadData() {
-        els.tableBody.innerHTML = `<tr><td colspan="17" class="empty loading">Loading sourced candidates...</td></tr>`;
+        els.tableBody.innerHTML = `<tr><td colspan="18" class="empty loading">Loading sourced candidates...</td></tr>`;
 
         try {
           const prospectFields = [
@@ -1786,6 +1798,7 @@
           if (state.prospectSchema.hasTopMatchRole) prospectFields.push("top_match_role");
           if (state.prospectSchema.hasResumeUrl) prospectFields.push("resume_url");
           if (state.prospectSchema.hasResumePath) prospectFields.push("resume_path");
+          if (state.prospectSchema.hasTotalExperience) prospectFields.push("total_experience");
 
           const selectQuery = `
             id,
@@ -1824,6 +1837,7 @@
               location_rank: r.location_rank,
               full_name: p.full_name || "",
               current_title: p.current_title || "",
+              total_experience: state.prospectSchema.hasTotalExperience ? (p.total_experience || "") : "",
               current_company: p.current_company || "",
               location: p.location || "",
               linkedin_url: p.linkedin_url || "",
@@ -1852,7 +1866,7 @@
           applyFilters();
         } catch (error) {
           console.error(error);
-          els.tableBody.innerHTML = `<tr><td colspan="17" class="empty">${escapeHtml(error.message || "Failed to load candidates.")}</td></tr>`;
+          els.tableBody.innerHTML = `<tr><td colspan="18" class="empty">${escapeHtml(error.message || "Failed to load candidates.")}</td></tr>`;
           showNotice(error.message || "Failed to load candidates.", "error");
         }
       }
@@ -1989,7 +2003,7 @@
 
         try {
           const { headers, rows } = parseCsv(await file.text());
-          const required = ["full_name", "title", "email", "phone"];
+          const required = ["full_name", "title", "total_experience", "email", "phone"];
           const missing = required.filter(h => !headers.includes(h));
 
           if (missing.length) {
@@ -2008,6 +2022,7 @@
           )) {
             const fullName = String(row.full_name || "").trim();
             const title = String(row.title || "").trim();
+            const totalExperience = String(row.total_experience || "").trim();
             const email = String(row.email || "").trim();
             const phone = String(row.phone || "").trim();
 
@@ -2018,7 +2033,8 @@
               current_title: title,
               current_company: "",
               location: "",
-              resume_text: [fullName, title].join(" ")
+              total_experience: totalExperience,
+              resume_text: [fullName, title, totalExperience].join(" ")
             });
 
             const prospectId = crypto.randomUUID();
@@ -2034,6 +2050,10 @@
               linkedin_url: ""
             };
 
+            if (state.prospectSchema.hasTotalExperience) {
+              prospectRow.total_experience = totalExperience;
+            }
+
             if (state.prospectSchema.hasSuggestedRoles) {
               prospectRow.suggested_roles = roleInfo.suggested_roles || [];
             }
@@ -2048,7 +2068,7 @@
               prospect_id: prospectId,
               status: "sourced",
               recruiter_email: state.sessionUser?.email || null,
-              notes: "Added via bulk upload",
+              notes: `Added via bulk upload${totalExperience ? ` | Experience: ${totalExperience}` : ""}`,
               source: "bulk_upload",
               match_score: 0,
               location_rank: 0
@@ -2479,6 +2499,7 @@
           row.current_title,
           row.current_company,
           row.location,
+          row.total_experience,
           row.email,
           row.phone,
           (row.suggested_roles || []).join(" "),
@@ -2663,6 +2684,10 @@
               phone: cleanPhone,
               linkedin_url: cleanLinkedIn
             };
+
+            if (state.prospectSchema.hasTotalExperience) {
+              prospectPayload.total_experience = row.total_experience || "";
+            }
 
             if (state.prospectSchema.hasSuggestedRoles) prospectPayload.suggested_roles = row.suggested_roles || [];
             if (state.prospectSchema.hasTopMatchRole) prospectPayload.top_match_role = row.top_match_role || "";
