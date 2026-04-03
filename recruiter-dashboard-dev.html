@@ -558,23 +558,84 @@
         async function loadApplications() {
           try {
             if (els.refreshBtn) { els.refreshBtn.disabled = true; els.refreshBtn.textContent = "Refreshing..."; }
-            const { data, error } = await supabaseClient.from("applications").select(`
-              id, applicant_profile_id, email, job_id, job_title, status, recruiter_email, application_source,
-              confirmation_email_status, created_at, stage_note_code, stage_note_label, endorsed_by, endorsement_sent_to,
-              sla_status, sla_due_at,
-              applicant_profiles (
-                id, full_name, email, phone, location, experience, experience_summary, years_experience,
-                years_of_experience, experience_years, total_experience, resume_url, resume_path, created_at, created_at
-              ),
-              jobs ( id, title, client_name, client_uuid )
-            `).order("created_at", { ascending: false });
-            if (els.refreshBtn) { els.refreshBtn.disabled = false; els.refreshBtn.textContent = "Refresh Dashboard"; }
-            if (error) { console.error(error); if (els.applicationsTable) els.applicationsTable.innerHTML = `<tr><td colspan="19" class="empty">${escapeHtml(error.message || "Failed to load candidates.")}</td></tr>`; return; }
+            const { data, error } = await supabaseClient
+              .from("applications")
+              .select(`
+                id,
+                applicant_profile_id,
+                email,
+                job_id,
+                job_title,
+                status,
+                recruiter_email,
+                application_source,
+                confirmation_email_status,
+                created_at,
+                stage_note_code,
+                stage_note_label,
+                endorsed_by,
+                endorsement_sent_to,
+                sla_status,
+                sla_due_at,
+                applicant_profiles (
+                  id,
+                  full_name,
+                  email,
+                  phone,
+                  location,
+                  experience,
+                  experience_summary,
+                  years_experience,
+                  years_of_experience,
+                  experience_years,
+                  total_experience,
+                  resume_url,
+                  resume_path
+                ),
+                jobs (
+                  id,
+                  title,
+                  client_name,
+                  client_uuid
+                )
+              `)
+              .order("created_at", { ascending: false });
+
+            if (els.refreshBtn) {
+              els.refreshBtn.disabled = false;
+              els.refreshBtn.textContent = "Refresh Dashboard";
+            }
+
+            if (error) {
+              console.error("loadApplications error:", error);
+              if (els.applicationsTable) {
+                els.applicationsTable.innerHTML = `
+                  <tr>
+                    <td colspan="19" class="empty">${escapeHtml(error.message || "Failed to load candidates.")}</td>
+                  </tr>
+                `;
+              }
+              return;
+            }
+
             state.allApplications = data || [];
-            populateFilters(); renderStats(); setHeaderBadges(); await renderTable();
+            populateFilters();
+            renderStats();
+            setHeaderBadges();
+            await renderTable();
           } catch (err) {
-            console.error(err); if (els.refreshBtn) { els.refreshBtn.disabled = false; els.refreshBtn.textContent = "Refresh Dashboard"; }
-            if (els.applicationsTable) els.applicationsTable.innerHTML = `<tr><td colspan="19" class="empty">Error loading candidates.</td></tr>`;
+            console.error("loadApplications catch:", err);
+            if (els.refreshBtn) {
+              els.refreshBtn.disabled = false;
+              els.refreshBtn.textContent = "Refresh Dashboard";
+            }
+            if (els.applicationsTable) {
+              els.applicationsTable.innerHTML = `
+                <tr>
+                  <td colspan="19" class="empty">${escapeHtml(err?.message || "Error loading candidates.")}</td>
+                </tr>
+              `;
+            }
           }
         }
         function fillSelect(selectEl, values, placeholder) { if (!selectEl) return; const currentValue = selectEl.value; const uniqueValues = Array.from(new Set(values.map((item) => String(item || "").trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b)); selectEl.innerHTML = `<option value="">${placeholder}</option>` + uniqueValues.map((value) => `<option value="${escapeHtml(value)}">${escapeHtml(value)}</option>`).join(""); if (uniqueValues.includes(currentValue)) selectEl.value = currentValue; }
@@ -612,6 +673,10 @@
             await loadProfiles();
             await loadApplications();
           } catch (err) {
+            console.error("refreshAll fatal:", err);
+            showNotice(err?.message || "Error refreshing data.", "error");
+          }
+        } catch (err) {
             console.error("refreshAll fatal:", err);
             showNotice(err?.message || "Error refreshing data.", "error");
           }
