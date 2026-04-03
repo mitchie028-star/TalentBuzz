@@ -517,6 +517,24 @@
         function getStageNoteLabel(status, code) { const options = STAGE_NOTE_OPTIONS[status] || []; const match = options.find((option) => String(option.code || "") === String(code || "")); return match?.label || null; }
         function getApplicationHistoryForProfile(profileId) { return state.allApplications.filter((app) => String(getProfileId(app) || "") === String(profileId || "")).sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime()); }
         function getProfileType(profileId) { return getApplicationHistoryForProfile(profileId).length > 0 ? "Applied Candidate" : "Marketplace Profile"; }
+        async function fetchAllRows(queryFactory, pageSize = 1000) {
+          const rows = [];
+          let from = 0;
+
+          while (true) {
+            const to = from + pageSize - 1;
+            const { data, error } = await queryFactory(from, to);
+            if (error) throw error;
+
+            const batch = Array.isArray(data) ? data : [];
+            rows.push(...batch);
+
+            if (batch.length < pageSize) break;
+            from += pageSize;
+          }
+
+          return rows;
+        }
 
         async function verifyRecruiterAccess(email) {
           const cleanEmail = normalizeEmail(email);
@@ -557,16 +575,15 @@
 
         async function loadProfiles() {
           try {
-            const { data, error } = await supabaseClient
-              .from("applicant_profiles")
-              .select("id, full_name, email, phone, location, experience, experience_summary, years_experience, years_of_experience, experience_years, total_experience, resume_url, resume_path, created_at")
-              .order("created_at", { ascending: false });
-            if (error) {
-              console.error("loadProfiles error:", error);
-              state.allProfiles = [];
-              return;
-            }
-            state.allProfiles = data || [];
+            const rows = await fetchAllRows((from, to) =>
+              supabaseClient
+                .from("applicant_profiles")
+                .select("id, full_name, email, phone, location, experience, experience_summary, years_experience, years_of_experience, experience_years, total_experience, resume_url, resume_path, created_at")
+                .order("created_at", { ascending: false })
+                .range(from, to)
+            );
+
+            state.allProfiles = rows;
           } catch (err) {
             console.error("loadProfiles catch:", err);
             state.allProfiles = [];
@@ -583,80 +600,69 @@
               els.refreshBtn.textContent = "Refreshing...";
             }
 
-            const { data, error } = await supabaseClient
-              .from("applications")
-              .select(`
-                id,
-                applicant_profile_id,
-                email,
-                job_id,
-                job_title,
-                status,
-                recruiter_email,
-                application_source,
-                confirmation_email_status,
-                created_at,
-                stage_note_code,
-                stage_note_label,
-                endorsed_by,
-                endorsement_sent_to,
-                sla_status,
-                sla_due_at,
-                applicant_profiles (
+            const rows = await fetchAllRows((from, to) =>
+              supabaseClient
+                .from("applications")
+                .select(`
                   id,
-                  full_name,
+                  applicant_profile_id,
                   email,
-                  phone,
-                  location,
-                  experience,
-                  experience_summary,
-                  years_experience,
-                  years_of_experience,
-                  experience_years,
-                  total_experience,
-                  resume_url,
-                  resume_path
-                ),
-                jobs (
-                  id,
-                  title,
-                  client_name,
-                  client_uuid
-                )
-              `)
-              .order("created_at", { ascending: false });
+                  job_id,
+                  job_title,
+                  status,
+                  recruiter_email,
+                  application_source,
+                  confirmation_email_status,
+                  created_at,
+                  stage_note_code,
+                  stage_note_label,
+                  endorsed_by,
+                  endorsement_sent_to,
+                  sla_status,
+                  sla_due_at,
+                  applicant_profiles (
+                    id,
+                    full_name,
+                    email,
+                    phone,
+                    location,
+                    experience,
+                    experience_summary,
+                    years_experience,
+                    years_of_experience,
+                    experience_years,
+                    total_experience,
+                    resume_url,
+                    resume_path
+                  ),
+                  jobs (
+                    id,
+                    title,
+                    client_name,
+                    client_uuid
+                  )
+                `)
+                .order("created_at", { ascending: false })
+                .range(from, to)
+            );
 
-            if (els.refreshBtn) {
-              els.refreshBtn.disabled = false;
-              els.refreshBtn.textContent = "Refresh Dashboard";
-            }
-
-            if (error) {
-              console.error("loadApplications error:", error);
-              if (els.applicationsTable) {
-                els.applicationsTable.innerHTML = `<tr><td colspan="19" class="empty">${escapeHtml(error.message || "Failed to load candidates.")}</td></tr>`;
-              }
-              state.allApplications = [];
-              renderStats();
-              return;
-            }
-
-            state.allApplications = data || [];
+            state.allApplications = rows;
             populateFilters();
             renderStats();
             setHeaderBadges();
             await renderTable();
           } catch (err) {
             console.error("loadApplications catch:", err);
-            if (els.refreshBtn) {
-              els.refreshBtn.disabled = false;
-              els.refreshBtn.textContent = "Refresh Dashboard";
-            }
             if (els.applicationsTable) {
               els.applicationsTable.innerHTML = `<tr><td colspan="19" class="empty">${escapeHtml(err?.message || "Error loading candidates.")}</td></tr>`;
             }
             state.allApplications = [];
             renderStats();
+          } finally {
+            if (els.refreshBtn) {
+              els.refreshBtn.disabled = false;
+              els.refreshBtn.textContent = "Refresh Dashboard";
+            }
           }
         }
 
@@ -679,9 +685,32 @@
         function renderStats() {
           const totalProfiles = state.allProfiles.length;
           const totalApplications = state.allApplications.length;
-          const uniqueProfileIdsWithApps = new Set(state.allApplications.map((app) => String(getProfileId(app) || "")).filter(Boolean));
-          const profilesWithApps = uniqueProfileIdsWithApps.size;
-          const profilesNoApps = Math.max(0, totalProfiles - profilesWithApps);
+
+          const profileIdsWithApps = new Set();
+          const profileEmailsWithApps = new Set();
+
+          state.allApplications.forEach((app) => {
+            const profile = getProfileFromApplication(app);
+            const profileId = getProfileId(app);
+            const profileEmail = normalizeEmail(profile?.email || app?.email || "");
+
+            if (profileId) profileIdsWithApps.add(String(profileId));
+            if (profileEmail) profileEmailsWithApps.add(profileEmail);
+          });
+
+          const profilesWithApps = state.allProfiles.filter((profile) => {
+            const profileId = String(profile?.id || "");
+            const profileEmail = normalizeEmail(profile?.email || "");
+            return (profileId && profileIdsWithApps.has(profileId)) || (profileEmail && profileEmailsWithApps.has(profileEmail));
+          }).length;
+
+          const profilesNoApps = state.allProfiles.filter((profile) => {
+            const profileId = String(profile?.id || "");
+            const profileEmail = normalizeEmail(profile?.email || "");
+            const hasApplication = (profileId && profileIdsWithApps.has(profileId)) || (profileEmail && profileEmailsWithApps.has(profileEmail));
+            return !hasApplication;
+          }).length;
+
           const endorsed = state.allApplications.filter((app) => normalizeText(app.status) === "endorsed").length;
           const rejected = state.allApplications.filter((app) => REJECTED_STATUSES.includes(normalizeText(app.status))).length;
           const interviewed = state.allApplications.filter((app) => INTERVIEWED_STATUSES.includes(normalizeText(app.status))).length;
