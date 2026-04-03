@@ -3,38 +3,24 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Client Roles Input | TalentBuzz</title>
+  <title>Sourced Candidates | TalentBuzz</title>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-
-  <!-- PDF.js from Supabase Storage bucket: jd -->
-  <script src="https://dilalntcxmvdcmwxjcct.supabase.co/storage/v1/object/public/jd/pdf.min.js"></script>
-  <script>
-    window.addEventListener("load", () => {
-      if (window.pdfjsLib) {
-        window.pdfjsLib.GlobalWorkerOptions.workerSrc =
-          "https://dilalntcxmvdcmwxjcct.supabase.co/storage/v1/object/public/jd/pdf.worker.min.js";
-      } else {
-        console.warn("pdfjsLib failed to load from Supabase Storage.");
-      }
-    });
-  </script>
-
+  <script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@4.4.168/build/pdf.min.mjs" type="module"></script>
   <script src="https://unpkg.com/mammoth@1.8.0/mammoth.browser.min.js"></script>
 
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link
-    href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap"
-    rel="stylesheet"
-  />
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
 
   <style>
     :root {
-      --bg: #081225;
-      --panel: rgba(15, 23, 42, 0.78);
-      --line: rgba(148, 163, 184, 0.18);
-      --soft-line: rgba(148, 163, 184, 0.1);
+      --bg: #07111f;
+      --bg-2: #0b1324;
+      --panel: rgba(15, 23, 42, 0.82);
+      --panel-soft: rgba(255,255,255,0.04);
+      --line: rgba(148, 163, 184, 0.16);
+      --line-strong: rgba(148, 163, 184, 0.28);
       --text: #e5eefc;
       --muted: #94a3b8;
       --blue: #2563eb;
@@ -42,13 +28,13 @@
       --green: #10b981;
       --amber: #f59e0b;
       --red: #ef4444;
-      --chip: rgba(255, 255, 255, 0.06);
-      --shadow: 0 20px 60px rgba(2, 8, 23, 0.38);
-      --radius-xl: 28px;
+      --chip: rgba(255,255,255,0.06);
+      --shadow: 0 18px 50px rgba(2, 8, 23, 0.35);
+      --radius-xl: 26px;
       --radius-lg: 20px;
-      --radius-md: 14px;
+      --radius-md: 16px;
       --radius-sm: 12px;
-      --max: 1480px;
+      --max: 1600px;
     }
 
     * { box-sizing: border-box; }
@@ -56,27 +42,18 @@
     html, body {
       margin: 0;
       padding: 0;
+      min-height: 100%;
       font-family: "Manrope", sans-serif;
       background:
-        radial-gradient(circle at top left, rgba(37, 99, 235, 0.22), transparent 30%),
-        radial-gradient(circle at top right, rgba(14, 165, 233, 0.14), transparent 26%),
-        linear-gradient(180deg, #07111f 0%, #0b1324 100%);
+        radial-gradient(circle at top left, rgba(37,99,235,0.22), transparent 30%),
+        radial-gradient(circle at top right, rgba(14,165,233,0.12), transparent 26%),
+        linear-gradient(180deg, var(--bg) 0%, var(--bg-2) 100%);
       color: var(--text);
-      min-height: 100%;
     }
 
-    body {
-      padding: 28px;
-    }
-
-    a {
-      color: inherit;
-      text-decoration: none;
-    }
-
-    button, input, textarea, select {
-      font: inherit;
-    }
+    body { padding: 24px; }
+    a { color: inherit; text-decoration: none; }
+    button, input, textarea, select { font: inherit; }
 
     .app-shell {
       max-width: var(--max);
@@ -85,9 +62,9 @@
 
     .topbar {
       display: flex;
-      align-items: center;
       justify-content: space-between;
-      gap: 18px;
+      align-items: center;
+      gap: 16px;
       margin-bottom: 22px;
     }
 
@@ -98,8 +75,8 @@
     }
 
     .brand img {
-      width: 50px;
-      height: 50px;
+      width: 52px;
+      height: 52px;
       object-fit: contain;
       border-radius: 14px;
       background: rgba(255,255,255,0.06);
@@ -122,64 +99,50 @@
 
     .top-actions {
       display: flex;
-      align-items: center;
-      gap: 10px;
       flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+      justify-content: flex-end;
     }
 
-    .ghost-btn,
-    .primary-btn,
-    .danger-btn,
-    .small-btn,
-    .signal-btn {
+    .btn,
+    .btn-primary,
+    .btn-danger,
+    .btn-soft {
       border: 1px solid var(--line);
       background: rgba(255,255,255,0.05);
       color: var(--text);
       border-radius: 14px;
-      padding: 11px 16px;
+      padding: 11px 15px;
       cursor: pointer;
-      transition: 0.2s ease;
+      transition: 0.18s ease;
       font-weight: 700;
     }
 
-    .primary-btn {
+    .btn-primary {
       background: linear-gradient(135deg, var(--blue), var(--blue-2));
-      border-color: rgba(59, 130, 246, 0.5);
-      box-shadow: 0 14px 30px rgba(37, 99, 235, 0.28);
+      border-color: rgba(59,130,246,0.4);
+      box-shadow: 0 12px 24px rgba(37,99,235,0.24);
     }
 
-    .signal-btn {
-      background: linear-gradient(135deg, rgba(16,185,129,0.18), rgba(37,99,235,0.2));
-      border-color: rgba(96, 165, 250, 0.26);
-      color: #dbeafe;
-    }
-
-    .danger-btn {
-      background: rgba(239, 68, 68, 0.12);
-      border-color: rgba(239, 68, 68, 0.25);
+    .btn-danger {
+      background: rgba(239,68,68,0.12);
       color: #fecaca;
+      border-color: rgba(239,68,68,0.24);
     }
 
-    .ghost-btn:hover,
-    .primary-btn:hover,
-    .danger-btn:hover,
-    .small-btn:hover,
-    .signal-btn:hover {
+    .btn-soft {
+      background: rgba(16,185,129,0.1);
+      color: #d1fae5;
+      border-color: rgba(16,185,129,0.2);
+    }
+
+    .btn:hover,
+    .btn-primary:hover,
+    .btn-danger:hover,
+    .btn-soft:hover {
       transform: translateY(-1px);
-      filter: brightness(1.04);
-    }
-
-    .small-btn {
-      padding: 8px 12px;
-      border-radius: 12px;
-      font-size: 0.85rem;
-      font-weight: 700;
-    }
-
-    .grid {
-      display: grid;
-      grid-template-columns: 1.18fr 0.92fr;
-      gap: 22px;
+      filter: brightness(1.03);
     }
 
     .panel {
@@ -190,59 +153,76 @@
       backdrop-filter: blur(14px);
     }
 
-    .panel-inner {
-      padding: 22px;
-    }
+    .panel-inner { padding: 22px; }
 
-    .hero-card {
+    .hero {
       margin-bottom: 22px;
       overflow: hidden;
       position: relative;
     }
 
-    .hero-card::before {
+    .hero::before {
       content: "";
       position: absolute;
       inset: 0;
       background:
-        linear-gradient(135deg, rgba(37,99,235,0.16), transparent 40%),
-        radial-gradient(circle at 85% 15%, rgba(14,165,233,0.15), transparent 22%);
+        linear-gradient(135deg, rgba(37,99,235,0.16), transparent 42%),
+        radial-gradient(circle at 86% 14%, rgba(16,185,129,0.12), transparent 22%);
       pointer-events: none;
     }
 
-    .hero-content {
+    .hero-grid {
       position: relative;
       z-index: 1;
       display: grid;
-      grid-template-columns: 1.3fr 0.8fr;
+      grid-template-columns: 1.3fr 0.9fr;
       gap: 18px;
       align-items: start;
     }
 
     .hero-copy h2 {
       margin: 0 0 10px;
-      font-size: 1.8rem;
-      line-height: 1.1;
+      font-size: 1.85rem;
+      line-height: 1.08;
       letter-spacing: -0.03em;
     }
 
     .hero-copy p {
       margin: 0;
-      color: #cbd5e1;
-      max-width: 760px;
+      color: #d0dbec;
       line-height: 1.7;
+      max-width: 800px;
+    }
+
+    .hero-chips {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-top: 16px;
+    }
+
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 9px 12px;
+      border-radius: 999px;
+      background: var(--chip);
+      border: 1px solid rgba(255,255,255,0.08);
+      color: #dbeafe;
+      font-size: 0.84rem;
+      font-weight: 700;
     }
 
     .hero-stats {
       display: grid;
-      grid-template-columns: 1fr;
       gap: 12px;
     }
 
     .stat {
-      background: rgba(255,255,255,0.05);
-      border: 1px solid var(--soft-line);
       border-radius: 18px;
+      background: rgba(255,255,255,0.05);
+      border: 1px solid rgba(255,255,255,0.08);
       padding: 14px 16px;
     }
 
@@ -258,69 +238,25 @@
       letter-spacing: -0.02em;
     }
 
-    .workspace-card,
-    .preview-panel,
-    .roles-panel {
-      margin-top: 22px;
+    .layout {
+      display: grid;
+      grid-template-columns: 360px minmax(0, 1fr);
+      gap: 22px;
     }
 
-    .workspace-header {
+    .stack { display: grid; gap: 22px; }
+
+    .section-title {
       display: flex;
-      align-items: center;
       justify-content: space-between;
+      align-items: center;
       gap: 12px;
       margin-bottom: 16px;
     }
 
-    .workspace-title h3 {
-      margin: 0;
-      font-size: 1.05rem;
-      font-weight: 800;
-      letter-spacing: -0.02em;
-    }
-
-    .workspace-title p {
-      margin: 6px 0 0;
-      color: var(--muted);
-      font-size: 0.9rem;
-    }
-
-    .workspace-toggle {
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-    }
-
-    .workspace-body.is-collapsed {
-      display: none;
-    }
-
-    .sticky-actions {
-      position: sticky;
-      top: 12px;
-      z-index: 20;
-      margin-bottom: 16px;
-      background: rgba(8, 18, 37, 0.88);
-      border: 1px solid var(--soft-line);
-      border-radius: 18px;
-      padding: 12px;
-      display: flex;
-      gap: 10px;
-      flex-wrap: wrap;
-      backdrop-filter: blur(12px);
-    }
-
-    .section-title {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 14px;
-      margin-bottom: 18px;
-    }
-
     .section-title h3 {
       margin: 0;
-      font-size: 1.05rem;
+      font-size: 1.04rem;
       font-weight: 800;
       letter-spacing: -0.02em;
     }
@@ -331,12 +267,6 @@
       font-size: 0.9rem;
     }
 
-    .form-grid {
-      display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 14px;
-    }
-
     .field,
     .field-full {
       display: flex;
@@ -344,44 +274,40 @@
       gap: 8px;
     }
 
-    .field-full {
-      grid-column: 1 / -1;
-    }
+    .field-full { grid-column: 1 / -1; }
 
     label {
       font-size: 0.88rem;
-      color: #d8e4f5;
       font-weight: 700;
+      color: #dbe7f5;
     }
 
     input,
     select,
     textarea {
       width: 100%;
+      border-radius: 14px;
+      border: 1px solid var(--line);
       background: rgba(255,255,255,0.05);
       color: var(--text);
-      border: 1px solid var(--line);
-      border-radius: 14px;
-      padding: 13px 14px;
+      padding: 12px 14px;
       outline: none;
       transition: 0.18s ease;
     }
 
     textarea {
-      min-height: 112px;
+      min-height: 96px;
       resize: vertical;
       line-height: 1.55;
     }
 
     input::placeholder,
-    textarea::placeholder {
-      color: #7f91ab;
-    }
+    textarea::placeholder { color: #7f91ab; }
 
     input:focus,
     select:focus,
     textarea:focus {
-      border-color: rgba(59, 130, 246, 0.55);
+      border-color: rgba(59,130,246,0.55);
       box-shadow: 0 0 0 4px rgba(37,99,235,0.14);
     }
 
@@ -391,215 +317,98 @@
       line-height: 1.45;
     }
 
-    .toolbar-row {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
+    .filters-grid {
+      display: grid;
       gap: 12px;
-      flex-wrap: wrap;
-      margin: 16px 0 0;
     }
 
-    .chip-row {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 10px;
-    }
-
-    .chip {
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      padding: 9px 12px;
-      border-radius: 999px;
-      background: var(--chip);
-      border: 1px solid var(--soft-line);
-      color: #dbeafe;
-      font-size: 0.84rem;
-      font-weight: 700;
-    }
-
-    .jd-panel,
-    .signal-panel,
-    .screening-panel {
-      margin-top: 22px;
-    }
-
-    .signal-grid {
+    .metrics-grid {
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 14px;
+      gap: 12px;
     }
 
-    .signal-box {
-      background: rgba(255,255,255,0.045);
-      border: 1px solid var(--soft-line);
-      border-radius: 20px;
-      padding: 16px;
-    }
-
-    .signal-box h4 {
-      margin: 0 0 8px;
-      font-size: 0.98rem;
-      font-weight: 800;
-      color: #eff6ff;
-    }
-
-    .signal-box p {
-      margin: 0 0 12px;
-      font-size: 0.84rem;
-      color: var(--muted);
-      line-height: 1.55;
-    }
-
-    .signal-note {
-      margin-top: 14px;
-      background: rgba(16,185,129,0.08);
-      border: 1px solid rgba(52,211,153,0.16);
+    .metric-card {
+      background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(255,255,255,0.08);
       border-radius: 18px;
+      padding: 14px;
+    }
+
+    .metric-label {
+      color: var(--muted);
+      font-size: 0.8rem;
+      margin-bottom: 6px;
+    }
+
+    .metric-value {
+      font-size: 1.2rem;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+    }
+
+    .upload-box {
+      border: 1px dashed rgba(148,163,184,0.28);
+      border-radius: 18px;
+      background: rgba(255,255,255,0.03);
       padding: 16px;
-      color: #dffcf1;
-      line-height: 1.6;
-      white-space: pre-wrap;
     }
 
-    .questions-wrap {
+    .upload-box .btn-row,
+    .toolbar-row {
       display: flex;
-      flex-direction: column;
-      gap: 14px;
-    }
-
-    .question-card {
-      background: rgba(255,255,255,0.045);
-      border: 1px solid var(--soft-line);
-      border-radius: 20px;
-      padding: 16px;
-    }
-
-    .question-top {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 14px;
-      margin-bottom: 12px;
-    }
-
-    .question-top-left {
-      display: flex;
-      align-items: center;
       gap: 10px;
       flex-wrap: wrap;
-    }
-
-    .question-index {
-      width: 30px;
-      height: 30px;
-      border-radius: 999px;
-      display: inline-flex;
       align-items: center;
-      justify-content: center;
-      background: rgba(37, 99, 235, 0.15);
-      color: #bfdbfe;
-      border: 1px solid rgba(59,130,246,0.24);
-      font-size: 0.82rem;
-      font-weight: 800;
+      justify-content: flex-start;
     }
 
-    .question-actions {
-      display: flex;
-      gap: 8px;
-      flex-wrap: wrap;
-    }
-
-    .question-grid {
-      display: grid;
-      grid-template-columns: 1fr 190px 190px;
-      gap: 12px;
-    }
-
-    .summary-box {
-      margin-top: 14px;
-      background: rgba(37,99,235,0.08);
-      border: 1px solid rgba(59,130,246,0.2);
-      border-radius: 18px;
-      padding: 16px;
-    }
-
-    .summary-box h4 {
-      margin: 0 0 8px;
-      font-size: 0.98rem;
-      font-weight: 800;
-    }
-
-    .summary-box p {
-      margin: 0;
-      color: #d7e7fb;
-      line-height: 1.65;
-      white-space: pre-wrap;
-    }
-
-    .preview-box {
-      background: rgba(255,255,255,0.05);
-      border: 1px solid var(--soft-line);
-      border-radius: 18px;
-      padding: 18px;
-      min-height: 240px;
-      color: #dce7f6;
-      line-height: 1.7;
-      white-space: pre-wrap;
-    }
-
-    .roles-toolbar {
-      display: flex;
-      gap: 12px;
-      flex-wrap: wrap;
-      margin-bottom: 14px;
-    }
-
-    .roles-toolbar input,
-    .roles-toolbar select {
-      max-width: 250px;
-    }
-
-    .roles-table-wrap {
-      overflow-x: auto;
+    .table-wrap {
+      overflow: auto;
       border-radius: 20px;
-      border: 1px solid var(--soft-line);
+      border: 1px solid rgba(255,255,255,0.08);
       background: rgba(255,255,255,0.03);
     }
 
     table {
       width: 100%;
       border-collapse: collapse;
-      min-width: 1000px;
+      min-width: 1700px;
     }
 
     th,
     td {
       padding: 14px 14px;
       text-align: left;
-      border-bottom: 1px solid rgba(148,163,184,0.09);
+      border-bottom: 1px solid rgba(148,163,184,0.08);
       vertical-align: top;
       font-size: 0.92rem;
     }
 
     th {
+      position: sticky;
+      top: 0;
+      z-index: 2;
+      background: rgba(10, 18, 34, 0.96);
       color: #c7d8ef;
-      font-size: 0.8rem;
+      font-size: 0.78rem;
       text-transform: uppercase;
       letter-spacing: 0.08em;
-      background: rgba(255,255,255,0.03);
     }
 
-    td {
-      color: #e7eefc;
+    tr:hover td { background: rgba(255,255,255,0.025); }
+
+    .candidate-col {
+      min-width: 240px;
+      position: sticky;
+      left: 0;
+      z-index: 1;
+      background: rgba(11,19,36,0.96);
     }
 
-    tr:hover td {
-      background: rgba(255,255,255,0.025);
-    }
+    th.candidate-col { z-index: 3; }
 
-    .role-title {
+    .candidate-name {
       font-weight: 800;
       color: #f8fbff;
       margin-bottom: 4px;
@@ -614,133 +423,181 @@
     .pill {
       display: inline-flex;
       align-items: center;
-      border-radius: 999px;
       padding: 7px 10px;
+      border-radius: 999px;
       font-size: 0.76rem;
       font-weight: 800;
       border: 1px solid transparent;
       white-space: nowrap;
+      margin: 0 6px 6px 0;
     }
 
-    .pill-open {
-      background: rgba(16,185,129,0.12);
-      border-color: rgba(16,185,129,0.2);
-      color: #bbf7d0;
-    }
+    .pill-resume { background: rgba(16,185,129,0.12); border-color: rgba(16,185,129,0.24); color: #bbf7d0; }
+    .pill-no-resume { background: rgba(245,158,11,0.12); border-color: rgba(245,158,11,0.24); color: #fde68a; }
+    .pill-strong { background: rgba(16,185,129,0.12); border-color: rgba(16,185,129,0.24); color: #bbf7d0; }
+    .pill-good { background: rgba(37,99,235,0.14); border-color: rgba(59,130,246,0.24); color: #bfdbfe; }
+    .pill-possible { background: rgba(245,158,11,0.12); border-color: rgba(245,158,11,0.24); color: #fde68a; }
+    .pill-weak { background: rgba(239,68,68,0.12); border-color: rgba(239,68,68,0.24); color: #fecaca; }
+    .pill-muted { background: rgba(148,163,184,0.12); border-color: rgba(148,163,184,0.22); color: #dbe4f0; }
 
-    .pill-hold {
-      background: rgba(245,158,11,0.12);
-      border-color: rgba(245,158,11,0.22);
-      color: #fde68a;
-    }
-
-    .pill-closed {
-      background: rgba(239,68,68,0.12);
-      border-color: rgba(239,68,68,0.22);
-      color: #fecaca;
-    }
-
-    .budget-pill {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      padding: 7px 10px;
-      border-radius: 999px;
-      background: rgba(37, 99, 235, 0.12);
-      border: 1px solid rgba(59,130,246,0.22);
-      color: #bfdbfe;
-      font-size: 0.76rem;
-      font-weight: 800;
-      white-space: nowrap;
-    }
-
-    .table-actions {
+    .tags {
       display: flex;
       flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .tag {
+      display: inline-flex;
+      align-items: center;
+      padding: 6px 9px;
+      border-radius: 999px;
+      background: rgba(255,255,255,0.05);
+      border: 1px solid rgba(255,255,255,0.08);
+      color: #deebfb;
+      font-size: 0.77rem;
+      font-weight: 700;
+      line-height: 1;
+    }
+
+    .role-fit-box {
+      background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 16px;
+      padding: 10px 12px;
+      margin-bottom: 8px;
+    }
+
+    .role-fit-title {
+      font-weight: 800;
+      margin-bottom: 4px;
+      color: #f8fbff;
+    }
+
+    .fit-meta {
+      display: flex;
       gap: 8px;
+      flex-wrap: wrap;
+      margin: 6px 0 0;
+    }
+
+    .mini {
+      font-size: 0.76rem;
+      color: var(--muted);
+      line-height: 1.45;
+    }
+
+    .row-actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .small-btn {
+      padding: 8px 11px;
+      font-size: 0.82rem;
+      border-radius: 12px;
+    }
+
+    .drawer {
+      position: fixed;
+      top: 0;
+      right: 0;
+      width: min(560px, 100vw);
+      height: 100vh;
+      background: rgba(7, 17, 31, 0.98);
+      border-left: 1px solid rgba(255,255,255,0.08);
+      box-shadow: -20px 0 50px rgba(2,8,23,0.45);
+      transform: translateX(100%);
+      transition: transform 0.2s ease;
+      z-index: 60;
+      display: flex;
+      flex-direction: column;
+      backdrop-filter: blur(16px);
+    }
+
+    .drawer.open { transform: translateX(0); }
+
+    .drawer-header,
+    .drawer-body {
+      padding: 20px;
+    }
+
+    .drawer-header {
+      border-bottom: 1px solid rgba(255,255,255,0.08);
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 12px;
+    }
+
+    .drawer-body {
+      overflow: auto;
+      display: grid;
+      gap: 16px;
+    }
+
+    .drawer-card {
+      border-radius: 18px;
+      border: 1px solid rgba(255,255,255,0.08);
+      background: rgba(255,255,255,0.04);
+      padding: 16px;
+    }
+
+    .drawer-card h4 {
+      margin: 0 0 10px;
+      font-size: 0.96rem;
+      font-weight: 800;
+    }
+
+    .drawer-card p {
+      margin: 0;
+      line-height: 1.6;
+      color: #d8e5f6;
+      white-space: pre-wrap;
     }
 
     .notice {
       position: fixed;
-      right: 24px;
-      bottom: 24px;
+      right: 22px;
+      bottom: 22px;
       min-width: 260px;
       max-width: 520px;
       border-radius: 18px;
       padding: 14px 16px;
-      border: 1px solid var(--soft-line);
+      border: 1px solid rgba(255,255,255,0.1);
       background: rgba(15,23,42,0.96);
       color: #f8fafc;
       box-shadow: var(--shadow);
       opacity: 0;
       pointer-events: none;
       transform: translateY(10px);
-      transition: 0.2s ease;
-      z-index: 999;
+      transition: 0.18s ease;
+      z-index: 80;
       white-space: pre-wrap;
     }
 
-    .notice.show {
-      opacity: 1;
-      pointer-events: auto;
-      transform: translateY(0);
-    }
-
-    .notice.success {
-      border-color: rgba(16,185,129,0.28);
-    }
-
-    .notice.error {
-      border-color: rgba(239,68,68,0.3);
-    }
-
-    .muted-card {
-      padding: 16px;
-      border-radius: 18px;
-      background: rgba(255,255,255,0.04);
-      border: 1px dashed rgba(148,163,184,0.22);
-      color: var(--muted);
-      line-height: 1.6;
-    }
+    .notice.show { opacity: 1; pointer-events: auto; transform: translateY(0); }
+    .notice.success { border-color: rgba(16,185,129,0.28); }
+    .notice.error { border-color: rgba(239,68,68,0.28); }
 
     .empty-state {
-      padding: 24px;
+      padding: 26px;
       text-align: center;
       color: var(--muted);
     }
 
-    @media (max-width: 1160px) {
-      .grid,
-      .hero-content,
-      .signal-grid {
-        grid-template-columns: 1fr;
-      }
+    .hidden { display: none !important; }
+
+    @media (max-width: 1220px) {
+      .layout, .hero-grid { grid-template-columns: 1fr; }
     }
 
     @media (max-width: 760px) {
       body { padding: 16px; }
-
-      .form-grid,
-      .question-grid {
-        grid-template-columns: 1fr;
-      }
-
-      .topbar {
-        align-items: flex-start;
-        flex-direction: column;
-      }
-
-      .top-actions {
-        width: 100%;
-      }
-
-      .top-actions button {
-        flex: 1;
-      }
-
-      .sticky-actions {
-        top: 8px;
-      }
+      .topbar { flex-direction: column; align-items: flex-start; }
+      .top-actions { width: 100%; justify-content: flex-start; }
+      .metrics-grid { grid-template-columns: 1fr; }
+      .candidate-col, th.candidate-col { position: static; }
     }
   </style>
 </head>
@@ -750,501 +607,182 @@
       <div class="brand">
         <img src="logo.png" alt="TalentBuzz Logo" />
         <div class="brand-copy">
-          <h1>TalentBuzz Role Intake Workspace</h1>
-          <p>Build cleaner jobs, better screening flows, and stronger recruiter signal.</p>
+          <h1>TalentBuzz Signal Candidates</h1>
+          <p>Resume intelligence, skill extraction, and live open-role fit in one recruiter workspace.</p>
         </div>
       </div>
 
       <div class="top-actions">
-        <a class="ghost-btn" href="recruiter-dashboard.html">Back to Dashboard</a>
-        <button class="ghost-btn" id="refreshRolesBtn" type="button">Refresh Roles</button>
-        <button class="ghost-btn" id="toggleWorkspaceBtn" type="button">Hide Workspace</button>
+        <a class="btn" href="recruiter-dashboard.html">Back to Dashboard</a>
+        <a class="btn" href="client-roles-input.html">Manage Roles</a>
+        <button class="btn" id="refreshBtn" type="button">Refresh</button>
       </div>
     </div>
 
-    <div class="panel hero-card">
-      <div class="panel-inner hero-content">
+    <div class="panel hero">
+      <div class="panel-inner hero-grid">
         <div class="hero-copy">
-          <h2>From role intake to hiring intelligence.</h2>
+          <h2>Resume Intelligence + Open Role Fit</h2>
           <p>
-            Your role form should not rely only on the job description. TalentBuzz Signal Intelligence
-            lets recruiters define what truly matters in the role so screening questions become more precise,
-            more strategic, and more aligned to client success.
+            Upload resumes, extract skills automatically, compare candidates against current open jobs,
+            and surface the best-fit live roles with clear score bands and skill gaps. Profiles without a
+            resume are tagged clearly so recruiters know which records still need stronger data.
           </p>
-
-          <div class="toolbar-row">
-            <div class="chip-row">
-              <span class="chip">On-Hold Pipeline Control</span>
-              <span class="chip">Client Standardization</span>
-              <span class="chip">TalentBuzz Signal Intelligence</span>
-              <span class="chip">Calibration-Driven Screening</span>
-            </div>
+          <div class="hero-chips">
+            <span class="chip">Resume Parsed</span>
+            <span class="chip">No Resume</span>
+            <span class="chip">Strong Fit</span>
+            <span class="chip">Good Fit</span>
+            <span class="chip">Possible Fit</span>
+            <span class="chip">Weak Fit</span>
           </div>
         </div>
 
         <div class="hero-stats">
           <div class="stat">
-            <div class="stat-label">Question Quality</div>
-            <div class="stat-value">JD + Calibration Signal</div>
+            <div class="stat-label">Matching Model</div>
+            <div class="stat-value">Weighted job-by-job scoring</div>
           </div>
           <div class="stat">
-            <div class="stat-label">Role Thinking Layer</div>
-            <div class="stat-value">Non-Negotiables + Importance</div>
+            <div class="stat-label">Role Comparison</div>
+            <div class="stat-value">Live open roles only</div>
           </div>
           <div class="stat">
-            <div class="stat-label">TalentBuzz Direction</div>
-            <div class="stat-value">Recruiter Thinking Engine</div>
+            <div class="stat-label">Profiles without resume</div>
+            <div class="stat-value">Tagged as Limited Match</div>
           </div>
         </div>
       </div>
     </div>
 
-    <div class="grid">
-      <div>
-        <div class="panel workspace-card">
+    <div class="layout">
+      <div class="stack">
+        <div class="panel">
           <div class="panel-inner">
-            <div class="workspace-header">
-              <div class="workspace-title">
-                <h3>Role Workspace</h3>
-                <p>Create, calibrate, and save roles without crowding the page.</p>
-              </div>
-
-              <div class="workspace-toggle">
-                <button class="ghost-btn" type="button" id="toggleWorkspaceBtnInline">Hide Workspace</button>
+            <div class="section-title">
+              <div>
+                <h3>Summary</h3>
+                <p>Track profile volume, resume completeness, and fit quality at a glance.</p>
               </div>
             </div>
 
-            <div class="workspace-body" id="workspaceBody">
-              <div class="sticky-actions">
-                <button class="primary-btn" id="saveRoleBtn" type="button">Save Role</button>
-                <button class="ghost-btn" id="refreshPreviewBtn" type="button">Refresh Preview</button>
-                <button class="signal-btn" id="buildSignalBtn" type="button">Build Signal Summary</button>
-                <button class="signal-btn" id="generateAiQuestionsBtn" type="button">Generate from Signal + JD</button>
-                <button class="ghost-btn" id="generateSummaryBtn" type="button">Generate Summary</button>
+            <div class="metrics-grid" id="metricsGrid">
+              <div class="metric-card"><div class="metric-label">Total Profiles</div><div class="metric-value" id="metricTotal">0</div></div>
+              <div class="metric-card"><div class="metric-label">Resume Parsed</div><div class="metric-value" id="metricParsed">0</div></div>
+              <div class="metric-card"><div class="metric-label">No Resume</div><div class="metric-value" id="metricNoResume">0</div></div>
+              <div class="metric-card"><div class="metric-label">Strong / Good Fit</div><div class="metric-value" id="metricStrongGood">0</div></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-inner">
+            <div class="section-title">
+              <div>
+                <h3>Upload Resume</h3>
+                <p>Attach a resume to an existing sourced profile and re-run fit scoring.</p>
+              </div>
+            </div>
+
+            <div class="upload-box">
+              <div class="field">
+                <label for="candidateSelect">Candidate</label>
+                <select id="candidateSelect">
+                  <option value="">Select sourced profile</option>
+                </select>
               </div>
 
-              <div class="jd-panel">
-                <div class="panel" style="background: rgba(255,255,255,0.03); border-radius:20px;">
-                  <div class="panel-inner" style="padding:18px;">
-                    <div class="section-title" style="margin-bottom:12px;">
-                      <div>
-                        <h3>JD Upload + Parse</h3>
-                        <p>Upload a job description and auto-fill priorities, nice-to-haves, non-negotiables, and deal breakers.</p>
-                      </div>
-                    </div>
-
-                    <div class="form-grid">
-                      <div class="field field-full">
-                        <label for="jdUpload">Upload JD File</label>
-                        <input id="jdUpload" type="file" accept=".txt,.md,.docx,.pdf" />
-                        <div class="helper">Best results: text PDF, DOCX, TXT, or pasted JD text. If the PDF is scanned or image-based, use paste mode.</div>
-                      </div>
-
-                      <div class="field field-full">
-                        <label for="jdRawText">Or Paste JD Text</label>
-                        <textarea id="jdRawText" placeholder="Paste the JD here if you do not want to upload a file."></textarea>
-                      </div>
-                    </div>
-
-                    <div class="top-actions" style="margin-top:12px;">
-                      <button class="signal-btn" type="button" id="parseJDBtn">Parse JD</button>
-                      <button class="ghost-btn" type="button" id="clearJDBtn">Clear JD Input</button>
-                    </div>
-                  </div>
-                </div>
+              <div class="field" style="margin-top: 12px;">
+                <label for="resumeUpload">Resume File</label>
+                <input id="resumeUpload" type="file" accept=".pdf,.doc,.docx,.txt,.md" />
+                <div class="helper">Supported: PDF, DOCX, TXT, MD. Use text-based PDFs for best parsing results.</div>
               </div>
 
-              <div class="section-title" style="margin-top:22px;">
-                <div>
-                  <h3>Role Intake Form</h3>
-                  <p>Create or update roles using a cleaner recruiter workflow.</p>
-                </div>
-              </div>
-
-              <form id="roleForm">
-                <input type="hidden" id="roleId" />
-
-                <div class="form-grid">
-                  <div class="field">
-                    <label for="clientName">Client Name</label>
-                    <input id="clientName" name="clientName" list="clientSuggestions" placeholder="Select or type client name" autocomplete="off" />
-                    <datalist id="clientSuggestions"></datalist>
-                    <div class="helper">Uses existing client names from saved roles for better consistency.</div>
-                  </div>
-
-                  <div class="field">
-                    <label for="existingClientSelect">Existing Clients</label>
-                    <select id="existingClientSelect">
-                      <option value="">Choose existing client</option>
-                    </select>
-                  </div>
-
-                  <div class="field">
-                    <label for="jobTitle">Job Title</label>
-                    <input id="jobTitle" name="jobTitle" placeholder="e.g. Qlik Sense Specialist" />
-                  </div>
-
-                  <div class="field">
-                    <label for="roleFamily">Role Family</label>
-                    <select id="roleFamily">
-                      <option value="">Select role family</option>
-                      <option>Technology / Engineering</option>
-                      <option>Data / BI / Analytics</option>
-                      <option>Product Management</option>
-                      <option>Sales / Business Development</option>
-                      <option>Customer Service / CX</option>
-                      <option>BPO / Operations</option>
-                      <option>Finance / Accounting</option>
-                      <option>HR / Talent Acquisition</option>
-                      <option>Marketing / Digital</option>
-                      <option>Admin / Support</option>
-                      <option>Healthcare Support</option>
-                      <option>Retail / Store Operations</option>
-                      <option>Other</option>
-                    </select>
-                  </div>
-
-                  <div class="field">
-                    <label for="location">Location</label>
-                    <input id="location" placeholder="e.g. BGC, Metro Manila / Remote" />
-                  </div>
-
-                  <div class="field">
-                    <label for="workSetup">Work Setup</label>
-                    <select id="workSetup">
-                      <option value="">Select work setup</option>
-                      <option>Onsite</option>
-                      <option>Hybrid</option>
-                      <option>Remote</option>
-                    </select>
-                  </div>
-
-                  <div class="field">
-                    <label for="employmentType">Employment Type</label>
-                    <select id="employmentType">
-                      <option value="">Select employment type</option>
-                      <option>Full-time</option>
-                      <option>Part-time</option>
-                      <option>Project-based</option>
-                      <option>Contract</option>
-                      <option>Consulting</option>
-                    </select>
-                  </div>
-
-                  <div class="field">
-                    <label for="seniority">Seniority</label>
-                    <select id="seniority">
-                      <option value="">Select seniority</option>
-                      <option>Entry-Level</option>
-                      <option>Associate</option>
-                      <option>Mid-Level</option>
-                      <option>Senior</option>
-                      <option>Lead</option>
-                      <option>Manager</option>
-                      <option>Director</option>
-                      <option>Executive</option>
-                    </select>
-                  </div>
-
-                  <div class="field">
-                    <label for="roleStatus">Role Status</label>
-                    <select id="roleStatus">
-                      <option value="Open">Open</option>
-                      <option value="Closed">Closed</option>
-                      <option value="Draft">Draft</option>
-                    </select>
-                  </div>
-
-                  <div class="field">
-                    <label for="salaryCurrency">Salary Currency</label>
-                    <select id="salaryCurrency">
-                      <option value="PHP">PHP (₱)</option>
-                      <option value="USD">USD ($)</option>
-                      <option value="HKD">HKD (HK$)</option>
-                      <option value="SGD">SGD (S$)</option>
-                      <option value="EUR">EUR (€)</option>
-                      <option value="GBP">GBP (£)</option>
-                      <option value="AUD">AUD (A$)</option>
-                      <option value="CAD">CAD (C$)</option>
-                      <option value="JPY">JPY (¥)</option>
-                    </select>
-                  </div>
-
-                  <div class="field">
-                    <label for="salaryPeriod">Salary Period</label>
-                    <select id="salaryPeriod">
-                      <option value="Monthly">Monthly</option>
-                      <option value="Annual">Annual</option>
-                      <option value="Hourly">Hourly</option>
-                      <option value="Daily">Daily</option>
-                      <option value="Project-Based">Project-Based</option>
-                    </select>
-                  </div>
-
-                  <div class="field">
-                    <label for="salaryMin">Salary Budget Min</label>
-                    <input id="salaryMin" type="number" min="0" step="0.01" placeholder="e.g. 30000" />
-                  </div>
-
-                  <div class="field">
-                    <label for="salaryMax">Salary Budget Max</label>
-                    <input id="salaryMax" type="number" min="0" step="0.01" placeholder="e.g. 50000" />
-                  </div>
-
-                  <div class="field-full">
-                    <label for="salaryNotes">Salary Notes</label>
-                    <textarea id="salaryNotes" placeholder="e.g. Open to strong candidates, plus incentives, negotiable based on experience"></textarea>
-                    <div class="helper">Native salary fields save to jobs. Salary period and notes stay in AI screening config compensation meta.</div>
-                  </div>
-
-                  <div class="field-full">
-                    <label for="jobDescription">Role Overview / Job Description</label>
-                    <textarea id="jobDescription" placeholder="Write the role overview, impact, and day-to-day responsibilities."></textarea>
-                  </div>
-
-                  <div class="field-full">
-                    <label for="requirements">Core Requirements</label>
-                    <textarea id="requirements" placeholder="Add role requirements. Use one line per item or paste your existing notes."></textarea>
-                    <div class="helper">Tip: Use one requirement per line for cleaner screening logic.</div>
-                  </div>
-
-                  <div class="field">
-                    <label for="prioritySkills">Priority Skills</label>
-                    <textarea id="prioritySkills" placeholder="e.g. Qlik Sense, SQL, stakeholder communication"></textarea>
-                  </div>
-
-                  <div class="field">
-                    <label for="niceToHaveSkills">Nice-to-Have Skills</label>
-                    <textarea id="niceToHaveSkills" placeholder="e.g. Snowflake, ETL, enterprise analytics"></textarea>
-                  </div>
-                </div>
-              </form>
-
-              <div class="signal-panel">
-                <div class="section-title">
-                  <div>
-                    <h3>TalentBuzz Signal Intelligence</h3>
-                    <p>Add role calibration so the system understands what matters beyond the JD.</p>
-                  </div>
-                </div>
-
-                <div class="signal-grid">
-                  <div class="signal-box">
-                    <h4>Non-Negotiables</h4>
-                    <p>These are hard filters. Missing these should heavily reduce fit.</p>
-                    <div class="field">
-                      <label for="signalNonNegotiables">Non-Negotiables</label>
-                      <textarea id="signalNonNegotiables" placeholder="e.g. Must have enterprise Qlik Sense experience&#10;Must be willing to work onsite in BGC&#10;Must have client-facing communication skills"></textarea>
-                    </div>
-                  </div>
-
-                  <div class="signal-box">
-                    <h4>Deal Breakers / Red Flags</h4>
-                    <p>Use this to define what should trigger deeper scrutiny or rejection.</p>
-                    <div class="field">
-                      <label for="signalRedFlags">Red Flags / Deal Breakers</label>
-                      <textarea id="signalRedFlags" placeholder="e.g. No real dashboard ownership&#10;Only academic exposure&#10;Cannot work required shift"></textarea>
-                    </div>
-                  </div>
-
-                  <div class="signal-box">
-                    <h4>Must-Have Skills + Importance</h4>
-                    <p>Format one item per line. Add importance tags like Critical / High / Medium.</p>
-                    <div class="field">
-                      <label for="signalMustHaveSkills">Must-Have Skills with Importance</label>
-                      <textarea id="signalMustHaveSkills" placeholder="e.g. Qlik Sense - Critical&#10;SQL - High&#10;Stakeholder communication - High"></textarea>
-                    </div>
-                  </div>
-
-                  <div class="signal-box">
-                    <h4>Success Signals</h4>
-                    <p>What indicates the candidate is likely to perform well in this role?</p>
-                    <div class="field">
-                      <label for="signalSuccessSignals">Success Signals</label>
-                      <textarea id="signalSuccessSignals" placeholder="e.g. Has built dashboards used by business leaders&#10;Can explain trade-offs clearly&#10;Has worked with messy datasets"></textarea>
-                    </div>
-                  </div>
-
-                  <div class="signal-box">
-                    <h4>Role Setup Calibration</h4>
-                    <p>How much should setup, shift, and environment matter?</p>
-                    <div class="field">
-                      <label for="signalSetupCriticality">Work Setup Criticality</label>
-                      <select id="signalSetupCriticality">
-                        <option value="">Select criticality</option>
-                        <option>Critical</option>
-                        <option>High</option>
-                        <option>Moderate</option>
-                        <option>Low</option>
-                      </select>
-                    </div>
-                    <div class="field" style="margin-top:10px;">
-                      <label for="signalEnvironmentNotes">Environment Notes</label>
-                      <textarea id="signalEnvironmentNotes" placeholder="e.g. Must be comfortable with cross-functional stakeholders and fast-changing requests"></textarea>
-                    </div>
-                  </div>
-
-                  <div class="signal-box">
-                    <h4>Communication / Stakeholder Layer</h4>
-                    <p>How important is communication, ownership, and client-facing credibility?</p>
-                    <div class="field">
-                      <label for="signalCommunicationWeight">Communication Weight</label>
-                      <select id="signalCommunicationWeight">
-                        <option value="">Select weight</option>
-                        <option>Critical</option>
-                        <option>High</option>
-                        <option>Moderate</option>
-                        <option>Low</option>
-                      </select>
-                    </div>
-                    <div class="field" style="margin-top:10px;">
-                      <label for="signalStakeholderWeight">Stakeholder Management Weight</label>
-                      <select id="signalStakeholderWeight">
-                        <option value="">Select weight</option>
-                        <option>Critical</option>
-                        <option>High</option>
-                        <option>Moderate</option>
-                        <option>Low</option>
-                      </select>
-                    </div>
-                  </div>
-
-                  <div class="signal-box">
-                    <h4>Independence / Ownership</h4>
-                    <p>Set the level of autonomy needed in the role.</p>
-                    <div class="field">
-                      <label for="signalAutonomyLevel">Autonomy Level</label>
-                      <select id="signalAutonomyLevel">
-                        <option value="">Select autonomy level</option>
-                        <option>Highly Independent</option>
-                        <option>Needs Moderate Guidance</option>
-                        <option>Collaborative / Team-Dependent</option>
-                        <option>Process-Driven</option>
-                      </select>
-                    </div>
-                    <div class="field" style="margin-top:10px;">
-                      <label for="signalDecisionMaking">Decision-Making Expectation</label>
-                      <textarea id="signalDecisionMaking" placeholder="e.g. Should independently scope solutions and recommend business actions"></textarea>
-                    </div>
-                  </div>
-
-                  <div class="signal-box">
-                    <h4>Client Priorities / Business Context</h4>
-                    <p>What is the client really trying to solve through this hire?</p>
-                    <div class="field">
-                      <label for="signalBusinessPriorities">Business Priorities</label>
-                      <textarea id="signalBusinessPriorities" placeholder="e.g. Need someone who can improve reporting speed&#10;Need stronger BI storytelling for leadership&#10;Need less hand-holding"></textarea>
-                    </div>
-                  </div>
-                </div>
-
-                <div class="signal-note" id="signalSummaryOutput">No signal summary generated yet.</div>
-              </div>
-
-              <div class="screening-panel">
-                <div class="section-title">
-                  <div>
-                    <h3>Screening Builder</h3>
-                    <p>Create recruiter-grade screening questions and strategy notes.</p>
-                  </div>
-
-                  <div class="top-actions">
-                    <button class="ghost-btn" type="button" id="addQuestionBtn">Add Question</button>
-                  </div>
-                </div>
-
-                <div class="questions-wrap" id="questionsWrap"></div>
-
-                <div class="summary-box">
-                  <h4>Screening Strategy Summary</h4>
-                  <p id="screeningSummaryOutput">No summary generated yet.</p>
-                </div>
+              <div class="btn-row" style="margin-top: 14px;">
+                <button class="btn-primary" id="analyzeResumeBtn" type="button">Upload + Analyze Resume</button>
+                <button class="btn" id="recomputeAllBtn" type="button">Recompute All Fits</button>
               </div>
             </div>
           </div>
         </div>
 
-        <div class="panel roles-panel">
+        <div class="panel">
           <div class="panel-inner">
             <div class="section-title">
               <div>
-                <h3>Saved Roles</h3>
-                <p>Manage live, paused, and historical roles without deleting sourcing history.</p>
+                <h3>Filters</h3>
+                <p>Focus on the profiles that are ready for outreach or role matching.</p>
               </div>
             </div>
 
-            <div class="roles-toolbar">
-              <input id="searchInput" type="text" placeholder="Search client or job title" />
-              <select id="holdFilter">
-                <option value="all">All Roles</option>
-                <option value="active">Active Only</option>
-                <option value="on_hold">On-Hold Only</option>
-              </select>
-            </div>
+            <div class="filters-grid">
+              <div class="field">
+                <label for="searchInput">Search</label>
+                <input id="searchInput" type="text" placeholder="Search name, title, skills, email, best fit role" />
+              </div>
 
-            <div class="roles-table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Role</th>
-                    <th>Client</th>
-                    <th>Setup</th>
-                    <th>Status</th>
-                    <th>Screening</th>
-                    <th>Actions</th>
-                  </tr>
-                </thead>
-                <tbody id="rolesTableBody">
-                  <tr>
-                    <td colspan="6" class="empty-state">Loading roles...</td>
-                  </tr>
-                </tbody>
-              </table>
+              <div class="field">
+                <label for="resumeFilter">Resume Status</label>
+                <select id="resumeFilter">
+                  <option value="all">All</option>
+                  <option value="resume_parsed">Resume Parsed</option>
+                  <option value="no_resume">No Resume</option>
+                </select>
+              </div>
+
+              <div class="field">
+                <label for="fitFilter">Fit Band</label>
+                <select id="fitFilter">
+                  <option value="all">All</option>
+                  <option value="Strong Fit">Strong Fit</option>
+                  <option value="Good Fit">Good Fit</option>
+                  <option value="Possible Fit">Possible Fit</option>
+                  <option value="Weak Fit">Weak Fit</option>
+                  <option value="Limited Match">Limited Match</option>
+                </select>
+              </div>
+
+              <div class="field">
+                <label for="jobFilter">Best Fit Role</label>
+                <select id="jobFilter">
+                  <option value="all">All Open Roles</option>
+                </select>
+              </div>
             </div>
           </div>
         </div>
       </div>
 
-      <div>
-        <div class="panel preview-panel">
+      <div class="stack">
+        <div class="panel">
           <div class="panel-inner">
             <div class="section-title">
               <div>
-                <h3>Job Description Preview</h3>
-                <p>Auto-build a cleaner recruiter-facing role preview before saving.</p>
+                <h3>Sourced Candidates</h3>
+                <p>Shows resume status, extracted skills, best-fit live role, alternatives, and missing skills.</p>
               </div>
-              <button class="ghost-btn" type="button" id="refreshPreviewBtnAside">Refresh Preview</button>
-            </div>
-
-            <div class="preview-box" id="jdPreview">
-No preview yet.
-
-Fill in the role fields and click “Refresh Preview”.
-            </div>
-          </div>
-        </div>
-
-        <div class="panel" style="margin-top: 22px;">
-          <div class="panel-inner">
-            <div class="section-title">
-              <div>
-                <h3>How this helps TalentBuzz</h3>
-                <p>Calibration gives structure to recruiter judgment and feeds smarter screening.</p>
+              <div class="toolbar-row">
+                <button class="btn" id="exportJsonBtn" type="button">Export JSON</button>
               </div>
             </div>
 
-            <div class="muted-card">
-              <strong>TalentBuzz Signal Intelligence</strong><br />
-              Recruiters define what actually matters in the role instead of relying only on the JD.
-              <br /><br />
-              <strong>JD Upload + Parse</strong><br />
-              Upload or paste a JD and auto-fill key fields so recruiters start from a stronger draft.
-              <br /><br />
-              <strong>Non-Negotiables + Red Flags</strong><br />
-              This creates sharper filtering logic and better candidate questioning.
-              <br /><br />
-              <strong>Better Navigation</strong><br />
-              The workspace can now be collapsed so Saved Roles remain easier to browse.
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th class="candidate-col">Candidate</th>
+                    <th>Resume Status</th>
+                    <th>Extracted Skills</th>
+                    <th>Best Fit Open Role</th>
+                    <th>Other Matching Open Roles</th>
+                    <th>Missing Skills / Gaps</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="candidatesTableBody">
+                  <tr><td colspan="7" class="empty-state">Loading sourced candidates...</td></tr>
+                </tbody>
+              </table>
             </div>
           </div>
         </div>
@@ -1252,1414 +790,846 @@ Fill in the role fields and click “Refresh Preview”.
     </div>
   </div>
 
+  <div class="drawer" id="profileDrawer">
+    <div class="drawer-header">
+      <div>
+        <div class="subtext">Candidate Profile</div>
+        <div id="drawerTitle" style="font-size: 1.18rem; font-weight: 800; letter-spacing: -0.02em; margin-top: 3px;">Profile</div>
+      </div>
+      <button class="btn small-btn" id="closeDrawerBtn" type="button">Close</button>
+    </div>
+    <div class="drawer-body" id="drawerBody"></div>
+  </div>
+
   <div id="notice" class="notice"></div>
 
-  <script>
-    const SUPABASE_URL = "https://dilalntcxmvdcmwxjcct.supabase.co";
-    const SUPABASE_ANON_KEY = "sb_publishable_HrLVIUwnaRo54yijtrbWBQ_1aeb4ezs";
-    const PDF_JS_URL = "https://dilalntcxmvdcmwxjcct.supabase.co/storage/v1/object/public/jd/pdf.min.js";
-    const PDF_WORKER_URL = "https://dilalntcxmvdcmwxjcct.supabase.co/storage/v1/object/public/jd/pdf.worker.min.js";
+  <script type="module">
+    import * as pdfjsLib from 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.4.168/build/pdf.min.mjs';
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.4.168/build/pdf.worker.min.mjs';
+    window.pdfjsLib = pdfjsLib;
+
+    const SUPABASE_URL = 'https://dilalntcxmvdcmwxjcct.supabase.co';
+    const SUPABASE_ANON_KEY = 'sb_publishable_HrLVIUwnaRo54yijtrbWBQ_1aeb4ezs';
     const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-    const els = {
-      roleId: document.getElementById("roleId"),
-      clientName: document.getElementById("clientName"),
-      clientSuggestions: document.getElementById("clientSuggestions"),
-      existingClientSelect: document.getElementById("existingClientSelect"),
-      jobTitle: document.getElementById("jobTitle"),
-      roleFamily: document.getElementById("roleFamily"),
-      location: document.getElementById("location"),
-      workSetup: document.getElementById("workSetup"),
-      employmentType: document.getElementById("employmentType"),
-      seniority: document.getElementById("seniority"),
-      roleStatus: document.getElementById("roleStatus"),
-      jobDescription: document.getElementById("jobDescription"),
-      requirements: document.getElementById("requirements"),
-      prioritySkills: document.getElementById("prioritySkills"),
-      niceToHaveSkills: document.getElementById("niceToHaveSkills"),
-      salaryCurrency: document.getElementById("salaryCurrency"),
-      salaryPeriod: document.getElementById("salaryPeriod"),
-      salaryMin: document.getElementById("salaryMin"),
-      salaryMax: document.getElementById("salaryMax"),
-      salaryNotes: document.getElementById("salaryNotes"),
-
-      jdUpload: document.getElementById("jdUpload"),
-      jdRawText: document.getElementById("jdRawText"),
-      parseJDBtn: document.getElementById("parseJDBtn"),
-      clearJDBtn: document.getElementById("clearJDBtn"),
-
-      signalNonNegotiables: document.getElementById("signalNonNegotiables"),
-      signalRedFlags: document.getElementById("signalRedFlags"),
-      signalMustHaveSkills: document.getElementById("signalMustHaveSkills"),
-      signalSuccessSignals: document.getElementById("signalSuccessSignals"),
-      signalSetupCriticality: document.getElementById("signalSetupCriticality"),
-      signalEnvironmentNotes: document.getElementById("signalEnvironmentNotes"),
-      signalCommunicationWeight: document.getElementById("signalCommunicationWeight"),
-      signalStakeholderWeight: document.getElementById("signalStakeholderWeight"),
-      signalAutonomyLevel: document.getElementById("signalAutonomyLevel"),
-      signalDecisionMaking: document.getElementById("signalDecisionMaking"),
-      signalBusinessPriorities: document.getElementById("signalBusinessPriorities"),
-      signalSummaryOutput: document.getElementById("signalSummaryOutput"),
-      buildSignalBtn: document.getElementById("buildSignalBtn"),
-
-      questionsWrap: document.getElementById("questionsWrap"),
-      screeningSummaryOutput: document.getElementById("screeningSummaryOutput"),
-      jdPreview: document.getElementById("jdPreview"),
-
-      saveRoleBtn: document.getElementById("saveRoleBtn"),
-      addQuestionBtn: document.getElementById("addQuestionBtn"),
-      generateAiQuestionsBtn: document.getElementById("generateAiQuestionsBtn"),
-      generateSummaryBtn: document.getElementById("generateSummaryBtn"),
-      refreshPreviewBtn: document.getElementById("refreshPreviewBtn"),
-      refreshPreviewBtnAside: document.getElementById("refreshPreviewBtnAside"),
-
-      rolesTableBody: document.getElementById("rolesTableBody"),
-      searchInput: document.getElementById("searchInput"),
-      holdFilter: document.getElementById("holdFilter"),
-      refreshRolesBtn: document.getElementById("refreshRolesBtn"),
-
-      workspaceBody: document.getElementById("workspaceBody"),
-      toggleWorkspaceBtn: document.getElementById("toggleWorkspaceBtn"),
-      toggleWorkspaceBtnInline: document.getElementById("toggleWorkspaceBtnInline"),
-
-      notice: document.getElementById("notice")
+    const SCORE_WEIGHTS = {
+      title: 25,
+      required: 35,
+      nice: 15,
+      seniority: 10,
+      setup: 10,
+      industry: 5
     };
 
-    let rolesCache = [];
-    let questionItems = [];
-    let workspaceCollapsed = false;
+    const SKILL_LIBRARY = {
+      hard_skills: [
+        'sql','mysql','postgresql','snowflake','power bi','tableau','qlik','qlik sense','excel','google sheets','looker','python','r',
+        'javascript','typescript','react','node','node.js','html','css','php','java','c#','aws','azure','gcp','docker','kubernetes',
+        'salesforce','zendesk','hubspot','jira','figma','canva','shopify','wordpress','supabase','mongodb','postgres','etl','api','rest api'
+      ],
+      functional_skills: [
+        'customer service','customer support','inbound support','outbound sales','sales','telemarketing','recruitment','sourcing','executive search',
+        'volume hiring','talent acquisition','bi reporting','reporting','dashboarding','stakeholder management','project management',
+        'operations','quality assurance','training','coaching','account management','business development','lead generation'
+      ],
+      language_skills: [
+        'english','mandarin','cantonese','japanese','korean','spanish','french','german','arabic','tagalog'
+      ],
+      seniority_clues: [
+        'associate','specialist','senior specialist','supervisor','team lead','lead','manager','senior manager','director','head','executive'
+      ],
+      industry_clues: [
+        'bpo','ites','it','technology','healthcare','fintech','retail','ecommerce','banking','financial services','insurance','telecom','saas'
+      ]
+    };
 
-    function showNotice(message, type = "success") {
+    const TITLE_KEYWORDS = {
+      'Customer Service Representative': ['customer service','customer support','csr','call center','inbound support','voice support'],
+      'Sales / Business Development': ['sales','business development','bdm','account executive','lead generation','outbound sales'],
+      'Recruiter / Talent Acquisition': ['recruiter','talent acquisition','sourcing','executive search','hiring'],
+      'Data / BI Analyst': ['sql','power bi','tableau','qlik','dashboard','bi','reporting','analytics'],
+      'Software Engineer': ['javascript','react','node','developer','software engineer','frontend','backend','full stack'],
+      'Account Manager': ['account manager','client management','relationship management','portfolio','stakeholder']
+    };
+
+    const els = {
+      refreshBtn: document.getElementById('refreshBtn'),
+      analyzeResumeBtn: document.getElementById('analyzeResumeBtn'),
+      recomputeAllBtn: document.getElementById('recomputeAllBtn'),
+      exportJsonBtn: document.getElementById('exportJsonBtn'),
+      resumeUpload: document.getElementById('resumeUpload'),
+      candidateSelect: document.getElementById('candidateSelect'),
+      searchInput: document.getElementById('searchInput'),
+      resumeFilter: document.getElementById('resumeFilter'),
+      fitFilter: document.getElementById('fitFilter'),
+      jobFilter: document.getElementById('jobFilter'),
+      candidatesTableBody: document.getElementById('candidatesTableBody'),
+      metricTotal: document.getElementById('metricTotal'),
+      metricParsed: document.getElementById('metricParsed'),
+      metricNoResume: document.getElementById('metricNoResume'),
+      metricStrongGood: document.getElementById('metricStrongGood'),
+      notice: document.getElementById('notice'),
+      profileDrawer: document.getElementById('profileDrawer'),
+      drawerTitle: document.getElementById('drawerTitle'),
+      drawerBody: document.getElementById('drawerBody'),
+      closeDrawerBtn: document.getElementById('closeDrawerBtn')
+    };
+
+    let prospectsCache = [];
+    let openJobsCache = [];
+    let filteredCache = [];
+
+    function showNotice(message, type = 'success') {
       els.notice.textContent = message;
       els.notice.className = `notice show ${type}`;
-      window.clearTimeout(showNotice._timer);
-      showNotice._timer = window.setTimeout(() => {
-        els.notice.className = "notice";
-      }, 4200);
+      clearTimeout(showNotice._timer);
+      showNotice._timer = setTimeout(() => {
+        els.notice.className = 'notice';
+      }, 3800);
     }
 
     function safeText(value) {
-      return String(value ?? "").trim();
-    }
-
-    function normalizeLines(value) {
-      return safeText(value)
-        .split("\n")
-        .map(line => line.trim())
-        .filter(Boolean);
+      return String(value ?? '').trim();
     }
 
     function escapeHtml(value) {
-      return String(value ?? "")
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;")
-        .replace(/"/g, "&quot;")
-        .replace(/'/g, "&#039;");
+      return String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
     }
 
-    function parseBudgetNumber(value) {
-      const cleaned = String(value ?? "").replace(/[^\d.\-]/g, "").trim();
-      if (!cleaned) return null;
-      const parsed = Number(cleaned);
-      return Number.isFinite(parsed) ? parsed : null;
+    function slugify(value) {
+      return safeText(value).toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
     }
 
-    function getCurrencySymbol(currency = "PHP") {
-      const map = {
-        PHP: "₱",
-        USD: "$",
-        HKD: "HK$",
-        SGD: "S$",
-        EUR: "€",
-        GBP: "£",
-        AUD: "A$",
-        CAD: "C$",
-        JPY: "¥"
+    function normalizeList(value) {
+      if (Array.isArray(value)) return value.map(v => safeText(v)).filter(Boolean);
+      if (typeof value === 'string') {
+        return value
+          .split(/\n|,|\u2022|\||;/g)
+          .map(v => v.replace(/^[-•*]\s*/, '').trim())
+          .filter(Boolean);
+      }
+      return [];
+    }
+
+    function normalizeSkillTag(value) {
+      return safeText(value)
+        .toLowerCase()
+        .replace(/\bnode\.js\b/g, 'node')
+        .replace(/\bpostgresql\b/g, 'postgres')
+        .replace(/\bqliksense\b/g, 'qlik sense')
+        .replace(/\s+/g, ' ')
+        .trim();
+    }
+
+    function uniq(arr = []) {
+      return [...new Set(arr.filter(Boolean))];
+    }
+
+    function scoreBand(score, resumeStatus = 'no_resume') {
+      if (resumeStatus === 'no_resume') return 'Limited Match';
+      if (score >= 80) return 'Strong Fit';
+      if (score >= 60) return 'Good Fit';
+      if (score >= 40) return 'Possible Fit';
+      return 'Weak Fit';
+    }
+
+    function bandClass(band) {
+      if (band === 'Strong Fit') return 'pill-strong';
+      if (band === 'Good Fit') return 'pill-good';
+      if (band === 'Possible Fit') return 'pill-possible';
+      if (band === 'Limited Match') return 'pill-no-resume';
+      return 'pill-weak';
+    }
+
+    function statusLabelClass(status) {
+      return status === 'resume_parsed' ? 'pill-resume' : 'pill-no-resume';
+    }
+
+    function buildTextBlobFromProspect(prospect = {}) {
+      return [
+        prospect.full_name,
+        prospect.title,
+        prospect.company,
+        prospect.location,
+        prospect.notes,
+        prospect.summary,
+        prospect.resume_text,
+        prospect.top_match_role,
+        prospect.best_fit_role_title,
+        ...(normalizeList(prospect.suggested_roles)),
+        ...(normalizeList(prospect.skill_tags)),
+        ...(normalizeList(prospect.extracted_skills?.hard_skills)),
+        ...(normalizeList(prospect.extracted_skills?.functional_skills)),
+        ...(normalizeList(prospect.extracted_skills?.language_skills)),
+        ...(normalizeList(prospect.extracted_skills?.industry_clues))
+      ].filter(Boolean).join(' \n ').toLowerCase();
+    }
+
+    function detectSeniority(text = '', title = '') {
+      const hay = `${text} ${title}`.toLowerCase();
+      if (/director|head|vp|vice president|executive/.test(hay)) return 'Executive';
+      if (/manager|senior manager/.test(hay)) return 'Manager';
+      if (/team lead|lead/.test(hay)) return 'Lead';
+      if (/senior|sr\./.test(hay)) return 'Senior';
+      if (/associate/.test(hay)) return 'Associate';
+      if (/specialist/.test(hay)) return 'Specialist';
+      return '';
+    }
+
+    function extractSkillsFromText(rawText = '', fallbackTitle = '') {
+      const text = safeText(rawText).toLowerCase();
+      const extracted = {
+        hard_skills: [],
+        functional_skills: [],
+        language_skills: [],
+        seniority_clues: [],
+        industry_clues: []
       };
-      return map[currency] || currency;
-    }
 
-    function formatBudgetValue(value, currency = "PHP") {
-      const parsed = parseBudgetNumber(value);
-      if (parsed === null) return "";
-      return `${getCurrencySymbol(currency)}${parsed.toLocaleString(undefined, {
-        minimumFractionDigits: parsed % 1 === 0 ? 0 : 2,
-        maximumFractionDigits: 2
-      })}`;
-    }
-
-    function buildCompensationMeta() {
-      return {
-        period: safeText(els.salaryPeriod?.value) || "Monthly",
-        notes: safeText(els.salaryNotes?.value)
-      };
-    }
-
-    function getCompensationMetaFromConfig(config = {}) {
-      const meta = config?.compensation_meta;
-      return {
-        period: safeText(meta?.period) || "Monthly",
-        notes: safeText(meta?.notes)
-      };
-    }
-
-    function buildSalaryBudget() {
-      const compensationMeta = buildCompensationMeta();
-      return {
-        currency: safeText(els.salaryCurrency?.value) || "PHP",
-        period: compensationMeta.period,
-        min: parseBudgetNumber(els.salaryMin?.value),
-        max: parseBudgetNumber(els.salaryMax?.value),
-        notes: compensationMeta.notes
-      };
-    }
-
-    function getSalaryBudgetFromRole(role = {}) {
-      const aiConfig = typeof role?.ai_screening_config === "object" && role?.ai_screening_config !== null
-        ? role.ai_screening_config
-        : {};
-      const compensationMeta = getCompensationMetaFromConfig(aiConfig);
-
-      return {
-        currency: safeText(role?.salary_currency) || "PHP",
-        period: compensationMeta.period || "Monthly",
-        min: parseBudgetNumber(role?.salary_min),
-        max: parseBudgetNumber(role?.salary_max),
-        notes: compensationMeta.notes
-      };
-    }
-
-    function formatSalaryBudgetLine(budget = {}) {
-      const currency = budget.currency || "PHP";
-      const period = budget.period || "Monthly";
-      const minText = formatBudgetValue(budget.min, currency);
-      const maxText = formatBudgetValue(budget.max, currency);
-
-      if (minText && maxText) return `Salary Budget: ${minText} - ${maxText} (${period})`;
-      if (minText) return `Salary Budget: From ${minText} (${period})`;
-      if (maxText) return `Salary Budget: Up to ${maxText} (${period})`;
-      if (budget.notes) return `Salary Budget: ${budget.notes}`;
-      return "";
-    }
-
-    function buildRequirementBullets(text) {
-      const lines = normalizeLines(text);
-      if (!lines.length) return "Not specified";
-      return lines.map(line => `- ${line.replace(/^[-•*]\s*/, "")}`).join("\n");
-    }
-
-    function cleanListLines(lines = []) {
-      return lines
-        .map(line => safeText(line)
-          .replace(/^[-•*]\s*/, "")
-          .replace(/^\d+[\).\s-]+/, "")
-        )
-        .filter(Boolean);
-    }
-
-    function uniqueLines(lines = []) {
-      return [...new Set(cleanListLines(lines))];
-    }
-
-    function splitIntoLines(text) {
-      return safeText(text)
-        .split(/\r?\n/)
-        .map(line => line.trim())
-        .filter(Boolean);
-    }
-
-    function extractSectionByHeading(text, headings = []) {
-      const escaped = headings.map(h => h.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
-      const pattern = new RegExp(
-        `(?:^|\\n)\\s*(?:${escaped.join("|")})\\s*:?\\s*\\n([\\s\\S]*?)(?=\\n\\s*[A-Z][A-Za-z /&()\\-]{2,60}\\s*:?\\s*\\n|$)`,
-        "i"
-      );
-      const match = text.match(pattern);
-      return match ? safeText(match[1]) : "";
-    }
-
-    function extractBulletsFromSection(text, headings = []) {
-      const section = extractSectionByHeading(text, headings);
-      if (!section) return [];
-      return uniqueLines(splitIntoLines(section));
-    }
-
-    function detectTitleFromText(text) {
-      const lines = splitIntoLines(text).slice(0, 12);
-      const candidates = lines.filter(line =>
-        line.length >= 4 &&
-        line.length <= 100 &&
-        !/^(about|overview|responsibilities|required|requirements|qualifications|preferred|nice to have|job summary)$/i.test(line)
-      );
-      return candidates[0] || "";
-    }
-
-    function detectOverviewFromText(text) {
-      const overview =
-        extractSectionByHeading(text, ["Job Summary", "Role Overview", "Overview", "About the Role", "Position Summary", "Summary"]) ||
-        splitIntoLines(text).slice(0, 8).join("\n");
-      return safeText(overview);
-    }
-
-    function inferNonNegotiables(requiredSkills = [], fullText = "") {
-      const directSection = extractBulletsFromSection(fullText, [
-        "Non-Negotiables",
-        "Must Have",
-        "Must-Have",
-        "Mandatory Requirements",
-        "Minimum Qualifications"
-      ]);
-
-      if (directSection.length) return directSection;
-
-      return uniqueLines(requiredSkills.filter(line =>
-        /must|required|mandatory|minimum|proven|hands[- ]on|willing|at least/i.test(line)
-      ));
-    }
-
-    function inferRedFlags(fullText = "") {
-      const directSection = extractBulletsFromSection(fullText, [
-        "Deal Breakers",
-        "Red Flags",
-        "Disqualifiers",
-        "What will not work"
-      ]);
-
-      if (directSection.length) return directSection;
-
-      const lines = splitIntoLines(fullText);
-      return uniqueLines(
-        lines.filter(line =>
-          /not suitable|will not consider|disqualif|must not|no experience in|unable to|cannot/i.test(line)
-        )
-      );
-    }
-
-    function inferNiceToHave(fullText = "") {
-      const direct = extractBulletsFromSection(fullText, [
-        "Nice to Have",
-        "Nice-to-Have",
-        "Preferred Qualifications",
-        "Preferred Skills",
-        "Good to Have",
-        "Preferred"
-      ]);
-
-      if (direct.length) return direct;
-
-      const lines = splitIntoLines(fullText);
-      return uniqueLines(
-        lines.filter(line =>
-          /preferred|nice to have|good to have|plus|bonus/i.test(line)
-        )
-      );
-    }
-
-    function inferRequiredSkills(fullText = "") {
-      const direct = extractBulletsFromSection(fullText, [
-        "Requirements",
-        "Required Skills",
-        "Qualifications",
-        "Minimum Qualifications",
-        "What We're Looking For",
-        "What We Are Looking For",
-        "Essential Qualifications"
-      ]);
-
-      if (direct.length) return direct;
-
-      const lines = splitIntoLines(fullText);
-      return uniqueLines(
-        lines.filter(line =>
-          /experience|skill|proficien|knowledge|ability|must|required|hands[- ]on/i.test(line)
-        )
-      ).slice(0, 15);
-    }
-
-    function rankPrioritySkills(requiredSkills = [], nonNegotiables = []) {
-      const boosted = [];
-
-      requiredSkills.forEach(line => {
-        const isCritical =
-          nonNegotiables.some(nn => line.toLowerCase().includes(nn.toLowerCase())) ||
-          /must|mandatory|required|hands[- ]on|expert|strong|at least/i.test(line);
-
-        boosted.push(isCritical ? `${line} - Critical` : `${line} - High`);
+      Object.entries(SKILL_LIBRARY).forEach(([group, entries]) => {
+        entries.forEach(entry => {
+          const normalized = entry.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+          const pattern = new RegExp(`(^|[^a-z])${normalized}([^a-z]|$)`, 'i');
+          if (pattern.test(text)) extracted[group].push(entry);
+        });
       });
 
-      return uniqueLines(boosted).slice(0, 12);
-    }
+      const titleHay = safeText(fallbackTitle).toLowerCase();
+      Object.entries(TITLE_KEYWORDS).forEach(([title, keywords]) => {
+        const titleDetected = keywords.some(keyword => text.includes(keyword) || titleHay.includes(keyword));
+        if (titleDetected) extracted.functional_skills.push(title);
+      });
 
-    function buildAIScreeningConfigFromJD(text, parsed) {
+      extracted.seniority_clues = uniq([...extracted.seniority_clues, detectSeniority(text, fallbackTitle)].filter(Boolean));
+
+      const skillTags = uniq([
+        ...extracted.hard_skills,
+        ...extracted.functional_skills,
+        ...extracted.language_skills,
+        ...extracted.seniority_clues,
+        ...extracted.industry_clues
+      ].map(normalizeSkillTag)).filter(Boolean);
+
       return {
-        source: "jd_upload_parse",
-        parsed_at: new Date().toISOString(),
-        source_length: text.length,
-        non_negotiables: parsed.nonNegotiables,
-        red_flags: parsed.redFlags,
-        must_have_skills: parsed.prioritySkills,
-        success_signals: [],
-        setup_criticality: parsed.workSetup ? "High" : "",
-        environment_notes: "",
-        communication_weight: "",
-        stakeholder_weight: "",
-        autonomy_level: "",
-        decision_making: "",
-        business_priorities: []
+        extracted_skills: {
+          hard_skills: uniq(extracted.hard_skills),
+          functional_skills: uniq(extracted.functional_skills),
+          language_skills: uniq(extracted.language_skills),
+          seniority_clues: uniq(extracted.seniority_clues),
+          industry_clues: uniq(extracted.industry_clues)
+        },
+        skill_tags: skillTags
       };
     }
 
-    function parseJDTextToFields(text) {
-      const safe = safeText(text);
-      if (!safe) return null;
+    function getJobRequiredSkills(job = {}) {
+      const required = [
+        ...normalizeList(job.required_skills),
+        ...normalizeList(job.priority_skills),
+        ...normalizeList(job.ai_screening_config?.must_have_skills),
+        ...normalizeList(job.ai_screening_config?.non_negotiables)
+      ];
+      return uniq(required.map(normalizeSkillTag)).filter(Boolean);
+    }
 
-      const title = detectTitleFromText(safe);
-      const overview = detectOverviewFromText(safe);
-      const requiredSkills = inferRequiredSkills(safe);
-      const niceToHave = inferNiceToHave(safe);
-      const nonNegotiables = inferNonNegotiables(requiredSkills, safe);
-      const redFlags = inferRedFlags(safe);
+    function getJobNiceToHaveSkills(job = {}) {
+      const nice = [
+        ...normalizeList(job.nice_to_have_skills),
+        ...normalizeList(job.ai_screening_config?.success_signals),
+        ...normalizeList(job.ai_screening_config?.business_priorities)
+      ];
+      return uniq(nice.map(normalizeSkillTag)).filter(Boolean);
+    }
 
-      const workSetupMatch = safe.match(/\b(remote|hybrid|onsite|on-site)\b/i);
-      const employmentTypeMatch = safe.match(/\b(full[- ]time|part[- ]time|contract|project[- ]based|consulting)\b/i);
-      const salaryMatch = safe.match(/(?:salary|budget|compensation)[^\n\r]{0,80}?(₱|PHP|\$|USD|HK\$|HKD|S\$|SGD|€|EUR|£|GBP|A\$|AUD)?\s*([\d,]+(?:\.\d+)?)\s*(?:-|to)\s*(?:₱|PHP|\$|USD|HK\$|HKD|S\$|SGD|€|EUR|£|GBP|A\$|AUD)?\s*([\d,]+(?:\.\d+)?)/i);
-      const prioritySkills = rankPrioritySkills(requiredSkills, nonNegotiables);
+    function getJobIndustrySignals(job = {}) {
+      const text = [job.title, job.client_name, job.role_family, job.job_description, job.required_skills].filter(Boolean).join(' ').toLowerCase();
+      return uniq(SKILL_LIBRARY.industry_clues.filter(industry => text.includes(industry)));
+    }
 
-      let salaryBudget = null;
-      if (salaryMatch) {
-        const currencyToken = (salaryMatch[1] || "").toUpperCase();
-        let currency = "PHP";
-        if (currencyToken.includes("$") || currencyToken === "USD") currency = "USD";
-        if (currencyToken.includes("HK") || currencyToken === "HKD") currency = "HKD";
-        if (currencyToken.includes("S$") || currencyToken === "SGD") currency = "SGD";
-        if (currencyToken.includes("€") || currencyToken === "EUR") currency = "EUR";
-        if (currencyToken.includes("£") || currencyToken === "GBP") currency = "GBP";
-        if (currencyToken.includes("A$") || currencyToken === "AUD") currency = "AUD";
-        if (currencyToken.includes("₱") || currencyToken === "PHP") currency = "PHP";
+    function titleSimilarity(candidateText = '', candidateTitle = '', jobTitle = '') {
+      const candidateHay = `${candidateText} ${candidateTitle}`.toLowerCase();
+      const normalizedJobTitle = safeText(jobTitle).toLowerCase();
+      if (!normalizedJobTitle) return 0;
+      if (candidateHay.includes(normalizedJobTitle)) return 1;
 
-        salaryBudget = {
-          currency,
-          period: /annual|yearly|per year/i.test(safe) ? "Annual" : /hour|hourly|per hour/i.test(safe) ? "Hourly" : "Monthly",
-          min: parseBudgetNumber(salaryMatch[2]),
-          max: parseBudgetNumber(salaryMatch[3]),
-          notes: ""
-        };
-      }
+      const keywordMatch = Object.values(TITLE_KEYWORDS).flat().filter(keyword => normalizedJobTitle.includes(keyword) && candidateHay.includes(keyword));
+      if (keywordMatch.length) return Math.min(1, 0.55 + keywordMatch.length * 0.12);
+
+      const tokens = normalizedJobTitle.split(/\s+/).filter(token => token.length > 2);
+      if (!tokens.length) return 0;
+      const hits = tokens.filter(token => candidateHay.includes(token)).length;
+      return hits / tokens.length;
+    }
+
+    function senioritySimilarity(candidate = {}, job = {}) {
+      const candidateSeniority = safeText(candidate.extracted_skills?.seniority_clues?.[0] || candidate.seniority || detectSeniority(candidate.resume_text, candidate.title)).toLowerCase();
+      const jobSeniority = safeText(job.seniority_level).toLowerCase();
+      if (!jobSeniority) return 0.5;
+      if (!candidateSeniority) return 0.25;
+      if (candidateSeniority === jobSeniority) return 1;
+      const map = ['associate','specialist','senior','lead','manager','executive'];
+      const a = map.findIndex(v => candidateSeniority.includes(v));
+      const b = map.findIndex(v => jobSeniority.includes(v));
+      if (a === -1 || b === -1) return 0.3;
+      const diff = Math.abs(a - b);
+      if (diff === 0) return 1;
+      if (diff === 1) return 0.7;
+      if (diff === 2) return 0.4;
+      return 0.15;
+    }
+
+    function setupSimilarity(candidate = {}, job = {}) {
+      const candidateText = buildTextBlobFromProspect(candidate);
+      const candidateLocation = safeText(candidate.location).toLowerCase();
+      const jobSetup = safeText(job.work_setup).toLowerCase();
+      const jobLocation = safeText(job.location).toLowerCase();
+      let score = 0.4;
+
+      if (!jobSetup && !jobLocation) return 0.5;
+      if (jobSetup && candidateText.includes(jobSetup)) score += 0.35;
+      if (jobSetup === 'remote' && /remote|work from home|wfh/.test(candidateText)) score += 0.35;
+      if (jobSetup === 'onsite' && /onsite|on-site/.test(candidateText)) score += 0.25;
+      if (jobSetup === 'hybrid' && /hybrid/.test(candidateText)) score += 0.25;
+      if (jobLocation && candidateLocation && (candidateLocation.includes(jobLocation) || jobLocation.includes(candidateLocation))) score += 0.25;
+      return Math.min(1, score);
+    }
+
+    function industrySimilarity(candidate = {}, job = {}) {
+      const candidateIndustries = normalizeList(candidate.extracted_skills?.industry_clues).map(normalizeSkillTag);
+      const jobIndustries = getJobIndustrySignals(job).map(normalizeSkillTag);
+      if (!jobIndustries.length) return 0.5;
+      if (!candidateIndustries.length) return 0.2;
+      const hits = candidateIndustries.filter(ind => jobIndustries.includes(ind)).length;
+      return hits / jobIndustries.length;
+    }
+
+    function overlapRatio(sourceArr = [], targetArr = []) {
+      if (!targetArr.length) return 0;
+      const source = uniq(sourceArr.map(normalizeSkillTag));
+      const target = uniq(targetArr.map(normalizeSkillTag));
+      const hits = target.filter(item => source.includes(item)).length;
+      return hits / target.length;
+    }
+
+    function buildMissingSkills(candidateSkillTags = [], requiredSkills = []) {
+      const source = uniq(candidateSkillTags.map(normalizeSkillTag));
+      return uniq(requiredSkills.map(normalizeSkillTag)).filter(skill => !source.includes(skill));
+    }
+
+    function scoreProspectAgainstJob(prospect = {}, job = {}) {
+      const candidateSkillTags = uniq(normalizeList(prospect.skill_tags).map(normalizeSkillTag));
+      const requiredSkills = getJobRequiredSkills(job);
+      const niceSkills = getJobNiceToHaveSkills(job);
+      const candidateText = buildTextBlobFromProspect(prospect);
+
+      const titleScore = titleSimilarity(candidateText, prospect.title, job.title || job.job_title || '');
+      const requiredScore = overlapRatio(candidateSkillTags, requiredSkills);
+      const niceScore = overlapRatio(candidateSkillTags, niceSkills);
+      const seniorityScore = senioritySimilarity(prospect, job);
+      const setupScore = setupSimilarity(prospect, job);
+      const industryScore = industrySimilarity(prospect, job);
+
+      const total = Math.round(
+        titleScore * SCORE_WEIGHTS.title +
+        requiredScore * SCORE_WEIGHTS.required +
+        niceScore * SCORE_WEIGHTS.nice +
+        seniorityScore * SCORE_WEIGHTS.seniority +
+        setupScore * SCORE_WEIGHTS.setup +
+        industryScore * SCORE_WEIGHTS.industry
+      );
+
+      const missingSkills = buildMissingSkills(candidateSkillTags, requiredSkills).slice(0, 8);
+      const fitBand = scoreBand(total, prospect.resume_status || 'no_resume');
 
       return {
-        title,
-        overview,
-        requiredSkills,
-        prioritySkills,
-        niceToHave,
-        nonNegotiables,
-        redFlags,
-        workSetup: workSetupMatch ? workSetupMatch[1].replace(/on-site/i, "Onsite") : "",
-        employmentType: employmentTypeMatch ? employmentTypeMatch[1] : "",
-        salaryBudget,
-        aiScreeningConfig: buildAIScreeningConfigFromJD(safe, {
-          nonNegotiables,
-          redFlags,
-          prioritySkills,
-          workSetup: workSetupMatch ? workSetupMatch[1] : ""
-        })
+        role_id: job.id,
+        role_title: job.title || job.job_title || 'Untitled Role',
+        client_name: job.client_name || '',
+        fit_score: total,
+        fit_band: fitBand,
+        missing_skills: missingSkills,
+        required_skills_matched: Math.round(requiredScore * 100),
+        nice_to_have_matched: Math.round(niceScore * 100),
+        title_match: Math.round(titleScore * 100),
+        seniority_match: Math.round(seniorityScore * 100),
+        location_setup_match: Math.round(setupScore * 100),
+        industry_match: Math.round(industryScore * 100)
+      };
+    }
+
+    function buildLimitedMatchResults(prospect = {}) {
+      const provisional = openJobsCache
+        .map(job => ({
+          role_id: job.id,
+          role_title: job.title || 'Untitled Role',
+          client_name: job.client_name || '',
+          fit_score: Math.round(titleSimilarity(buildTextBlobFromProspect(prospect), prospect.title, job.title || '') * 28),
+          fit_band: 'Limited Match',
+          missing_skills: getJobRequiredSkills(job).slice(0, 6),
+          required_skills_matched: 0,
+          nice_to_have_matched: 0,
+          title_match: 0,
+          seniority_match: 0,
+          location_setup_match: 0,
+          industry_match: 0
+        }))
+        .sort((a, b) => b.fit_score - a.fit_score)
+        .slice(0, 3);
+
+      return provisional;
+    }
+
+    function buildRoleFitResults(prospect = {}) {
+      if (!openJobsCache.length) return [];
+      if ((prospect.resume_status || 'no_resume') === 'no_resume') return buildLimitedMatchResults(prospect);
+
+      return openJobsCache
+        .map(job => scoreProspectAgainstJob(prospect, job))
+        .sort((a, b) => b.fit_score - a.fit_score)
+        .slice(0, 6);
+    }
+
+    function enrichProspectWithComputedFields(prospect = {}) {
+      const resumeStatus = safeText(prospect.resume_status) || (safeText(prospect.resume_url) || safeText(prospect.resume_path) || safeText(prospect.resume_text) ? 'resume_parsed' : 'no_resume');
+
+      const roleFitResults = Array.isArray(prospect.role_fit_results) && prospect.role_fit_results.length
+        ? prospect.role_fit_results
+        : buildRoleFitResults({ ...prospect, resume_status: resumeStatus });
+
+      const bestFit = roleFitResults[0] || null;
+
+      return {
+        ...prospect,
+        resume_status: resumeStatus,
+        role_fit_results: roleFitResults,
+        best_fit_role_id: prospect.best_fit_role_id || bestFit?.role_id || null,
+        best_fit_role_title: prospect.best_fit_role_title || bestFit?.role_title || '',
+        best_fit_score: bestFit?.fit_score || 0,
+        best_fit_band: bestFit?.fit_band || (resumeStatus === 'no_resume' ? 'Limited Match' : 'Weak Fit'),
+        missing_skills: bestFit?.missing_skills || [],
+        extracted_skills: prospect.extracted_skills || {
+          hard_skills: [], functional_skills: [], language_skills: [], seniority_clues: [], industry_clues: []
+        },
+        skill_tags: normalizeList(prospect.skill_tags)
       };
     }
 
     async function extractTextFromPdf(file) {
-      if (!window.pdfjsLib) {
-        throw new Error("PDF parser library did not load. Check the jd bucket files or use paste mode.");
-      }
-
       const arrayBuffer = await file.arrayBuffer();
-      const loadingTask = window.pdfjsLib.getDocument({
-        data: arrayBuffer,
-        useWorkerFetch: false,
-        isEvalSupported: false
-      });
-
+      const loadingTask = window.pdfjsLib.getDocument({ data: arrayBuffer });
       const pdf = await loadingTask.promise;
-      let text = "";
+      let text = '';
 
-      for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
-        const page = await pdf.getPage(pageNum);
+      for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber++) {
+        const page = await pdf.getPage(pageNumber);
         const content = await page.getTextContent({ normalizeWhitespace: true });
-        const pageText = content.items.map(item => item.str).join(" ");
-        text += pageText + "\n\n";
+        const pageText = content.items.map(item => item.str).join(' ');
+        text += `${pageText}\n\n`;
       }
 
-      if (!safeText(text)) {
-        throw new Error("PDF text extraction returned empty. The PDF may be scanned or image-based.");
-      }
-
-      return text;
+      return safeText(text);
     }
 
     async function extractTextFromDocx(file) {
       const arrayBuffer = await file.arrayBuffer();
       const result = await window.mammoth.extractRawText({ arrayBuffer });
-      const text = result.value || "";
-
-      if (!safeText(text)) {
-        throw new Error("DOCX extraction returned empty text.");
-      }
-
-      return text;
+      return safeText(result.value || '');
     }
 
-    async function getJDTextFromInput() {
-      const pastedText = safeText(els.jdRawText.value);
-      if (pastedText) return pastedText;
-
-      const file = els.jdUpload.files?.[0];
-      if (!file) return "";
-
-      const name = file.name.toLowerCase();
-
-      if (name.endsWith(".txt") || name.endsWith(".md")) {
-        const text = await file.text();
-        if (!safeText(text)) {
-          throw new Error("The uploaded text file is empty.");
-        }
-        return text;
-      }
-
-      if (name.endsWith(".docx")) {
-        return await extractTextFromDocx(file);
-      }
-
-      if (name.endsWith(".pdf")) {
-        if (!window.pdfjsLib) {
-          throw new Error("PDF upload is temporarily unavailable. Upload pdf.min.js and pdf.worker.min.js to the public jd bucket, or use DOCX/paste mode.");
-        }
-        return await extractTextFromPdf(file);
-      }
-
-      throw new Error("Unsupported file type. Use PDF, DOCX, TXT, or pasted JD text.");
+    async function extractResumeText(file) {
+      const lower = file.name.toLowerCase();
+      if (lower.endsWith('.pdf')) return await extractTextFromPdf(file);
+      if (lower.endsWith('.docx') || lower.endsWith('.doc')) return await extractTextFromDocx(file);
+      if (lower.endsWith('.txt') || lower.endsWith('.md')) return safeText(await file.text());
+      throw new Error('Unsupported file type. Please use PDF, DOCX, TXT, or MD.');
     }
 
-    function getSignalCalibrationPayload() {
-      return {
-        non_negotiables: normalizeLines(els.signalNonNegotiables.value),
-        red_flags: normalizeLines(els.signalRedFlags.value),
-        must_have_skills: normalizeLines(els.signalMustHaveSkills.value),
-        success_signals: normalizeLines(els.signalSuccessSignals.value),
-        setup_criticality: safeText(els.signalSetupCriticality.value),
-        environment_notes: safeText(els.signalEnvironmentNotes.value),
-        communication_weight: safeText(els.signalCommunicationWeight.value),
-        stakeholder_weight: safeText(els.signalStakeholderWeight.value),
-        autonomy_level: safeText(els.signalAutonomyLevel.value),
-        decision_making: safeText(els.signalDecisionMaking.value),
-        business_priorities: normalizeLines(els.signalBusinessPriorities.value)
+    async function uploadResumeToStorage(file, prospectId) {
+      const cleanName = `${prospectId}-${Date.now()}-${file.name}`.replace(/\s+/g, '-');
+      const path = `sourced-resumes/${cleanName}`;
+      const { error: uploadError } = await supabaseClient.storage.from('resumes').upload(path, file, {
+        cacheControl: '3600',
+        upsert: true
+      });
+      if (uploadError) throw uploadError;
+
+      const { data } = supabaseClient.storage.from('resumes').getPublicUrl(path);
+      return { resume_path: path, resume_url: data?.publicUrl || '' };
+    }
+
+    async function fetchOpenJobs() {
+      const { data, error } = await supabaseClient
+        .from('jobs')
+        .select('id,title,client_name,location,work_setup,employment_type,seniority_level,job_description,required_skills,nice_to_have_skills,priority_skills,ai_screening_config,status,is_on_hold,updated_at,created_at')
+        .in('status', ['Open', 'open'])
+        .order('updated_at', { ascending: false });
+
+      if (error) throw error;
+
+      openJobsCache = (data || [])
+        .filter(job => !job.is_on_hold)
+        .map(job => ({ ...job }));
+
+      renderJobFilter();
+    }
+
+    async function fetchProspects() {
+      const { data, error } = await supabaseClient
+        .from('prospects')
+        .select('*')
+        .order('updated_at', { ascending: false });
+
+      if (error) throw error;
+
+      prospectsCache = (data || []).map(prospect => enrichProspectWithComputedFields(prospect));
+      populateCandidateSelect();
+      applyFilters();
+    }
+
+    async function saveProspectIntelligence(prospect) {
+      const payload = {
+        extracted_skills: prospect.extracted_skills || {},
+        skill_tags: prospect.skill_tags || [],
+        resume_status: prospect.resume_status || 'no_resume',
+        role_fit_results: prospect.role_fit_results || [],
+        best_fit_role_id: prospect.best_fit_role_id || null,
+        best_fit_role_title: prospect.best_fit_role_title || null,
+        top_match_role: prospect.best_fit_role_title || prospect.top_match_role || null,
+        suggested_roles: (prospect.role_fit_results || []).slice(0, 3).map(item => item.role_title),
+        updated_at: new Date().toISOString()
       };
+
+      if (Object.prototype.hasOwnProperty.call(prospect, 'resume_text')) payload.resume_text = prospect.resume_text;
+      if (Object.prototype.hasOwnProperty.call(prospect, 'resume_path')) payload.resume_path = prospect.resume_path;
+      if (Object.prototype.hasOwnProperty.call(prospect, 'resume_url')) payload.resume_url = prospect.resume_url;
+
+      const { error } = await supabaseClient.from('prospects').update(payload).eq('id', prospect.id);
+      if (error) throw error;
     }
 
-    function buildSignalSummaryText(signal) {
-      return [
-        `TalentBuzz Signal Intelligence`,
-        ``,
-        `Non-Negotiables:`,
-        ...(signal.non_negotiables.length ? signal.non_negotiables.map(x => `- ${x}`) : [`- None defined yet`]),
-        ``,
-        `Must-Have Skills + Importance:`,
-        ...(signal.must_have_skills.length ? signal.must_have_skills.map(x => `- ${x}`) : [`- None defined yet`]),
-        ``,
-        `Success Signals:`,
-        ...(signal.success_signals.length ? signal.success_signals.map(x => `- ${x}`) : [`- None defined yet`]),
-        ``,
-        `Red Flags / Deal Breakers:`,
-        ...(signal.red_flags.length ? signal.red_flags.map(x => `- ${x}`) : [`- None defined yet`]),
-        ``,
-        `Setup Criticality: ${signal.setup_criticality || "Not set"}`,
-        `Communication Weight: ${signal.communication_weight || "Not set"}`,
-        `Stakeholder Weight: ${signal.stakeholder_weight || "Not set"}`,
-        `Autonomy Level: ${signal.autonomy_level || "Not set"}`,
-        ``,
-        `Environment Notes:`,
-        signal.environment_notes || "Not set",
-        ``,
-        `Decision-Making Expectation:`,
-        signal.decision_making || "Not set",
-        ``,
-        `Business Priorities:`,
-        ...(signal.business_priorities.length ? signal.business_priorities.map(x => `- ${x}`) : [`- None defined yet`])
-      ].join("\n");
+    async function recomputeProspect(prospect, persist = true) {
+      const resumeStatus = safeText(prospect.resume_text) ? 'resume_parsed' : (prospect.resume_status === 'resume_parsed' ? 'resume_parsed' : 'no_resume');
+      let extractedSkills = prospect.extracted_skills || { hard_skills: [], functional_skills: [], language_skills: [], seniority_clues: [], industry_clues: [] };
+      let skillTags = normalizeList(prospect.skill_tags);
+
+      if (resumeStatus === 'resume_parsed') {
+        const derived = extractSkillsFromText(prospect.resume_text || '', prospect.title || '');
+        extractedSkills = derived.extracted_skills;
+        skillTags = derived.skill_tags;
+      }
+
+      const recomputed = enrichProspectWithComputedFields({
+        ...prospect,
+        resume_status: resumeStatus,
+        extracted_skills: extractedSkills,
+        skill_tags: skillTags,
+        role_fit_results: buildRoleFitResults({
+          ...prospect,
+          resume_status: resumeStatus,
+          extracted_skills: extractedSkills,
+          skill_tags: skillTags
+        })
+      });
+
+      if (persist) await saveProspectIntelligence(recomputed);
+      return recomputed;
     }
 
-    function buildSignalSummary() {
-      const signal = getSignalCalibrationPayload();
-      els.signalSummaryOutput.textContent = buildSignalSummaryText(signal);
-      showNotice("Signal Intelligence summary generated.");
+    function renderJobFilter() {
+      const current = els.jobFilter.value || 'all';
+      const options = ['<option value="all">All Open Roles</option>']
+        .concat(openJobsCache.map(job => `<option value="${escapeHtml(job.id)}">${escapeHtml(job.title || 'Untitled Role')}</option>`));
+      els.jobFilter.innerHTML = options.join('');
+      if ([...els.jobFilter.options].some(opt => opt.value === current)) els.jobFilter.value = current;
     }
 
-    function applyParsedJDToForm(parsed) {
-      if (!parsed) {
-        showNotice("Could not parse JD content.", "error");
-        return;
-      }
-
-      if (!safeText(els.jobTitle.value) && parsed.title) {
-        els.jobTitle.value = parsed.title;
-      }
-
-      if (!safeText(els.jobDescription.value) && parsed.overview) {
-        els.jobDescription.value = parsed.overview;
-      }
-
-      if (!safeText(els.requirements.value) && parsed.requiredSkills.length) {
-        els.requirements.value = parsed.requiredSkills.join("\n");
-      }
-
-      if (parsed.prioritySkills.length) {
-        els.prioritySkills.value = parsed.prioritySkills.join("\n");
-      }
-
-      if (parsed.niceToHave.length) {
-        els.niceToHaveSkills.value = parsed.niceToHave.join("\n");
-      }
-
-      if (parsed.nonNegotiables.length) {
-        els.signalNonNegotiables.value = parsed.nonNegotiables.join("\n");
-      }
-
-      if (parsed.redFlags.length) {
-        els.signalRedFlags.value = parsed.redFlags.join("\n");
-      }
-
-      if (parsed.prioritySkills.length) {
-        els.signalMustHaveSkills.value = parsed.prioritySkills.join("\n");
-      }
-
-      if (!safeText(els.workSetup.value) && parsed.workSetup) {
-        const normalized = parsed.workSetup.toLowerCase();
-        if (normalized.includes("remote")) els.workSetup.value = "Remote";
-        if (normalized.includes("hybrid")) els.workSetup.value = "Hybrid";
-        if (normalized.includes("onsite") || normalized.includes("on-site")) els.workSetup.value = "Onsite";
-      }
-
-      if (!safeText(els.employmentType.value) && parsed.employmentType) {
-        const normalized = parsed.employmentType.toLowerCase();
-        if (normalized.includes("full")) els.employmentType.value = "Full-time";
-        else if (normalized.includes("part")) els.employmentType.value = "Part-time";
-        else if (normalized.includes("contract")) els.employmentType.value = "Contract";
-        else if (normalized.includes("project")) els.employmentType.value = "Project-based";
-        else if (normalized.includes("consult")) els.employmentType.value = "Consulting";
-      }
-
-      if (parsed.salaryBudget) {
-        if (!safeText(els.salaryMin.value) && parsed.salaryBudget.min !== null) {
-          els.salaryCurrency.value = parsed.salaryBudget.currency || els.salaryCurrency.value || "PHP";
-          els.salaryPeriod.value = parsed.salaryBudget.period || els.salaryPeriod.value || "Monthly";
-          els.salaryMin.value = parsed.salaryBudget.min;
-        }
-        if (!safeText(els.salaryMax.value) && parsed.salaryBudget.max !== null) {
-          els.salaryCurrency.value = parsed.salaryBudget.currency || els.salaryCurrency.value || "PHP";
-          els.salaryPeriod.value = parsed.salaryBudget.period || els.salaryPeriod.value || "Monthly";
-          els.salaryMax.value = parsed.salaryBudget.max;
-        }
-      }
-
-      els.signalSummaryOutput.textContent = buildSignalSummaryText(getSignalCalibrationPayload());
-      refreshPreview();
-      showNotice("JD parsed and mapped to role fields.");
+    function populateCandidateSelect() {
+      const options = ['<option value="">Select sourced profile</option>']
+        .concat(prospectsCache.map(prospect => `<option value="${escapeHtml(prospect.id)}">${escapeHtml(prospect.full_name || prospect.email || 'Unnamed Prospect')}</option>`));
+      els.candidateSelect.innerHTML = options.join('');
     }
 
-    async function handleParseJD() {
-      try {
-        const text = await getJDTextFromInput();
+    function renderMetrics(rows = []) {
+      const total = rows.length;
+      const parsed = rows.filter(row => row.resume_status === 'resume_parsed').length;
+      const noResume = rows.filter(row => row.resume_status !== 'resume_parsed').length;
+      const strongGood = rows.filter(row => ['Strong Fit','Good Fit'].includes(row.best_fit_band)).length;
 
-        console.log("JD TEXT LENGTH:", text ? text.length : 0);
-        console.log("JD TEXT SAMPLE:", (text || "").slice(0, 300));
+      els.metricTotal.textContent = String(total);
+      els.metricParsed.textContent = String(parsed);
+      els.metricNoResume.textContent = String(noResume);
+      els.metricStrongGood.textContent = String(strongGood);
+    }
 
-        if (!safeText(text)) {
-          if (safeText(els.jdRawText.value)) {
-            const parsedFromPaste = parseJDTextToFields(els.jdRawText.value);
-            applyParsedJDToForm(parsedFromPaste);
-            showNotice("Using pasted JD text.");
-            return;
-          }
+    function buildSkillTagsHtml(prospect) {
+      const primary = uniq([
+        ...normalizeList(prospect.extracted_skills?.hard_skills),
+        ...normalizeList(prospect.extracted_skills?.functional_skills),
+        ...normalizeList(prospect.extracted_skills?.language_skills)
+      ]).slice(0, 10);
 
-          showNotice("JD text could not be extracted. Try paste mode or a different file.", "error");
-          return;
-        }
+      if (!primary.length) return '<span class="subtext">No extracted skills yet.</span>';
+      return `<div class="tags">${primary.map(skill => `<span class="tag">${escapeHtml(skill)}</span>`).join('')}</div>`;
+    }
 
-        const parsed = parseJDTextToFields(text);
-
-        if (!parsed) {
-          showNotice("JD parsed but no usable structure was detected.", "error");
-          return;
-        }
-
-        applyParsedJDToForm(parsed);
-      } catch (error) {
-        console.error("FULL JD ERROR:", error);
-        showNotice(`Failed to parse JD file: ${error?.message || "Unknown error"}`, "error");
+    function buildBestFitHtml(prospect) {
+      if (!prospect.best_fit_role_title) {
+        return `<span class="subtext">No open role match yet.</span>`;
       }
-    }
 
-    function clearJDInput() {
-      els.salaryCurrency.value = "PHP";
-      els.salaryPeriod.value = "Monthly";
-      els.salaryMin.value = "";
-      els.salaryMax.value = "";
-      els.salaryNotes.value = "";
-      els.jdUpload.value = "";
-      els.jdRawText.value = "";
-      showNotice("JD input cleared.");
-    }
-
-    function getEnhancedRolePayload() {
-      const signalConfig = getSignalCalibrationPayload();
-      signalConfig.compensation_meta = buildCompensationMeta();
-
-      return {
-        client_name: safeText(els.clientName.value),
-        title: safeText(els.jobTitle.value),
-        role_family: safeText(els.roleFamily.value),
-        location: safeText(els.location.value),
-        work_setup: safeText(els.workSetup.value),
-        employment_type: safeText(els.employmentType.value),
-        seniority_level: safeText(els.seniority.value),
-        status: safeText(els.roleStatus.value) || "Open",
-        salary_min: parseBudgetNumber(els.salaryMin.value),
-        salary_max: parseBudgetNumber(els.salaryMax.value),
-        salary_currency: safeText(els.salaryCurrency.value) || "PHP",
-        salary_budget: buildSalaryBudget(),
-        job_description: safeText(els.jobDescription.value),
-        required_skills: safeText(els.requirements.value),
-        priority_skills: safeText(els.prioritySkills.value),
-        nice_to_have_skills: safeText(els.niceToHaveSkills.value),
-        screening_summary: safeText(els.screeningSummaryOutput.textContent),
-        screening_config: questionItems,
-        ai_screening_config: signalConfig
-      };
-    }
-
-    function hydrateRole(role) {
-      const aiConfig = typeof role?.ai_screening_config === "object" && role?.ai_screening_config !== null
-        ? role.ai_screening_config
-        : {};
-      const salaryBudget = getSalaryBudgetFromRole(role);
-
-      return {
-        ...role,
-        job_title: role?.title || "",
-        seniority: role?.seniority_level || "",
-        requirements: role?.required_skills || "",
-        is_on_hold: role?.is_on_hold ?? false,
-        priority_skills: role?.priority_skills || "",
-        nice_to_have_skills: role?.nice_to_have_skills || "",
-        salary_min: parseBudgetNumber(role?.salary_min),
-        salary_max: parseBudgetNumber(role?.salary_max),
-        salary_currency: safeText(role?.salary_currency) || "PHP",
-        screening_config: Array.isArray(role?.screening_config) ? role.screening_config : [],
-        screening_summary: role?.screening_summary || "",
-        salary_budget: salaryBudget,
-        ai_screening_config: aiConfig
-      };
-    }
-
-    function applySignalCalibrationToForm(signalConfig = {}) {
-      els.signalNonNegotiables.value = Array.isArray(signalConfig.non_negotiables) ? signalConfig.non_negotiables.join("\n") : "";
-      els.signalRedFlags.value = Array.isArray(signalConfig.red_flags) ? signalConfig.red_flags.join("\n") : "";
-      els.signalMustHaveSkills.value = Array.isArray(signalConfig.must_have_skills) ? signalConfig.must_have_skills.join("\n") : "";
-      els.signalSuccessSignals.value = Array.isArray(signalConfig.success_signals) ? signalConfig.success_signals.join("\n") : "";
-      els.signalSetupCriticality.value = signalConfig.setup_criticality || "";
-      els.signalEnvironmentNotes.value = signalConfig.environment_notes || "";
-      els.signalCommunicationWeight.value = signalConfig.communication_weight || "";
-      els.signalStakeholderWeight.value = signalConfig.stakeholder_weight || "";
-      els.signalAutonomyLevel.value = signalConfig.autonomy_level || "";
-      els.signalDecisionMaking.value = signalConfig.decision_making || "";
-      els.signalBusinessPriorities.value = Array.isArray(signalConfig.business_priorities) ? signalConfig.business_priorities.join("\n") : "";
-      els.signalSummaryOutput.textContent = buildSignalSummaryText(getSignalCalibrationPayload());
-    }
-
-    function buildJobPreview() {
-      const payload = getEnhancedRolePayload();
-
-      const top = [
-        payload.title || "Untitled Role",
-        payload.client_name ? `Client: ${payload.client_name}` : "",
-        payload.location ? `Location: ${payload.location}` : "",
-        payload.work_setup ? `Work Setup: ${payload.work_setup}` : "",
-        payload.employment_type ? `Employment Type: ${payload.employment_type}` : "",
-        payload.seniority_level ? `Seniority: ${payload.seniority_level}` : ""
-      ].filter(Boolean).join("\n");
-
-      const description = payload.job_description || "No role overview added yet.";
-      const requirements = buildRequirementBullets(payload.required_skills);
-      const prioritySkills = buildRequirementBullets(payload.priority_skills);
-      const niceToHave = buildRequirementBullets(payload.nice_to_have_skills);
-
-      return `${top}
-
-Role Overview
-${description}
-
-What We're Looking For
-${requirements}
-
-Priority Skills
-${prioritySkills}
-
-Nice to Have
-${niceToHave}`;
-    }
-
-    function refreshPreview() {
-      els.jdPreview.textContent = buildJobPreview();
-    }
-
-    function createEmptyQuestion(overrides = {}) {
-      return {
-        question: "",
-        focus_area: "",
-        response_type: "Open Text",
-        weight: "Medium",
-        ...overrides
-      };
-    }
-
-    function renderQuestions() {
-      if (!questionItems.length) {
-        els.questionsWrap.innerHTML = `
-          <div class="muted-card">
-            No screening questions yet. Click <strong>Add Question</strong> or use
-            <strong>Generate from Signal + JD</strong> to build a stronger first draft.
+      return `
+        <div class="role-fit-box">
+          <div class="role-fit-title">${escapeHtml(prospect.best_fit_role_title)}</div>
+          <div class="fit-meta">
+            <span class="pill ${bandClass(prospect.best_fit_band)}">${escapeHtml(prospect.best_fit_band)}</span>
+            <span class="pill pill-muted">Fit Score ${escapeHtml(prospect.best_fit_score)}</span>
           </div>
-        `;
-        return;
-      }
+          <div class="mini">${escapeHtml((prospect.role_fit_results || [])[0]?.client_name || '')}</div>
+        </div>
+      `;
+    }
 
-      els.questionsWrap.innerHTML = questionItems.map((item, index) => `
-        <div class="question-card">
-          <div class="question-top">
-            <div class="question-top-left">
-              <span class="question-index">${index + 1}</span>
-              <span class="chip">${escapeHtml(item.focus_area || "General")}</span>
-              <span class="chip">${escapeHtml(item.weight || "Medium")}</span>
-            </div>
-
-            <div class="question-actions">
-              <button class="small-btn" type="button" onclick="duplicateQuestion(${index})">Duplicate</button>
-              <button class="small-btn" type="button" onclick="addQuestionAfter(${index})">Add After</button>
-              <button class="small-btn danger-btn" type="button" onclick="removeQuestion(${index})">Remove</button>
-            </div>
-          </div>
-
-          <div class="question-grid">
-            <div class="field">
-              <label>Question</label>
-              <textarea onchange="updateQuestionField(${index}, 'question', this.value)" placeholder="Write a role-specific screening question.">${escapeHtml(item.question)}</textarea>
-            </div>
-
-            <div class="field">
-              <label>Focus Area</label>
-              <input type="text" value="${escapeHtml(item.focus_area)}" onchange="updateQuestionField(${index}, 'focus_area', this.value)" placeholder="e.g. Qlik Sense" />
-            </div>
-
-            <div class="field">
-              <label>Response Type</label>
-              <select onchange="updateQuestionField(${index}, 'response_type', this.value)">
-                <option ${item.response_type === "Open Text" ? "selected" : ""}>Open Text</option>
-                <option ${item.response_type === "Yes/No" ? "selected" : ""}>Yes/No</option>
-                <option ${item.response_type === "Short Answer" ? "selected" : ""}>Short Answer</option>
-                <option ${item.response_type === "Multiple Choice" ? "selected" : ""}>Multiple Choice</option>
-              </select>
-            </div>
-
-            <div class="field">
-              <label>Weight</label>
-              <select onchange="updateQuestionField(${index}, 'weight', this.value)">
-                <option ${item.weight === "Low" ? "selected" : ""}>Low</option>
-                <option ${item.weight === "Medium" ? "selected" : ""}>Medium</option>
-                <option ${item.weight === "High" ? "selected" : ""}>High</option>
-                <option ${item.weight === "Critical" ? "selected" : ""}>Critical</option>
-              </select>
-            </div>
+    function buildOtherMatchesHtml(prospect) {
+      const others = (prospect.role_fit_results || []).slice(1, 4);
+      if (!others.length) return '<span class="subtext">No alternate role matches.</span>';
+      return others.map(item => `
+        <div class="role-fit-box">
+          <div class="role-fit-title">${escapeHtml(item.role_title)}</div>
+          <div class="fit-meta">
+            <span class="pill ${bandClass(item.fit_band)}">${escapeHtml(item.fit_band)}</span>
+            <span class="pill pill-muted">${escapeHtml(item.fit_score)}</span>
           </div>
         </div>
-      `).join("");
+      `).join('');
     }
 
-    function updateQuestionField(index, field, value) {
-      if (!questionItems[index]) return;
-      questionItems[index][field] = value;
-      renderQuestions();
-    }
-
-    function duplicateQuestion(index) {
-      const original = questionItems[index];
-      if (!original) return;
-      questionItems.splice(index + 1, 0, { ...original });
-      renderQuestions();
-      showNotice("Question duplicated.");
-    }
-
-    function addQuestionAfter(index) {
-      questionItems.splice(index + 1, 0, createEmptyQuestion());
-      renderQuestions();
-      showNotice("New question added.");
-    }
-
-    function removeQuestion(index) {
-      questionItems.splice(index, 1);
-      renderQuestions();
-      showNotice("Question removed.");
-    }
-
-    window.updateQuestionField = updateQuestionField;
-    window.duplicateQuestion = duplicateQuestion;
-    window.addQuestionAfter = addQuestionAfter;
-    window.removeQuestion = removeQuestion;
-
-    function deriveWeightFromLine(line) {
-      const text = safeText(line).toLowerCase();
-      if (text.includes("critical")) return "Critical";
-      if (text.includes("high")) return "High";
-      if (text.includes("medium")) return "Medium";
-      if (text.includes("low")) return "Low";
-      return "High";
-    }
-
-    function cleanSkillLine(line) {
-      return safeText(line).replace(/\s*-\s*(critical|high|medium|low)\s*$/i, "").trim();
-    }
-
-    function generateAiQuestions() {
-      const title = safeText(els.jobTitle.value);
-      const signal = getSignalCalibrationPayload();
-      const requirements = normalizeLines(els.requirements.value);
-      const prioritySkills = normalizeLines(els.prioritySkills.value);
-
-      const generated = [];
-
-      signal.non_negotiables.forEach(item => {
-        generated.push(createEmptyQuestion({
-          question: `This role has a non-negotiable requirement around "${item}". Walk us through a real example that proves you meet this requirement in practice.`,
-          focus_area: "Non-Negotiable",
-          response_type: "Open Text",
-          weight: "Critical"
-        }));
-      });
-
-      signal.must_have_skills.forEach(item => {
-        const skill = cleanSkillLine(item);
-        const weight = deriveWeightFromLine(item);
-        generated.push(createEmptyQuestion({
-          question: `Tell us about a real business situation where you applied ${skill} in a role similar to ${title || "this position"}. What was expected of you, what did you do, and what was the outcome?`,
-          focus_area: skill || "Must-Have Skill",
-          response_type: "Open Text",
-          weight
-        }));
-      });
-
-      signal.success_signals.slice(0, 3).forEach(item => {
-        generated.push(createEmptyQuestion({
-          question: `One success signal for this role is "${item}". Can you share an example that demonstrates this clearly?`,
-          focus_area: "Success Signal",
-          response_type: "Open Text",
-          weight: "High"
-        }));
-      });
-
-      if (signal.communication_weight === "Critical" || signal.communication_weight === "High") {
-        generated.push(createEmptyQuestion({
-          question: `This role places strong importance on communication. Tell us about a time you had to explain complex work clearly to a non-technical or business stakeholder.`,
-          focus_area: "Communication",
-          response_type: "Open Text",
-          weight: signal.communication_weight || "High"
-        }));
+    function buildMissingSkillsHtml(prospect) {
+      const missing = normalizeList(prospect.missing_skills).slice(0, 8);
+      if (!missing.length) {
+        return prospect.resume_status === 'no_resume'
+          ? '<span class="subtext">Limited Match — resume needed for real gap analysis.</span>'
+          : '<span class="subtext">No major gaps identified from current open roles.</span>';
       }
-
-      if (signal.stakeholder_weight === "Critical" || signal.stakeholder_weight === "High") {
-        generated.push(createEmptyQuestion({
-          question: `Describe a situation where you had to manage different stakeholder expectations while still delivering the right outcome.`,
-          focus_area: "Stakeholder Management",
-          response_type: "Open Text",
-          weight: signal.stakeholder_weight || "High"
-        }));
-      }
-
-      if (signal.autonomy_level) {
-        generated.push(createEmptyQuestion({
-          question: `This role expects a "${signal.autonomy_level}" style of working. How do you typically operate in that kind of environment?`,
-          focus_area: "Autonomy / Ownership",
-          response_type: "Open Text",
-          weight: "High"
-        }));
-      }
-
-      if (signal.decision_making) {
-        generated.push(createEmptyQuestion({
-          question: `Decision-making is important in this role. Based on this expectation: "${signal.decision_making}", how have you handled similar responsibility before?`,
-          focus_area: "Decision-Making",
-          response_type: "Open Text",
-          weight: "High"
-        }));
-      }
-
-      if (signal.setup_criticality) {
-        generated.push(createEmptyQuestion({
-          question: `The work setup fit for this role is considered ${signal.setup_criticality.toLowerCase()}. What about your experience and preferences makes you likely to succeed in this setup?`,
-          focus_area: "Work Setup Fit",
-          response_type: "Open Text",
-          weight: signal.setup_criticality === "Critical" ? "Critical" : "Medium"
-        }));
-      }
-
-      signal.business_priorities.slice(0, 3).forEach(item => {
-        generated.push(createEmptyQuestion({
-          question: `A business priority for this role is "${item}". How have you contributed to a similar outcome before?`,
-          focus_area: "Business Priority",
-          response_type: "Open Text",
-          weight: "High"
-        }));
-      });
-
-      if (!generated.length) {
-        const fallbackSignals = [...prioritySkills, ...requirements].slice(0, 6);
-        fallbackSignals.forEach((signalLine, i) => {
-          generated.push(createEmptyQuestion({
-            question: `Tell us about a real situation where you applied ${signalLine} in a role similar to ${title || "this position"}. What was the business need, what did you do, and what was the outcome?`,
-            focus_area: signalLine,
-            response_type: "Open Text",
-            weight: i < 2 ? "Critical" : "High"
-          }));
-        });
-      }
-
-      if (!generated.length) {
-        generated.push(
-          createEmptyQuestion({
-            question: "Walk us through your most relevant experience for this role.",
-            focus_area: "Relevant Experience",
-            response_type: "Open Text",
-            weight: "High"
-          }),
-          createEmptyQuestion({
-            question: "Why do you believe you would perform well in this position?",
-            focus_area: "Motivation / Fit",
-            response_type: "Open Text",
-            weight: "Medium"
-          })
-        );
-      }
-
-      questionItems = generated;
-      renderQuestions();
-      showNotice("Screening questions generated from TalentBuzz Signal Intelligence.");
+      return `<div class="tags">${missing.map(skill => `<span class="tag">${escapeHtml(skill)}</span>`).join('')}</div>`;
     }
 
-    function generateScreeningSummary() {
-      const payload = getEnhancedRolePayload();
-      const signal = getSignalCalibrationPayload();
-      const priority = normalizeLines(payload.priority_skills);
-      const requirements = normalizeLines(payload.required_skills);
-      const focusAreas = [...new Set(questionItems.map(q => safeText(q.focus_area)).filter(Boolean))];
-      const strongScreen = questionItems.some(q => ["Critical", "High"].includes(q.weight));
-
-      const summary = [
-        `Focus Areas:`,
-        ...(focusAreas.length ? focusAreas.map(area => `- ${area}`) : ["- General role fit", "- Relevant experience", "- Core competencies"]),
-        ``,
-        `Non-Negotiables to Confirm:`,
-        ...(signal.non_negotiables.length ? signal.non_negotiables.map(x => `- ${x}`) : [`- None explicitly defined`]),
-        ``,
-        `Priority Signals:`,
-        ...(priority.length ? priority.map(item => `- ${item}`) : ["- No priority skills specified yet"]),
-        ``,
-        `Role Requirements to Validate:`,
-        ...(requirements.length ? requirements.slice(0, 6).map(item => `- ${item}`) : ["- No structured requirements added yet"]),
-        ``,
-        `Business / Calibration Context:`,
-        ...(signal.business_priorities.length ? signal.business_priorities.map(x => `- ${x}`) : [`- No business priorities specified`]),
-        signal.communication_weight ? `- Communication Weight: ${signal.communication_weight}` : null,
-        signal.stakeholder_weight ? `- Stakeholder Weight: ${signal.stakeholder_weight}` : null,
-        signal.autonomy_level ? `- Autonomy Level: ${signal.autonomy_level}` : null,
-        signal.setup_criticality ? `- Work Setup Criticality: ${signal.setup_criticality}` : null,
-        ``,
-        `Recommendation:`,
-        strongScreen
-          ? `Use a stricter and deeper screen. Prioritize proof of execution, role-specific evidence, and alignment to the defined TalentBuzz Signal Intelligence calibration.`
-          : `Use a balanced screening approach. Confirm baseline qualifications first, then validate practical role fit and calibration-based signals.`,
-        ``,
-        `TalentBuzz Screening Direction:`,
-        `Evaluate based on business relevance, proof of execution, and recruiter judgment — not just keyword matching or JD phrasing.`
-      ].filter(Boolean).join("\n");
-
-      els.screeningSummaryOutput.textContent = summary;
-      showNotice("Screening summary generated.");
-    }
-
-    function populateClientSources() {
-      const names = [...new Set(
-        rolesCache.map(role => safeText(role.client_name)).filter(Boolean)
-      )].sort((a, b) => a.localeCompare(b));
-
-      els.clientSuggestions.innerHTML = names
-        .map(name => `<option value="${escapeHtml(name)}"></option>`)
-        .join("");
-
-      els.existingClientSelect.innerHTML = `
-        <option value="">Choose existing client</option>
-        ${names.map(name => `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`).join("")}
-      `;
-    }
-
-    function getFilteredRoles() {
-      const query = safeText(els.searchInput.value).toLowerCase();
-      const filter = safeText(els.holdFilter.value);
-
-      return rolesCache.filter(role => {
-        const haystack = `${safeText(role.client_name)} ${safeText(role.job_title)}`.toLowerCase();
-        const matchesQuery = !query || haystack.includes(query);
-
-        let matchesHold = true;
-        if (filter === "active") matchesHold = !role.is_on_hold;
-        if (filter === "on_hold") matchesHold = !!role.is_on_hold;
-
-        return matchesQuery && matchesHold;
-      });
-    }
-
-    function renderRolesTable() {
-      const roles = getFilteredRoles();
-
-      if (!roles.length) {
-        els.rolesTableBody.innerHTML = `
-          <tr>
-            <td colspan="6" class="empty-state">No roles found.</td>
-          </tr>
-        `;
+    function renderCandidatesTable(rows = []) {
+      if (!rows.length) {
+        els.candidatesTableBody.innerHTML = '<tr><td colspan="7" class="empty-state">No sourced candidates match your filters.</td></tr>';
+        renderMetrics([]);
         return;
       }
 
-      els.rolesTableBody.innerHTML = roles.map(role => {
-        const screeningCount = Array.isArray(role.screening_config) ? role.screening_config.length : 0;
-        const statusPill = role.is_on_hold
-          ? `<span class="pill pill-hold">On-Hold</span>`
-          : role.status === "Closed"
-            ? `<span class="pill pill-closed">${escapeHtml(role.status || "Closed")}</span>`
-            : `<span class="pill pill-open">${escapeHtml(role.status || "Open")}</span>`;
-
-        const budgetText = formatSalaryBudgetLine(role.salary_budget || {}).replace(/^Salary Budget:\s*/, "");
-
-        return `
-          <tr>
-            <td>
-              <div class="role-title">${escapeHtml(role.job_title || "Untitled Role")}</div>
-              <div class="subtext">
-                ${escapeHtml(role.role_family || "Uncategorized")}
-                ${role.seniority ? ` • ${escapeHtml(role.seniority)}` : ""}
-              </div>
-              ${budgetText ? `<div style="margin-top:8px;"><span class="budget-pill">${escapeHtml(budgetText)}</span></div>` : ""}
-            </td>
-            <td><div>${escapeHtml(role.client_name || "No client")}</div></td>
-            <td>
-              <div>${escapeHtml(role.work_setup || "Not set")}</div>
-              <div class="subtext">${escapeHtml(role.location || "No location")}</div>
-              ${budgetText ? `<div class="subtext">${escapeHtml(budgetText)}</div>` : ""}
-            </td>
-            <td>${statusPill}</td>
-            <td>
-              <div>${screeningCount} question(s)</div>
-              <div class="subtext">${role.screening_summary ? "Summary ready" : "No summary yet"}</div>
-            </td>
-            <td>
-              <div class="table-actions">
-                <button class="small-btn" type="button" onclick="editRole('${role.id}')">Edit</button>
-                <button class="small-btn" type="button" onclick="toggleHoldRole('${role.id}', ${role.is_on_hold ? "false" : "true"})">
-                  ${role.is_on_hold ? "Reopen" : "Put On-Hold"}
-                </button>
-              </div>
-            </td>
-          </tr>
-        `;
-      }).join("");
-    }
-
-    async function loadRoles() {
-      els.rolesTableBody.innerHTML = `
+      els.candidatesTableBody.innerHTML = rows.map(prospect => `
         <tr>
-          <td colspan="6" class="empty-state">Loading roles...</td>
+          <td class="candidate-col">
+            <div class="candidate-name">${escapeHtml(prospect.full_name || 'Unnamed Prospect')}</div>
+            <div class="subtext">${escapeHtml(prospect.title || 'No title')}</div>
+            <div class="subtext">${escapeHtml(prospect.email || '')}</div>
+            <div class="subtext">${escapeHtml(prospect.location || '')}</div>
+          </td>
+          <td>
+            <span class="pill ${statusLabelClass(prospect.resume_status)}">${prospect.resume_status === 'resume_parsed' ? 'Resume Parsed' : 'No Resume'}</span>
+            ${prospect.resume_status === 'no_resume' ? '<div class="mini">Limited Match — resume needed</div>' : ''}
+          </td>
+          <td>${buildSkillTagsHtml(prospect)}</td>
+          <td>${buildBestFitHtml(prospect)}</td>
+          <td>${buildOtherMatchesHtml(prospect)}</td>
+          <td>${buildMissingSkillsHtml(prospect)}</td>
+          <td>
+            <div class="row-actions">
+              <button class="btn small-btn js-view-profile" data-id="${escapeHtml(prospect.id)}" type="button">View</button>
+              <button class="btn small-btn js-recompute" data-id="${escapeHtml(prospect.id)}" type="button">Recompute</button>
+            </div>
+          </td>
         </tr>
-      `;
+      `).join('');
 
-      try {
-        const { data, error } = await supabaseClient
-          .from("jobs")
-          .select(`
-            id,
-            title,
-            client_name,
-            location,
-            employment_type,
-            work_setup,
-            status,
-            role_family,
-            seniority_level,
-            job_description,
-            required_skills,
-            nice_to_have_skills,
-            priority_skills,
-            screening_summary,
-            screening_config,
-            ai_screening_config,
-            salary_min,
-            salary_max,
-            salary_currency,
-            is_on_hold,
-            created_at
-          `)
-          .order("created_at", { ascending: false });
-
-        if (error) {
-          console.error("loadRoles error:", error);
-          els.rolesTableBody.innerHTML = `
-            <tr>
-              <td colspan="6" class="empty-state">Failed to load roles.</td>
-            </tr>
-          `;
-          showNotice(`Failed to load roles: ${error.message || "Unknown error"}`, "error");
-          return;
-        }
-
-        rolesCache = Array.isArray(data) ? data.map(hydrateRole) : [];
-        populateClientSources();
-        renderRolesTable();
-      } catch (err) {
-        console.error("Unexpected loadRoles error:", err);
-        els.rolesTableBody.innerHTML = `
-          <tr>
-            <td colspan="6" class="empty-state">Failed to load roles.</td>
-          </tr>
-        `;
-        showNotice("Failed to load roles.", "error");
-      }
+      renderMetrics(rows);
     }
 
-    async function saveRole() {
-      if (!safeText(els.clientName.value)) {
-        showNotice("Client name is required.", "error");
-        return;
-      }
+    function applyFilters() {
+      const search = safeText(els.searchInput.value).toLowerCase();
+      const resumeFilter = els.resumeFilter.value;
+      const fitFilter = els.fitFilter.value;
+      const jobFilter = els.jobFilter.value;
 
-      if (!safeText(els.jobTitle.value)) {
-        showNotice("Job title is required.", "error");
-        return;
-      }
-
-      const roleId = safeText(els.roleId.value);
-      const payload = getEnhancedRolePayload();
-
-      const dbPayload = {
-        client_name: payload.client_name,
-        title: payload.title,
-        role_family: payload.role_family,
-        location: payload.location,
-        work_setup: payload.work_setup,
-        employment_type: payload.employment_type,
-        seniority_level: payload.seniority_level,
-        status: payload.status,
-        salary_min: payload.salary_min,
-        salary_max: payload.salary_max,
-        salary_currency: payload.salary_currency,
-        job_description: payload.job_description,
-        required_skills: payload.required_skills,
-        priority_skills: payload.priority_skills,
-        nice_to_have_skills: payload.nice_to_have_skills,
-        screening_summary: payload.screening_summary,
-        screening_config: payload.screening_config,
-        ai_screening_config: payload.ai_screening_config
-      };
-
-      if (roleId) {
-        const { error } = await supabaseClient.from("jobs").update(dbPayload).eq("id", roleId);
-        if (error) {
-          console.error("Update failed:", error);
-          showNotice(`Failed to update role: ${error.message || "Unknown error"}`, "error");
-          return;
-        }
-        showNotice("Role updated successfully.");
-      } else {
-        const { error } = await supabaseClient.from("jobs").insert({
-          ...dbPayload,
-          is_on_hold: false
-        });
-        if (error) {
-          console.error("Insert failed:", error);
-          showNotice(`Failed to save role: ${error.message || "Unknown error"}`, "error");
-          return;
-        }
-        showNotice("Role saved successfully.");
-      }
-
-      clearForm(false);
-      await loadRoles();
-      refreshPreview();
-    }
-
-    function fillForm(role) {
-      const hydrated = hydrateRole(role);
-
-      els.roleId.value = hydrated.id || "";
-      els.clientName.value = hydrated.client_name || "";
-      els.jobTitle.value = hydrated.job_title || "";
-      els.roleFamily.value = hydrated.role_family || "";
-      els.location.value = hydrated.location || "";
-      els.workSetup.value = hydrated.work_setup || "";
-      els.employmentType.value = hydrated.employment_type || "";
-      els.seniority.value = hydrated.seniority || "";
-      els.roleStatus.value = hydrated.status || "Open";
-      els.salaryCurrency.value = hydrated.salary_currency || hydrated.salary_budget?.currency || "PHP";
-      els.salaryPeriod.value = hydrated.salary_budget?.period || "Monthly";
-      els.salaryMin.value = hydrated.salary_min ?? "";
-      els.salaryMax.value = hydrated.salary_max ?? "";
-      els.salaryNotes.value = hydrated.salary_budget?.notes || "";
-      els.jobDescription.value = hydrated.job_description || "";
-      els.requirements.value = hydrated.requirements || "";
-      els.prioritySkills.value = hydrated.priority_skills || "";
-      els.niceToHaveSkills.value = hydrated.nice_to_have_skills || "";
-      questionItems = hydrated.screening_config || [];
-      els.screeningSummaryOutput.textContent = hydrated.screening_summary || "No summary generated yet.";
-      applySignalCalibrationToForm(hydrated.ai_screening_config || {});
-      renderQuestions();
-      refreshPreview();
-      if (workspaceCollapsed) toggleWorkspace(false);
-      window.scrollTo({ top: 0, behavior: "smooth" });
-    }
-
-    function clearForm(showMessage = true) {
-      els.roleId.value = "";
-      document.getElementById("roleForm").reset();
-      questionItems = [];
-      els.screeningSummaryOutput.textContent = "No summary generated yet.";
-      els.signalSummaryOutput.textContent = buildSignalSummaryText(getSignalCalibrationPayload());
-      els.salaryCurrency.value = "PHP";
-      els.salaryPeriod.value = "Monthly";
-      els.salaryMin.value = "";
-      els.salaryMax.value = "";
-      els.salaryNotes.value = "";
-      els.jdUpload.value = "";
-      els.jdRawText.value = "";
-      renderQuestions();
-      refreshPreview();
-      if (showMessage) showNotice("Form cleared.");
-    }
-
-    async function toggleHoldRole(id, nextState) {
-      const { error } = await supabaseClient.from("jobs").update({ is_on_hold: nextState }).eq("id", id);
-      if (error) {
-        console.error(error);
-        showNotice("Failed to update hold status.", "error");
-        return;
-      }
-      showNotice(nextState ? "Role moved to on-hold." : "Role reopened.");
-      await loadRoles();
-    }
-
-    function editRole(id) {
-      const role = rolesCache.find(item => String(item.id) === String(id));
-      if (!role) return;
-      fillForm(role);
-    }
-
-    function toggleWorkspace(forceState = null) {
-      if (forceState === null) {
-        workspaceCollapsed = !workspaceCollapsed;
-      } else {
-        workspaceCollapsed = !forceState;
-      }
-
-      if (workspaceCollapsed) {
-        els.workspaceBody.classList.add("is-collapsed");
-        els.toggleWorkspaceBtn.textContent = "Show Workspace";
-        els.toggleWorkspaceBtnInline.textContent = "Show Workspace";
-      } else {
-        els.workspaceBody.classList.remove("is-collapsed");
-        els.toggleWorkspaceBtn.textContent = "Hide Workspace";
-        els.toggleWorkspaceBtnInline.textContent = "Hide Workspace";
-      }
-    }
-
-    window.editRole = editRole;
-    window.toggleHoldRole = toggleHoldRole;
-
-    els.toggleWorkspaceBtn.addEventListener("click", () => toggleWorkspace());
-    els.toggleWorkspaceBtnInline.addEventListener("click", () => toggleWorkspace());
-
-    els.existingClientSelect.addEventListener("change", (event) => {
-      const value = safeText(event.target.value);
-      if (value) els.clientName.value = value;
-    });
-
-    els.buildSignalBtn.addEventListener("click", buildSignalSummary);
-    els.parseJDBtn.addEventListener("click", handleParseJD);
-    els.clearJDBtn.addEventListener("click", clearJDInput);
-
-    els.addQuestionBtn.addEventListener("click", () => {
-      questionItems.push(createEmptyQuestion());
-      renderQuestions();
-    });
-
-    els.generateAiQuestionsBtn.addEventListener("click", generateAiQuestions);
-    els.generateSummaryBtn.addEventListener("click", generateScreeningSummary);
-    els.refreshPreviewBtn.addEventListener("click", refreshPreview);
-    els.refreshPreviewBtnAside.addEventListener("click", refreshPreview);
-    els.saveRoleBtn.addEventListener("click", saveRole);
-    els.refreshRolesBtn.addEventListener("click", loadRoles);
-    els.searchInput.addEventListener("input", renderRolesTable);
-    els.holdFilter.addEventListener("change", renderRolesTable);
-
-    [
-      els.clientName,
-      els.jobTitle,
-      els.roleFamily,
-      els.location,
-      els.workSetup,
-      els.employmentType,
-      els.seniority,
-      els.roleStatus,
-      els.jobDescription,
-      els.requirements,
-      els.prioritySkills,
-      els.niceToHaveSkills,
-      els.salaryCurrency,
-      els.salaryPeriod,
-      els.salaryMin,
-      els.salaryMax,
-      els.salaryNotes,
-      els.signalNonNegotiables,
-      els.signalRedFlags,
-      els.signalMustHaveSkills,
-      els.signalSuccessSignals,
-      els.signalSetupCriticality,
-      els.signalEnvironmentNotes,
-      els.signalCommunicationWeight,
-      els.signalStakeholderWeight,
-      els.signalAutonomyLevel,
-      els.signalDecisionMaking,
-      els.signalBusinessPriorities,
-      els.jdRawText
-    ].forEach(el => {
-      el.addEventListener("input", refreshPreview);
-      el.addEventListener("change", () => {
-        if (el.id && el.id.startsWith("signal")) {
-          els.signalSummaryOutput.textContent = buildSignalSummaryText(getSignalCalibrationPayload());
-        }
-        refreshPreview();
+      filteredCache = prospectsCache.filter(prospect => {
+        const hay = buildTextBlobFromProspect(prospect);
+        const matchesSearch = !search || hay.includes(search);
+        const matchesResume = resumeFilter === 'all' || prospect.resume_status === resumeFilter;
+        const matchesFit = fitFilter === 'all' || prospect.best_fit_band === fitFilter;
+        const matchesJob = jobFilter === 'all' || prospect.best_fit_role_id === jobFilter;
+        return matchesSearch && matchesResume && matchesFit && matchesJob;
       });
-    });
+
+      renderCandidatesTable(filteredCache);
+    }
+
+    function openProfileDrawer(id) {
+      const prospect = prospectsCache.find(item => item.id === id);
+      if (!prospect) return;
+
+      els.drawerTitle.textContent = prospect.full_name || 'Candidate Profile';
+      const roleResults = (prospect.role_fit_results || []).slice(0, 5);
+      els.drawerBody.innerHTML = `
+        <div class="drawer-card">
+          <h4>Profile Snapshot</h4>
+          <p>Name: ${escapeHtml(prospect.full_name || 'N/A')}
+Title: ${escapeHtml(prospect.title || 'N/A')}
+Email: ${escapeHtml(prospect.email || 'N/A')}
+Phone: ${escapeHtml(prospect.phone || 'N/A')}
+Location: ${escapeHtml(prospect.location || 'N/A')}
+Company: ${escapeHtml(prospect.company || 'N/A')}
+Resume Status: ${escapeHtml(prospect.resume_status === 'resume_parsed' ? 'Resume Parsed' : 'No Resume')}</p>
+        </div>
+
+        <div class="drawer-card">
+          <h4>Extracted Skills</h4>
+          <p>Hard Skills: ${escapeHtml(normalizeList(prospect.extracted_skills?.hard_skills).join(', ') || 'None')}
+Functional Skills: ${escapeHtml(normalizeList(prospect.extracted_skills?.functional_skills).join(', ') || 'None')}
+Language Skills: ${escapeHtml(normalizeList(prospect.extracted_skills?.language_skills).join(', ') || 'None')}
+Seniority Clues: ${escapeHtml(normalizeList(prospect.extracted_skills?.seniority_clues).join(', ') || 'None')}
+Industry Clues: ${escapeHtml(normalizeList(prospect.extracted_skills?.industry_clues).join(', ') || 'None')}</p>
+        </div>
+
+        <div class="drawer-card">
+          <h4>Role Fit Results</h4>
+          <p>${roleResults.length ? escapeHtml(roleResults.map(item => `${item.role_title} — ${item.fit_band} (${item.fit_score}) | Missing: ${item.missing_skills?.join(', ') || 'None'}`).join('\n')) : 'No role fit results yet.'}</p>
+        </div>
+
+        <div class="drawer-card">
+          <h4>Resume Text Preview</h4>
+          <p>${escapeHtml(safeText(prospect.resume_text).slice(0, 3000) || 'No parsed resume text yet.')}</p>
+        </div>
+      `;
+      els.profileDrawer.classList.add('open');
+    }
+
+    function closeProfileDrawer() {
+      els.profileDrawer.classList.remove('open');
+    }
+
+    async function handleResumeUploadAndAnalyze() {
+      try {
+        const prospectId = els.candidateSelect.value;
+        const file = els.resumeUpload.files?.[0];
+        if (!prospectId) throw new Error('Please select a candidate first.');
+        if (!file) throw new Error('Please upload a resume file.');
+
+        const prospect = prospectsCache.find(item => item.id === prospectId);
+        if (!prospect) throw new Error('Candidate not found.');
+
+        showNotice('Analyzing resume...', 'success');
+
+        const resumeText = await extractResumeText(file);
+        if (!resumeText) throw new Error('No text could be extracted from the file.');
+
+        const storageInfo = await uploadResumeToStorage(file, prospectId);
+        const derived = extractSkillsFromText(resumeText, prospect.title || '');
+        const recomputed = await recomputeProspect({
+          ...prospect,
+          resume_text: resumeText,
+          resume_status: 'resume_parsed',
+          resume_path: storageInfo.resume_path,
+          resume_url: storageInfo.resume_url,
+          extracted_skills: derived.extracted_skills,
+          skill_tags: derived.skill_tags
+        }, true);
+
+        prospectsCache = prospectsCache.map(item => item.id === recomputed.id ? recomputed : item);
+        applyFilters();
+        els.resumeUpload.value = '';
+        showNotice(`Resume analyzed. Best fit: ${recomputed.best_fit_role_title || 'No strong live role match yet'}.`);
+      } catch (error) {
+        console.error(error);
+        showNotice(error?.message || 'Failed to analyze resume.', 'error');
+      }
+    }
+
+    async function handleRecomputeAll() {
+      try {
+        if (!prospectsCache.length) return;
+        showNotice('Recomputing all role-fit results...', 'success');
+
+        const updated = [];
+        for (const prospect of prospectsCache) {
+          const recomputed = await recomputeProspect(prospect, true);
+          updated.push(recomputed);
+        }
+
+        prospectsCache = updated;
+        applyFilters();
+        showNotice('All candidate fits recomputed.');
+      } catch (error) {
+        console.error(error);
+        showNotice(error?.message || 'Failed to recompute all candidates.', 'error');
+      }
+    }
+
+    async function handleSingleRecompute(id) {
+      try {
+        const prospect = prospectsCache.find(item => item.id === id);
+        if (!prospect) return;
+        const recomputed = await recomputeProspect(prospect, true);
+        prospectsCache = prospectsCache.map(item => item.id === id ? recomputed : item);
+        applyFilters();
+        showNotice(`Recomputed fit for ${recomputed.full_name || 'candidate'}.`);
+      } catch (error) {
+        console.error(error);
+        showNotice(error?.message || 'Failed to recompute profile.', 'error');
+      }
+    }
+
+    function exportCurrentJson() {
+      const blob = new Blob([JSON.stringify(filteredCache, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `talentbuzz-sourced-candidates-${new Date().toISOString().slice(0,10)}.json`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    }
+
+    function wireEvents() {
+      els.refreshBtn.addEventListener('click', init);
+      els.analyzeResumeBtn.addEventListener('click', handleResumeUploadAndAnalyze);
+      els.recomputeAllBtn.addEventListener('click', handleRecomputeAll);
+      els.exportJsonBtn.addEventListener('click', exportCurrentJson);
+      els.searchInput.addEventListener('input', applyFilters);
+      els.resumeFilter.addEventListener('change', applyFilters);
+      els.fitFilter.addEventListener('change', applyFilters);
+      els.jobFilter.addEventListener('change', applyFilters);
+      els.closeDrawerBtn.addEventListener('click', closeProfileDrawer);
+
+      els.candidatesTableBody.addEventListener('click', (event) => {
+        const viewBtn = event.target.closest('.js-view-profile');
+        const recomputeBtn = event.target.closest('.js-recompute');
+        if (viewBtn) openProfileDrawer(viewBtn.dataset.id);
+        if (recomputeBtn) handleSingleRecompute(recomputeBtn.dataset.id);
+      });
+    }
 
     async function init() {
-      renderQuestions();
-      refreshPreview();
-      els.signalSummaryOutput.textContent = buildSignalSummaryText(getSignalCalibrationPayload());
-      await loadRoles();
+      try {
+        els.candidatesTableBody.innerHTML = '<tr><td colspan="7" class="empty-state">Loading sourced candidates...</td></tr>';
+        await fetchOpenJobs();
+        await fetchProspects();
+      } catch (error) {
+        console.error(error);
+        els.candidatesTableBody.innerHTML = `<tr><td colspan="7" class="empty-state">Failed to load sourced candidates. ${escapeHtml(error?.message || '')}</td></tr>`;
+        showNotice(error?.message || 'Failed to load page data.', 'error');
+      }
     }
 
+    wireEvents();
     init();
   </script>
 </body>
