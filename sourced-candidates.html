@@ -107,6 +107,7 @@
     }
 
     .btn:hover { transform: translateY(-1px); }
+
     .btn:disabled {
       opacity: 0.65;
       cursor: not-allowed;
@@ -599,7 +600,7 @@
         <div>
           <h2>Bulk Upload to TalentBuzz</h2>
           <p>Import candidates from CSV and immediately add them into your sourced pipeline.</p>
-          <p style="margin-top:8px;"><strong>CSV format:</strong> full_name,email,phone</p>
+          <p style="margin-top:8px;"><strong>CSV format:</strong> full_name,title,email,phone</p>
           <p style="margin-top:6px;"><strong>Bulk invite format:</strong> full_name,email</p>
           <p style="margin-top:6px;"><strong>Invite All Sourced:</strong> only candidates with valid emails will receive invites.</p>
         </div>
@@ -1458,6 +1459,17 @@
           name: "full_name",
           fullname: "full_name",
 
+          title: "title",
+          job_title: "title",
+          current_title: "title",
+
+          company: "company",
+          employer: "company",
+          current_company: "company",
+
+          location: "location",
+          city: "location",
+
           email: "email",
           email_address: "email",
           personal_email: "email",
@@ -1469,17 +1481,6 @@
           contact_number: "phone",
           contact_no: "phone",
           phone_number: "phone",
-
-          title: "title",
-          job_title: "title",
-          current_title: "title",
-
-          company: "company",
-          employer: "company",
-          current_company: "company",
-
-          location: "location",
-          city: "location",
 
           linkedin: "linkedin",
           linkedin_url: "linkedin",
@@ -1518,9 +1519,9 @@
         downloadCsv(
           "sourced-candidates-sample.csv",
           [
-            "full_name,email,phone",
-            "Juan Dela Cruz,juan@email.com,09171234567",
-            "Maria Santos,maria@email.com,09181234567"
+            "full_name,title,email,phone",
+            "Juan Dela Cruz,Customer Service Representative,juan@email.com,09171234567",
+            "Maria Santos,QA Analyst,maria@email.com,09181234567"
           ].join("\n")
         );
       }
@@ -1988,7 +1989,7 @@
 
         try {
           const { headers, rows } = parseCsv(await file.text());
-          const required = ["full_name", "email", "phone"];
+          const required = ["full_name", "title", "email", "phone"];
           const missing = required.filter(h => !headers.includes(h));
 
           if (missing.length) {
@@ -2006,30 +2007,39 @@
             Object.values(row).some(v => String(v || "").trim() !== "")
           )) {
             const fullName = String(row.full_name || "").trim();
+            const title = String(row.title || "").trim();
             const email = String(row.email || "").trim();
             const phone = String(row.phone || "").trim();
 
             if (!fullName) continue;
+
+            const roleInfo = buildSuggestedRoles({
+              full_name: fullName,
+              current_title: title,
+              current_company: "",
+              location: "",
+              resume_text: [fullName, title].join(" ")
+            });
 
             const prospectId = crypto.randomUUID();
 
             const prospectRow = {
               id: prospectId,
               full_name: fullName,
-              personal_email: email,
-              phone: phone,
-              current_title: "",
+              current_title: title,
               current_company: "",
               location: "",
+              personal_email: email,
+              phone: phone,
               linkedin_url: ""
             };
 
             if (state.prospectSchema.hasSuggestedRoles) {
-              prospectRow.suggested_roles = [];
+              prospectRow.suggested_roles = roleInfo.suggested_roles || [];
             }
 
             if (state.prospectSchema.hasTopMatchRole) {
-              prospectRow.top_match_role = "";
+              prospectRow.top_match_role = roleInfo.top_match_role || "";
             }
 
             prospectsPayload.push(prospectRow);
