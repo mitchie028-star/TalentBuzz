@@ -613,9 +613,9 @@
     </div>
 
     <div class="pipeline-tracker" id="pipelineTracker">
-      <div class="tracker-card"><h3 id="countTotal">0</h3><p>Total Profiles</p></div>
-      <div class="tracker-card"><h3 id="countSourced">0</h3><p>Sourced</p></div>
-      <div class="tracker-card"><h3 id="countEmailsSent">0</h3><p>Emails Sent Successfully</p></div>
+      <div class="tracker-card"><h3 id="countTotal">0</h3><p>Unique Prospects</p></div>
+      <div class="tracker-card"><h3 id="countSourced">0</h3><p>Sourced Prospects</p></div>
+      <div class="tracker-card"><h3 id="countEmailsSent">0</h3><p>Unique Emails Sent</p></div>
       <div class="tracker-card"><h3 id="countContacted">0</h3><p>Contacted</p></div>
       <div class="tracker-card"><h3 id="countShortlisted">0</h3><p>Shortlisted</p></div>
       <div class="tracker-card"><h3 id="countInterview">0</h3><p>Interview</p></div>
@@ -1587,12 +1587,25 @@
         );
       }
 
+      function getProspectIdentityKey(row) {
+        const prospectId = String(row?.prospect_id || "").trim();
+        if (prospectId) return `prospect:${prospectId}`;
+
+        const email = normalizeEmail(row?.email || "");
+        if (email) return `email:${email}`;
+
+        const pipelineId = String(row?.pipeline_id || "").trim();
+        if (pipelineId) return `pipeline:${pipelineId}`;
+
+        return "";
+      }
+
       async function loadInviteStats() {
         try {
           const rows = await fetchAllRows((from, to) => {
             let query = supabase
               .from("buzzpool_invites")
-              .select("invite_status,sent_at,recruiter_email")
+              .select("invite_email,invite_status,sent_at,recruiter_email,created_at")
               .order("created_at", { ascending: false })
               .range(from, to);
 
@@ -1611,10 +1624,16 @@
             "marketplace_active"
           ]);
 
-          const sentCount = rows.filter(row =>
-            !!row.sent_at && sentStatuses.has(normalizeText(row.invite_status))
-          ).length;
+          const uniqueSentEmails = new Set();
+          rows.forEach((row) => {
+            const emailKey = normalizeEmail(row?.invite_email || "");
+            if (!emailKey) return;
+            if (!row?.sent_at) return;
+            if (!sentStatuses.has(normalizeText(row?.invite_status))) return;
+            uniqueSentEmails.add(emailKey);
+          });
 
+          const sentCount = uniqueSentEmails.size;
           state.emailStats.sent = sentCount;
           els.countEmailsSent.textContent = String(sentCount);
         } catch (err) {
@@ -1644,8 +1663,17 @@
       function updatePipelineTracker() {
         const baseRows = state.signalMode ? state.filteredRows : state.persistedRows;
         const counts = { total: 0, sourced: 0, contacted: 0, shortlisted: 0, interview: 0 };
+        const latestRowByProspect = new Map();
 
         baseRows.forEach((row) => {
+          const identityKey = getProspectIdentityKey(row);
+          if (!identityKey) return;
+          if (!latestRowByProspect.has(identityKey)) {
+            latestRowByProspect.set(identityKey, row);
+          }
+        });
+
+        latestRowByProspect.forEach((row) => {
           const s = normalizeText(row.status);
           counts.total += 1;
           if (s === "sourced") counts.sourced += 1;
@@ -1654,12 +1682,12 @@
           if (s === "interview") counts.interview += 1;
         });
 
-        els.countTotal.textContent = counts.total;
-        els.countSourced.textContent = counts.sourced;
-        els.countContacted.textContent = counts.contacted;
-        els.countShortlisted.textContent = counts.shortlisted;
-        els.countInterview.textContent = counts.interview;
-        els.countEmailsSent.textContent = state.emailStats.sent || 0;
+        els.countTotal.textContent = String(counts.total);
+        els.countSourced.textContent = String(counts.sourced);
+        els.countContacted.textContent = String(counts.contacted);
+        els.countShortlisted.textContent = String(counts.shortlisted);
+        els.countInterview.textContent = String(counts.interview);
+        els.countEmailsSent.textContent = String(state.emailStats.sent || 0);
       }
 
       function renderSuggestedRolesCell(roles) {
