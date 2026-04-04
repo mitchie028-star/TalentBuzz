@@ -806,6 +806,7 @@
             <button id="menuBulkInviteBtn" class="menu-item" type="button">Bulk Invite</button>
             <button id="menuInviteAllBtn" class="menu-item" type="button">Invite All Sourced</button>
             <button id="menuRefreshBtn" class="menu-item" type="button">Refresh</button>
+            <button id="menuRepairAiBtn" class="menu-item" type="button">Repair Old LinkedIn AI</button>
             <button id="menuLogoutBtn" class="menu-item danger" type="button">Logout</button>
           </div>
         </div>
@@ -1167,6 +1168,7 @@
         menuBulkInviteBtn:$('menuBulkInviteBtn'),
         menuInviteAllBtn:$('menuInviteAllBtn'),
         menuRefreshBtn:$('menuRefreshBtn'),
+        menuRepairAiBtn:$('menuRepairAiBtn'),
         menuLogoutBtn:$('menuLogoutBtn'),
 
         resumeUploadInput:$('resumeUploadInput'),
@@ -1549,6 +1551,71 @@
         };
       }
 
+      function mergeUniqueNormalized(list = []) {
+        const seen = new Set();
+        const out = [];
+        for (const item of list) {
+          const clean = String(item || '').trim();
+          if (!clean) continue;
+          const key = clean.toLowerCase();
+          if (seen.has(key)) continue;
+          seen.add(key);
+          out.push(clean);
+        }
+        return out;
+      }
+
+      function rebuildProspectSignals(base = {}) {
+        const linkedinText = String(base.linkedin_text || base.notes || '');
+        const seededSkills = mergeUniqueNormalized([
+          ...(safeArrayParse(base.skills || [])),
+          ...(safeArrayParse(base.manual_tags || [])),
+          ...extractSkillsFromText(linkedinText)
+        ]).slice(0, 15);
+
+        const rebuilt = buildSuggestedRoles({
+          full_name: base.full_name || '',
+          current_title: base.current_title || '',
+          current_company: base.current_company || '',
+          location: base.location || '',
+          total_experience: base.total_experience || '',
+          resume_text: base.resume_text || '',
+          linkedin_text: linkedinText,
+          skills: seededSkills
+        });
+
+        const suggestedRoles = mergeUniqueNormalized([
+          ...safeArrayParse(base.suggested_roles || []),
+          ...safeArrayParse(rebuilt.suggested_roles || [])
+        ]).slice(0, 5);
+
+        const topMatchRole = base.top_match_role || suggestedRoles[0] || rebuilt.top_match_role || '';
+
+        const roleText = [
+          base.full_name || '',
+          base.current_title || '',
+          base.current_company || '',
+          base.location || '',
+          base.total_experience || '',
+          suggestedRoles.join(' '),
+          topMatchRole || '',
+          seededSkills.join(' '),
+          linkedinText,
+          base.resume_text || ''
+        ].join(' ');
+
+        const matchedOpenRoles = matchAgainstOpenJobs(roleText);
+
+        return {
+          linkedinText,
+          skills: seededSkills,
+          suggested_roles: suggestedRoles,
+          top_match_role: topMatchRole,
+          matched_open_roles: matchedOpenRoles,
+          role_text: roleText
+        };
+      }
+
       function candidateTags(row) {
         const tags = new Set();
         (row.skills || []).slice(0,4).forEach(t => tags.add(t));
@@ -1721,24 +1788,24 @@
         }
 
         const resumePath = state.schema.prospects.resume_path ? (p.resume_path || '') : '';
-        const suggestedRoles = state.schema.prospects.suggested_roles ? safeArrayParse(p.suggested_roles) : [];
-        const skills = state.schema.prospects.skills ? safeArrayParse(p.skills) : [];
+        const storedSuggestedRoles = state.schema.prospects.suggested_roles ? safeArrayParse(p.suggested_roles) : [];
+        const storedSkills = state.schema.prospects.skills ? safeArrayParse(p.skills) : [];
         const manualTags = parseManualTagsFromNotes(record.notes || '');
         const linkedinUrl = normalizeLinkedIn(p.linkedin_url || '');
-        const linkedinText = String(record.notes || '');
 
-        const roleText = [
-          p.full_name || '',
-          p.current_title || '',
-          p.current_company || '',
-          p.location || '',
-          suggestedRoles.join(' '),
-          p.top_match_role || '',
-          skills.join(' '),
-          linkedinText
-        ].join(' ');
-
-        const matchedOpenRoles = matchAgainstOpenJobs(roleText);
+        const rebuilt = rebuildProspectSignals({
+          full_name: p.full_name || '',
+          current_title: p.current_title || '',
+          current_company: p.current_company || '',
+          location: p.location || '',
+          total_experience: p.total_experience || '',
+          linkedin_text: record.notes || '',
+          resume_text: '',
+          skills: storedSkills,
+          manual_tags: manualTags,
+          suggested_roles: storedSuggestedRoles,
+          top_match_role: p.top_match_role || ''
+        });
 
         const row = {
           pipeline_id: record.id,
@@ -1757,26 +1824,17 @@
           current_company: p.current_company || '',
           location: p.location || '',
           linkedin_url: linkedinUrl,
-          linkedin_text: linkedinText,
+          linkedin_text: rebuilt.linkedinText,
           email: p.personal_email || '',
           phone: p.phone || '',
           total_experience: p.total_experience || '',
-          suggested_roles: suggestedRoles.length ? suggestedRoles : buildSuggestedRoles({
-            full_name:p.full_name || '',
-            current_title:p.current_title || '',
-            current_company:p.current_company || '',
-            location:p.location || '',
-            total_experience:p.total_experience || '',
-            resume_text:'',
-            linkedin_text:linkedinText,
-            skills
-          }).suggested_roles,
-          top_match_role: (p.top_match_role || suggestedRoles[0] || ''),
+          suggested_roles: rebuilt.suggested_roles,
+          top_match_role: rebuilt.top_match_role,
           resume_url: resumeUrl,
           resume_path: resumePath,
           resume_text: '',
-          skills,
-          matched_open_roles: matchedOpenRoles,
+          skills: rebuilt.skills,
+          matched_open_roles: rebuilt.matched_open_roles,
           manual_tags: manualTags
         };
 
@@ -2460,6 +2518,95 @@
         }
       }
 
+      async function repairOldLinkedInAi() {
+        try {
+          const pipelineRows = await fetchAllRows((from, to) => {
+            let query = supabase
+              .from('prospect_pipeline')
+              .select(buildPipelineSelect())
+              .order('created_at', { ascending:false })
+              .range(from, to);
+
+            if (state.sessionUser?.email && state.schema.pipeline.recruiter_email) {
+              query = query.eq('recruiter_email', state.sessionUser.email);
+            }
+
+            return query;
+          });
+
+          const candidates = (pipelineRows || [])
+            .map(buildRow)
+            .filter(row => {
+              const source = normalizeText(row.source || '');
+              const hasLinkedInSignal = source.includes('linkedin') || !!normalizeText(row.linkedin_url) || !!normalizeText(row.notes || '');
+              return hasLinkedInSignal;
+            });
+
+          if (!candidates.length) {
+            showNotice('No LinkedIn prospects found for repair.', 'warning');
+            return;
+          }
+
+          let updated = 0;
+          let skipped = 0;
+          let failed = 0;
+
+          for (const row of candidates) {
+            try {
+              const rebuilt = rebuildProspectSignals({
+                full_name: row.full_name,
+                current_title: row.current_title,
+                current_company: row.current_company,
+                location: row.location,
+                total_experience: row.total_experience,
+                linkedin_text: row.notes || row.linkedin_text || '',
+                resume_text: row.resume_text || '',
+                skills: row.skills || [],
+                manual_tags: row.manual_tags || [],
+                suggested_roles: row.suggested_roles || [],
+                top_match_role: row.top_match_role || ''
+              });
+
+              const currentSkills = mergeUniqueNormalized(row.skills || []);
+              const currentSuggested = mergeUniqueNormalized(row.suggested_roles || []);
+
+              const needsSkills = JSON.stringify(currentSkills) !== JSON.stringify(rebuilt.skills);
+              const needsSuggested = JSON.stringify(currentSuggested) !== JSON.stringify(rebuilt.suggested_roles);
+              const needsTopMatch = String(row.top_match_role || '') !== String(rebuilt.top_match_role || '');
+
+              if (!needsSkills && !needsSuggested && !needsTopMatch) {
+                skipped += 1;
+                continue;
+              }
+
+              const payload = {};
+              if (state.schema.prospects.skills) payload.skills = rebuilt.skills;
+              if (state.schema.prospects.suggested_roles) payload.suggested_roles = rebuilt.suggested_roles;
+              if (state.schema.prospects.top_match_role) payload.top_match_role = rebuilt.top_match_role;
+
+              if (!Object.keys(payload).length) {
+                skipped += 1;
+                continue;
+              }
+
+              const { error } = await supabase.from('prospects').update(payload).eq('id', row.prospect_id);
+              if (error) throw error;
+              updated += 1;
+            } catch (err) {
+              console.error('repairOldLinkedInAi row failed', row?.prospect_id, err);
+              failed += 1;
+            }
+          }
+
+          await loadData();
+          const noticeType = failed ? 'warning' : 'success';
+          showNotice(`LinkedIn AI repair complete. ${updated} updated, ${skipped} already OK, ${failed} failed.`, noticeType);
+        } catch (err) {
+          console.error(err);
+          showNotice(err.message || 'Failed to repair old LinkedIn AI.', 'error');
+        }
+      }
+
       async function savePanelNotes() {
         if (!state.panelRow) return;
         try {
@@ -2540,6 +2687,7 @@
         els.menuBulkInviteBtn.addEventListener('click', () => openModal(els.bulkInviteModalBackdrop));
         els.menuInviteAllBtn.addEventListener('click', inviteAllSourced);
         els.menuRefreshBtn.addEventListener('click', loadData);
+        els.menuRepairAiBtn.addEventListener('click', repairOldLinkedInAi);
         els.menuLogoutBtn.addEventListener('click', async () => {
           await supabase.auth.signOut();
           window.location.href = 'recruiter-login.html';
