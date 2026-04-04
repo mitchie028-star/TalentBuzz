@@ -218,8 +218,8 @@
     <div class="panel guide-compact">
       <div class="panel-header">
         <div class="guide-copy">
-          <h2>Quick Guide</h2>
-          <p>Use <span class="inline-code">Add LinkedIn Prospect</span> for single leads. CSV: <span class="inline-code">full_name,current_title,total_experience,skills,current_company,linkedin_url,email,phone,location</span>. Invite CSV: <span class="inline-code">full_name,email</span>.</p>
+          <h2 style="margin-bottom:6px;">Quick Guide</h2>
+          <p style="font-size:0.88rem;line-height:1.35;">Add leads manually or upload CSV. <span class="inline-code">Add LinkedIn Prospect</span> · <span class="inline-code">full_name,current_title,total_experience,skills,current_company,linkedin_url,email,phone,location</span> · Invite: <span class="inline-code">full_name,email</span></p>
         </div>
         <div class="guide-actions">
           <button id="downloadSampleBtn" class="btn btn-outline" type="button">Sample CSV</button>
@@ -598,9 +598,30 @@
       function matchAgainstOpenJobs(text){ const hay=normalizeText(text); const matches=[]; for(const job of state.openJobs){ const title=job.title || ''; if(!title) continue; const words=normalizeText(title).split(/[^a-z0-9+#]+/).filter(w=>w.length>=3); let score=0; for(const word of words){ if(hay.includes(word)) score += 1; } if(score>0) matches.push({ role:title, score, client_name:job.client_name || '' }); } return matches.sort((a,b)=>b.score-a.score).slice(0,5); }
       function buildSuggestedRoles(parsed){ const roleText=[parsed.full_name, parsed.current_title, parsed.current_company, parsed.location, parsed.total_experience, parsed.resume_text, (parsed.skills||[]).join(' ')].join(' '); const roleMap=new Map(); [...scoreRoleMatches(roleText), ...matchAgainstOpenJobs(roleText)].forEach(item => roleMap.set(item.role, (roleMap.get(item.role)||0)+item.score)); const merged = Array.from(roleMap.entries()).map(([role,score])=>({role,score})).sort((a,b)=>b.score-a.score).slice(0,5); return { suggested_roles:merged.map(v=>v.role), top_match_role:merged[0]?.role || '' }; }
       function candidateTags(row){ const tags = new Set(); (row.skills || []).slice(0,4).forEach(t => tags.add(t)); (row.manual_tags || []).slice(0,4).forEach(t => tags.add(t)); if (row.top_match_role) tags.add(row.top_match_role); if (!row.resume_url && !row.resume_path) tags.add('No Resume'); return Array.from(tags).slice(0,6); }
-      function computeAi(row){ const hasResume = !!(row.resume_url || row.resume_path || row.resume_text); if (!hasResume) return { score:0, fit:getFit(0), summary:['No resume attached yet. Add a resume or enrich the profile for better matching.'] };
-        const skills=(row.skills||[]), suggested=(row.suggested_roles||[]), matched=(row.matched_open_roles||[]); let score=0; score += row.current_title ? 15 : 0; score += row.location ? 5 : 0; score += row.total_experience ? 10 : 0; score += Math.min(skills.length * 4, 24); score += Math.min(suggested.length * 5, 15); score += matched.length ? Math.min((matched[0].score || 0) * 10, 26) : 0; score += 10; if(score>100) score=100;
-        const summary=[]; if(skills.length) summary.push(`Strong in ${skills.slice(0,3).join(', ')}.`); if(suggested.length) summary.push(`Suggested roles: ${suggested.slice(0,3).join(', ')}.`); if(matched.length) summary.push(`Best opening fit: ${matched[0].role}${matched[0].client_name ? ` — ${matched[0].client_name}` : ''}.`); if(!summary.length) summary.push('Resume attached but limited matching signals were detected.');
+      function computeAi(row){
+        const hasResume = !!(row.resume_url || row.resume_path || row.resume_text);
+        const structuredSignals = !!(row.current_title || row.current_company || row.total_experience || row.location || (row.linkedin_url && row.linkedin_url.includes('linkedin.com')) || (row.skills||[]).length || (row.manual_tags||[]).length);
+        const skills = [...new Set([...(row.skills||[]), ...(row.manual_tags||[])])];
+        const suggested = (row.suggested_roles||[]);
+        const matched = (row.matched_open_roles||[]);
+        let score = 0;
+        score += row.current_title ? 18 : 0;
+        score += row.current_company ? 10 : 0;
+        score += row.location ? 8 : 0;
+        score += row.total_experience ? 10 : 0;
+        score += row.linkedin_url ? 6 : 0;
+        score += Math.min(skills.length * 5, 25);
+        score += Math.min(suggested.length * 5, 15);
+        score += matched.length ? Math.min((matched[0].score || 0) * 10, 18) : 0;
+        score += hasResume ? 10 : 0;
+        if(score>100) score=100;
+        if(!hasResume && !structuredSignals) score = 0;
+        const summary=[];
+        if(skills.length) summary.push(`Signals found in profile: ${skills.slice(0,3).join(', ')}.`);
+        if(suggested.length) summary.push(`Suggested roles: ${suggested.slice(0,3).join(', ')}.`);
+        if(matched.length) summary.push(`Best opening fit: ${matched[0].role}${matched[0].client_name ? ` — ${matched[0].client_name}` : ''}.`);
+        if(!hasResume && structuredSignals) summary.push('Score based on LinkedIn/manual profile details even without a resume.');
+        if(!summary.length) summary.push('Limited profile data available. Add LinkedIn details or attach a resume for stronger scoring.');
         return { score, fit:getFit(score), summary };
       }
 
