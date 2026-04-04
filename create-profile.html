@@ -331,6 +331,56 @@
       font-size: 0.92rem;
     }
 
+    .insight-card {
+      margin-top: 16px;
+      border: 1px solid #dbeafe;
+      background: #f8fbff;
+      border-radius: 16px;
+      padding: 16px;
+      display: none;
+    }
+
+    .insight-card.show {
+      display: block;
+    }
+
+    .insight-card h3 {
+      margin: 0 0 10px;
+      color: var(--blue);
+      font-size: 1rem;
+    }
+
+    .insight-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 10px;
+    }
+
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      padding: 7px 10px;
+      border-radius: 999px;
+      font-size: 0.82rem;
+      font-weight: 700;
+      background: #eff6ff;
+      color: #1d4ed8;
+      border: 1px solid #bfdbfe;
+    }
+
+    .score-pill {
+      display: inline-flex;
+      align-items: center;
+      padding: 7px 10px;
+      border-radius: 999px;
+      font-size: 0.85rem;
+      font-weight: 800;
+      background: #eef2ff;
+      color: #3730a3;
+      border: 1px solid #c7d2fe;
+    }
+
     .actions {
       display: flex;
       gap: 12px;
@@ -526,13 +576,7 @@
 
             <div class="field">
               <label for="phone">Phone</label>
-              <input
-                id="phone"
-                type="tel"
-                inputmode="numeric"
-                maxlength="11"
-                placeholder="09XXXXXXXXX"
-              >
+              <input id="phone" type="tel" inputmode="numeric" maxlength="11" placeholder="09XXXXXXXXX">
               <div class="hint">Use Philippine mobile format: 09XXXXXXXXX</div>
             </div>
 
@@ -572,13 +616,7 @@
 
             <div class="field">
               <label for="salary">Expected Monthly Salary (PHP)</label>
-              <input
-                id="salary"
-                type="number"
-                min="0"
-                step="1"
-                placeholder="e.g. 30000"
-              >
+              <input id="salary" type="number" min="0" step="1" placeholder="e.g. 30000">
               <div class="hint">Enter your expected monthly salary in PHP.</div>
             </div>
 
@@ -606,16 +644,25 @@
 
           <div class="upload-box">
             <label for="resume">Upload Resume</label>
-            <input id="resume" type="file" accept=".pdf,.doc,.docx">
+            <input id="resume" type="file" accept=".pdf,.doc,.docx,.txt">
             <div class="upload-note">
-              Accepted formats: PDF, DOC, DOCX.
+              Accepted formats: PDF, DOC, DOCX, TXT.
             </div>
+          </div>
+
+          <div id="resumeInsightCard" class="insight-card">
+            <h3>Resume insights preview</h3>
+            <div class="insight-row" id="scoreRow"></div>
+            <div class="insight-row" id="topRoleRow"></div>
+            <div class="insight-row" id="skillsRow"></div>
+            <div class="insight-row" id="suggestedRolesRow"></div>
           </div>
 
           <div class="mini-card">
             <h3>Why this matters</h3>
             <p>
-              A complete resume helps us prefill future applications and review your background faster.
+              A complete resume helps us prefill future applications, identify likely strengths,
+              and improve role matching.
             </p>
           </div>
         </section>
@@ -721,6 +768,12 @@
   const authModeBanner = document.getElementById('authModeBanner');
   const newUserAuthSection = document.getElementById('newUserAuthSection');
   const goToLoginBtn = document.getElementById('goToLoginBtn');
+  const resumeInput = document.getElementById('resume');
+  const resumeInsightCard = document.getElementById('resumeInsightCard');
+  const scoreRow = document.getElementById('scoreRow');
+  const topRoleRow = document.getElementById('topRoleRow');
+  const skillsRow = document.getElementById('skillsRow');
+  const suggestedRolesRow = document.getElementById('suggestedRolesRow');
 
   const steps = Array.from(document.querySelectorAll('.step'));
 
@@ -728,6 +781,132 @@
   let currentUser = null;
   let existingProfile = null;
   let pendingProfilePhotoDataUrl = null;
+  let resumeAnalysis = {
+    resume_text: null,
+    extracted_skills: [],
+    suggested_roles: [],
+    top_match_role: null,
+    ai_score: null,
+    has_resume: false
+  };
+
+  const SKILL_LIBRARY = {
+    "sql": ["sql", "mysql", "postgresql", "postgres", "tsql", "pl/sql"],
+    "excel": ["excel", "google sheets", "spreadsheets", "pivot table", "vlookup", "xlookup"],
+    "power bi": ["power bi", "powerbi"],
+    "qlik sense": ["qlik sense", "qlik"],
+    "tableau": ["tableau"],
+    "python": ["python", "pandas", "numpy"],
+    "javascript": ["javascript", "js", "node.js", "nodejs"],
+    "react": ["react", "reactjs"],
+    "html/css": ["html", "css", "bootstrap", "tailwind"],
+    "customer service": ["customer service", "customer support", "csat", "inbound support"],
+    "technical support": ["technical support", "troubleshooting", "help desk", "service desk"],
+    "content moderation": ["content moderator", "content moderation", "trust and safety", "trust & safety"],
+    "sales": ["sales", "upselling", "cross selling", "cross-selling", "lead generation", "outbound sales"],
+    "business development": ["business development", "bdm", "client acquisition"],
+    "recruitment": ["recruitment", "recruiter", "sourcing", "talent acquisition", "headhunting"],
+    "operations": ["operations", "process improvement", "workflow", "sla", "kpi"],
+    "project management": ["project management", "project manager", "agile", "scrum"],
+    "product management": ["product manager", "product management", "roadmap", "user stories"],
+    "finance/accounting": ["bookkeeping", "accounting", "finance", "accounts payable", "accounts receivable"],
+    "crm": ["salesforce", "hubspot", "crm", "zendesk"],
+    "communication": ["communication", "stakeholder management", "client management"],
+    "leadership": ["team leader", "supervisor", "people management", "coaching"]
+  };
+
+  const ROLE_RULES = [
+    {
+      role: "Customer Service Representative",
+      keywords: ["customer service", "communication", "crm"],
+      bonus: ["sales", "excel"]
+    },
+    {
+      role: "Technical Support Representative",
+      keywords: ["technical support", "customer service", "crm"],
+      bonus: ["javascript", "sql"]
+    },
+    {
+      role: "Content Moderator",
+      keywords: ["content moderation", "customer service", "communication"],
+      bonus: ["operations"]
+    },
+    {
+      role: "Business Development Manager",
+      keywords: ["business development", "sales", "communication"],
+      bonus: ["crm", "leadership"]
+    },
+    {
+      role: "Sales Manager",
+      keywords: ["sales", "leadership", "communication"],
+      bonus: ["crm", "business development"]
+    },
+    {
+      role: "Account Manager",
+      keywords: ["communication", "crm", "customer service"],
+      bonus: ["sales", "business development"]
+    },
+    {
+      role: "HR / Recruiter",
+      keywords: ["recruitment", "communication"],
+      bonus: ["leadership", "operations"]
+    },
+    {
+      role: "Operations Manager",
+      keywords: ["operations", "leadership", "communication"],
+      bonus: ["project management", "excel"]
+    },
+    {
+      role: "Team Leader",
+      keywords: ["leadership", "customer service", "operations"],
+      bonus: ["communication", "technical support"]
+    },
+    {
+      role: "Project Manager",
+      keywords: ["project management", "communication", "leadership"],
+      bonus: ["operations", "excel"]
+    },
+    {
+      role: "Product Manager",
+      keywords: ["product management", "communication", "project management"],
+      bonus: ["sql", "javascript"]
+    },
+    {
+      role: "Data Analyst",
+      keywords: ["sql", "excel"],
+      bonus: ["power bi", "tableau", "qlik sense", "python"]
+    },
+    {
+      role: "Software Engineer",
+      keywords: ["javascript", "python"],
+      bonus: ["react", "sql", "html/css"]
+    },
+    {
+      role: "Frontend Developer",
+      keywords: ["react", "javascript", "html/css"],
+      bonus: ["communication"]
+    },
+    {
+      role: "Backend Developer",
+      keywords: ["javascript", "python", "sql"],
+      bonus: ["operations"]
+    },
+    {
+      role: "Full Stack Developer",
+      keywords: ["react", "javascript", "sql"],
+      bonus: ["python", "html/css"]
+    },
+    {
+      role: "QA Engineer",
+      keywords: ["technical support", "operations"],
+      bonus: ["sql", "communication"]
+    },
+    {
+      role: "Finance / Accounting",
+      keywords: ["finance/accounting", "excel"],
+      bonus: ["communication"]
+    }
+  ];
 
   function showMessage(text, type) {
     message.textContent = text;
@@ -764,11 +943,11 @@
 
   function validateResumeFile(file) {
     if (!file) return;
-    const allowedExtensions = ['.pdf', '.doc', '.docx'];
+    const allowedExtensions = ['.pdf', '.doc', '.docx', '.txt'];
     const lowerName = file.name.toLowerCase();
     const isValid = allowedExtensions.some(ext => lowerName.endsWith(ext));
     if (!isValid) {
-      throw new Error('Please upload a PDF, DOC, or DOCX file only.');
+      throw new Error('Please upload a PDF, DOC, DOCX, or TXT file only.');
     }
   }
 
@@ -851,7 +1030,7 @@
 
     const labels = {
       1: { title: 'Step 1 of 3 · Basic Info', meta: 'Quick setup', width: '33.33%' },
-      2: { title: 'Step 2 of 3 · Resume', meta: 'Almost there', width: '66.66%' },
+      2: { title: 'Step 2 of 3 · Resume', meta: 'Profile intelligence', width: '66.66%' },
       3: { title: 'Step 3 of 3 · Optional Extras', meta: 'Final step', width: '100%' }
     };
 
@@ -883,7 +1062,7 @@
     }
 
     if (currentStep === 2) {
-      const file = document.getElementById('resume').files[0];
+      const file = resumeInput.files[0];
       if (file) validateResumeFile(file);
     }
 
@@ -1005,7 +1184,6 @@
     if (!error) return data;
 
     const msg = String(error.message || '').toLowerCase();
-
     if (msg.includes('target_role')) {
       const fallbackPayload = { ...payload };
       delete fallbackPayload.target_role;
@@ -1023,6 +1201,167 @@
     throw error;
   }
 
+  function normalizeText(text) {
+    return String(text || '')
+      .toLowerCase()
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  function dedupeArray(items) {
+    return [...new Set((items || []).filter(Boolean))];
+  }
+
+  function extractSkillsFromText(text) {
+    const normalized = normalizeText(text);
+    const found = [];
+
+    Object.entries(SKILL_LIBRARY).forEach(([skill, variants]) => {
+      const matched = variants.some(variant => normalized.includes(variant));
+      if (matched) found.push(skill);
+    });
+
+    return dedupeArray(found);
+  }
+
+  function buildRoleMatches(skills, selectedRole) {
+    const matches = ROLE_RULES.map(rule => {
+      let score = 0;
+
+      rule.keywords.forEach(keyword => {
+        if (skills.includes(keyword)) score += 28;
+      });
+
+      rule.bonus.forEach(keyword => {
+        if (skills.includes(keyword)) score += 10;
+      });
+
+      if (selectedRole && selectedRole.toLowerCase() === rule.role.toLowerCase()) {
+        score += 15;
+      }
+
+      return {
+        role: rule.role,
+        score: Math.min(score, 100)
+      };
+    });
+
+    matches.sort((a, b) => b.score - a.score);
+
+    const topMatches = matches.filter(item => item.score > 0).slice(0, 5);
+    const topRole = topMatches.length ? topMatches[0].role : (selectedRole || null);
+    const aiScore = topMatches.length ? topMatches[0].score : (selectedRole ? 35 : 0);
+
+    return {
+      top_match_role: topRole,
+      suggested_roles: topMatches.map(item => item.role),
+      ai_score: aiScore
+    };
+  }
+
+  async function readFileAsText(file) {
+    const lowerName = file.name.toLowerCase();
+
+    if (lowerName.endsWith('.txt')) {
+      return await file.text();
+    }
+
+    return [
+      file.name,
+      getTargetRoleInput().value,
+      document.getElementById('experience').value,
+      document.getElementById('linkedin').value,
+      document.getElementById('portfolio').value
+    ].filter(Boolean).join(' ');
+  }
+
+  async function analyzeResumeFile(file) {
+    if (!file) {
+      resumeAnalysis = {
+        resume_text: null,
+        extracted_skills: [],
+        suggested_roles: [],
+        top_match_role: getTargetRoleInput().value || null,
+        ai_score: 0,
+        has_resume: false
+      };
+      renderResumeInsights();
+      return resumeAnalysis;
+    }
+
+    const rawText = await readFileAsText(file);
+    const text = String(rawText || '').trim();
+    const skills = extractSkillsFromText(text);
+    const roleMatches = buildRoleMatches(skills, getTargetRoleInput().value.trim());
+
+    resumeAnalysis = {
+      resume_text: text || null,
+      extracted_skills: skills,
+      suggested_roles: roleMatches.suggested_roles,
+      top_match_role: roleMatches.top_match_role,
+      ai_score: roleMatches.ai_score,
+      has_resume: true
+    };
+
+    renderResumeInsights();
+    return resumeAnalysis;
+  }
+
+  function renderResumeInsights() {
+    const hasData = resumeAnalysis.has_resume || resumeAnalysis.extracted_skills.length || resumeAnalysis.suggested_roles.length;
+
+    if (!hasData) {
+      resumeInsightCard.classList.remove('show');
+      scoreRow.innerHTML = '';
+      topRoleRow.innerHTML = '';
+      skillsRow.innerHTML = '';
+      suggestedRolesRow.innerHTML = '';
+      return;
+    }
+
+    resumeInsightCard.classList.add('show');
+
+    scoreRow.innerHTML = '';
+    topRoleRow.innerHTML = '';
+    skillsRow.innerHTML = '';
+    suggestedRolesRow.innerHTML = '';
+
+    const scorePill = document.createElement('div');
+    scorePill.className = 'score-pill';
+    scorePill.textContent = `AI Score: ${resumeAnalysis.ai_score ?? 0}`;
+    scoreRow.appendChild(scorePill);
+
+    if (resumeAnalysis.top_match_role) {
+      const topRoleChip = document.createElement('div');
+      topRoleChip.className = 'chip';
+      topRoleChip.textContent = `Top Match: ${resumeAnalysis.top_match_role}`;
+      topRoleRow.appendChild(topRoleChip);
+    }
+
+    if (resumeAnalysis.extracted_skills.length) {
+      resumeAnalysis.extracted_skills.slice(0, 12).forEach(skill => {
+        const chip = document.createElement('div');
+        chip.className = 'chip';
+        chip.textContent = skill;
+        skillsRow.appendChild(chip);
+      });
+    } else {
+      const chip = document.createElement('div');
+      chip.className = 'chip';
+      chip.textContent = 'No clear skills detected yet';
+      skillsRow.appendChild(chip);
+    }
+
+    if (resumeAnalysis.suggested_roles.length) {
+      resumeAnalysis.suggested_roles.forEach(role => {
+        const chip = document.createElement('div');
+        chip.className = 'chip';
+        chip.textContent = role;
+        suggestedRolesRow.appendChild(chip);
+      });
+    }
+  }
+
   async function loadExistingProfileIntoForm(profile) {
     if (!profile) return;
 
@@ -1037,6 +1376,17 @@
     document.getElementById('linkedin').value = profile.linkedin || '';
     document.getElementById('portfolio').value = profile.portfolio_url || '';
     document.getElementById('experience').value = profile.experience_summary || '';
+
+    resumeAnalysis = {
+      resume_text: profile.resume_text || null,
+      extracted_skills: Array.isArray(profile.extracted_skills) ? profile.extracted_skills : [],
+      suggested_roles: Array.isArray(profile.suggested_roles) ? profile.suggested_roles : [],
+      top_match_role: profile.top_match_role || profile.target_role || profile.headline || null,
+      ai_score: Number(profile.ai_score || 0),
+      has_resume: !!(profile.has_resume || profile.resume_path || profile.resume_url)
+    };
+
+    renderResumeInsights();
 
     if (profile.profile_photo_url) {
       photoPreview.innerHTML = `<img src="${profile.profile_photo_url}" alt="Profile preview">`;
@@ -1104,11 +1454,16 @@
     }
   }
 
-  nextBtn.addEventListener('click', () => {
+  nextBtn.addEventListener('click', async () => {
     clearMessage();
 
     try {
       validateCurrentStep();
+
+      if (currentStep === 2) {
+        const resumeFile = resumeInput.files[0];
+        await analyzeResumeFile(resumeFile);
+      }
 
       if (currentStep < 3) {
         currentStep += 1;
@@ -1125,6 +1480,39 @@
     if (currentStep > 1) {
       currentStep -= 1;
       updateStepUI();
+    }
+  });
+
+  getTargetRoleInput().addEventListener('change', async () => {
+    if (resumeInput.files[0]) {
+      await analyzeResumeFile(resumeInput.files[0]);
+    } else {
+      resumeAnalysis.top_match_role = getTargetRoleInput().value || null;
+      renderResumeInsights();
+    }
+  });
+
+  resumeInput.addEventListener('change', async () => {
+    clearMessage();
+    const file = resumeInput.files[0];
+    if (!file) {
+      resumeAnalysis = {
+        resume_text: null,
+        extracted_skills: [],
+        suggested_roles: [],
+        top_match_role: getTargetRoleInput().value || null,
+        ai_score: 0,
+        has_resume: false
+      };
+      renderResumeInsights();
+      return;
+    }
+
+    try {
+      validateResumeFile(file);
+      await analyzeResumeFile(file);
+    } catch (err) {
+      showMessage(err.message || 'Unable to analyze resume.', 'error');
     }
   });
 
@@ -1188,7 +1576,7 @@
       const linkedin = document.getElementById('linkedin').value.trim();
       const portfolio = document.getElementById('portfolio').value.trim();
       const experience = document.getElementById('experience').value.trim();
-      const resumeFile = document.getElementById('resume').files[0];
+      const resumeFile = resumeInput.files[0];
       const profilePhotoFile = profilePhotoInput.files[0];
       const password = document.getElementById('password').value;
       const confirmPassword = document.getElementById('confirm_password').value;
@@ -1249,6 +1637,19 @@
         }
       }
 
+      if (resumeFile) {
+        await analyzeResumeFile(resumeFile);
+      } else {
+        resumeAnalysis = {
+          resume_text: null,
+          extracted_skills: [],
+          suggested_roles: target_role ? [target_role] : [],
+          top_match_role: target_role || null,
+          ai_score: target_role ? 35 : 0,
+          has_resume: false
+        };
+      }
+
       const expected_salary = salaryRaw ? Number(salaryRaw) : null;
 
       let resume_path = existingProfile?.resume_path || null;
@@ -1281,7 +1682,11 @@
         resume_path,
         resume_url,
         has_resume: !!resume_path,
-        top_match_role: target_role,
+        ai_score: resumeAnalysis.ai_score ?? (target_role ? 35 : 0),
+        extracted_skills: resumeAnalysis.extracted_skills || [],
+        suggested_roles: resumeAnalysis.suggested_roles || [],
+        top_match_role: resumeAnalysis.top_match_role || target_role,
+        resume_text: resumeAnalysis.resume_text,
         updated_at: new Date().toISOString()
       };
 
