@@ -45,7 +45,7 @@
     }
 
     .container {
-      max-width: 1780px;
+      max-width: 1860px;
       margin: 0 auto;
       padding: 24px 20px 44px;
     }
@@ -107,12 +107,7 @@
     }
 
     .btn:hover { transform: translateY(-1px); }
-
-    .btn:disabled {
-      opacity: 0.65;
-      cursor: not-allowed;
-      transform: none;
-    }
+    .btn:disabled { opacity: 0.65; cursor: not-allowed; transform: none; }
 
     .btn-primary {
       background: linear-gradient(135deg, var(--primary), var(--primary-2));
@@ -128,6 +123,7 @@
     .btn-danger {
       border-color: #fecaca;
       color: var(--danger);
+      background: #fff;
     }
 
     .btn-secondary {
@@ -245,7 +241,7 @@
 
     .tracker-card {
       flex: 1;
-      min-width: 120px;
+      min-width: 130px;
       background: var(--white);
       border: 1px solid var(--border);
       border-radius: 12px;
@@ -278,13 +274,14 @@
       border: 1px solid var(--border);
       border-radius: 16px;
       max-height: 720px;
+      background: #fff;
     }
 
     table {
       width: 100%;
       border-collapse: collapse;
       background: white;
-      min-width: 2450px;
+      min-width: 2900px;
     }
 
     th, td {
@@ -322,7 +319,8 @@
     .status-pill,
     .tag-pill,
     .score-pill,
-    .band-pill {
+    .band-pill,
+    .resume-pill {
       display: inline-flex;
       align-items: center;
       padding: 6px 10px;
@@ -332,6 +330,7 @@
       line-height: 1;
       border: 1px solid transparent;
       margin: 2px 4px 2px 0;
+      white-space: nowrap;
     }
 
     .tag-pill {
@@ -344,6 +343,18 @@
       background: #eef2ff;
       color: #312e81;
       border-color: #c7d2fe;
+    }
+
+    .resume-pill.ok {
+      background: #ecfdf5;
+      color: #166534;
+      border-color: #bbf7d0;
+    }
+
+    .resume-pill.none {
+      background: #fef2f2;
+      color: #b91c1c;
+      border-color: #fecaca;
     }
 
     .band-strong { background: #ecfdf5; color: #166534; border-color: #bbf7d0; }
@@ -420,7 +431,7 @@
     }
 
     .score-breakdown {
-      min-width: 280px;
+      min-width: 300px;
       line-height: 1.5;
     }
 
@@ -552,7 +563,6 @@
       .signal-grid {
         grid-template-columns: repeat(2, minmax(0, 1fr));
       }
-
       .resume-grid { grid-template-columns: 1fr; }
     }
 
@@ -694,7 +704,7 @@
       <div class="filters-grid">
         <div class="field">
           <label for="searchInput">Search</label>
-          <input id="searchInput" type="text" placeholder="Name, company, email, title, experience" />
+          <input id="searchInput" type="text" placeholder="Name, company, email, title, experience, skills" />
         </div>
 
         <div class="field">
@@ -723,9 +733,12 @@
               <th>Title</th>
               <th>Total Experience</th>
               <th>Company</th>
+              <th>Resume Status</th>
+              <th>Skills</th>
               <th>Suggested Roles</th>
-              <th>Top Match</th>
-              <th>Signal Score</th>
+              <th>Suggested Role</th>
+              <th>Matched Open Roles</th>
+              <th>AI Score</th>
               <th>Fit Band</th>
               <th>Score Breakdown</th>
               <th>Job</th>
@@ -740,7 +753,7 @@
             </tr>
           </thead>
           <tbody id="tableBody">
-            <tr><td colspan="18" class="empty loading">Loading sourced candidates...</td></tr>
+            <tr><td colspan="21" class="empty loading">Loading sourced candidates...</td></tr>
           </tbody>
         </table>
       </div>
@@ -805,14 +818,34 @@
               <input id="candidateCompany" type="text" />
             </div>
 
-            <div class="field full-span">
+            <div class="field">
+              <label for="candidateTotalExperience">Total Experience</label>
+              <input id="candidateTotalExperience" type="text" placeholder="e.g. 4 years" />
+            </div>
+
+            <div class="field">
               <label for="candidateLocation">Location</label>
               <input id="candidateLocation" type="text" />
             </div>
 
             <div class="field full-span">
-              <label for="candidateTopMatch">Top Match Role</label>
+              <label for="candidateTopMatch">Suggested Role</label>
               <input id="candidateTopMatch" type="text" />
+            </div>
+
+            <div class="field full-span">
+              <label>Skills</label>
+              <div id="candidateSkillsWrap" class="tag-list"></div>
+            </div>
+
+            <div class="field full-span">
+              <label>Matched Open Roles</label>
+              <div id="matchedRolesWrap" class="tag-list"></div>
+            </div>
+
+            <div class="field full-span">
+              <label>Suggested Roles</label>
+              <div id="suggestedRolesWrap" class="tag-list"></div>
             </div>
 
             <div class="field full-span">
@@ -820,11 +853,6 @@
               <select id="candidateJobId">
                 <option value="">No job selected yet</option>
               </select>
-            </div>
-
-            <div class="field full-span">
-              <label>Suggested Roles</label>
-              <div id="suggestedRolesWrap" class="tag-list"></div>
             </div>
 
             <div class="field full-span">
@@ -889,7 +917,6 @@
 
         const worker = "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.4.168/build/pdf.worker.min.mjs";
         if (pdfjs.GlobalWorkerOptions) pdfjs.GlobalWorkerOptions.workerSrc = worker;
-
         return pdfjs;
       }
 
@@ -919,9 +946,23 @@
         { role: "Executive Assistant", keywords: ["executive assistant", "ea", "virtual assistant", "admin assistant"] },
         { role: "Operations Manager", keywords: ["operations manager", "operations", "team lead", "supervisor", "service delivery"] },
         { role: "Bilingual Support", keywords: ["mandarin", "cantonese", "japanese", "spanish", "bilingual", "multilingual"] },
-        { role: "BI / Data Analyst", keywords: ["sql", "power bi", "qlik", "tableau", "dashboard", "analytics", "bi analyst"] },
+        { role: "BI / Data Analyst", keywords: ["sql", "power bi", "qlik", "qlik sense", "tableau", "dashboard", "analytics", "bi analyst"] },
         { role: "Product Manager", keywords: ["product manager", "product management", "roadmap", "scrum", "agile"] },
         { role: "Software Engineer", keywords: ["software engineer", "developer", "javascript", "react", "node", "python", "java", "php"] }
+      ];
+
+      const SKILL_LIBRARY = [
+        "customer service", "customer support", "inbound", "outbound", "voice", "non-voice",
+        "sales", "upselling", "cross-selling", "lead generation", "business development",
+        "recruitment", "sourcing", "talent acquisition", "screening", "interviewing",
+        "technical support", "troubleshooting", "help desk", "ticketing",
+        "zendesk", "salesforce", "hubspot", "crm", "qlik", "qlik sense", "power bi", "tableau",
+        "sql", "excel", "google sheets", "reporting", "dashboard", "analytics",
+        "react", "node", "javascript", "typescript", "python", "java", "php",
+        "content moderation", "trust and safety", "quality assurance", "qa",
+        "operations", "team management", "supervisory", "people management",
+        "bilingual", "mandarin", "cantonese", "japanese", "spanish", "english",
+        "email support", "chat support", "phone support", "collections", "retention"
       ];
 
       const state = {
@@ -1003,11 +1044,14 @@
         candidateLinkedIn: document.getElementById("candidateLinkedIn"),
         candidateTitle: document.getElementById("candidateTitle"),
         candidateCompany: document.getElementById("candidateCompany"),
+        candidateTotalExperience: document.getElementById("candidateTotalExperience"),
         candidateLocation: document.getElementById("candidateLocation"),
         candidateTopMatch: document.getElementById("candidateTopMatch"),
         candidateJobId: document.getElementById("candidateJobId"),
         candidateNotes: document.getElementById("candidateNotes"),
         suggestedRolesWrap: document.getElementById("suggestedRolesWrap"),
+        candidateSkillsWrap: document.getElementById("candidateSkillsWrap"),
+        matchedRolesWrap: document.getElementById("matchedRolesWrap"),
 
         bulkInviteModalBackdrop: document.getElementById("bulkInviteModalBackdrop"),
         closeBulkInviteModalBtn: document.getElementById("closeBulkInviteModalBtn"),
@@ -1018,12 +1062,12 @@
 
       const normalizeText = (v) => String(v || "").trim().toLowerCase();
       const parseCommaList = (v) => String(v || "").split(",").map(x => x.trim()).filter(Boolean);
+      const normalizeEmail = (v) => String(v || "").trim().toLowerCase();
       const isValidEmail = (email) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(email || "").trim());
 
       const safeArrayParse = (value) => {
         if (Array.isArray(value)) return value;
         if (typeof value !== "string") return [];
-
         try {
           const parsed = JSON.parse(value);
           return Array.isArray(parsed) ? parsed : value.split(",").map(v => v.trim()).filter(Boolean);
@@ -1044,9 +1088,9 @@
         "status-" + String(status || "default").toLowerCase().replace(/\s+/g, "-").replace(/[()]/g, "");
 
       const getMatchBand = (score) => {
-        if (score >= 60) return { label: "Strong Match", className: "band-strong" };
-        if (score >= 45) return { label: "Good Match", className: "band-good" };
-        if (score >= 30) return { label: "Stretch", className: "band-stretch" };
+        if (score >= 75) return { label: "Strong Match", className: "band-strong" };
+        if (score >= 55) return { label: "Good Match", className: "band-good" };
+        if (score >= 35) return { label: "Stretch", className: "band-stretch" };
         return { label: "Weak Match", className: "band-weak" };
       };
 
@@ -1127,6 +1171,7 @@
         const { data, error } = await supabase
           .from("jobs")
           .select("id, title, client_name, location, city, state, country, description, requirements, job_description, skills")
+          .eq("status", "open")
           .order("created_at", { ascending: false });
 
         if (!error) {
@@ -1165,6 +1210,7 @@
           "candidateLinkedIn",
           "candidateTitle",
           "candidateCompany",
+          "candidateTotalExperience",
           "candidateLocation",
           "candidateTopMatch",
           "candidateNotes"
@@ -1175,6 +1221,8 @@
         els.candidateJobId.value = "";
         els.resumeTextPreview.textContent = "No resume uploaded yet.";
         els.suggestedRolesWrap.innerHTML = "";
+        els.candidateSkillsWrap.innerHTML = "";
+        els.matchedRolesWrap.innerHTML = "";
         els.resumeUploadInput.value = "";
       }
 
@@ -1192,19 +1240,24 @@
           "signalCity",
           "signalKeywords",
           "signalNiceToHaveKeywords"
-        ].forEach(id => {
-          els[id].value = "";
-        });
+        ].forEach(id => { els[id].value = ""; });
 
         els.signalSeniority.value = "";
         els.signalRoleLink.value = "";
       }
 
-      function renderSuggestedRoles(tags) {
+      function renderTagList(el, tags, emptyText = "No data yet.") {
         const clean = Array.from(new Set((tags || []).filter(Boolean)));
-        els.suggestedRolesWrap.innerHTML = clean.length
+        el.innerHTML = clean.length
           ? clean.map(tag => `<span class="tag-pill">${escapeHtml(tag)}</span>`).join("")
-          : `<span class="small">No role suggestions yet.</span>`;
+          : `<span class="small">${escapeHtml(emptyText)}</span>`;
+      }
+
+      function renderRoleScoreList(el, rows) {
+        const clean = Array.isArray(rows) ? rows.filter(Boolean) : [];
+        el.innerHTML = clean.length
+          ? clean.map(item => `<span class="tag-pill">${escapeHtml(item.role)}${item.score ? ` (${escapeHtml(String(item.score))})` : ""}</span>`).join("")
+          : `<span class="small">No matched openings yet.</span>`;
       }
 
       function firstNonEmptyLine(text) {
@@ -1214,7 +1267,7 @@
       function looksLikePersonName(line) {
         if (!line || line.length > 50 || /\d|@/.test(line)) return false;
         const words = line.split(/\s+/).filter(Boolean);
-        return words.length >= 2 && words.length <= 4 && words.every(w => /^[A-Za-z.'-]+$/.test(w));
+        return words.length >= 2 && words.length <= 5 && words.every(w => /^[A-Za-z.'-]+$/.test(w));
       }
 
       function extractEmail(text) {
@@ -1234,7 +1287,6 @@
       function extractLinkedIn(text) {
         const url = String(text || "").match(/https?:\/\/(www\.)?linkedin\.com\/[^\s)]+/i);
         if (url) return url[0];
-
         const plain = String(text || "").match(/linkedin\.com\/[^\s)]+/i);
         return plain ? `https://${plain[0]}` : "";
       }
@@ -1252,7 +1304,6 @@
 
       function extractTitle(text) {
         const lines = String(text || "").split(/\n+/).map(l => l.trim()).filter(Boolean).slice(0, 20);
-
         return lines.find(line =>
           !/resume|curriculum vitae|profile|contact|summary|experience|education|skills/i.test(line) &&
           line.length <= 70 &&
@@ -1285,6 +1336,28 @@
           .trim();
       }
 
+      function extractTotalExperience(text) {
+        const haystack = String(text || "");
+        const yearMatch = haystack.match(/(\d+)\+?\s*(?:years|yrs)(?:\s+of)?\s+experience/i);
+        if (yearMatch) return `${yearMatch[1]} years`;
+
+        const monthMatch = haystack.match(/(\d+)\+?\s*(?:months|mos)(?:\s+of)?\s+experience/i);
+        if (monthMatch) return `${monthMatch[1]} months`;
+
+        return "";
+      }
+
+      function extractSkillsFromText(text) {
+        const haystack = normalizeText(text);
+        const found = [];
+
+        for (const skill of SKILL_LIBRARY) {
+          if (haystack.includes(normalizeText(skill))) found.push(skill);
+        }
+
+        return [...new Set(found)].slice(0, 12);
+      }
+
       function scoreRoleMatches(text) {
         const haystack = normalizeText(text);
         const scores = [];
@@ -1315,7 +1388,7 @@
             if (haystack.includes(word)) score += 1;
           }
 
-          if (score > 0) matches.push({ role: title, score });
+          if (score > 0) matches.push({ role: title, score, client_name: job.client_name || "" });
         }
 
         return matches.sort((a, b) => b.score - a.score);
@@ -1328,11 +1401,11 @@
           parsed.current_company,
           parsed.location,
           parsed.total_experience,
-          parsed.resume_text
+          parsed.resume_text,
+          (parsed.skills || []).join(" ")
         ].join(" ");
 
         const roleMap = new Map();
-
         [...scoreRoleMatches(roleText), ...matchAgainstOpenJobs(roleText)].forEach(item => {
           roleMap.set(item.role, (roleMap.get(item.role) || 0) + item.score);
         });
@@ -1348,6 +1421,93 @@
         };
       }
 
+      function buildMatchedOpenRoles(parsed) {
+        const text = [
+          parsed.full_name,
+          parsed.current_title,
+          parsed.current_company,
+          parsed.location,
+          parsed.total_experience,
+          parsed.resume_text,
+          (parsed.skills || []).join(" ")
+        ].join(" ");
+
+        return matchAgainstOpenJobs(text).slice(0, 5);
+      }
+
+      function detectSeniority(totalExperience = "", currentTitle = "") {
+        const value = normalizeText(totalExperience);
+        const num = parseInt(value, 10);
+
+        if (/(director|head|vp|vice president|chief)/i.test(currentTitle)) return "leadership";
+        if (/(manager)/i.test(currentTitle)) return "manager";
+        if (/(lead|senior|sr\.)/i.test(currentTitle)) return "senior";
+
+        if (!Number.isNaN(num)) {
+          if (num >= 8) return "leadership";
+          if (num >= 5) return "manager";
+          if (num >= 3) return "senior";
+        }
+
+        return "individual_contributor";
+      }
+
+      function computeResumeAiScore(row) {
+        const hasResume = !!String(row.resume_url || row.resume_path || row.resume_text || "").trim();
+
+        if (!hasResume) {
+          return {
+            score: 0,
+            band: getMatchBand(0),
+            breakdown: {
+              base_score: 0,
+              title_score: 0,
+              role_fit_score: 0,
+              location_score: 0,
+              keyword_score: 0,
+              nice_to_have_score: 0,
+              seniority_score: 0,
+              matched_keywords: [],
+              matched_nice_to_haves: [],
+              matched_location_level: "-",
+              candidate_seniority: "-"
+            }
+          };
+        }
+
+        const skills = Array.isArray(row.skills) ? row.skills : [];
+        const matchedRoles = Array.isArray(row.matched_open_roles) ? row.matched_open_roles : [];
+        const suggestedRoles = Array.isArray(row.suggested_roles) ? row.suggested_roles : [];
+
+        const titleScore = row.current_title ? 15 : 0;
+        const skillsScore = Math.min(skills.length * 4, 24);
+        const suggestedScore = Math.min(suggestedRoles.length * 5, 15);
+        const matchedRoleScore = matchedRoles.length ? Math.min(matchedRoles[0].score * 10, 26) : 0;
+        const resumeCompleteness = row.resume_url || row.resume_path || row.resume_text ? 10 : 0;
+        const expScore = row.total_experience ? 10 : 0;
+
+        let score = titleScore + skillsScore + suggestedScore + matchedRoleScore + resumeCompleteness + expScore;
+        if (score > 100) score = 100;
+
+        return {
+          score,
+          band: getMatchBand(score),
+          breakdown: {
+            base_score: 0,
+            title_score: titleScore,
+            role_fit_score: matchedRoleScore,
+            location_score: row.location ? 5 : 0,
+            keyword_score: skillsScore,
+            nice_to_have_score: suggestedScore,
+            seniority_score: expScore + resumeCompleteness,
+            matched_keywords: skills,
+            matched_nice_to_haves: suggestedRoles,
+            matched_location_level: row.location || "-",
+            candidate_seniority: detectSeniority(row.total_experience, row.current_title)
+          }
+        };
+      }
+
       function fillResumeForm(parsed) {
         els.candidateFullName.value = parsed.full_name || "";
         els.candidateEmail.value = parsed.email || "";
@@ -1355,9 +1515,12 @@
         els.candidateLinkedIn.value = parsed.linkedin_url || "";
         els.candidateTitle.value = parsed.current_title || "";
         els.candidateCompany.value = parsed.current_company || "";
+        els.candidateTotalExperience.value = parsed.total_experience || "";
         els.candidateLocation.value = parsed.location || "";
         els.candidateTopMatch.value = parsed.top_match_role || "";
-        renderSuggestedRoles(parsed.suggested_roles || []);
+        renderTagList(els.suggestedRolesWrap, parsed.suggested_roles || [], "No role suggestions yet.");
+        renderTagList(els.candidateSkillsWrap, parsed.skills || [], "No skills extracted yet.");
+        renderRoleScoreList(els.matchedRolesWrap, parsed.matched_open_roles || []);
       }
 
       async function extractTextFromPdf(file) {
@@ -1383,10 +1546,8 @@
 
       async function extractResumeText(file) {
         const name = (file.name || "").toLowerCase();
-
         if (name.endsWith(".pdf")) return await extractTextFromPdf(file);
         if (name.endsWith(".docx") || name.endsWith(".doc")) return await extractTextFromDocx(file);
-
         throw new Error("Unsupported file type. Please upload PDF, DOC, or DOCX.");
       }
 
@@ -1409,17 +1570,16 @@
             current_title: extractTitle(resumeText),
             current_company: extractCompany(resumeText),
             location: extractLocation(resumeText),
-            total_experience: "",
+            total_experience: extractTotalExperience(resumeText),
             resume_text: resumeText
           };
 
+          parsed.skills = extractSkillsFromText(resumeText);
           Object.assign(parsed, buildSuggestedRoles(parsed));
+          parsed.matched_open_roles = buildMatchedOpenRoles(parsed);
+
           state.parsedCandidate = parsed;
-
-          els.resumeTextPreview.textContent = resumeText
-            ? resumeText.slice(0, 5000)
-            : "No text could be extracted from this file.";
-
+          els.resumeTextPreview.textContent = resumeText ? resumeText.slice(0, 5000) : "No text could be extracted from this file.";
           fillResumeForm(parsed);
           showNotice("Resume parsed. Please review the extracted details before saving.", "info");
         } catch (err) {
@@ -1483,35 +1643,28 @@
           full_name: "full_name",
           name: "full_name",
           fullname: "full_name",
-
           title: "title",
           job_title: "title",
           current_title: "title",
-
           total_experience: "total_experience",
           experience: "total_experience",
           total_years_experience: "total_experience",
           years_of_experience: "total_experience",
-
           company: "company",
           employer: "company",
           current_company: "company",
-
           location: "location",
           city: "location",
-
           email: "email",
           email_address: "email",
           personal_email: "email",
           work_email: "email",
-
           phone: "phone",
           mobile: "phone",
           mobile_number: "phone",
           contact_number: "phone",
           contact_no: "phone",
           phone_number: "phone",
-
           linkedin: "linkedin",
           linkedin_url: "linkedin",
           linkedin_profile: "linkedin"
@@ -1522,11 +1675,7 @@
         const rows = lines.slice(1).map(line => {
           const values = parseCsvLine(line);
           const obj = {};
-
-          headers.forEach((header, index) => {
-            obj[header] = values[index] ? values[index].trim() : "";
-          });
-
+          headers.forEach((header, index) => { obj[header] = values[index] ? values[index].trim() : ""; });
           return obj;
         });
 
@@ -1572,9 +1721,7 @@
           return showNotice("No bulk invite results to download yet.", "warning");
         }
 
-        const esc = (v) => /[",\n]/.test(String(v || ""))
-          ? `"${String(v || "").replace(/"/g, '""')}"`
-          : String(v || "");
+        const esc = (v) => /[",\n]/.test(String(v || "")) ? `"${String(v || "").replace(/"/g, '""')}"` : String(v || "");
 
         downloadCsv(
           "bulk-invite-results.csv",
@@ -1668,9 +1815,7 @@
         baseRows.forEach((row) => {
           const identityKey = getProspectIdentityKey(row);
           if (!identityKey) return;
-          if (!latestRowByProspect.has(identityKey)) {
-            latestRowByProspect.set(identityKey, row);
-          }
+          if (!latestRowByProspect.has(identityKey)) latestRowByProspect.set(identityKey, row);
         });
 
         latestRowByProspect.forEach((row) => {
@@ -1692,9 +1837,28 @@
 
       function renderSuggestedRolesCell(roles) {
         const arr = safeArrayParse(roles);
+        return arr.length ? arr.map(role => `<span class="tag-pill">${escapeHtml(role)}</span>`).join("") : "-";
+      }
+
+      function renderSkillsCell(skills) {
+        const arr = Array.isArray(skills) ? skills : [];
         return arr.length
-          ? arr.map(role => `<span class="tag-pill">${escapeHtml(role)}</span>`).join("")
-          : "-";
+          ? arr.map(skill => `<span class="tag-pill">${escapeHtml(skill)}</span>`).join("")
+          : `<span class="small">No skills extracted</span>`;
+      }
+
+      function renderMatchedRolesCell(matches) {
+        const arr = Array.isArray(matches) ? matches : [];
+        return arr.length
+          ? arr.map(item => `<span class="tag-pill">${escapeHtml(item.role)}${item.score ? ` (${escapeHtml(String(item.score))})` : ""}</span>`).join("")
+          : `<span class="small">No matched openings</span>`;
+      }
+
+      function renderResumeStatusCell(status) {
+        const noResume = normalizeText(status) === "no resume";
+        return noResume
+          ? `<span class="resume-pill none">No Resume</span>`
+          : `<span class="resume-pill ok">Resume</span>`;
       }
 
       function renderScoreBreakdown(b = {}) {
@@ -1703,15 +1867,14 @@
 
         return `
           <div class="small score-breakdown">
-            <div><strong>Base:</strong> ${escapeHtml(String(b.base_score || 0))}</div>
             <div><strong>Title:</strong> ${escapeHtml(String(b.title_score || 0))}</div>
             <div><strong>Role fit:</strong> ${escapeHtml(String(b.role_fit_score || 0))}</div>
             <div><strong>Location:</strong> ${escapeHtml(String(b.location_score || 0))}</div>
             <div><strong>Keywords:</strong> ${escapeHtml(String(b.keyword_score || 0))}</div>
-            <div><strong>Nice-to-have:</strong> ${escapeHtml(String(b.nice_to_have_score || 0))}</div>
-            <div><strong>Seniority:</strong> ${escapeHtml(String(b.seniority_score || 0))}</div>
-            <div style="margin-top:4px;"><strong>Matched keywords:</strong> ${escapeHtml(mk.join(", ") || "-")}</div>
-            <div><strong>Nice-to-have:</strong> ${escapeHtml(mn.join(", ") || "-")}</div>
+            <div><strong>Suggested roles:</strong> ${escapeHtml(String(b.nice_to_have_score || 0))}</div>
+            <div><strong>Resume / seniority:</strong> ${escapeHtml(String(b.seniority_score || 0))}</div>
+            <div style="margin-top:4px;"><strong>Matched skills:</strong> ${escapeHtml(mk.join(", ") || "-")}</div>
+            <div><strong>Suggested roles:</strong> ${escapeHtml(mn.join(", ") || "-")}</div>
             <div><strong>Location level:</strong> ${escapeHtml(b.matched_location_level || "-")}</div>
             <div><strong>Seniority detected:</strong> ${escapeHtml(b.candidate_seniority || "-")}</div>
           </div>
@@ -1749,7 +1912,7 @@
 
       function renderTable() {
         if (!state.filteredRows.length) {
-          els.tableBody.innerHTML = `<tr><td colspan="18" class="empty">No candidates found.</td></tr>`;
+          els.tableBody.innerHTML = `<tr><td colspan="21" class="empty">No candidates found.</td></tr>`;
           return;
         }
 
@@ -1760,7 +1923,7 @@
 
           const resume = row.resume_url
             ? `<a href="${escapeHtml(row.resume_url)}" target="_blank" class="inline-link" rel="noopener noreferrer">View Resume</a>`
-            : "-";
+            : `<span class="small">No resume</span>`;
 
           const statusOptions = STATUS_OPTIONS.map(opt => `
             <option value="${escapeHtml(opt)}" ${normalizeText(row.status) === normalizeText(opt) ? "selected" : ""}>
@@ -1779,10 +1942,13 @@
               <td>${escapeHtml(row.current_title || "-")}</td>
               <td>${escapeHtml(row.total_experience || "-")}</td>
               <td>${escapeHtml(row.current_company || "-")}</td>
+              <td>${renderResumeStatusCell(row.resume_status)}</td>
+              <td>${renderSkillsCell(row.skills)}</td>
               <td>${renderSuggestedRolesCell(row.suggested_roles)}</td>
               <td>${escapeHtml(row.top_match_role || "-")}</td>
-              <td>${row.match_score ? `<span class="score-pill">${escapeHtml(String(row.match_score))}</span>` : "-"}</td>
-              <td>${row.match_score ? `<span class="band-pill ${band.className}">${escapeHtml(band.label)}</span>` : "-"}</td>
+              <td>${renderMatchedRolesCell(row.matched_open_roles)}</td>
+              <td><span class="score-pill">${escapeHtml(String(row.match_score || 0))}</span></td>
+              <td><span class="band-pill ${band.className}">${escapeHtml(band.label)}</span></td>
               <td>${row.score_breakdown ? renderScoreBreakdown(row.score_breakdown) : "-"}</td>
               <td>${escapeHtml(row.job_title || "-")}</td>
               <td>${escapeHtml(row.client_name || "-")}</td>
@@ -1821,6 +1987,9 @@
             row.total_experience,
             row.top_match_role,
             (row.suggested_roles || []).join(" "),
+            (row.skills || []).join(" "),
+            (row.matched_open_roles || []).map(x => x.role).join(" "),
+            row.resume_status,
             row.phone,
             row.job_title,
             row.client_name,
@@ -1839,8 +2008,72 @@
         updatePipelineTracker();
       }
 
+      function buildDbRowFromProspectAndPipeline(r) {
+        const p = Array.isArray(r.prospects) ? (r.prospects[0] || {}) : (r.prospects || {});
+        const j = Array.isArray(r.jobs) ? (r.jobs[0] || {}) : (r.jobs || {});
+
+        let resolvedResumeUrl = state.prospectSchema.hasResumeUrl ? (p.resume_url || "") : "";
+        if (!resolvedResumeUrl && state.prospectSchema.hasResumePath && p.resume_path) {
+          const publicUrl = supabase.storage.from(RESUME_BUCKET).getPublicUrl(p.resume_path);
+          resolvedResumeUrl = publicUrl?.data?.publicUrl || "";
+        }
+
+        const hasResume = !!(resolvedResumeUrl || (state.prospectSchema.hasResumePath ? p.resume_path : ""));
+        const roleText = [
+          p.current_title || "",
+          p.current_company || "",
+          p.location || "",
+          state.prospectSchema.hasSuggestedRoles ? safeArrayParse(p.suggested_roles).join(" ") : "",
+          state.prospectSchema.hasTopMatchRole ? (p.top_match_role || "") : ""
+        ].join(" ");
+
+        const skills = hasResume ? extractSkillsFromText(roleText) : [];
+        const matchedOpenRoles = hasResume ? matchAgainstOpenJobs(roleText).slice(0, 5) : [];
+        const suggestedRoles = state.prospectSchema.hasSuggestedRoles ? safeArrayParse(p.suggested_roles) : [];
+
+        const aiResult = computeResumeAiScore({
+          current_title: p.current_title || "",
+          total_experience: state.prospectSchema.hasTotalExperience ? (p.total_experience || "") : "",
+          location: p.location || "",
+          suggested_roles: suggestedRoles,
+          matched_open_roles: matchedOpenRoles,
+          resume_url: resolvedResumeUrl,
+          resume_path: state.prospectSchema.hasResumePath ? (p.resume_path || "") : "",
+          skills
+        });
+
+        return {
+          pipeline_id: r.id,
+          prospect_id: r.prospect_id,
+          status: r.status,
+          notes: r.notes,
+          source: r.source,
+          match_score: aiResult.score,
+          location_rank: r.location_rank,
+          full_name: p.full_name || "",
+          current_title: p.current_title || "",
+          total_experience: state.prospectSchema.hasTotalExperience ? (p.total_experience || "") : "",
+          current_company: p.current_company || "",
+          location: p.location || "",
+          linkedin_url: p.linkedin_url || "",
+          email: p.personal_email || p.work_email || "",
+          phone: p.phone || "",
+          resume_url: resolvedResumeUrl,
+          resume_path: state.prospectSchema.hasResumePath ? (p.resume_path || "") : "",
+          resume_status: hasResume ? "Resume" : "No Resume",
+          skills,
+          suggested_roles: suggestedRoles,
+          top_match_role: state.prospectSchema.hasTopMatchRole ? (p.top_match_role || "") : "",
+          matched_open_roles: matchedOpenRoles,
+          job_title: j.title || "",
+          client_name: j.client_name || "",
+          score_breakdown: aiResult.breakdown,
+          is_signal_result: false
+        };
+      }
+
       async function loadData() {
-        els.tableBody.innerHTML = `<tr><td colspan="18" class="empty loading">Loading sourced candidates...</td></tr>`;
+        els.tableBody.innerHTML = `<tr><td colspan="21" class="empty loading">Loading sourced candidates...</td></tr>`;
 
         try {
           const prospectFields = [
@@ -1885,43 +2118,7 @@
               .range(from, to)
           );
 
-          const rows = (data || []).map(r => {
-            const p = Array.isArray(r.prospects) ? (r.prospects[0] || {}) : (r.prospects || {});
-            const j = Array.isArray(r.jobs) ? (r.jobs[0] || {}) : (r.jobs || {});
-
-            let resolvedResumeUrl = state.prospectSchema.hasResumeUrl ? (p.resume_url || "") : "";
-            if (!resolvedResumeUrl && state.prospectSchema.hasResumePath && p.resume_path) {
-              const publicUrl = supabase.storage.from(RESUME_BUCKET).getPublicUrl(p.resume_path);
-              resolvedResumeUrl = publicUrl?.data?.publicUrl || "";
-            }
-
-            return {
-              pipeline_id: r.id,
-              prospect_id: r.prospect_id,
-              status: r.status,
-              notes: r.notes,
-              source: r.source,
-              match_score: r.match_score,
-              location_rank: r.location_rank,
-              full_name: p.full_name || "",
-              current_title: p.current_title || "",
-              total_experience: state.prospectSchema.hasTotalExperience ? (p.total_experience || "") : "",
-              current_company: p.current_company || "",
-              location: p.location || "",
-              linkedin_url: p.linkedin_url || "",
-              email: p.personal_email || p.work_email || "",
-              phone: p.phone || "",
-              resume_url: resolvedResumeUrl,
-              resume_path: state.prospectSchema.hasResumePath ? (p.resume_path || "") : "",
-              suggested_roles: state.prospectSchema.hasSuggestedRoles ? safeArrayParse(p.suggested_roles) : [],
-              top_match_role: state.prospectSchema.hasTopMatchRole ? (p.top_match_role || "") : "",
-              job_title: j.title || "",
-              client_name: j.client_name || "",
-              score_breakdown: null,
-              is_signal_result: false
-            };
-          });
-
+          const rows = (data || []).map(buildDbRowFromProspectAndPipeline);
           state.persistedRows = rows;
 
           if (!state.signalMode) {
@@ -1934,7 +2131,7 @@
           applyFilters();
         } catch (error) {
           console.error(error);
-          els.tableBody.innerHTML = `<tr><td colspan="18" class="empty">${escapeHtml(error.message || "Failed to load candidates.")}</td></tr>`;
+          els.tableBody.innerHTML = `<tr><td colspan="21" class="empty">${escapeHtml(error.message || "Failed to load candidates.")}</td></tr>`;
           showNotice(error.message || "Failed to load candidates.", "error");
         }
       }
@@ -1945,770 +2142,455 @@
           .update({ status, updated_at: new Date().toISOString() })
           .eq("id", id);
 
-        if (error) return showNotice(error.message || "Failed to update status.", "error");
-
-        showNotice("Candidate status updated.", "success");
-        await loadData();
+        if (error) throw error;
       }
 
-      async function uploadResumeToStorage(file) {
-        const ext = (file.name.split(".").pop() || "pdf").toLowerCase();
-        const safeFileName = (file.name || "resume")
-          .replace(/[^\w.\-]+/g, "_")
-          .replace(/_+/g, "_");
+      async function uploadResumeToStorage(file, fileNamePrefix = "resume") {
+        if (!file) return { resume_path: "", resume_url: "" };
+        const safeName = `${fileNamePrefix}-${Date.now()}-${String(file.name || "resume").replace(/[^\w.-]+/g, "-")}`;
+        const filePath = `sourced/${safeName}`;
 
-        const path = `sourced-candidates/${Date.now()}_${crypto.randomUUID()}/${safeFileName}`;
-
-        const { error } = await supabase.storage.from(RESUME_BUCKET).upload(path, file, {
-          cacheControl: "3600",
-          upsert: false,
-          contentType: file.type || (
-            ext === "pdf"
-              ? "application/pdf"
-              : ext === "docx"
-                ? "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                : "application/msword"
-          )
+        const { error } = await supabase.storage.from(RESUME_BUCKET).upload(filePath, file, {
+          upsert: true,
+          cacheControl: "3600"
         });
 
         if (error) throw error;
 
-        const { data } = supabase.storage.from(RESUME_BUCKET).getPublicUrl(path);
-        return { resume_path: path, resume_url: data?.publicUrl || "" };
+        const publicUrl = supabase.storage.from(RESUME_BUCKET).getPublicUrl(filePath);
+        return {
+          resume_path: filePath,
+          resume_url: publicUrl?.data?.publicUrl || ""
+        };
+      }
+
+      async function createProspectFromParsedCandidate(parsed, extras = {}) {
+        const prospectPayload = {
+          full_name: parsed.full_name || "",
+          current_title: parsed.current_title || "",
+          current_company: parsed.current_company || "",
+          location: parsed.location || "",
+          linkedin_url: parsed.linkedin_url || "",
+          personal_email: parsed.email || "",
+          phone: parsed.phone || ""
+        };
+
+        if (state.prospectSchema.hasSuggestedRoles) prospectPayload.suggested_roles = parsed.suggested_roles || [];
+        if (state.prospectSchema.hasTopMatchRole) prospectPayload.top_match_role = parsed.top_match_role || "";
+        if (state.prospectSchema.hasResumeUrl) prospectPayload.resume_url = extras.resume_url || "";
+        if (state.prospectSchema.hasResumePath) prospectPayload.resume_path = extras.resume_path || "";
+        if (state.prospectSchema.hasTotalExperience) prospectPayload.total_experience = parsed.total_experience || "";
+
+        const { data, error } = await supabase
+          .from("prospects")
+          .insert(prospectPayload)
+          .select("id")
+          .single();
+
+        if (error) throw error;
+        return data?.id;
+      }
+
+      async function addPipelineRow(prospectId, options = {}) {
+        const payload = {
+          prospect_id: prospectId,
+          status: options.status || "sourced",
+          notes: options.notes || "",
+          source: options.source || "manual",
+          recruiter_email: state.sessionUser?.email || null
+        };
+
+        if (options.job_id) payload.job_id = options.job_id;
+
+        const { data, error } = await supabase
+          .from("prospect_pipeline")
+          .insert(payload)
+          .select("id")
+          .single();
+
+        if (error) throw error;
+        return data?.id;
       }
 
       async function saveResumeCandidate() {
-        if (!state.uploadedResumeFile) {
-          return showNotice("Please choose a resume first.", "warning");
-        }
-
         const full_name = els.candidateFullName.value.trim();
-        const personal_email = els.candidateEmail.value.trim();
+        const email = els.candidateEmail.value.trim();
         const phone = els.candidatePhone.value.trim();
         const linkedin_url = els.candidateLinkedIn.value.trim();
         const current_title = els.candidateTitle.value.trim();
         const current_company = els.candidateCompany.value.trim();
+        const total_experience = els.candidateTotalExperience.value.trim();
         const location = els.candidateLocation.value.trim();
         const top_match_role = els.candidateTopMatch.value.trim();
         const notes = els.candidateNotes.value.trim();
-        const job_id = els.candidateJobId.value.trim();
-
-        let suggested_roles = Array.from(
-          els.suggestedRolesWrap.querySelectorAll(".tag-pill")
-        ).map(el => el.textContent.trim()).filter(Boolean);
-
-        if (!suggested_roles.length && top_match_role) {
-          suggested_roles = [top_match_role];
-        }
+        const job_id = els.candidateJobId.value || null;
 
         if (!full_name) {
-          return showNotice("Full name is required.", "warning");
+          showNotice("Full name is required.", "warning");
+          return;
         }
 
-        els.saveResumeCandidateBtn.disabled = true;
-        els.saveResumeCandidateBtn.textContent = "Saving...";
-
         try {
-          const storageData = await uploadResumeToStorage(state.uploadedResumeFile);
-          const prospectId = crypto.randomUUID();
+          els.saveResumeCandidateBtn.disabled = true;
 
-          const prospectPayload = {
-            id: prospectId,
+          let upload = { resume_path: "", resume_url: "" };
+          if (state.uploadedResumeFile) {
+            upload = await uploadResumeToStorage(state.uploadedResumeFile, full_name || "resume");
+          }
+
+          const parsed = {
             full_name,
+            email,
+            phone,
+            linkedin_url,
             current_title,
             current_company,
+            total_experience,
             location,
-            personal_email,
-            phone,
-            linkedin_url
+            top_match_role,
+            notes,
+            resume_text: state.extractedResumeText || "",
+            skills: state.parsedCandidate?.skills || extractSkillsFromText(state.extractedResumeText || ""),
+            matched_open_roles: state.parsedCandidate?.matched_open_roles || [],
+            suggested_roles: state.parsedCandidate?.suggested_roles || []
           };
 
-          if (state.prospectSchema.hasSuggestedRoles) prospectPayload.suggested_roles = suggested_roles;
-          if (state.prospectSchema.hasTopMatchRole) prospectPayload.top_match_role = top_match_role;
-          if (state.prospectSchema.hasResumeUrl) prospectPayload.resume_url = storageData.resume_url;
-          if (state.prospectSchema.hasResumePath) prospectPayload.resume_path = storageData.resume_path;
+          if (!parsed.top_match_role) {
+            Object.assign(parsed, buildSuggestedRoles(parsed));
+          }
 
-          const { error: prospectError } = await supabase.from("prospects").insert(prospectPayload);
-          if (prospectError) throw prospectError;
+          if (!parsed.matched_open_roles?.length) {
+            parsed.matched_open_roles = buildMatchedOpenRoles(parsed);
+          }
 
-          const pipelinePayload = {
-            prospect_id: prospectId,
-            status: "sourced",
-            recruiter_email: state.sessionUser?.email || null,
-            notes: notes || "Added via resume upload",
-            source: "resume_upload",
-            match_score: 0,
-            location_rank: 0
-          };
+          const prospectId = await createProspectFromParsedCandidate(parsed, upload);
+          await addPipelineRow(prospectId, { job_id, notes, source: "resume_upload", status: "sourced" });
 
-          if (job_id) pipelinePayload.job_id = job_id;
-
-          const { error: pipelineError } = await supabase.from("prospect_pipeline").insert(pipelinePayload);
-          if (pipelineError) throw pipelineError;
-
-          showNotice(`${full_name} was added.`, "success");
           closeResumeModal();
           resetResumeForm();
           await loadData();
+          showNotice("Candidate saved to sourced pipeline.", "success");
         } catch (err) {
           console.error(err);
           showNotice(err.message || "Failed to save candidate.", "error");
         } finally {
           els.saveResumeCandidateBtn.disabled = false;
-          els.saveResumeCandidateBtn.textContent = "Save Candidate";
         }
       }
 
-      async function handleBulkUpload(file) {
+      async function bulkUploadCsv(file) {
         if (!file) return;
 
-        if (!String(file.name || "").toLowerCase().endsWith(".csv")) {
-          return showNotice("Please upload a CSV file only.", "warning");
-        }
-
-        els.bulkUploadBtn.disabled = true;
-        els.bulkUploadBtn.textContent = "Uploading...";
-
         try {
-          const { headers, rows } = parseCsv(await file.text());
-          const required = ["full_name", "title", "total_experience", "email", "phone"];
-          const missing = required.filter(h => !headers.includes(h));
-
-          if (missing.length) {
-            throw new Error(`Missing required CSV column(s): ${missing.join(", ")}`);
-          }
-
+          const text = await file.text();
+          const { rows } = parseCsv(text);
           if (!rows.length) {
-            throw new Error("The CSV file has no data rows.");
+            showNotice("No rows found in CSV.", "warning");
+            return;
           }
 
-          const prospectsPayload = [];
-          const pipelinePayload = [];
+          let success = 0;
+          let failed = 0;
 
-          for (const row of rows.filter(row =>
-            Object.values(row).some(v => String(v || "").trim() !== "")
-          )) {
-            const fullName = String(row.full_name || "").trim();
-            const title = String(row.title || "").trim();
-            const totalExperience = String(row.total_experience || "").trim();
-            const email = String(row.email || "").trim();
-            const phone = String(row.phone || "").trim();
+          for (const row of rows) {
+            try {
+              if (!row.full_name) {
+                failed += 1;
+                continue;
+              }
 
-            if (!fullName) continue;
+              const parsed = {
+                full_name: row.full_name || "",
+                email: row.email || "",
+                phone: row.phone || "",
+                linkedin_url: row.linkedin || "",
+                current_title: row.title || "",
+                current_company: row.company || "",
+                total_experience: row.total_experience || "",
+                location: row.location || "",
+                resume_text: ""
+              };
 
-            const roleInfo = buildSuggestedRoles({
-              full_name: fullName,
-              current_title: title,
-              current_company: "",
-              location: "",
-              total_experience: totalExperience,
-              resume_text: [fullName, title, totalExperience].join(" ")
-            });
+              parsed.skills = [];
+              Object.assign(parsed, buildSuggestedRoles(parsed));
+              parsed.matched_open_roles = buildMatchedOpenRoles(parsed);
 
-            const prospectId = crypto.randomUUID();
-
-            const prospectRow = {
-              id: prospectId,
-              full_name: fullName,
-              current_title: title,
-              current_company: "",
-              location: "",
-              personal_email: email,
-              phone: phone,
-              linkedin_url: ""
-            };
-
-            if (state.prospectSchema.hasTotalExperience) {
-              prospectRow.total_experience = totalExperience;
+              const prospectId = await createProspectFromParsedCandidate(parsed, { resume_path: "", resume_url: "" });
+              await addPipelineRow(prospectId, { source: "bulk_upload", status: "sourced" });
+              success += 1;
+            } catch (innerErr) {
+              console.error(innerErr);
+              failed += 1;
             }
-
-            if (state.prospectSchema.hasSuggestedRoles) {
-              prospectRow.suggested_roles = roleInfo.suggested_roles || [];
-            }
-
-            if (state.prospectSchema.hasTopMatchRole) {
-              prospectRow.top_match_role = roleInfo.top_match_role || "";
-            }
-
-            prospectsPayload.push(prospectRow);
-
-            pipelinePayload.push({
-              prospect_id: prospectId,
-              status: "sourced",
-              recruiter_email: state.sessionUser?.email || null,
-              notes: `Added via bulk upload${totalExperience ? ` | Experience: ${totalExperience}` : ""}`,
-              source: "bulk_upload",
-              match_score: 0,
-              location_rank: 0
-            });
           }
 
-          if (!prospectsPayload.length) {
-            throw new Error("No valid rows were found to upload.");
-          }
-
-          const { error: p1 } = await supabase.from("prospects").insert(prospectsPayload);
-          if (p1) throw p1;
-
-          const { error: p2 } = await supabase.from("prospect_pipeline").insert(pipelinePayload);
-          if (p2) throw p2;
-
-          showNotice(`${prospectsPayload.length} candidate(s) added.`, "success");
-          els.bulkUploadInput.value = "";
           await loadData();
+          showNotice(`Bulk upload complete. ${success} added, ${failed} failed.`, failed ? "warning" : "success");
         } catch (err) {
           console.error(err);
-          showNotice(err.message || "Bulk upload failed.", "error");
-        } finally {
-          els.bulkUploadBtn.disabled = false;
-          els.bulkUploadBtn.textContent = "Bulk Upload";
+          showNotice(err.message || "Failed to process bulk upload.", "error");
         }
       }
 
-      async function findOrCreateProspect({ full_name, email }) {
-        const cleanEmail = String(email || "").trim().toLowerCase();
-        const cleanName = String(full_name || "").trim();
+      async function createInviteRecord(fullName, email) {
+        const token = generateInviteToken();
+        const invite_link = buildInviteLink(token);
 
-        const { data, error } = await supabase
-          .from("prospects")
-          .select("id, full_name, personal_email")
-          .eq("personal_email", cleanEmail)
-          .order("created_at", { ascending: false })
-          .limit(1);
-
-        if (error) throw error;
-
-        const existing = Array.isArray(data) && data.length ? data[0] : null;
-        if (existing?.id) return { prospect_id: existing.id, created: false };
-
-        const prospectId = crypto.randomUUID();
-        const { error: insertError } = await supabase.from("prospects").insert({
-          id: prospectId,
-          full_name: cleanName,
-          personal_email: cleanEmail
-        });
-
-        if (insertError) throw insertError;
-        return { prospect_id: prospectId, created: true };
-      }
-
-      async function getExistingActiveInvite(email) {
-        const cleanEmail = String(email || "").trim().toLowerCase();
-
-        const { data, error } = await supabase
-          .from("buzzpool_invites")
-          .select("id, invite_token, invite_status, sent_at, updated_at, created_at")
-          .eq("invite_email", cleanEmail)
-          .in("invite_status", ["pending", "invite_sent", "invite_opened", "profile_started"])
-          .order("updated_at", { ascending: false })
-          .order("created_at", { ascending: false })
-          .limit(1);
-
-        if (error) throw error;
-        return Array.isArray(data) && data.length ? data[0] : null;
-      }
-
-      async function ensurePipelineInviteStatus(prospectId) {
-        const { data, error } = await supabase
-          .from("prospect_pipeline")
-          .select("id, status, job_id")
-          .eq("prospect_id", prospectId)
-          .order("created_at", { ascending: false })
-          .limit(1);
-
-        if (error) throw error;
-
-        const existing = Array.isArray(data) && data.length ? data[0] : null;
-
-        if (existing?.id) {
-          const { error: updateError } = await supabase
-            .from("prospect_pipeline")
-            .update({
-              status: "invite_sent",
-              recruiter_email: state.sessionUser?.email || null,
-              source: "bulk_invite",
-              updated_at: new Date().toISOString()
-            })
-            .eq("id", existing.id);
-
-          if (updateError) throw updateError;
-          return existing.id;
-        }
-
-        const insertPayload = {
-          prospect_id: prospectId,
-          status: "invite_sent",
+        const payload = {
+          full_name: fullName || "",
+          invite_email: email,
           recruiter_email: state.sessionUser?.email || null,
-          notes: "Added via invite flow",
-          source: "bulk_invite",
-          match_score: 0,
-          location_rank: 0
+          invite_token: token,
+          invite_status: "invite_sent",
+          sent_at: new Date().toISOString(),
+          notes: null
         };
 
-        const { error: insertError } = await supabase.from("prospect_pipeline").insert(insertPayload);
-        if (insertError) throw insertError;
-
-        return null;
-      }
-
-      async function createBuzzpoolInvite({ prospectId, full_name, email }) {
-        const token = generateInviteToken();
-
-        const { data, error } = await supabase
-          .from("buzzpool_invites")
-          .insert({
-            prospect_id: prospectId,
-            full_name: String(full_name || "").trim(),
-            invite_email: String(email || "").trim().toLowerCase(),
-            recruiter_email: state.sessionUser?.email || null,
-            invite_token: token,
-            invite_status: "pending",
-            notes: "Generated via candidate invite flow",
-            sent_at: null,
-            updated_at: new Date().toISOString()
-          })
-          .select("id, invite_token, invite_status, sent_at")
-          .single();
-
+        const { error } = await supabase.from("buzzpool_invites").insert(payload);
         if (error) throw error;
-        return data;
+
+        return { invite_link };
       }
 
-      async function markInviteSent(inviteId) {
-        const { error } = await supabase
-          .from("buzzpool_invites")
-          .update({
-            invite_status: "invite_sent",
-            sent_at: new Date().toISOString(),
-            updated_at: new Date().toISOString()
-          })
-          .eq("id", inviteId);
-
-        if (error) throw error;
-      }
-
-      async function markInviteFailed(inviteId, errorMessage) {
-        if (!inviteId) return;
-
-        const { error } = await supabase
-          .from("buzzpool_invites")
-          .update({
-            invite_status: "send_failed",
-            notes: String(errorMessage || "Send failed"),
-            updated_at: new Date().toISOString()
-          })
-          .eq("id", inviteId);
-
-        if (error) console.error(error);
-      }
-
-      async function sendInviteEmail({ full_name, email, inviteLink }) {
-        return await invokeEdgeFunction("send-buzzpool-invite", {
-          full_name,
-          email,
-          invite_link: inviteLink
-        });
-      }
-
-      async function sendSingleInvite({ pipelineId, full_name, email }) {
-        const cleanEmail = String(email || "").trim().toLowerCase();
-        const cleanName = String(full_name || "").trim();
-
-        if (!cleanEmail) return showNotice("Candidate has no email.", "warning");
-        if (!isValidEmail(cleanEmail)) return showNotice("Invalid email format.", "warning");
-
-        let inviteRecord = null;
+      async function sendSingleInvite(pipelineId, fullName, email) {
+        if (!isValidEmail(email)) {
+          showNotice("Invalid email address.", "warning");
+          return;
+        }
 
         try {
-          const existingInvite = await getExistingActiveInvite(cleanEmail);
-          let inviteLink = "";
+          const invite = await createInviteRecord(fullName, email);
 
-          if (existingInvite?.id) {
-            inviteRecord = existingInvite;
-            inviteLink = buildInviteLink(existingInvite.invite_token);
-
-            if (normalizeText(existingInvite.invite_status) !== "pending") {
-              return showNotice("Candidate already has an active invite.", "info");
-            }
-          } else {
-            const prospect = await findOrCreateProspect({ full_name: cleanName, email: cleanEmail });
-            inviteRecord = await createBuzzpoolInvite({
-              prospectId: prospect.prospect_id,
-              full_name: cleanName,
-              email: cleanEmail
+          // Optional edge function. Fail softly if not configured.
+          try {
+            await invokeEdgeFunction("send-buzzpool-invite", {
+              full_name: fullName,
+              email,
+              invite_link: invite.invite_link
             });
-            inviteLink = buildInviteLink(inviteRecord.invite_token);
+          } catch (mailErr) {
+            console.warn("Invite email function issue:", mailErr);
           }
 
-          await sendInviteEmail({ full_name: cleanName, email: cleanEmail, inviteLink });
-          await markInviteSent(inviteRecord.id);
-
-          await supabase
-            .from("prospect_pipeline")
-            .update({ status: "invite_sent", updated_at: new Date().toISOString() })
-            .eq("id", pipelineId);
-
-          showNotice("Invite email sent successfully.", "success");
-          await loadInviteStats();
+          await updateStatus(pipelineId, "invite_sent");
           await loadData();
+          showNotice(`Invite prepared for ${fullName}.`, "success");
         } catch (err) {
           console.error(err);
-          if (inviteRecord?.id) {
-            await markInviteFailed(inviteRecord.id, err.message || "Failed to send invite.");
-          }
           showNotice(err.message || "Failed to send invite.", "error");
-          await loadInviteStats();
-          updatePipelineTracker();
         }
       }
 
-      function getInvitableSourcedCandidates() {
-        return state.rows.filter(row =>
+      async function inviteAllSourced() {
+        const candidates = state.persistedRows.filter(row =>
           normalizeText(row.status) === "sourced" &&
-          !!String(row.email || "").trim() &&
-          isValidEmail(row.email || "") &&
-          !row.is_signal_result
+          row.email &&
+          isValidEmail(row.email)
         );
-      }
 
-      async function sendInviteToAllSourcedCandidates() {
-        const candidates = getInvitableSourcedCandidates();
         if (!candidates.length) {
-          return showNotice("No sourced candidates with valid emails found.", "warning");
+          showNotice("No sourced candidates with valid emails found.", "warning");
+          return;
         }
 
-        const originalText = els.inviteAllSourcedBtn.textContent;
-        els.inviteAllSourcedBtn.disabled = true;
-        els.inviteAllSourcedBtn.textContent = "Sending...";
-        let sentCount = 0;
-        let skippedCount = 0;
-        let errorCount = 0;
+        let success = 0;
+        let failed = 0;
 
-        try {
-          for (const candidate of candidates) {
-            const email = String(candidate.email || "").trim().toLowerCase();
-            const full_name = String(candidate.full_name || "").trim();
-            let inviteRecord = null;
-
+        for (const row of candidates) {
+          try {
+            const invite = await createInviteRecord(row.full_name, row.email);
             try {
-              const existingInvite = await getExistingActiveInvite(email);
-              let inviteLink = "";
-
-              if (existingInvite?.id) {
-                if (normalizeText(existingInvite.invite_status) !== "pending") {
-                  skippedCount++;
-                  continue;
-                }
-
-                inviteRecord = existingInvite;
-                inviteLink = buildInviteLink(existingInvite.invite_token);
-              } else {
-                const prospect = await findOrCreateProspect({ full_name, email });
-                inviteRecord = await createBuzzpoolInvite({
-                  prospectId: prospect.prospect_id,
-                  full_name,
-                  email
-                });
-                inviteLink = buildInviteLink(inviteRecord.invite_token);
-              }
-
-              await sendInviteEmail({ full_name, email, inviteLink });
-              await markInviteSent(inviteRecord.id);
-
-              await supabase
-                .from("prospect_pipeline")
-                .update({ status: "invite_sent", updated_at: new Date().toISOString() })
-                .eq("id", candidate.pipeline_id);
-
-              sentCount++;
-            } catch (rowError) {
-              console.error(rowError);
-              if (inviteRecord?.id) {
-                await markInviteFailed(inviteRecord.id, rowError.message || "Failed to send invite.");
-              }
-              errorCount++;
+              await invokeEdgeFunction("send-buzzpool-invite", {
+                full_name: row.full_name,
+                email: row.email,
+                invite_link: invite.invite_link
+              });
+            } catch (mailErr) {
+              console.warn("Invite email function issue:", mailErr);
             }
+
+            await updateStatus(row.pipeline_id, "invite_sent");
+            success += 1;
+          } catch (err) {
+            console.error(err);
+            failed += 1;
           }
-
-          showNotice(
-            `Auto invite finished. Sent: ${sentCount}, Skipped: ${skippedCount}, Errors: ${errorCount}`,
-            sentCount > 0 ? "success" : "info"
-          );
-
-          await loadInviteStats();
-          await loadData();
-        } finally {
-          els.inviteAllSourcedBtn.disabled = false;
-          els.inviteAllSourcedBtn.textContent = originalText;
         }
+
+        await loadData();
+        showNotice(`Invite all complete. ${success} sent, ${failed} failed.`, failed ? "warning" : "success");
       }
 
-      async function handleBulkInviteCsv(file) {
+      async function bulkInviteCsv(file) {
         if (!file) return;
 
-        if (!String(file.name || "").toLowerCase().endsWith(".csv")) {
-          return showNotice("Please upload a CSV file only.", "warning");
-        }
-
-        resetBulkInviteResults();
-        els.bulkInviteResults.value = "Processing bulk invites...";
-
         try {
-          const { headers, rows } = parseCsv(await file.text());
-          const missing = ["full_name", "email"].filter(h => !headers.includes(h));
-
-          if (missing.length) {
-            throw new Error(`Missing required CSV column(s): ${missing.join(", ")}`);
-          }
-
+          const text = await file.text();
+          const { rows } = parseCsv(text);
           if (!rows.length) {
-            throw new Error("The CSV file has no data rows.");
+            showNotice("No rows found in bulk invite CSV.", "warning");
+            return;
           }
 
           const results = [];
-
           for (const row of rows) {
-            const full_name = String(row.full_name || "").trim();
-            const email = String(row.email || "").trim().toLowerCase();
+            const full_name = row.full_name || "";
+            const email = row.email || "";
 
-            if (!full_name && !email) continue;
-
-            if (!email || !isValidEmail(email)) {
+            if (!full_name || !isValidEmail(email)) {
               results.push({
                 full_name,
                 email,
                 status: "failed",
                 invite_link: "",
-                notes: "Invalid or missing email."
+                notes: "Missing name or invalid email"
               });
               continue;
             }
 
-            let inviteRecord = null;
-
             try {
-              const prospectResult = await findOrCreateProspect({ full_name, email });
-              const prospectId = prospectResult.prospect_id;
-              const existingInvite = await getExistingActiveInvite(email);
-              let inviteLink = "";
-
-              if (existingInvite?.id) {
-                inviteRecord = existingInvite;
-                inviteLink = buildInviteLink(existingInvite.invite_token);
-
-                if (normalizeText(existingInvite.invite_status) !== "pending") {
-                  results.push({
-                    full_name,
-                    email,
-                    status: "skipped",
-                    invite_link: inviteLink,
-                    notes: "Candidate already has an active invite."
-                  });
-                  continue;
-                }
-              } else {
-                inviteRecord = await createBuzzpoolInvite({ prospectId, full_name, email });
-                inviteLink = buildInviteLink(inviteRecord.invite_token);
+              const invite = await createInviteRecord(full_name, email);
+              try {
+                await invokeEdgeFunction("send-buzzpool-invite", {
+                  full_name,
+                  email,
+                  invite_link: invite.invite_link
+                });
+              } catch (mailErr) {
+                console.warn("Invite email function issue:", mailErr);
               }
-
-              await sendInviteEmail({ full_name, email, inviteLink });
-              await markInviteSent(inviteRecord.id);
-              await ensurePipelineInviteStatus(prospectId);
 
               results.push({
                 full_name,
                 email,
                 status: "sent",
-                invite_link: inviteLink,
-                notes: "Invite sent successfully."
+                invite_link: invite.invite_link,
+                notes: ""
               });
             } catch (err) {
-              console.error(err);
-              if (inviteRecord?.id) {
-                await markInviteFailed(inviteRecord.id, err.message || "Failed to send invite.");
-              }
-
               results.push({
                 full_name,
                 email,
                 status: "failed",
                 invite_link: "",
-                notes: err.message || "Failed to send invite."
+                notes: err.message || "Failed to create invite"
               });
             }
           }
 
           state.bulkInviteResults = results;
-          els.bulkInviteResults.value = results
-            .map(r => `${r.full_name || "-"} | ${r.email || "-"} | ${r.status} | ${r.notes || ""}`)
-            .join("\n");
+          els.bulkInviteResults.value = results.map(r =>
+            `${r.full_name || "-"} | ${r.email || "-"} | ${r.status} | ${r.notes || r.invite_link || ""}`
+          ).join("\n");
 
           await loadInviteStats();
-          await loadData();
+          updatePipelineTracker();
           showNotice("Bulk invite processing completed.", "success");
         } catch (err) {
           console.error(err);
-          els.bulkInviteResults.value = err.message || "Bulk invite failed.";
-          showNotice(err.message || "Bulk invite failed.", "error");
+          showNotice(err.message || "Failed to process bulk invite CSV.", "error");
         }
       }
 
-      function inferSeniority(text) {
-        const t = normalizeText(text);
-        if (/\b(head|director|vp|avp|chief|cxo|executive)\b/.test(t)) return "leadership";
-        if (/\b(manager|management)\b/.test(t)) return "manager";
-        if (/\b(senior|sr\.?)\b/.test(t)) return "senior";
-        return "individual_contributor";
-      }
-
-      function computeSignalScore(row, criteria) {
-        const haystack = normalizeText([
+      function computeSignalScore(row, filters) {
+        const text = normalizeText([
           row.full_name,
           row.current_title,
           row.current_company,
           row.location,
           row.total_experience,
-          row.email,
-          row.phone,
+          row.top_match_role,
           (row.suggested_roles || []).join(" "),
-          row.top_match_role
+          (row.skills || []).join(" "),
+          (row.matched_open_roles || []).map(v => v.role).join(" ")
         ].join(" "));
 
-        const breakdown = {
-          base_score: 0,
-          title_score: 0,
-          role_fit_score: 0,
-          location_score: 0,
-          keyword_score: 0,
-          nice_to_have_score: 0,
-          seniority_score: 0,
-          matched_keywords: [],
-          matched_nice_to_haves: [],
-          matched_location_level: "-",
-          candidate_seniority: inferSeniority([row.current_title, row.top_match_role].join(" "))
-        };
+        let title_score = 0;
+        let role_fit_score = 0;
+        let location_score = 0;
+        let keyword_score = 0;
+        let nice_to_have_score = 0;
+        let seniority_score = 0;
 
-        let total = 0;
+        if (filters.title && text.includes(normalizeText(filters.title))) title_score += 20;
+        if (row.top_match_role && normalizeText(row.top_match_role).includes(normalizeText(filters.title || ""))) role_fit_score += 18;
 
-        if (criteria.title) {
-          const titleNeedle = normalizeText(criteria.title);
-          if (
-            haystack.includes(titleNeedle) ||
-            normalizeText(row.top_match_role).includes(titleNeedle) ||
-            normalizeText(row.current_title).includes(titleNeedle)
-          ) {
-            breakdown.title_score = 20;
-            total += 20;
-          }
-        }
+        const mustKeywords = parseCommaList(filters.keywords);
+        const niceKeywords = parseCommaList(filters.niceKeywords);
 
-        if (row.top_match_role && criteria.title) {
-          if (normalizeText(row.top_match_role).includes(normalizeText(criteria.title))) {
-            breakdown.role_fit_score = 15;
-            total += 15;
-          }
-        }
+        const matchedMust = mustKeywords.filter(k => text.includes(normalizeText(k)));
+        const matchedNice = niceKeywords.filter(k => text.includes(normalizeText(k)));
 
-        const locationParts = [criteria.country, criteria.state, criteria.city].filter(Boolean);
-        for (const part of locationParts) {
-          if (haystack.includes(normalizeText(part))) {
-            breakdown.location_score += 5;
-          }
-        }
+        keyword_score += Math.min(matchedMust.length * 8, 24);
+        nice_to_have_score += Math.min(matchedNice.length * 4, 12);
 
-        if (criteria.city && haystack.includes(normalizeText(criteria.city))) {
-          breakdown.matched_location_level = "city";
-        } else if (criteria.state && haystack.includes(normalizeText(criteria.state))) {
-          breakdown.matched_location_level = "state";
-        } else if (criteria.country && haystack.includes(normalizeText(criteria.country))) {
-          breakdown.matched_location_level = "country";
-        }
+        if (filters.country && text.includes(normalizeText(filters.country))) location_score += 10;
+        if (filters.state && text.includes(normalizeText(filters.state))) location_score += 7;
+        if (filters.city && text.includes(normalizeText(filters.city))) location_score += 5;
 
-        total += breakdown.location_score;
+        const detectedSeniority = detectSeniority(row.total_experience, row.current_title);
+        if (filters.seniority && detectedSeniority === filters.seniority) seniority_score += 10;
 
-        for (const kw of criteria.mustHaves) {
-          if (haystack.includes(normalizeText(kw))) {
-            breakdown.matched_keywords.push(kw);
-            breakdown.keyword_score += 8;
-          }
-        }
-
-        total += breakdown.keyword_score;
-
-        for (const kw of criteria.niceToHaves) {
-          if (haystack.includes(normalizeText(kw))) {
-            breakdown.matched_nice_to_haves.push(kw);
-            breakdown.nice_to_have_score += 4;
-          }
-        }
-
-        total += breakdown.nice_to_have_score;
-
-        if (criteria.seniority) {
-          if (breakdown.candidate_seniority === criteria.seniority) {
-            breakdown.seniority_score = 10;
-            total += 10;
-          }
-        }
-
-        breakdown.base_score = total;
+        const score = Math.min(100, title_score + role_fit_score + location_score + keyword_score + nice_to_have_score + seniority_score);
 
         return {
-          score: Math.min(total, 100),
-          breakdown
+          score,
+          breakdown: {
+            base_score: 0,
+            title_score,
+            role_fit_score,
+            location_score,
+            keyword_score,
+            nice_to_have_score,
+            seniority_score,
+            matched_keywords: matchedMust,
+            matched_nice_to_haves: matchedNice,
+            matched_location_level: [filters.city, filters.state, filters.country].filter(Boolean).join(", ") || "-",
+            candidate_seniority: detectedSeniority
+          }
         };
       }
 
       function runSignal() {
-        const criteria = {
+        const filters = {
           title: els.signalTitle.value.trim(),
           country: els.signalCountry.value.trim(),
           state: els.signalState.value.trim(),
           city: els.signalCity.value.trim(),
           seniority: els.signalSeniority.value.trim(),
-          mustHaves: parseCommaList(els.signalKeywords.value),
-          niceToHaves: parseCommaList(els.signalNiceToHaveKeywords.value),
-          linkedRoleId: els.signalRoleLink.value.trim()
+          roleId: els.signalRoleLink.value,
+          keywords: els.signalKeywords.value.trim(),
+          niceKeywords: els.signalNiceToHaveKeywords.value.trim()
         };
 
-        const baseRows = [...state.persistedRows];
-        const scored = baseRows.map(row => {
-          const { score, breakdown } = computeSignalScore(row, criteria);
+        const resultRows = state.persistedRows.map(row => {
+          const signal = computeSignalScore(row, filters);
           return {
             ...row,
-            match_score: score,
-            score_breakdown: breakdown,
+            match_score: signal.score,
+            score_breakdown: signal.breakdown,
             is_signal_result: true
           };
-        });
+        })
+        .filter(row => row.match_score > 0)
+        .sort((a, b) => b.match_score - a.match_score);
 
-        const filtered = scored
-          .filter(row => row.match_score > 0)
-          .sort((a, b) => (b.match_score || 0) - (a.match_score || 0));
-
-        state.signalRows = filtered;
         state.signalMode = true;
-        state.rows = [...filtered];
-        state.filteredRows = [...filtered];
+        state.signalRows = resultRows;
+        state.rows = resultRows;
+        state.filteredRows = resultRows;
         els.backToPipelineBtn.style.display = "inline-flex";
-        populateFilters(state.rows);
         applyFilters();
-
-        if (!filtered.length) {
-          showNotice("Signal finished, but no matching candidates were found.", "info");
-        } else {
-          showNotice(`Signal finished. ${filtered.length} candidate(s) matched.`, "success");
-        }
+        showNotice(`${resultRows.length} Signal candidate(s) found.`, "info");
       }
 
       function clearSignal() {
         resetSignalForm();
-        state.signalRows = [];
         state.signalMode = false;
+        state.signalRows = [];
         state.rows = [...state.persistedRows];
         state.filteredRows = [...state.persistedRows];
         els.backToPipelineBtn.style.display = "none";
-        populateFilters(state.rows);
         applyFilters();
       }
 
@@ -2717,98 +2599,66 @@
         if (!row) return;
 
         try {
-          const cleanEmail = String(row.email || "").trim();
-          const cleanPhone = String(row.phone || "").trim();
-          const cleanLinkedIn = String(row.linkedin_url || "").trim();
-          const cleanName = String(row.full_name || "").trim();
-
-          if (!cleanName) {
-            return showNotice("Candidate needs a full name before saving.", "warning");
-          }
-
-          let existingProspectId = row.prospect_id || null;
-
-          if (!existingProspectId && cleanEmail) {
-            const { data, error } = await supabase
-              .from("prospects")
-              .select("id")
-              .eq("personal_email", cleanEmail)
-              .limit(1);
-
-            if (!error && Array.isArray(data) && data.length) {
-              existingProspectId = data[0].id;
-            }
-          }
-
-          if (!existingProspectId) {
-            const newId = crypto.randomUUID();
-            const prospectPayload = {
-              id: newId,
-              full_name: cleanName,
-              current_title: row.current_title || "",
-              current_company: row.current_company || "",
-              location: row.location || "",
-              personal_email: cleanEmail,
-              phone: cleanPhone,
-              linkedin_url: cleanLinkedIn
-            };
-
-            if (state.prospectSchema.hasTotalExperience) {
-              prospectPayload.total_experience = row.total_experience || "";
-            }
-
-            if (state.prospectSchema.hasSuggestedRoles) prospectPayload.suggested_roles = row.suggested_roles || [];
-            if (state.prospectSchema.hasTopMatchRole) prospectPayload.top_match_role = row.top_match_role || "";
-
-            const { error: insertProspectError } = await supabase.from("prospects").insert(prospectPayload);
-            if (insertProspectError) throw insertProspectError;
-
-            existingProspectId = newId;
-          }
-
-          const pipelinePayload = {
-            prospect_id: existingProspectId,
-            status: "sourced",
-            recruiter_email: state.sessionUser?.email || null,
-            notes: row.notes || "Added from TalentBuzz Signal",
-            source: "signal",
-            match_score: row.match_score || 0,
-            location_rank: row.location_rank || 0
+          const parsed = {
+            full_name: row.full_name || "",
+            email: row.email || "",
+            phone: row.phone || "",
+            linkedin_url: row.linkedin_url || "",
+            current_title: row.current_title || "",
+            current_company: row.current_company || "",
+            total_experience: row.total_experience || "",
+            location: row.location || "",
+            top_match_role: row.top_match_role || "",
+            suggested_roles: row.suggested_roles || [],
+            matched_open_roles: row.matched_open_roles || [],
+            skills: row.skills || [],
+            resume_text: ""
           };
 
-          const { error: insertPipelineError } = await supabase.from("prospect_pipeline").insert(pipelinePayload);
-          if (insertPipelineError) throw insertPipelineError;
+          const prospectId = await createProspectFromParsedCandidate(parsed, {
+            resume_path: row.resume_path || "",
+            resume_url: row.resume_url || ""
+          });
 
-          showNotice("Candidate added to pipeline.", "success");
+          await addPipelineRow(prospectId, { status: "sourced", source: "signal" });
           await loadData();
-          clearSignal();
+          showNotice("Signal candidate added to pipeline.", "success");
         } catch (err) {
           console.error(err);
-          showNotice(err.message || "Failed to add candidate to pipeline.", "error");
+          showNotice(err.message || "Failed to add Signal candidate.", "error");
         }
       }
 
-      function handleTableClick(event) {
-        const inviteBtn = event.target.closest(".send-invite-btn");
-        if (inviteBtn) {
-          sendSingleInvite({
-            pipelineId: inviteBtn.dataset.id,
-            full_name: inviteBtn.dataset.name,
-            email: inviteBtn.dataset.email
-          });
-          return;
-        }
+      function attachTableEvents() {
+        els.tableBody.addEventListener("change", async (event) => {
+          const target = event.target;
+          if (!target.classList.contains("status-select")) return;
 
-        const addSignalBtn = event.target.closest(".add-signal-btn");
-        if (addSignalBtn) {
-          addSignalRowToPipeline(Number(addSignalBtn.dataset.rowIndex));
-        }
-      }
+          const pipelineId = target.dataset.id;
+          const status = target.value;
 
-      function handleTableChange(event) {
-        const select = event.target.closest(".status-select");
-        if (!select) return;
-        updateStatus(select.dataset.id, select.value);
+          try {
+            await updateStatus(pipelineId, status);
+            await loadData();
+            showNotice("Status updated.", "success");
+          } catch (err) {
+            console.error(err);
+            showNotice(err.message || "Failed to update status.", "error");
+          }
+        });
+
+        els.tableBody.addEventListener("click", async (event) => {
+          const inviteBtn = event.target.closest(".send-invite-btn");
+          if (inviteBtn) {
+            await sendSingleInvite(inviteBtn.dataset.id, inviteBtn.dataset.name, inviteBtn.dataset.email);
+            return;
+          }
+
+          const addSignalBtn = event.target.closest(".add-signal-btn");
+          if (addSignalBtn) {
+            await addSignalRowToPipeline(Number(addSignalBtn.dataset.rowIndex));
+          }
+        });
       }
 
       async function logout() {
@@ -2816,12 +2666,11 @@
         window.location.href = "recruiter-login.html";
       }
 
+      els.refreshBtn.addEventListener("click", loadData);
+      els.logoutBtn.addEventListener("click", logout);
       els.downloadSampleBtn.addEventListener("click", downloadSampleCsv);
       els.downloadInviteSampleBtn.addEventListener("click", downloadInviteSampleCsv);
       els.downloadBulkInviteResultsBtn.addEventListener("click", downloadBulkInviteResultsCsv);
-
-      els.bulkUploadBtn.addEventListener("click", () => els.bulkUploadInput.click());
-      els.bulkUploadInput.addEventListener("change", (e) => handleBulkUpload(e.target.files?.[0]));
 
       els.uploadResumeBtn.addEventListener("click", () => {
         resetResumeForm();
@@ -2829,9 +2678,22 @@
       });
 
       els.pickResumeBtn.addEventListener("click", () => els.resumeUploadInput.click());
-      els.resumeUploadInput.addEventListener("change", (e) => parseResumeAndPrefill(e.target.files?.[0]));
-      els.closeResumeModalBtn.addEventListener("click", closeResumeModal);
+      els.resumeUploadInput.addEventListener("change", async (event) => {
+        const file = event.target.files?.[0];
+        if (file) await parseResumeAndPrefill(file);
+      });
+
       els.saveResumeCandidateBtn.addEventListener("click", saveResumeCandidate);
+      els.closeResumeModalBtn.addEventListener("click", closeResumeModal);
+      els.resumeModalBackdrop.addEventListener("click", (e) => {
+        if (e.target === els.resumeModalBackdrop) closeResumeModal();
+      });
+
+      els.bulkUploadBtn.addEventListener("click", () => els.bulkUploadInput.click());
+      els.bulkUploadInput.addEventListener("change", async (event) => {
+        const file = event.target.files?.[0];
+        if (file) await bulkUploadCsv(file);
+      });
 
       els.bulkInviteBtn.addEventListener("click", () => {
         resetBulkInviteResults();
@@ -2839,12 +2701,17 @@
       });
 
       els.pickBulkInviteBtn.addEventListener("click", () => els.bulkInviteInput.click());
-      els.bulkInviteInput.addEventListener("change", (e) => handleBulkInviteCsv(e.target.files?.[0]));
-      els.closeBulkInviteModalBtn.addEventListener("click", closeBulkInviteModal);
+      els.bulkInviteInput.addEventListener("change", async (event) => {
+        const file = event.target.files?.[0];
+        if (file) await bulkInviteCsv(file);
+      });
 
-      els.inviteAllSourcedBtn.addEventListener("click", sendInviteToAllSourcedCandidates);
-      els.refreshBtn.addEventListener("click", loadData);
-      els.logoutBtn.addEventListener("click", logout);
+      els.closeBulkInviteModalBtn.addEventListener("click", closeBulkInviteModal);
+      els.bulkInviteModalBackdrop.addEventListener("click", (e) => {
+        if (e.target === els.bulkInviteModalBackdrop) closeBulkInviteModal();
+      });
+
+      els.inviteAllSourcedBtn.addEventListener("click", inviteAllSourced);
 
       els.searchInput.addEventListener("input", applyFilters);
       els.jobFilter.addEventListener("change", applyFilters);
@@ -2863,19 +2730,10 @@
       els.clearSignalBtn.addEventListener("click", clearSignal);
       els.backToPipelineBtn.addEventListener("click", clearSignal);
 
-      els.tableBody.addEventListener("click", handleTableClick);
-      els.tableBody.addEventListener("change", handleTableChange);
+      attachTableEvents();
 
-      els.resumeModalBackdrop.addEventListener("click", (e) => {
-        if (e.target === els.resumeModalBackdrop) closeResumeModal();
-      });
-
-      els.bulkInviteModalBackdrop.addEventListener("click", (e) => {
-        if (e.target === els.bulkInviteModalBackdrop) closeBulkInviteModal();
-      });
-
-      const allowed = await protectPage();
-      if (!allowed) return;
+      const ok = await protectPage();
+      if (!ok) return;
 
       await detectSchemas();
       await loadOpenJobs();
