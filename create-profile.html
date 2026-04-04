@@ -395,6 +395,7 @@
       display: none;
       font-weight: 700;
       line-height: 1.6;
+      white-space: pre-wrap;
     }
 
     .success {
@@ -541,8 +542,8 @@
             </div>
 
             <div class="field full">
-              <label for="headline">Target Role</label>
-              <select id="headline" required>
+              <label for="target_role">Target Role</label>
+              <select id="target_role" required>
                 <option value="">Select your target role</option>
                 <option value="Software Engineer">Software Engineer</option>
                 <option value="Frontend Developer">Frontend Developer</option>
@@ -726,7 +727,6 @@
   let currentStep = 1;
   let currentUser = null;
   let existingProfile = null;
-  let isExistingAuthenticatedUser = false;
   let pendingProfilePhotoDataUrl = null;
 
   function showMessage(text, type) {
@@ -809,6 +809,10 @@
     return document.getElementById('full_name');
   }
 
+  function getTargetRoleInput() {
+    return document.getElementById('target_role');
+  }
+
   function updatePhotoPreviewFromName() {
     const fullName = getFullNameInput().value.trim();
     photoPreview.innerHTML = getInitials(fullName || currentUser?.email || 'TalentBuzz');
@@ -823,7 +827,6 @@
     const emailInput = getEmailInput();
 
     if (currentUser) {
-      isExistingAuthenticatedUser = true;
       emailInput.readOnly = true;
       newUserAuthSection.classList.add('hidden');
       setAuthModeBanner(
@@ -833,7 +836,6 @@
       return;
     }
 
-    isExistingAuthenticatedUser = false;
     emailInput.readOnly = false;
     newUserAuthSection.classList.remove('hidden');
     setAuthModeBanner(
@@ -867,13 +869,13 @@
       const fullName = getFullNameInput().value.trim();
       const email = getEmailInput().value.trim().toLowerCase();
       const phone = normalizePhone(document.getElementById('phone').value);
-      const headline = document.getElementById('headline').value.trim();
+      const targetRole = getTargetRoleInput().value.trim();
       const profilePhoto = profilePhotoInput.files[0];
 
       if (!fullName) throw new Error('Please enter your full name.');
       if (!email) throw new Error('Email is required.');
       if (!isValidEmail(email)) throw new Error('Please enter a valid email address.');
-      if (!headline) throw new Error('Please select your target role.');
+      if (!targetRole) throw new Error('Please select your target role.');
       if (phone && !validatePhone(phone)) {
         throw new Error('Please enter a valid PH mobile number in this format: 09XXXXXXXXX');
       }
@@ -899,21 +901,10 @@
     const loginParams = new URLSearchParams();
     loginParams.set('next', 'create-profile');
 
-    if (email) {
-      loginParams.set('email', email);
-    }
-
-    if (job) {
-      loginParams.set('job', job);
-    }
-
-    if (fromApply) {
-      loginParams.set('fromApply', fromApply);
-    }
-
-    if (redirect) {
-      loginParams.set('redirect', redirect);
-    }
+    if (email) loginParams.set('email', email);
+    if (job) loginParams.set('job', job);
+    if (fromApply) loginParams.set('fromApply', fromApply);
+    if (redirect) loginParams.set('redirect', redirect);
 
     return `login.html?${loginParams.toString()}`;
   }
@@ -934,7 +925,9 @@
 
   async function ensureProfileStorageUpload(file, folderPrefix) {
     const safeName = sanitizeFileName(file.name);
-    const safeFolder = sanitizeFolderName(currentUser?.email || currentUser?.id || getEmailInput().value || 'unknown');
+    const safeFolder = sanitizeFolderName(
+      currentUser?.email || currentUser?.id || getEmailInput().value || 'unknown'
+    );
     const path = `${folderPrefix}/${safeFolder}/${Date.now()}-${safeName}`;
 
     const { error } = await supabaseClient
@@ -943,7 +936,6 @@
       .upload(path, file, { upsert: false });
 
     if (error) throw error;
-
     return path;
   }
 
@@ -976,6 +968,61 @@
     return data || null;
   }
 
+  async function upsertProfileWithFallback(payload, email, existingProfileRow) {
+    if (existingProfileRow) {
+      let { data, error } = await supabaseClient
+        .from('applicant_profiles')
+        .update(payload)
+        .eq('email', email)
+        .select()
+        .single();
+
+      if (!error) return data;
+
+      const msg = String(error.message || '').toLowerCase();
+      if (!msg.includes('target_role')) throw error;
+
+      const fallbackPayload = { ...payload };
+      delete fallbackPayload.target_role;
+
+      const retry = await supabaseClient
+        .from('applicant_profiles')
+        .update(fallbackPayload)
+        .eq('email', email)
+        .select()
+        .single();
+
+      if (retry.error) throw retry.error;
+      return retry.data;
+    }
+
+    let { data, error } = await supabaseClient
+      .from('applicant_profiles')
+      .insert([payload])
+      .select()
+      .single();
+
+    if (!error) return data;
+
+    const msg = String(error.message || '').toLowerCase();
+
+    if (msg.includes('target_role')) {
+      const fallbackPayload = { ...payload };
+      delete fallbackPayload.target_role;
+
+      const retry = await supabaseClient
+        .from('applicant_profiles')
+        .insert([fallbackPayload])
+        .select()
+        .single();
+
+      if (retry.error) throw retry.error;
+      return retry.data;
+    }
+
+    throw error;
+  }
+
   async function loadExistingProfileIntoForm(profile) {
     if (!profile) return;
 
@@ -984,7 +1031,7 @@
     getFullNameInput().value = profile.full_name || getFullNameInput().value || '';
     document.getElementById('phone').value = profile.phone || '';
     document.getElementById('location').value = profile.location || '';
-    document.getElementById('headline').value = profile.headline || '';
+    getTargetRoleInput().value = profile.target_role || profile.headline || '';
     document.getElementById('salary').value = profile.expected_salary || '';
     document.getElementById('work_setup').value = profile.preferred_work_setup || '';
     document.getElementById('linkedin').value = profile.linkedin || '';
@@ -1135,7 +1182,7 @@
       const email = getEmailInput().value.trim().toLowerCase();
       const phone = normalizePhone(document.getElementById('phone').value);
       const location = document.getElementById('location').value.trim();
-      const headline = document.getElementById('headline').value.trim();
+      const target_role = getTargetRoleInput().value.trim();
       const salaryRaw = document.getElementById('salary').value.trim();
       const work_setup = document.getElementById('work_setup').value.trim();
       const linkedin = document.getElementById('linkedin').value.trim();
@@ -1149,7 +1196,7 @@
       if (!full_name) throw new Error('Full name is required.');
       if (!email) throw new Error('Email is required.');
       if (!isValidEmail(email)) throw new Error('Please enter a valid email address.');
-      if (!headline) throw new Error('Please select your target role.');
+      if (!target_role) throw new Error('Please select your target role.');
       if (phone && !validatePhone(phone)) {
         throw new Error('Please enter a valid PH mobile number in this format: 09XXXXXXXXX');
       }
@@ -1168,9 +1215,7 @@
           email,
           password,
           options: {
-            data: {
-              full_name
-            }
+            data: { full_name }
           }
         });
 
@@ -1225,7 +1270,8 @@
         email,
         phone,
         location,
-        headline,
+        target_role,
+        headline: target_role,
         expected_salary,
         preferred_work_setup: work_setup,
         linkedin,
@@ -1233,32 +1279,13 @@
         experience_summary: experience,
         profile_photo_url,
         resume_path,
-        resume_url
+        resume_url,
+        has_resume: !!resume_path,
+        top_match_role: target_role,
+        updated_at: new Date().toISOString()
       };
 
-      let savedProfile = null;
-
-      if (existingProfile) {
-        const { data, error } = await supabaseClient
-          .from('applicant_profiles')
-          .update(payload)
-          .eq('email', email)
-          .select()
-          .single();
-
-        if (error) throw error;
-        savedProfile = data;
-      } else {
-        const { data, error } = await supabaseClient
-          .from('applicant_profiles')
-          .insert([payload])
-          .select()
-          .single();
-
-        if (error) throw error;
-        savedProfile = data;
-      }
-
+      const savedProfile = await upsertProfileWithFallback(payload, email, existingProfile);
       existingProfile = savedProfile || payload;
 
       showMessage('Profile saved successfully.', 'success');
