@@ -1253,7 +1253,8 @@
           hasTopMatchRole: false,
           hasResumeUrl: false,
           hasResumePath: false,
-          hasTotalExperience: false
+          hasTotalExperience: false,
+          hasSkills: false
         }
       };
 
@@ -1653,7 +1654,7 @@
         if (suggested.length) lines.push(`Suggested roles: ${suggested.slice(0, 3).join(", ")}`);
         if (matched.length) lines.push(`Best opening fit: ${matched[0].role}${matched[0].score ? ` (${matched[0].score})` : ""}`);
         if (!row.resume_url && !row.resume_path) lines.push(`Missing resume. Invite or enrich profile for stronger scoring.`);
-        if (!skills.length && (row.resume_url || row.resume_path)) lines.push(`Resume exists but extracted skill confidence is low. Review resume manually.`);
+        if (!skills.length && (row.resume_url || row.resume_path)) lines.push(`Resume exists but saved skills are missing or low-confidence. Reprocess older resumes if needed.`);
         if (!lines.length) lines.push("Limited AI signals available for this profile.");
         return lines.slice(0, 4);
       }
@@ -1679,7 +1680,8 @@
           { key: "hasTopMatchRole", table: "prospects", column: "top_match_role" },
           { key: "hasResumeUrl", table: "prospects", column: "resume_url" },
           { key: "hasResumePath", table: "prospects", column: "resume_path" },
-          { key: "hasTotalExperience", table: "prospects", column: "total_experience" }
+          { key: "hasTotalExperience", table: "prospects", column: "total_experience" },
+          { key: "hasSkills", table: "prospects", column: "skills" }
         ];
         for (const c of checks) {
           const { error } = await supabase.from(c.table).select(c.column).limit(1);
@@ -1990,6 +1992,7 @@
         if (state.prospectSchema.hasResumeUrl) payload.resume_url = extras.resume_url || "";
         if (state.prospectSchema.hasResumePath) payload.resume_path = extras.resume_path || "";
         if (state.prospectSchema.hasTotalExperience) payload.total_experience = parsed.total_experience || "";
+        if (state.prospectSchema.hasSkills) payload.skills = parsed.skills || [];
 
         const { data, error } = await supabase.from("prospects").insert(payload).select("id").single();
         if (error) throw error;
@@ -2328,6 +2331,7 @@
 
         const hasResume = !!(resumeUrl || (state.prospectSchema.hasResumePath ? p.resume_path : ""));
         const suggestedRoles = state.prospectSchema.hasSuggestedRoles ? safeArrayParse(p.suggested_roles) : [];
+        const savedSkills = state.prospectSchema.hasSkills ? safeArrayParse(p.skills) : [];
         const roleText = [
           p.current_title || "",
           p.current_company || "",
@@ -2336,8 +2340,13 @@
           state.prospectSchema.hasTopMatchRole ? (p.top_match_role || "") : ""
         ].join(" ");
 
-        const skills = hasResume ? extractSkillsFromText(roleText) : [];
-        const matchedOpenRoles = hasResume ? matchAgainstOpenJobs(roleText) : [];
+        const skills = savedSkills.length
+          ? savedSkills
+          : (hasResume ? extractSkillsFromText(roleText) : []);
+        const matchedOpenRoles = hasResume ? matchAgainstOpenJobs([
+          roleText,
+          skills.join(" ")
+        ].join(" ")) : [];
         const ai = computeResumeAiScore({
           current_title: p.current_title || "",
           total_experience: state.prospectSchema.hasTotalExperience ? (p.total_experience || "") : "",
@@ -2406,6 +2415,7 @@
           if (state.prospectSchema.hasResumeUrl) prospectFields.push("resume_url");
           if (state.prospectSchema.hasResumePath) prospectFields.push("resume_path");
           if (state.prospectSchema.hasTotalExperience) prospectFields.push("total_experience");
+          if (state.prospectSchema.hasSkills) prospectFields.push("skills");
 
           const selectQuery = `
             id,
