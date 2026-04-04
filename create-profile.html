@@ -381,6 +381,31 @@
       border: 1px solid #c7d2fe;
     }
 
+    .match-list {
+      margin-top: 12px;
+      display: grid;
+      gap: 10px;
+    }
+
+    .match-item {
+      border: 1px solid #dbeafe;
+      background: #ffffff;
+      border-radius: 14px;
+      padding: 12px;
+    }
+
+    .match-title {
+      font-weight: 800;
+      color: var(--text);
+      margin-bottom: 4px;
+    }
+
+    .match-meta {
+      color: var(--muted);
+      font-size: 0.86rem;
+      line-height: 1.5;
+    }
+
     .actions {
       display: flex;
       gap: 12px;
@@ -635,10 +660,9 @@
 
         <section class="step" data-step="2">
           <div class="step-header">
-            <h2 class="step-title">Resume</h2>
+            <h2 class="step-title">Resume + role fit</h2>
             <p class="step-desc">
-              Upload your latest resume. This helps you apply faster and lets TalentBuzz
-              review your background more easily.
+              Upload your resume and we’ll compare your profile against actual open roles.
             </p>
           </div>
 
@@ -651,18 +675,18 @@
           </div>
 
           <div id="resumeInsightCard" class="insight-card">
-            <h3>Resume insights preview</h3>
+            <h3>TalentBuzz match preview</h3>
             <div class="insight-row" id="scoreRow"></div>
             <div class="insight-row" id="topRoleRow"></div>
             <div class="insight-row" id="skillsRow"></div>
             <div class="insight-row" id="suggestedRolesRow"></div>
+            <div class="match-list" id="matchedJobsList"></div>
           </div>
 
           <div class="mini-card">
             <h3>Why this matters</h3>
             <p>
-              A complete resume helps us prefill future applications, identify likely strengths,
-              and improve role matching.
+              This helps TalentBuzz recommend the strongest open roles first, even before the candidate applies.
             </p>
           </div>
         </section>
@@ -721,8 +745,7 @@
           <div class="mini-card">
             <h3>What happens next</h3>
             <p>
-              After saving, you can still improve your profile later with certifications,
-              work samples, portfolio links, and verification details.
+              After saving, the profile can be surfaced to recruiters and matched against current openings.
             </p>
           </div>
         </section>
@@ -774,6 +797,7 @@
   const topRoleRow = document.getElementById('topRoleRow');
   const skillsRow = document.getElementById('skillsRow');
   const suggestedRolesRow = document.getElementById('suggestedRolesRow');
+  const matchedJobsList = document.getElementById('matchedJobsList');
 
   const steps = Array.from(document.querySelectorAll('.step'));
 
@@ -781,17 +805,20 @@
   let currentUser = null;
   let existingProfile = null;
   let pendingProfilePhotoDataUrl = null;
+  let openJobs = [];
+
   let resumeAnalysis = {
     resume_text: null,
     extracted_skills: [],
     suggested_roles: [],
     top_match_role: null,
-    ai_score: null,
-    has_resume: false
+    ai_score: 0,
+    has_resume: false,
+    matched_open_roles: []
   };
 
   const SKILL_LIBRARY = {
-    "sql": ["sql", "mysql", "postgresql", "postgres", "tsql", "pl/sql"],
+    "sql": ["sql", "mysql", "postgresql", "postgres", "tsql", "pl/sql", "snowflake"],
     "excel": ["excel", "google sheets", "spreadsheets", "pivot table", "vlookup", "xlookup"],
     "power bi": ["power bi", "powerbi"],
     "qlik sense": ["qlik sense", "qlik"],
@@ -814,99 +841,6 @@
     "communication": ["communication", "stakeholder management", "client management"],
     "leadership": ["team leader", "supervisor", "people management", "coaching"]
   };
-
-  const ROLE_RULES = [
-    {
-      role: "Customer Service Representative",
-      keywords: ["customer service", "communication", "crm"],
-      bonus: ["sales", "excel"]
-    },
-    {
-      role: "Technical Support Representative",
-      keywords: ["technical support", "customer service", "crm"],
-      bonus: ["javascript", "sql"]
-    },
-    {
-      role: "Content Moderator",
-      keywords: ["content moderation", "customer service", "communication"],
-      bonus: ["operations"]
-    },
-    {
-      role: "Business Development Manager",
-      keywords: ["business development", "sales", "communication"],
-      bonus: ["crm", "leadership"]
-    },
-    {
-      role: "Sales Manager",
-      keywords: ["sales", "leadership", "communication"],
-      bonus: ["crm", "business development"]
-    },
-    {
-      role: "Account Manager",
-      keywords: ["communication", "crm", "customer service"],
-      bonus: ["sales", "business development"]
-    },
-    {
-      role: "HR / Recruiter",
-      keywords: ["recruitment", "communication"],
-      bonus: ["leadership", "operations"]
-    },
-    {
-      role: "Operations Manager",
-      keywords: ["operations", "leadership", "communication"],
-      bonus: ["project management", "excel"]
-    },
-    {
-      role: "Team Leader",
-      keywords: ["leadership", "customer service", "operations"],
-      bonus: ["communication", "technical support"]
-    },
-    {
-      role: "Project Manager",
-      keywords: ["project management", "communication", "leadership"],
-      bonus: ["operations", "excel"]
-    },
-    {
-      role: "Product Manager",
-      keywords: ["product management", "communication", "project management"],
-      bonus: ["sql", "javascript"]
-    },
-    {
-      role: "Data Analyst",
-      keywords: ["sql", "excel"],
-      bonus: ["power bi", "tableau", "qlik sense", "python"]
-    },
-    {
-      role: "Software Engineer",
-      keywords: ["javascript", "python"],
-      bonus: ["react", "sql", "html/css"]
-    },
-    {
-      role: "Frontend Developer",
-      keywords: ["react", "javascript", "html/css"],
-      bonus: ["communication"]
-    },
-    {
-      role: "Backend Developer",
-      keywords: ["javascript", "python", "sql"],
-      bonus: ["operations"]
-    },
-    {
-      role: "Full Stack Developer",
-      keywords: ["react", "javascript", "sql"],
-      bonus: ["python", "html/css"]
-    },
-    {
-      role: "QA Engineer",
-      keywords: ["technical support", "operations"],
-      bonus: ["sql", "communication"]
-    },
-    {
-      role: "Finance / Accounting",
-      keywords: ["finance/accounting", "excel"],
-      bonus: ["communication"]
-    }
-  ];
 
   function showMessage(text, type) {
     message.textContent = text;
@@ -1030,7 +964,7 @@
 
     const labels = {
       1: { title: 'Step 1 of 3 · Basic Info', meta: 'Quick setup', width: '33.33%' },
-      2: { title: 'Step 2 of 3 · Resume', meta: 'Profile intelligence', width: '66.66%' },
+      2: { title: 'Step 2 of 3 · Resume + Role Fit', meta: 'Open role matching', width: '66.66%' },
       3: { title: 'Step 3 of 3 · Optional Extras', meta: 'Final step', width: '100%' }
     };
 
@@ -1136,6 +1070,38 @@
     return data?.publicUrl || null;
   }
 
+  async function fetchOpenJobs() {
+    const { data, error } = await supabaseClient
+      .from('jobs')
+      .select(`
+        id,
+        title,
+        location,
+        country,
+        city,
+        work_setup,
+        employment_type,
+        role_family,
+        seniority_level,
+        required_skills,
+        nice_to_have_skills,
+        keywords,
+        job_description,
+        status,
+        client_name
+      `)
+      .eq('status', 'open')
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      console.warn('Unable to load open jobs:', error);
+      openJobs = [];
+      return;
+    }
+
+    openJobs = Array.isArray(data) ? data : [];
+  }
+
   async function findExistingProfileByEmail(email) {
     const { data, error } = await supabaseClient
       .from('applicant_profiles')
@@ -1148,6 +1114,41 @@
   }
 
   async function upsertProfileWithFallback(payload, email, existingProfileRow) {
+    const tryWithoutColumns = async (basePayload, colsToRemove, mode) => {
+      const reduced = { ...basePayload };
+      colsToRemove.forEach(col => delete reduced[col]);
+
+      if (mode === 'update') {
+        const res = await supabaseClient
+          .from('applicant_profiles')
+          .update(reduced)
+          .eq('email', email)
+          .select()
+          .single();
+        if (res.error) throw res.error;
+        return res.data;
+      }
+
+      const res = await supabaseClient
+        .from('applicant_profiles')
+        .insert([reduced])
+        .select()
+        .single();
+      if (res.error) throw res.error;
+      return res.data;
+    };
+
+    const optionalColumns = [
+      'target_role',
+      'has_resume',
+      'ai_score',
+      'extracted_skills',
+      'suggested_roles',
+      'top_match_role',
+      'resume_text',
+      'matched_open_roles'
+    ];
+
     if (existingProfileRow) {
       let { data, error } = await supabaseClient
         .from('applicant_profiles')
@@ -1159,20 +1160,10 @@
       if (!error) return data;
 
       const msg = String(error.message || '').toLowerCase();
-      if (!msg.includes('target_role')) throw error;
+      const colsToRemove = optionalColumns.filter(col => msg.includes(col.toLowerCase()));
 
-      const fallbackPayload = { ...payload };
-      delete fallbackPayload.target_role;
-
-      const retry = await supabaseClient
-        .from('applicant_profiles')
-        .update(fallbackPayload)
-        .eq('email', email)
-        .select()
-        .single();
-
-      if (retry.error) throw retry.error;
-      return retry.data;
+      if (!colsToRemove.length) throw error;
+      return await tryWithoutColumns(payload, colsToRemove, 'update');
     }
 
     let { data, error } = await supabaseClient
@@ -1184,21 +1175,10 @@
     if (!error) return data;
 
     const msg = String(error.message || '').toLowerCase();
-    if (msg.includes('target_role')) {
-      const fallbackPayload = { ...payload };
-      delete fallbackPayload.target_role;
+    const colsToRemove = optionalColumns.filter(col => msg.includes(col.toLowerCase()));
 
-      const retry = await supabaseClient
-        .from('applicant_profiles')
-        .insert([fallbackPayload])
-        .select()
-        .single();
-
-      if (retry.error) throw retry.error;
-      return retry.data;
-    }
-
-    throw error;
+    if (!colsToRemove.length) throw error;
+    return await tryWithoutColumns(payload, colsToRemove, 'insert');
   }
 
   function normalizeText(text) {
@@ -1210,6 +1190,24 @@
 
   function dedupeArray(items) {
     return [...new Set((items || []).filter(Boolean))];
+  }
+
+  function safelyArrayifySkills(value) {
+    if (Array.isArray(value)) return value.map(v => String(v).trim()).filter(Boolean);
+
+    if (typeof value === 'string') {
+      try {
+        const parsed = JSON.parse(value);
+        if (Array.isArray(parsed)) return parsed.map(v => String(v).trim()).filter(Boolean);
+      } catch (_) {}
+
+      return value
+        .split(',')
+        .map(v => v.trim())
+        .filter(Boolean);
+    }
+
+    return [];
   }
 
   function extractSkillsFromText(text) {
@@ -1224,39 +1222,16 @@
     return dedupeArray(found);
   }
 
-  function buildRoleMatches(skills, selectedRole) {
-    const matches = ROLE_RULES.map(rule => {
-      let score = 0;
-
-      rule.keywords.forEach(keyword => {
-        if (skills.includes(keyword)) score += 28;
-      });
-
-      rule.bonus.forEach(keyword => {
-        if (skills.includes(keyword)) score += 10;
-      });
-
-      if (selectedRole && selectedRole.toLowerCase() === rule.role.toLowerCase()) {
-        score += 15;
-      }
-
-      return {
-        role: rule.role,
-        score: Math.min(score, 100)
-      };
-    });
-
-    matches.sort((a, b) => b.score - a.score);
-
-    const topMatches = matches.filter(item => item.score > 0).slice(0, 5);
-    const topRole = topMatches.length ? topMatches[0].role : (selectedRole || null);
-    const aiScore = topMatches.length ? topMatches[0].score : (selectedRole ? 35 : 0);
-
-    return {
-      top_match_role: topRole,
-      suggested_roles: topMatches.map(item => item.role),
-      ai_score: aiScore
-    };
+  function inferCandidateText() {
+    return [
+      getTargetRoleInput().value,
+      document.getElementById('experience').value,
+      document.getElementById('linkedin').value,
+      document.getElementById('portfolio').value,
+      document.getElementById('location').value
+    ]
+      .filter(Boolean)
+      .join(' ');
   }
 
   async function readFileAsText(file) {
@@ -1266,41 +1241,124 @@
       return await file.text();
     }
 
-    return [
-      file.name,
-      getTargetRoleInput().value,
-      document.getElementById('experience').value,
-      document.getElementById('linkedin').value,
-      document.getElementById('portfolio').value
-    ].filter(Boolean).join(' ');
+    return [file.name, inferCandidateText()].filter(Boolean).join(' ');
   }
 
-  async function analyzeResumeFile(file) {
-    if (!file) {
-      resumeAnalysis = {
-        resume_text: null,
-        extracted_skills: [],
-        suggested_roles: [],
-        top_match_role: getTargetRoleInput().value || null,
-        ai_score: 0,
-        has_resume: false
-      };
-      renderResumeInsights();
-      return resumeAnalysis;
+  function computeJobFit(job, candidate) {
+    const selectedRole = normalizeText(candidate.target_role);
+    const candidateText = normalizeText(candidate.resume_text + ' ' + candidate.extra_text);
+    const candidateSkills = candidate.skills || [];
+
+    const title = String(job.title || '');
+    const roleFamily = String(job.role_family || '');
+    const jobDescription = String(job.job_description || '');
+    const keywords = String(job.keywords || '');
+    const workSetup = String(job.work_setup || '');
+    const location = [job.location, job.city, job.country].filter(Boolean).join(' ');
+    const requiredSkills = safelyArrayifySkills(job.required_skills);
+    const niceToHaveSkills = safelyArrayifySkills(job.nice_to_have_skills);
+
+    let score = 0;
+    const matchedSkills = [];
+
+    const titleText = normalizeText(title);
+    const roleFamilyText = normalizeText(roleFamily);
+    const jobText = normalizeText(
+      [title, roleFamily, jobDescription, keywords, workSetup, location].join(' ')
+    );
+
+    if (selectedRole && titleText.includes(selectedRole)) score += 35;
+    else if (selectedRole && roleFamilyText.includes(selectedRole)) score += 24;
+    else if (selectedRole && jobText.includes(selectedRole)) score += 16;
+
+    requiredSkills.forEach(skill => {
+      const skillNorm = normalizeText(skill);
+      const skillMatched =
+        candidateSkills.includes(skillNorm) ||
+        candidateText.includes(skillNorm);
+
+      if (skillMatched) {
+        score += 14;
+        matchedSkills.push(skill);
+      }
+    });
+
+    niceToHaveSkills.forEach(skill => {
+      const skillNorm = normalizeText(skill);
+      const skillMatched =
+        candidateSkills.includes(skillNorm) ||
+        candidateText.includes(skillNorm);
+
+      if (skillMatched) {
+        score += 6;
+        matchedSkills.push(skill);
+      }
+    });
+
+    candidateSkills.forEach(skill => {
+      if (jobText.includes(skill)) {
+        score += 5;
+        matchedSkills.push(skill);
+      }
+    });
+
+    const preferredWorkSetup = normalizeText(document.getElementById('work_setup').value);
+    if (preferredWorkSetup && workSetup && normalizeText(workSetup).includes(preferredWorkSetup)) {
+      score += 8;
     }
 
-    const rawText = await readFileAsText(file);
-    const text = String(rawText || '').trim();
-    const skills = extractSkillsFromText(text);
-    const roleMatches = buildRoleMatches(skills, getTargetRoleInput().value.trim());
+    const candidateLocation = normalizeText(document.getElementById('location').value);
+    if (candidateLocation && location && normalizeText(location).includes(candidateLocation)) {
+      score += 6;
+    }
+
+    score = Math.min(score, 100);
+
+    return {
+      job_id: job.id,
+      title: job.title || 'Untitled role',
+      client_name: job.client_name || '',
+      work_setup: job.work_setup || '',
+      location: job.location || job.city || job.country || '',
+      score,
+      matched_skills: dedupeArray(matchedSkills).slice(0, 8)
+    };
+  }
+
+  async function analyzeProfileAgainstOpenJobs(file) {
+    const selectedRole = getTargetRoleInput().value.trim();
+    const extraText = inferCandidateText();
+    let resumeText = '';
+    let extractedSkills = [];
+
+    if (file) {
+      resumeText = await readFileAsText(file);
+      extractedSkills = extractSkillsFromText(resumeText);
+    }
+
+    const candidate = {
+      target_role: selectedRole,
+      resume_text: resumeText || '',
+      extra_text: extraText || '',
+      skills: extractedSkills
+    };
+
+    const matches = openJobs
+      .map(job => computeJobFit(job, candidate))
+      .filter(match => match.score > 0)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 5);
+
+    const topMatch = matches[0] || null;
 
     resumeAnalysis = {
-      resume_text: text || null,
-      extracted_skills: skills,
-      suggested_roles: roleMatches.suggested_roles,
-      top_match_role: roleMatches.top_match_role,
-      ai_score: roleMatches.ai_score,
-      has_resume: true
+      resume_text: resumeText || null,
+      extracted_skills: extractedSkills,
+      suggested_roles: dedupeArray(matches.map(m => m.title)).slice(0, 5),
+      top_match_role: topMatch ? topMatch.title : (selectedRole || null),
+      ai_score: topMatch ? topMatch.score : (selectedRole ? 35 : 0),
+      has_resume: !!file,
+      matched_open_roles: matches
     };
 
     renderResumeInsights();
@@ -1308,7 +1366,11 @@
   }
 
   function renderResumeInsights() {
-    const hasData = resumeAnalysis.has_resume || resumeAnalysis.extracted_skills.length || resumeAnalysis.suggested_roles.length;
+    const hasData =
+      resumeAnalysis.has_resume ||
+      resumeAnalysis.extracted_skills.length ||
+      resumeAnalysis.suggested_roles.length ||
+      resumeAnalysis.matched_open_roles.length;
 
     if (!hasData) {
       resumeInsightCard.classList.remove('show');
@@ -1316,15 +1378,16 @@
       topRoleRow.innerHTML = '';
       skillsRow.innerHTML = '';
       suggestedRolesRow.innerHTML = '';
+      matchedJobsList.innerHTML = '';
       return;
     }
 
     resumeInsightCard.classList.add('show');
-
     scoreRow.innerHTML = '';
     topRoleRow.innerHTML = '';
     skillsRow.innerHTML = '';
     suggestedRolesRow.innerHTML = '';
+    matchedJobsList.innerHTML = '';
 
     const scorePill = document.createElement('div');
     scorePill.className = 'score-pill';
@@ -1348,7 +1411,7 @@
     } else {
       const chip = document.createElement('div');
       chip.className = 'chip';
-      chip.textContent = 'No clear skills detected yet';
+      chip.textContent = 'No resume skills detected yet';
       skillsRow.appendChild(chip);
     }
 
@@ -1360,6 +1423,34 @@
         suggestedRolesRow.appendChild(chip);
       });
     }
+
+    if (resumeAnalysis.matched_open_roles.length) {
+      resumeAnalysis.matched_open_roles.forEach(match => {
+        const div = document.createElement('div');
+        div.className = 'match-item';
+        div.innerHTML = `
+          <div class="match-title">${escapeHtml(match.title)} — ${match.score}% fit</div>
+          <div class="match-meta">
+            ${escapeHtml(match.client_name || 'TalentBuzz Client')}
+            ${match.location ? ' · ' + escapeHtml(match.location) : ''}
+            ${match.work_setup ? ' · ' + escapeHtml(match.work_setup) : ''}
+          </div>
+          <div class="insight-row">
+            ${(match.matched_skills || []).slice(0, 6).map(skill => `<span class="chip">${escapeHtml(skill)}</span>`).join('')}
+          </div>
+        `;
+        matchedJobsList.appendChild(div);
+      });
+    }
+  }
+
+  function escapeHtml(value) {
+    return String(value || '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
   }
 
   async function loadExistingProfileIntoForm(profile) {
@@ -1383,7 +1474,8 @@
       suggested_roles: Array.isArray(profile.suggested_roles) ? profile.suggested_roles : [],
       top_match_role: profile.top_match_role || profile.target_role || profile.headline || null,
       ai_score: Number(profile.ai_score || 0),
-      has_resume: !!(profile.has_resume || profile.resume_path || profile.resume_url)
+      has_resume: !!(profile.has_resume || profile.resume_path || profile.resume_url),
+      matched_open_roles: Array.isArray(profile.matched_open_roles) ? profile.matched_open_roles : []
     };
 
     renderResumeInsights();
@@ -1399,6 +1491,7 @@
 
   async function bootstrapPage() {
     clearMessage();
+    await fetchOpenJobs();
 
     const emailFromUrl = (params.get('email') || '').trim();
     if (emailFromUrl) {
@@ -1460,9 +1553,12 @@
     try {
       validateCurrentStep();
 
+      if (currentStep === 1) {
+        await analyzeProfileAgainstOpenJobs(resumeInput.files[0] || null);
+      }
+
       if (currentStep === 2) {
-        const resumeFile = resumeInput.files[0];
-        await analyzeResumeFile(resumeFile);
+        await analyzeProfileAgainstOpenJobs(resumeInput.files[0] || null);
       }
 
       if (currentStep < 3) {
@@ -1484,33 +1580,33 @@
   });
 
   getTargetRoleInput().addEventListener('change', async () => {
-    if (resumeInput.files[0]) {
-      await analyzeResumeFile(resumeInput.files[0]);
-    } else {
-      resumeAnalysis.top_match_role = getTargetRoleInput().value || null;
-      renderResumeInsights();
-    }
+    await analyzeProfileAgainstOpenJobs(resumeInput.files[0] || null);
+  });
+
+  document.getElementById('location').addEventListener('input', async () => {
+    await analyzeProfileAgainstOpenJobs(resumeInput.files[0] || null);
+  });
+
+  document.getElementById('work_setup').addEventListener('change', async () => {
+    await analyzeProfileAgainstOpenJobs(resumeInput.files[0] || null);
+  });
+
+  document.getElementById('experience').addEventListener('input', async () => {
+    await analyzeProfileAgainstOpenJobs(resumeInput.files[0] || null);
   });
 
   resumeInput.addEventListener('change', async () => {
     clearMessage();
     const file = resumeInput.files[0];
+
     if (!file) {
-      resumeAnalysis = {
-        resume_text: null,
-        extracted_skills: [],
-        suggested_roles: [],
-        top_match_role: getTargetRoleInput().value || null,
-        ai_score: 0,
-        has_resume: false
-      };
-      renderResumeInsights();
+      await analyzeProfileAgainstOpenJobs(null);
       return;
     }
 
     try {
       validateResumeFile(file);
-      await analyzeResumeFile(file);
+      await analyzeProfileAgainstOpenJobs(file);
     } catch (err) {
       showMessage(err.message || 'Unable to analyze resume.', 'error');
     }
@@ -1602,9 +1698,7 @@
         const { data: signUpData, error: signUpError } = await supabaseClient.auth.signUp({
           email,
           password,
-          options: {
-            data: { full_name }
-          }
+          options: { data: { full_name } }
         });
 
         if (signUpError) {
@@ -1637,18 +1731,7 @@
         }
       }
 
-      if (resumeFile) {
-        await analyzeResumeFile(resumeFile);
-      } else {
-        resumeAnalysis = {
-          resume_text: null,
-          extracted_skills: [],
-          suggested_roles: target_role ? [target_role] : [],
-          top_match_role: target_role || null,
-          ai_score: target_role ? 35 : 0,
-          has_resume: false
-        };
-      }
+      await analyzeProfileAgainstOpenJobs(resumeFile || null);
 
       const expected_salary = salaryRaw ? Number(salaryRaw) : null;
 
@@ -1687,6 +1770,7 @@
         suggested_roles: resumeAnalysis.suggested_roles || [],
         top_match_role: resumeAnalysis.top_match_role || target_role,
         resume_text: resumeAnalysis.resume_text,
+        matched_open_roles: resumeAnalysis.matched_open_roles || [],
         updated_at: new Date().toISOString()
       };
 
