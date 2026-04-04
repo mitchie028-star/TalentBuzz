@@ -1119,24 +1119,34 @@
       ];
 
       const ROLE_KEYWORDS = [
-        { role: 'Customer Service Representative', keywords: ['customer service','csr','call center','customer support','inbound','outbound','voice','non-voice'] },
-        { role: 'Technical Support Representative', keywords: ['technical support','tech support','troubleshooting','help desk','it support'] },
+        { role: 'Customer Service Representative', keywords: ['customer service','csr','call center','customer support','inbound','outbound','voice','non-voice','customer care','customer experience'] },
+        { role: 'Technical Support Representative', keywords: ['technical support','tech support','troubleshooting','help desk','it support','tier1 support','tier 1 support','service desk'] },
         { role: 'Sales Consultant', keywords: ['sales','inside sales','outbound sales','lead generation','business development','account executive'] },
         { role: 'Recruiter', keywords: ['recruiter','talent acquisition','sourcing specialist','headhunter'] },
-        { role: 'QA Analyst', keywords: ['qa','quality analyst','quality assurance','audit','call monitoring'] },
-        { role: 'Content Moderator', keywords: ['content moderator','content moderation','trust and safety'] },
+        { role: 'QA Analyst', keywords: ['qa','quality analyst','quality assurance','audit','call monitoring','root cause analysis'] },
+        { role: 'Content Moderator', keywords: ['content moderator','content moderation','trust and safety','policy enforcement','community moderation'] },
         { role: 'Executive Assistant', keywords: ['executive assistant','virtual assistant','admin assistant'] },
         { role: 'Operations Manager', keywords: ['operations manager','operations','team lead','supervisor','service delivery'] },
         { role: 'Bilingual Support', keywords: ['mandarin','cantonese','japanese','spanish','bilingual','multilingual'] },
-        { role: 'BI / Data Analyst', keywords: ['sql','power bi','qlik','qlik sense','tableau','dashboard','analytics','bi analyst'] },
-        { role: 'Software Engineer', keywords: ['software engineer','developer','javascript','react','node','python','java','php'] }
+        { role: 'BI / Data Analyst', keywords: ['sql','power bi','qlik','qlik sense','tableau','dashboard','analytics','bi analyst','data analyst','reporting'] },
+        { role: 'Software Engineer', keywords: ['software engineer','developer','javascript','react','node','python','java','php'] },
+        { role: 'QA Automation Engineer', keywords: ['qa automation','automation engineer','automation testing','selenium','playwright','cypress','webdriverio','appium','jmeter'] },
+        { role: 'Security Engineer', keywords: ['security engineer','penetration tester','penetration testing','vulnerability management','vulnerability assessment','application security','cloud security','incident response','xdr'] }
       ];
+
+      const JOB_MATCH_STOPWORDS = new Set([
+        'and','the','for','with','from','into','over','under','level','entry','senior','junior','specialist','associate','manager','engineer','analyst','officer','staff','role','campaign','executive'
+      ]);
 
       const SKILL_LIBRARY = [
         'customer service','customer support','inbound','outbound','voice','non-voice','sales','upselling','cross-selling','lead generation','business development',
         'recruitment','sourcing','talent acquisition','screening','interviewing','technical support','troubleshooting','help desk','ticketing','zendesk','salesforce','hubspot','crm','qlik','qlik sense',
         'power bi','tableau','sql','excel','google sheets','reporting','dashboard','analytics','react','node','javascript','typescript','python','java','php','content moderation','trust and safety','quality assurance','qa',
-        'operations','team management','supervisory','people management','bilingual','mandarin','cantonese','japanese','spanish','english','email support','chat support','phone support','collections','retention'
+        'operations','team management','supervisory','people management','bilingual','mandarin','cantonese','japanese','spanish','english','email support','chat support','phone support','collections','retention',
+        'analytical skills','data annotation','data analysis','data validation','problem solving','attention to detail','data entry','policy enforcement','community moderation','compliance monitoring',
+        'service now','servicenow','coaching','training','fraud detection','video editing','adobe premiere','after effects','vulnerability assessment','security testing','application security','penetration testing',
+        'web app security','infrastructure security','query writing','endpoint security','xdr','technical support','log analysis','network security','test automation','manual testing','regression testing',
+        'automation testing','postman','api testing','playwright','selenium','webdriverio','appium','jmeter','cypress','stlc','charles proxy','jira','quickbooks','microsoft 365','azure ad','incident response'
       ];
 
       const state = {
@@ -1466,32 +1476,70 @@
       }
 
       function extractLocation(text) {
-        const lines = String(text || '').split(/\n+/).map(v => v.trim()).filter(Boolean);
+        const raw = String(text || '');
+        const lines = raw.split(/\n+/).map(v => v.trim()).filter(Boolean);
         const hints = ['quezon city','taguig','makati','pasig','manila','cebu','davao','clark','philippines','metro manila','ncr'];
+        const labeled = raw.match(/(?:location|based in)\s*[:\-]\s*([^\n]+)/i);
+        if (labeled) return labeled[1].trim();
         return lines.find(line => hints.some(h => normalizeText(line).includes(h))) || '';
       }
 
+      function extractLabeledValue(text, labels = []) {
+        const raw = String(text || '');
+        for (const label of labels) {
+          const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+          const match = raw.match(new RegExp(`(?:^|\\n|\\t)${escaped}\\s*[:\\-]?\\s*([^\\n\\t]+)`, 'i'));
+          if (match && match[1]) return match[1].trim();
+        }
+        return '';
+      }
+
       function extractTitle(text) {
-        const lines = String(text || '').split(/\n+/).map(v => v.trim()).filter(Boolean).slice(0,20);
+        const raw = String(text || '');
+        const labeled = extractLabeledValue(raw, ['current_title','current title','title','headline','position']);
+        if (labeled) return labeled;
+        const lines = raw.split(/\n+/).map(v => v.trim()).filter(Boolean).slice(0,20);
         return lines.find(line =>
-          !/resume|curriculum vitae|profile|contact|summary|experience|education|skills/i.test(line) &&
-          line.length <= 70 &&
-          !/@|linkedin\.com|\d/i.test(line) &&
-          /(specialist|representative|recruiter|manager|assistant|analyst|engineer|developer|associate|consultant|supervisor|lead|support|officer|coordinator|executive|agent|trainer)/i.test(line)
+          !/resume|curriculum vitae|profile|contact|summary|experience|education|skills|company|location/i.test(line) &&
+          line.length <= 90 &&
+          !/@|linkedin\.com/i.test(line) &&
+          /(specialist|representative|recruiter|manager|assistant|analyst|engineer|developer|associate|consultant|supervisor|lead|support|officer|coordinator|executive|agent|trainer|moderator|tester)/i.test(line)
         ) || '';
       }
 
       function extractCompany(text) {
-        const lines = String(text || '').split(/\n+/).map(v => v.trim()).filter(Boolean);
+        const raw = String(text || '');
+        const labeled = extractLabeledValue(raw, ['current_company','current company','company','employer']);
+        if (labeled) return labeled;
+        const lines = raw.split(/\n+/).map(v => v.trim()).filter(Boolean);
         return lines.find(line =>
-          /\b(inc|corp|corporation|solutions|services|technologies|technology|company|global|outsourcing|enterprise|group|limited|ltd)\b/i.test(line) &&
+          /\b(inc|corp|corporation|solutions|services|technologies|technology|company|global|outsourcing|enterprise|group|limited|ltd|concentrix|solarwinds|manulife|microsourcing|eclaro|coherent)\b/i.test(line) &&
           !/@|linkedin\.com|education|skills|summary/i.test(line)
         ) || '';
       }
 
+      function extractDelimitedSkills(text) {
+        const raw = String(text || '');
+        const labeled = extractLabeledValue(raw, ['skills','skill set','core skills']);
+        const source = labeled || raw;
+        const tokens = source.split(/[\n,;|•]+/).map(v => v.trim()).filter(Boolean);
+        const filtered = tokens.filter(token =>
+          token.length >= 2 &&
+          token.length <= 60 &&
+          !/^https?:/i.test(token) &&
+          !/^(skills?|current_title|current_company|linkedin_url|full_name|location|total_experience)$/i.test(token)
+        );
+        return mergeUniqueNormalized(filtered).slice(0, 20);
+      }
+
       function extractSkillsFromText(text) {
         const hay = normalizeText(text);
-        return [...new Set(SKILL_LIBRARY.filter(skill => hay.includes(normalizeText(skill))))].slice(0,12);
+        const fromLibrary = SKILL_LIBRARY.filter(skill => hay.includes(normalizeText(skill)));
+        const fromDelimited = extractDelimitedSkills(text).filter(skill => {
+          const clean = normalizeText(skill);
+          return clean && !/^~?\d/.test(clean) && clean.length > 1;
+        });
+        return mergeUniqueNormalized([...fromLibrary, ...fromDelimited]).slice(0, 18);
       }
 
       function scoreRoleMatches(text) {
@@ -1513,12 +1561,26 @@
         for (const job of state.openJobs) {
           const title = job.title || '';
           if (!title) continue;
-          const words = normalizeText(title).split(/[^a-z0-9+#]+/).filter(w => w.length >= 3);
+          const words = normalizeText(title)
+            .split(/[^a-z0-9+#]+/)
+            .filter(w => w.length >= 3 && !JOB_MATCH_STOPWORDS.has(w));
+          if (!words.length) continue;
+
           let score = 0;
+          let hits = 0;
           for (const word of words) {
-            if (hay.includes(word)) score += 1;
+            if (hay.includes(word)) {
+              hits += 1;
+              score += word.length >= 8 ? 2 : 1;
+            }
           }
-          if (score > 0) matches.push({ role:title, score, client_name:job.client_name || '' });
+
+          const phraseHit = hay.includes(normalizeText(title)) ? 3 : 0;
+          score += phraseHit;
+
+          if (hits >= 2 || phraseHit >= 3) {
+            matches.push({ role:title, score, client_name:job.client_name || '' });
+          }
         }
         return matches.sort((a,b) => b.score - a.score).slice(0,5);
       }
@@ -1567,18 +1629,24 @@
 
       function rebuildProspectSignals(base = {}) {
         const linkedinText = String(base.linkedin_text || base.notes || '');
+        const derivedTitle = base.current_title || extractTitle(linkedinText);
+        const derivedCompany = base.current_company || extractCompany(linkedinText);
+        const derivedLocation = base.location || extractLocation(linkedinText);
+        const derivedExperience = base.total_experience || extractTotalExperience(linkedinText);
+        const derivedLinkedInUrl = normalizeLinkedIn(base.linkedin_url || extractLinkedIn(linkedinText));
+
         const seededSkills = mergeUniqueNormalized([
           ...(safeArrayParse(base.skills || [])),
           ...(safeArrayParse(base.manual_tags || [])),
           ...extractSkillsFromText(linkedinText)
-        ]).slice(0, 15);
+        ]).slice(0, 18);
 
         const rebuilt = buildSuggestedRoles({
           full_name: base.full_name || '',
-          current_title: base.current_title || '',
-          current_company: base.current_company || '',
-          location: base.location || '',
-          total_experience: base.total_experience || '',
+          current_title: derivedTitle,
+          current_company: derivedCompany,
+          location: derivedLocation,
+          total_experience: derivedExperience,
           resume_text: base.resume_text || '',
           linkedin_text: linkedinText,
           skills: seededSkills
@@ -1593,10 +1661,10 @@
 
         const roleText = [
           base.full_name || '',
-          base.current_title || '',
-          base.current_company || '',
-          base.location || '',
-          base.total_experience || '',
+          derivedTitle,
+          derivedCompany,
+          derivedLocation,
+          derivedExperience,
           suggestedRoles.join(' '),
           topMatchRole || '',
           seededSkills.join(' '),
@@ -1608,6 +1676,11 @@
 
         return {
           linkedinText,
+          current_title: derivedTitle,
+          current_company: derivedCompany,
+          location: derivedLocation,
+          total_experience: derivedExperience,
+          linkedin_url: derivedLinkedInUrl,
           skills: seededSkills,
           suggested_roles: suggestedRoles,
           top_match_role: topMatchRole,
@@ -1629,6 +1702,10 @@
       function computeAi(row) {
         const hasResume = !!(row.resume_url || row.resume_path || row.resume_text);
         const linkedinText = normalizeText(row.linkedin_text || row.notes || '');
+        const skills = mergeUniqueNormalized([...(row.skills || []), ...(row.manual_tags || [])]);
+        const suggested = (row.suggested_roles || []);
+        const matched = (row.matched_open_roles || []);
+
         const structuredSignals = !!(
           row.current_title ||
           row.current_company ||
@@ -1636,31 +1713,30 @@
           row.location ||
           (row.linkedin_url && row.linkedin_url.includes('linkedin.com')) ||
           linkedinText ||
-          (row.skills || []).length ||
-          (row.manual_tags || []).length
+          skills.length
         );
 
-        const skills = [...new Set([...(row.skills || []), ...(row.manual_tags || [])])];
-        const suggested = (row.suggested_roles || []);
-        const matched = (row.matched_open_roles || []);
-
         let score = 0;
-        score += row.current_title ? 18 : 0;
-        score += row.current_company ? 10 : 0;
+        score += row.current_title ? 22 : 0;
+        score += row.current_company ? 12 : 0;
         score += row.location ? 8 : 0;
         score += row.total_experience ? 10 : 0;
         score += row.linkedin_url ? 8 : 0;
-        score += linkedinText ? 14 : 0;
-        score += Math.min(skills.length * 5, 25);
-        score += Math.min(suggested.length * 5, 15);
-        score += matched.length ? Math.min((matched[0].score || 0) * 10, 18) : 0;
+        score += linkedinText ? 12 : 0;
+        score += Math.min(skills.length * 4, 24);
+        score += Math.min(suggested.length * 4, 12);
+        score += matched.length ? Math.min((matched[0].score || 0) * 6, 12) : 0;
         score += hasResume ? 10 : 0;
+
+        if (skills.length >= 6 && row.current_title) score += 6;
+        if (matched.length && suggested.length) score += 4;
 
         if (score > 100) score = 100;
         if (!hasResume && !structuredSignals) score = 0;
 
         const summary = [];
-        if (skills.length) summary.push(`Signals found in profile: ${skills.slice(0,3).join(', ')}.`);
+        if (row.current_title) summary.push(`Current title signal: ${row.current_title}.`);
+        if (skills.length) summary.push(`Signals found in profile: ${skills.slice(0,4).join(', ')}.`);
         if (suggested.length) summary.push(`Suggested roles: ${suggested.slice(0,3).join(', ')}.`);
         if (matched.length) summary.push(`Best opening fit: ${matched[0].role}${matched[0].client_name ? ` — ${matched[0].client_name}` : ''}.`);
         if (linkedinText) summary.push('AI scoring included LinkedIn/manual profile details.');
@@ -1820,14 +1896,14 @@
           job_title: j.title || '',
           client_name: j.client_name || '',
           full_name: p.full_name || 'Unnamed Prospect',
-          current_title: p.current_title || '',
-          current_company: p.current_company || '',
-          location: p.location || '',
-          linkedin_url: linkedinUrl,
+          current_title: rebuilt.current_title || p.current_title || '',
+          current_company: rebuilt.current_company || p.current_company || '',
+          location: rebuilt.location || p.location || '',
+          linkedin_url: rebuilt.linkedin_url || linkedinUrl,
           linkedin_text: rebuilt.linkedinText,
           email: p.personal_email || '',
           phone: p.phone || '',
-          total_experience: p.total_experience || '',
+          total_experience: rebuilt.total_experience || p.total_experience || '',
           suggested_roles: rebuilt.suggested_roles,
           top_match_role: rebuilt.top_match_role,
           resume_url: resumeUrl,
@@ -2573,13 +2649,23 @@
               const needsSkills = JSON.stringify(currentSkills) !== JSON.stringify(rebuilt.skills);
               const needsSuggested = JSON.stringify(currentSuggested) !== JSON.stringify(rebuilt.suggested_roles);
               const needsTopMatch = String(row.top_match_role || '') !== String(rebuilt.top_match_role || '');
+              const needsTitle = String(row.current_title || '') !== String(rebuilt.current_title || '');
+              const needsCompany = String(row.current_company || '') !== String(rebuilt.current_company || '');
+              const needsLocation = String(row.location || '') !== String(rebuilt.location || '');
+              const needsExperience = String(row.total_experience || '') !== String(rebuilt.total_experience || '');
+              const needsLinkedIn = String(row.linkedin_url || '') !== String(rebuilt.linkedin_url || '');
 
-              if (!needsSkills && !needsSuggested && !needsTopMatch) {
+              if (!needsSkills && !needsSuggested && !needsTopMatch && !needsTitle && !needsCompany && !needsLocation && !needsExperience && !needsLinkedIn) {
                 skipped += 1;
                 continue;
               }
 
               const payload = {};
+              payload.current_title = rebuilt.current_title || row.current_title || '';
+              payload.location = rebuilt.location || row.location || '';
+              if (state.schema.prospects.current_company) payload.current_company = rebuilt.current_company || row.current_company || '';
+              if (state.schema.prospects.total_experience) payload.total_experience = rebuilt.total_experience || row.total_experience || '';
+              if (state.schema.prospects.linkedin_url) payload.linkedin_url = rebuilt.linkedin_url || row.linkedin_url || '';
               if (state.schema.prospects.skills) payload.skills = rebuilt.skills;
               if (state.schema.prospects.suggested_roles) payload.suggested_roles = rebuilt.suggested_roles;
               if (state.schema.prospects.top_match_role) payload.top_match_role = rebuilt.top_match_role;
