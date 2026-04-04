@@ -2133,6 +2133,7 @@
                   <button class="row-menu-btn" type="button" data-menu-toggle="${escapeHtml(row.pipeline_id)}">☰</button>
                   <div class="row-menu" id="menu-${escapeHtml(row.pipeline_id)}">
                     <button type="button" data-action="open-panel" data-id="${escapeHtml(row.pipeline_id)}">Open Profile</button>
+                    <button type="button" data-action="repair-row" data-id="${escapeHtml(row.pipeline_id)}">Recompute AI / Tags</button>
                     ${row.linkedin_url ? `<a href="${escapeHtml(row.linkedin_url)}" target="_blank" rel="noopener noreferrer">Open LinkedIn</a>` : ''}
                     <button type="button" data-action="stage" data-id="${escapeHtml(row.pipeline_id)}" data-stage="connection_requested">Mark Connection Requested</button>
                     <button type="button" data-action="stage" data-id="${escapeHtml(row.pipeline_id)}" data-stage="connected">Mark Connected</button>
@@ -2356,20 +2357,33 @@
                 full_name: row.full_name || '',
                 email: row.email || '',
                 phone: row.phone || '',
-                linkedin_url: normalizeLinkedIn(row.linkedin || ''),
-                current_title: row.title || '',
-                current_company: row.company || '',
-                total_experience: row.total_experience || '',
+                linkedin_url: normalizeLinkedIn(row.linkedin || row.linkedin_url || ''),
+                current_title: row.title || row.current_title || '',
+                current_company: row.company || row.current_company || '',
+                total_experience: row.total_experience || row.experience || '',
                 location: row.location || '',
                 resume_text: '',
                 linkedin_text: row.summary || row.notes || '',
-                skills: extractSkillsFromText(`${row.summary || ''} ${row.notes || ''}`)
+                skills: mergeUniqueNormalized([
+                  ...parseCommaList(row.skills || ''),
+                  ...extractSkillsFromText(`${row.title || ''} ${row.current_title || ''} ${row.company || ''} ${row.current_company || ''} ${row.summary || ''} ${row.notes || ''} ${row.skills || ''}`)
+                ])
               };
 
               Object.assign(parsed, buildSuggestedRoles(parsed));
 
               const prospectId = await createProspectFromParsedCandidate(parsed, { resume_path:'', resume_url:'' });
-              await addPipelineRow(prospectId, { source:'bulk_upload', status:'new_lead', notes: row.notes || row.summary || '' });
+              const structuredNotes = mergeUniqueNormalized([
+                row.notes || '',
+                row.summary || '',
+                row.skills ? `skills: ${row.skills}` : '',
+                parsed.current_title ? `current_title: ${parsed.current_title}` : '',
+                parsed.current_company ? `current_company: ${parsed.current_company}` : '',
+                parsed.total_experience ? `total_experience: ${parsed.total_experience}` : '',
+                parsed.linkedin_url ? `linkedin_url: ${parsed.linkedin_url}` : ''
+              ]).join('
+');
+              await addPipelineRow(prospectId, { source:'bulk_upload', status:'new_lead', notes: structuredNotes });
               success += 1;
             } catch (innerErr) {
               console.error(innerErr);
@@ -2614,8 +2628,21 @@
             .map(buildRow)
             .filter(row => {
               const source = normalizeText(row.source || '');
-              const hasLinkedInSignal = source.includes('linkedin') || !!normalizeText(row.linkedin_url) || !!normalizeText(row.notes || '');
-              return hasLinkedInSignal;
+              const hasLinkedInSignal =
+                source.includes('linkedin') ||
+                source.includes('bulk_upload') ||
+                !!normalizeText(row.linkedin_url) ||
+                !!normalizeText(row.notes || '') ||
+                !!normalizeText(row.current_title || '') ||
+                !!normalizeText(row.current_company || '') ||
+                !!normalizeText(row.total_experience || '') ||
+                (row.skills || []).length > 0;
+              const needsRepair =
+                !normalizeText(row.current_title || '') ||
+                !(row.tags || []).filter(tag => normalizeText(tag) !== 'no resume').length ||
+                !(row.matched_open_roles || []).length ||
+                !(row.suggested_roles || []).length;
+              return hasLinkedInSignal && needsRepair;
             });
 
           if (!candidates.length) {
@@ -2690,6 +2717,48 @@
         } catch (err) {
           console.error(err);
           showNotice(err.message || 'Failed to repair old LinkedIn AI.', 'error');
+        }
+      }
+
+
+      async function repairSingleRow(pipelineId) {
+        const row = state.rows.find(item => String(item.pipeline_id) === String(pipelineId));
+        if (!row) return;
+        try {
+          const rebuilt = rebuildProspectSignals({
+            full_name: row.full_name,
+            current_title: row.current_title,
+            current_company: row.current_company,
+            location: row.location,
+            total_experience: row.total_experience,
+            linkedin_url: row.linkedin_url,
+            linkedin_text: row.notes || row.linkedin_text || '',
+            resume_text: row.resume_text || '',
+            skills: row.skills || [],
+            manual_tags: row.manual_tags || [],
+            suggested_roles: row.suggested_roles || [],
+            top_match_role: row.top_match_role || ''
+          });
+
+          const payload = {
+            current_title: rebuilt.current_title || '',
+            location: rebuilt.location || ''
+          };
+          if (state.schema.prospects.current_company) payload.current_company = rebuilt.current_company || '';
+          if (state.schema.prospects.total_experience) payload.total_experience = rebuilt.total_experience || '';
+          if (state.schema.prospects.linkedin_url) payload.linkedin_url = rebuilt.linkedin_url || '';
+          if (state.schema.prospects.skills) payload.skills = rebuilt.skills || [];
+          if (state.schema.prospects.suggested_roles) payload.suggested_roles = rebuilt.suggested_roles || [];
+          if (state.schema.prospects.top_match_role) payload.top_match_role = rebuilt.top_match_role || '';
+
+          const { error } = await supabase.from('prospects').update(payload).eq('id', row.prospect_id);
+          if (error) throw error;
+
+          await loadData();
+          showNotice(`Recomputed AI and tags for ${row.full_name}.`, 'success');
+        } catch (err) {
+          console.error(err);
+          showNotice(err.message || 'Failed to recompute this row.', 'error');
         }
       }
 
