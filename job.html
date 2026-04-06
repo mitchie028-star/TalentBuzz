@@ -206,7 +206,9 @@
     const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
     const params = new URLSearchParams(window.location.search);
-    const jobId = params.get('id');
+    const jobId = params.get('job_id');
+    const slug = params.get('slug');
+    const legacyId = params.get('id');
     const jobPage = document.getElementById('jobPage');
 
     function escapeHtml(value) {
@@ -224,25 +226,45 @@
       return escapeHtml(value);
     }
 
-    async function loadJob() {
-      if (!jobId) {
-        jobPage.className = 'empty-state';
-        jobPage.textContent = 'No job selected.';
-        return;
-      }
+    function formatSalary(job) {
+      const currency = String(job.salary_currency || '').trim();
+      const min = job.salary_min != null ? String(job.salary_min) : '';
+      const max = job.salary_max != null ? String(job.salary_max) : '';
 
+      if (!currency && !min && !max) return 'Not specified';
+      if (min && max) return `${escapeHtml(currency)} ${escapeHtml(min)} - ${escapeHtml(max)}`;
+      if (min) return `${escapeHtml(currency)} ${escapeHtml(min)}`;
+      if (max) return `${escapeHtml(currency)} ${escapeHtml(max)}`;
+      return escapeHtml(currency);
+    }
+
+    function buildApplyLink(job) {
+      return `apply.html?id=${encodeURIComponent(job.id)}`;
+    }
+
+    async function loadJobById(idValue) {
       const { data, error } = await supabaseClient
         .from('jobs')
         .select('*')
-        .eq('id', jobId)
+        .eq('id', idValue)
         .single();
 
-      if (error || !data) {
-        jobPage.className = 'empty-state';
-        jobPage.textContent = error?.message || 'Job not found.';
-        return;
-      }
+      if (error) throw error;
+      return data;
+    }
 
+    async function loadJobBySlug(slugValue) {
+      const { data, error } = await supabaseClient
+        .from('jobs')
+        .select('*')
+        .eq('slug', slugValue)
+        .single();
+
+      if (error) throw error;
+      return data;
+    }
+
+    function renderJob(data) {
       document.title = `${data.title || 'Job Details'} | TalentBuzz`;
 
       jobPage.className = '';
@@ -258,7 +280,7 @@
           </div>
 
           <div class="hero-actions">
-            <a href="apply.html?id=${encodeURIComponent(data.id)}" class="btn btn-primary">
+            <a href="${buildApplyLink(data)}" class="btn btn-primary">
               Create Profile & Apply
             </a>
             <a href="applicants.html" class="btn btn-secondary">
@@ -298,15 +320,37 @@
 
             <div class="sidebar-item">
               <span class="sidebar-label">Salary</span>
-              <div class="sidebar-value">
-                ${escapeHtml(data.salary_currency || '')}
-                ${data.salary_min ? ' ' + escapeHtml(data.salary_min) : ''}
-                ${data.salary_max ? ' - ' + escapeHtml(data.salary_max) : ''}
-              </div>
+              <div class="sidebar-value">${formatSalary(data)}</div>
             </div>
           </aside>
         </div>
       `;
+    }
+
+    async function loadJob() {
+      try {
+        let data = null;
+
+        if (jobId) {
+          data = await loadJobById(jobId);
+        } else if (slug) {
+          data = await loadJobBySlug(slug);
+        } else if (legacyId) {
+          data = await loadJobById(legacyId);
+        }
+
+        if (!data) {
+          jobPage.className = 'empty-state';
+          jobPage.textContent = 'No job selected.';
+          return;
+        }
+
+        renderJob(data);
+      } catch (error) {
+        console.error(error);
+        jobPage.className = 'empty-state';
+        jobPage.textContent = error?.message || 'Job not found.';
+      }
     }
 
     loadJob();
