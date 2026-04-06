@@ -162,7 +162,12 @@
     const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
     const params = new URLSearchParams(window.location.search);
-    const jobId = params.get('job') || params.get('id');
+
+    const jobIdParam = params.get('job_id') || params.get('job') || params.get('id');
+    const slugParam = params.get('slug');
+    const sourceParam = params.get('source') || '';
+    const alertIdParam = params.get('alert_id') || '';
+
     const statusBox = document.getElementById('statusBox');
     const helperText = document.getElementById('helperText');
 
@@ -173,6 +178,27 @@
 
     function setHelper(message) {
       helperText.textContent = message;
+    }
+
+    function getResumeApplyParams() {
+      const parts = [];
+
+      if (jobIdParam) parts.push(`job_id=${encodeURIComponent(jobIdParam)}`);
+      if (slugParam) parts.push(`slug=${encodeURIComponent(slugParam)}`);
+      if (sourceParam) parts.push(`source=${encodeURIComponent(sourceParam)}`);
+      if (alertIdParam) parts.push(`alert_id=${encodeURIComponent(alertIdParam)}`);
+
+      return parts.join('&');
+    }
+
+    function getApplicationSource() {
+      const source = String(sourceParam || '').trim().toLowerCase();
+
+      if (source === 'email_alert') return 'email_alert';
+      if (source === 'role_alert') return 'email_alert';
+      if (source === 'careers') return 'career_page';
+      if (source === 'career_page') return 'career_page';
+      return slugParam || jobIdParam ? 'career_page' : 'unknown';
     }
 
     async function updateConfirmationStatus(applicationId, value) {
@@ -218,7 +244,8 @@
       } = await supabaseClient.auth.getSession();
 
       if (!session?.user) {
-        window.location.href = `login.html?next=apply&job=${encodeURIComponent(jobId || '')}`;
+        const nextParams = getResumeApplyParams();
+        window.location.href = `login.html?next=apply${nextParams ? `&${nextParams}` : ''}`;
         return null;
       }
 
@@ -236,15 +263,38 @@
       return data || null;
     }
 
-    async function loadJob(jobIdValue) {
+    async function loadJobById(jobIdValue) {
       const { data, error } = await supabaseClient
         .from('jobs')
-        .select('id, title')
+        .select('id, title, slug')
         .eq('id', jobIdValue)
         .single();
 
       if (error) throw error;
       return data;
+    }
+
+    async function loadJobBySlug(slugValue) {
+      const { data, error } = await supabaseClient
+        .from('jobs')
+        .select('id, title, slug')
+        .eq('slug', slugValue)
+        .single();
+
+      if (error) throw error;
+      return data;
+    }
+
+    async function resolveJob() {
+      if (jobIdParam) {
+        return await loadJobById(jobIdParam);
+      }
+
+      if (slugParam) {
+        return await loadJobBySlug(slugParam);
+      }
+
+      throw new Error('Missing job reference.');
     }
 
     async function findDuplicateApplication(email, jobIdValue) {
@@ -259,7 +309,7 @@
       return Array.isArray(data) && data.length > 0 ? data[0] : null;
     }
 
-    async function insertApplication({ email, applicantProfileId, jobIdValue, jobTitle }) {
+    async function insertApplication({ email, applicantProfileId, jobIdValue, jobTitle, applicationSource }) {
       const { data, error } = await supabaseClient
         .from('applications')
         .insert([{
@@ -268,7 +318,7 @@
           job_id: String(jobIdValue),
           job_title: jobTitle || '',
           status: 'submitted',
-          application_source: 'career_page',
+          application_source: applicationSource,
           confirmation_email_status: 'pending',
           created_at: new Date().toISOString()
         }])
@@ -279,11 +329,45 @@
       return data;
     }
 
+    async function markRoleAlertApplied(jobIdValue, applicantProfileId) {
+      try {
+        if (alertIdParam) {
+          await supabaseClient
+            .from('job_role_alerts')
+            .update({
+              applied_at: new Date().toISOString(),
+              updated_at: new Date().toISOString()
+            })
+            .eq('id', alertIdParam);
+
+          return;
+        }
+
+        if (getApplicationSource() !== 'email_alert') return;
+
+        await supabaseClient
+          .from('job_role_alerts')
+          .update({
+            applied_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          })
+          .eq('job_id', String(jobIdValue))
+          .eq('applicant_profile_id', applicantProfileId)
+          .in('send_status', ['sent', 'pending']);
+      } catch (err) {
+        console.warn('[ROLE_ALERT_APPLIED_UPDATE_FAILED]', err);
+      }
+    }
+
     async function processApplication() {
       try {
-        if (!jobId) {
-          setStatus('Missing job ID.', 'error');
-          setHelper('Please return to the job details page and try again.');
+        let job;
+
+        try {
+          job = await resolveJob();
+        } catch (err) {
+          setStatus('Invalid or missing job reference.', 'error');
+          setHelper('Please return to the job page and try again.');
           return;
         }
 
@@ -295,17 +379,14 @@
         const profile = await loadProfileByEmail(user.email);
 
         if (!profile) {
-          window.location.href = `create-profile.html?fromApply=1&job=${encodeURIComponent(jobId)}`;
+          const nextParams = getResumeApplyParams();
+          window.location.href = `create-profile.html?fromApply=1${nextParams ? `&${nextParams}` : ''}`;
           return;
         }
 
-        setHelper('Loading role details...');
-
-        const job = await loadJob(jobId);
-
         setHelper('Checking for duplicate application...');
 
-        const duplicate = await findDuplicateApplication(user.email, jobId);
+        const duplicate = await findDuplicateApplication(user.email, job.id);
 
         if (duplicate) {
           setStatus('You already submitted an application for this role. Redirecting to your dashboard...', 'error');
@@ -321,8 +402,11 @@
           email: user.email,
           applicantProfileId: profile.id,
           jobIdValue: job.id,
-          jobTitle: job.title
+          jobTitle: job.title,
+          applicationSource: getApplicationSource()
         });
+
+        await markRoleAlertApplied(job.id, profile.id);
 
         setHelper('Sending confirmation email...');
 
