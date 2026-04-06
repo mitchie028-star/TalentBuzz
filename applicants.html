@@ -559,19 +559,37 @@
 
     function isVisibleJob(job) {
       const status = normalizeText(job.status);
-      const isActive = job.is_active;
 
-      if (typeof isActive === 'boolean') {
-        return isActive;
+      if (status === 'closed' || status === 'archived' || status === 'draft' || status === 'inactive' || status === 'filled') {
+        return false;
       }
 
-      if (!status) return true;
+      if (job.is_on_hold === true) {
+        return false;
+      }
 
-      return !['closed', 'archived', 'draft', 'inactive', 'filled'].includes(status);
+      return true;
     }
 
-    function goToJob(jobId) {
-      window.location.href = `job.html?id=${encodeURIComponent(jobId)}`;
+    function buildJobUrl(job) {
+      const cleanSlug = String(job.slug || '').trim();
+
+      if (cleanSlug) {
+        return `job.html?slug=${encodeURIComponent(cleanSlug)}`;
+      }
+
+      return `job.html?job_id=${encodeURIComponent(job.id)}`;
+    }
+
+    function goToJob(jobId, slug) {
+      const cleanSlug = String(slug || '').trim();
+
+      if (cleanSlug) {
+        window.location.href = `job.html?slug=${encodeURIComponent(cleanSlug)}`;
+        return;
+      }
+
+      window.location.href = `job.html?job_id=${encodeURIComponent(jobId)}`;
     }
 
     function renderJobs(jobs) {
@@ -589,6 +607,7 @@
         const workSetup = escapeHtml(getWorkSetup(job));
         const salary = escapeHtml(formatSalary(job));
         const workBadge = escapeHtml(getWorkSetup(job));
+        const jobUrl = buildJobUrl(job);
 
         return `
           <article class="job-card">
@@ -615,9 +634,9 @@
             </div>
 
             <div class="job-actions">
-              <button class="btn btn-primary" onclick="goToJob('${String(job.id).replaceAll("'", "\\'")}')">
+              <a class="btn btn-primary" href="${jobUrl}">
                 View Job
-              </button>
+              </a>
             </div>
           </article>
         `;
