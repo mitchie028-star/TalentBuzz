@@ -1756,55 +1756,63 @@
       }
     }
 
-    function phraseMatch(profileText, phrase) {
+    
+function phraseMatch(profileText, phrase) {
       const cleaned = normalizeToken(stripImportanceSuffix(phrase)).replace(/[^a-z0-9+#.\s]/g, " ").trim();
       if (!cleaned || cleaned.length < 3) return false;
-      if (profileText.includes(cleaned)) return true;
-      const words = cleaned.split(/\s+/).filter(word => word.length > 2);
+      const words = cleaned.split(/\s+/).filter(word => word.length > 2 && !MATCH_STOPWORDS.has(word));
       if (!words.length) return false;
+      if (words.length >= 4) {
+        return profileText.includes(cleaned);
+      }
       const matched = words.filter(word => profileText.includes(word)).length;
-      return words.length === 1 ? matched === 1 : matched >= Math.ceil(words.length * 0.7);
+      return words.length === 1 ? matched === 1 : matched >= words.length;
     }
+
+    const MATCH_STOPWORDS = new Set([
+      'and','the','for','with','from','this','that','role','required','requirement','requirements','must','have','has','high','medium','critical',
+      'entry','level','senior','junior','associate','specialist','representative','agent','campaign','experience','newtown','customer'
+    ]);
 
     function detectRoleArchetype(role) {
       const text = normalizeToken([
         role.title,
         role.role_family,
         role.work_setup,
-        Array.isArray(role.required_skills) ? role.required_skills.join(" ") : role.required_skills,
+        Array.isArray(role.required_skills) ? role.required_skills.join(' ') : role.required_skills,
         role.priority_skills,
         ...((role.ai_screening_config?.non_negotiables) || []),
         ...((role.ai_screening_config?.must_have_skills) || [])
-      ].join(" "));
+      ].join(' '));
 
-      if (/(customer service|customer experience|csr|call center|bpo|voice|chat support|technical support|retention|billing)/.test(text)) return "csr";
-      if (/(sales|business development|lead generation|retention agent|account executive|upsell|conversion)/.test(text)) return "sales";
-      if (/(architect|engineer|developer|software|cloud|data engineer|qlik|sql|power bi|analytics|automation)/.test(text)) return "tech";
-      if (/(finance|accounting|billing analyst|collections|credit|underwriter)/.test(text)) return "finance";
-      if (/(trainer|training|operations manager|team leader|quality analyst|qa)/.test(text)) return "ops";
-      return "general";
+      if (/(customer service|customer experience|csr|call center|bpo|voice|chat support|technical support|retention|billing|healthcare customer)/.test(text)) return 'csr';
+      if (/(sales|business development|lead generation|retention agent|account executive|upsell|conversion)/.test(text)) return 'sales';
+      if (/(architect|engineer|developer|software|cloud|data engineer|qlik|sql|power bi|analytics|automation)/.test(text)) return 'tech';
+      if (/(finance|accounting|billing analyst|collections|credit|underwriter|medical billing)/.test(text)) return 'finance';
+      if (/(trainer|training|operations manager|team leader|quality analyst|qa)/.test(text)) return 'ops';
+      return 'general';
     }
 
     function archetypeKeywordMap(archetype) {
       const map = {
         csr: {
-          positive: ["customer service", "customer support", "csr", "call center", "bpo", "voice", "chat support", "technical support", "retention", "billing", "inbound", "outbound", "collections", "help desk"],
-          negative: ["solutions architect", "data engineer", "software engineer", "developer", "cloud architect", "integration architect", "mulesoft", "oracle sql", "project manager"]
+          positive: ['customer service', 'customer support', 'csr', 'call center', 'bpo', 'voice', 'chat support', 'technical support', 'retention', 'billing support', 'inbound', 'outbound', 'help desk', 'healthcare'],
+          negative: ['solutions architect', 'data engineer', 'software engineer', 'developer', 'cloud architect', 'integration architect', 'mulesoft', 'oracle sql', 'project manager', 'linux administrator', 'devops']
         },
         sales: {
-          positive: ["sales", "business development", "upsell", "retention", "lead generation", "appointment setting", "account executive", "inside sales"],
-          negative: ["software engineer", "architect", "developer"]
+          positive: ['sales', 'business development', 'upsell', 'retention', 'lead generation', 'appointment setting', 'account executive', 'inside sales'],
+          negative: ['software engineer', 'architect', 'developer']
         },
         tech: {
-          positive: ["engineer", "developer", "architect", "sql", "qlik", "power bi", "cloud", "api", "software", "data"],
-          negative: ["cashier", "service crew", "warehouseman"]
+          positive: ['engineer', 'developer', 'architect', 'sql', 'qlik', 'power bi', 'cloud', 'api', 'software', 'data'],
+          negative: ['cashier', 'service crew', 'warehouseman']
         },
         finance: {
-          positive: ["finance", "accounting", "credit", "collections", "underwriter", "billing", "analyst"],
-          negative: ["software engineer", "architect"]
+          positive: ['finance', 'accounting', 'credit', 'collections', 'underwriter', 'billing', 'analyst', 'medical billing'],
+          negative: ['software engineer', 'architect']
         },
         ops: {
-          positive: ["trainer", "training", "operations", "team leader", "quality analyst", "workflow", "coaching"],
+          positive: ['trainer', 'training', 'operations', 'team leader', 'quality analyst', 'workflow', 'coaching'],
           negative: []
         },
         general: { positive: [], negative: [] }
@@ -1815,11 +1823,61 @@
     function tokenizeLocation(value) {
       return normalizeToken(value)
         .split(/[^a-z0-9]+/)
-        .filter(token => token.length > 2 && !["city", "philippines", "metro", "national", "capital", "region"].includes(token));
+        .filter(token => token.length > 2 && !['city', 'philippines', 'metro', 'national', 'capital', 'region'].includes(token));
+    }
+
+    function normalizeSkillPhrase(value = '') {
+      return stripImportanceSuffix(value)
+        .replace(/[()]/g, ' ')
+        .replace(/\b(must|required|at least|minimum|preferred|strong|excellent|good|ability|skills?)\b/gi, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+    }
+
+    function meaningfulSkillPhrases(role) {
+      const raw = uniqueLines([
+        ...((role.ai_screening_config?.must_have_skills) || []),
+        ...((role.ai_screening_config?.non_negotiables) || []),
+        ...normalizeLines(role.priority_skills),
+        ...(Array.isArray(role.required_skills) ? role.required_skills : normalizeLines(role.required_skills))
+      ]);
+      return raw
+        .map(normalizeSkillPhrase)
+        .filter(Boolean)
+        .filter(item => item.length >= 4)
+        .filter(item => !/customer experience representative|newtown|resultscx|open to|onsite|hybrid|remote$/i.test(item))
+        .filter(item => item.split(/\s+/).filter(w => !MATCH_STOPWORDS.has(w.toLowerCase())).length >= 1)
+        .slice(0, 12);
+    }
+
+    function parseRequiredMonths(role) {
+      const text = normalizeToken([
+        ...(role.ai_screening_config?.non_negotiables || []),
+        ...(Array.isArray(role.required_skills) ? role.required_skills : normalizeLines(role.required_skills))
+      ].join(' '));
+      let months = 0;
+      const yearMatch = text.match(/(\d+)\s*\+?\s*years?/);
+      const monthMatch = text.match(/(\d+)\s*\+?\s*months?/);
+      if (yearMatch) months = Math.max(months, Number(yearMatch[1]) * 12);
+      if (monthMatch) months = Math.max(months, Number(monthMatch[1]));
+      return months;
+    }
+
+    function parseProfileMonths(profileText) {
+      let months = 0;
+      const yearMatches = [...profileText.matchAll(/(\d+)\s*\+?\s*years?/g)];
+      const monthMatches = [...profileText.matchAll(/(\d+)\s*\+?\s*months?/g)];
+      yearMatches.forEach(m => { months = Math.max(months, Number(m[1]) * 12); });
+      monthMatches.forEach(m => { months = Math.max(months, Number(m[1])); });
+      return months;
+    }
+
+    function countKeywordHits(text, keywords = []) {
+      return keywords.filter(keyword => text.includes(keyword)).length;
     }
 
     function scoreProfileAgainstRole(profile, role, source, appMap = new Map(), endorsementMap = new Map()) {
-      const profileTitle = safeText(profile.current_title || profile.title || profile.headline || "");
+      const profileTitle = safeText(profile.current_title || profile.title || profile.headline || '');
       const profileText = normalizeToken([
         profileTitle,
         safeText(profile.location),
@@ -1828,106 +1886,116 @@
         safeText(profile.skills),
         safeText(profile.summary),
         safeText(profile.fit_summary)
-      ].join(" "));
+      ].join(' '));
 
       const roleArchetype = detectRoleArchetype(role);
       const archetypeSignals = archetypeKeywordMap(roleArchetype);
       const reasons = [];
       const penalties = [];
       const matchedSkills = [];
-      const matchedKeywords = [];
       let score = 0;
 
-      const prioritySkills = uniqueLines([
-        ...((role.ai_screening_config?.must_have_skills) || []).map(stripImportanceSuffix),
-        ...normalizeLines(role.priority_skills),
-        ...(Array.isArray(role.required_skills) ? role.required_skills : normalizeLines(role.required_skills))
-      ]).filter(Boolean);
+      const positiveHits = countKeywordHits(profileText, archetypeSignals.positive);
+      const negativeHits = countKeywordHits(profileText, archetypeSignals.negative);
 
-      prioritySkills.slice(0, 12).forEach(skill => {
+      // Harder role-family gating so unrelated profiles do not float to the top.
+      if (roleArchetype === 'csr') {
+        const csrCoreHits = countKeywordHits(profileText, ['customer service', 'customer support', 'csr', 'call center', 'bpo', 'voice', 'chat support', 'technical support']);
+        if (csrCoreHits === 0) {
+          penalties.push('No visible core CSR / contact center background');
+          score -= 35;
+        } else {
+          score += csrCoreHits * 8;
+          reasons.push(`CSR support background: ${csrCoreHits} visible signal(s)`);
+        }
+        if (negativeHits > 0 && csrCoreHits < 2) {
+          score -= 25;
+          penalties.push('Background appears more technical than customer support focused');
+        }
+      } else {
+        score += positiveHits * 6;
+      }
+
+      if (negativeHits) {
+        score -= Math.min(24, negativeHits * 8);
+        archetypeSignals.negative.forEach(keyword => {
+          if (profileText.includes(keyword)) penalties.push(`Conflicting background signal: ${keyword}`);
+        });
+      }
+
+      const roleSignals = meaningfulSkillPhrases(role);
+      roleSignals.forEach(skill => {
         if (phraseMatch(profileText, skill)) {
-          score += 14;
+          score += 10;
           if (!matchedSkills.includes(skill)) matchedSkills.push(skill);
           reasons.push(`Matched skill: ${skill}`);
         }
       });
 
-      (role.ai_screening_config?.non_negotiables || []).slice(0, 5).forEach(item => {
-        if (phraseMatch(profileText, item)) {
-          score += 12;
-          reasons.push(`Matched non-negotiable: ${item}`);
+      const requiredMonths = parseRequiredMonths(role);
+      const profileMonths = parseProfileMonths(profileText);
+      if (requiredMonths > 0) {
+        if (profileMonths >= requiredMonths) {
+          score += 10;
+          reasons.push(`Experience duration alignment: ${profileMonths} month(s)+ visible`);
         } else {
-          penalties.push(`Missing visible signal for ${stripImportanceSuffix(item)}`);
+          penalties.push(`Missing visible signal for at least ${requiredMonths} month(s) of relevant experience`);
+          score -= requiredMonths >= 6 ? 12 : 6;
         }
-      });
-
-      archetypeSignals.positive.forEach(keyword => {
-        if (profileText.includes(keyword)) {
-          score += 6;
-          if (!matchedKeywords.includes(keyword)) matchedKeywords.push(keyword);
-        }
-      });
-
-      archetypeSignals.negative.forEach(keyword => {
-        if (profileText.includes(keyword)) {
-          score -= 10;
-          penalties.push(`Conflicting background signal: ${keyword}`);
-        }
-      });
-
-      const roleTitle = normalizeToken(role.title);
-      const titleWords = roleTitle.split(/[^a-z0-9]+/).filter(word => word.length > 3 && !["customer", "service", "representative", "specialist", "associate", "agent", "senior", "junior"].includes(word));
-      let titleHits = 0;
-      titleWords.forEach(word => {
-        if (profileText.includes(word)) {
-          titleHits += 1;
-          if (!matchedKeywords.includes(word)) matchedKeywords.push(word);
-        }
-      });
-      score += titleHits * 4;
-      if (titleHits) reasons.push(`Role-specific title alignment: ${titleWords.filter(word => profileText.includes(word)).join(", ")}`);
+      }
 
       const roleLocTokens = tokenizeLocation(role.location);
       const profileLocTokens = tokenizeLocation(profile.location);
       const locationOverlap = roleLocTokens.filter(token => profileLocTokens.includes(token));
       if (locationOverlap.length) {
         score += Math.min(8, locationOverlap.length * 4);
-        reasons.push(`Location alignment: ${locationOverlap.join(", ")}`);
+        reasons.push(`Location alignment: ${locationOverlap.join(', ')}`);
       }
 
-      if (role.work_setup && profileText.includes(normalizeToken(role.work_setup))) {
+      if (role.work_setup && /onsite/i.test(role.work_setup) && /(onsite|willing to relocate|willing to work onsite)/i.test(profileText)) {
         score += 4;
         reasons.push(`Work setup alignment: ${role.work_setup}`);
       }
 
-      if (roleArchetype === "csr") {
-        const csrCore = ["customer service", "csr", "call center", "bpo", "voice", "chat support", "technical support"];
-        const csrHits = csrCore.filter(term => profileText.includes(term)).length;
-        if (csrHits === 0) {
-          score -= 15;
-          penalties.push("No visible core CSR / BPO support background");
-        }
+      // Minimal title alignment only for meaningful role tokens, never raw long titles.
+      const titleSignalMap = {
+        csr: ['csr', 'customer service', 'customer support', 'technical support', 'retention', 'collections'],
+        sales: ['sales', 'business development', 'retention', 'lead generation'],
+        tech: ['engineer', 'developer', 'architect', 'qlik', 'data'],
+        finance: ['finance', 'accounting', 'collections', 'billing'],
+        ops: ['trainer', 'operations', 'team leader', 'quality analyst']
+      };
+      const titleSignals = titleSignalMap[roleArchetype] || [];
+      const titleHits = titleSignals.filter(term => profileText.includes(term));
+      if (titleHits.length) {
+        score += Math.min(12, titleHits.length * 4);
+        reasons.push(`Role-specific title alignment: ${titleHits.join(', ')}`);
+      }
+
+      // Strong cap for archetype mismatch on support roles.
+      if (roleArchetype === 'csr' && positiveHits === 0 && matchedSkills.length === 0) {
+        score = Math.min(score, 18);
       }
 
       score = Math.max(0, Math.min(98, score));
 
-      const profileId = String(profile.id || "");
-      const applicationStatus = appMap.get(profileId) || "";
-      const endorsementStatus = endorsementMap.get(profileId) || "";
+      const profileId = String(profile.id || '');
+      const applicationStatus = appMap.get(profileId) || '';
+      const endorsementStatus = endorsementMap.get(profileId) || '';
       const alreadyApplied = !!applicationStatus || (!!profile.applied_job_id && String(profile.applied_job_id) === String(role.id));
       const isTopTalent = !!profile.is_top_talent;
-      const fitSummary = safeText(profile.fit_summary || profile.experience_summary || profile.summary || "No summary available.");
+      const fitSummary = safeText(profile.fit_summary || profile.experience_summary || profile.summary || 'No summary available.');
 
       return {
         id: profileId,
-        name: safeText(profile.full_name) || "Unnamed Profile",
+        name: safeText(profile.full_name) || 'Unnamed Profile',
         title: profileTitle,
-        location: safeText(profile.location || ""),
-        email: safeText(profile.email || ""),
+        location: safeText(profile.location || ''),
+        email: safeText(profile.email || ''),
         source,
         score,
-        strength: score >= 70 ? "strong" : score >= 50 ? "good" : score >= 30 ? "partial" : "weak",
-        matchedKeywords: uniqueLines(matchedKeywords).slice(0, 8),
+        strength: score >= 70 ? 'strong' : score >= 50 ? 'good' : score >= 30 ? 'partial' : 'weak',
+        matchedKeywords: [],
         matchedSkills: uniqueLines(matchedSkills).slice(0, 8),
         reasons: uniqueLines(reasons).slice(0, 6),
         penalties: uniqueLines(penalties).slice(0, 6),
@@ -1935,9 +2003,9 @@
         applicationStatus,
         endorsementStatus,
         isTopTalent,
-        linkedinUrl: safeText(profile.linkedin_url || ""),
-        portfolioUrl: safeText(profile.portfolio_url || ""),
-        resumeUrl: safeText(profile.resume_url || ""),
+        linkedinUrl: safeText(profile.linkedin_url || ''),
+        portfolioUrl: safeText(profile.portfolio_url || ''),
+        resumeUrl: safeText(profile.resume_url || ''),
         fitSummary
       };
     }
@@ -1947,34 +2015,39 @@
       const endorsementMap = new Map();
 
       try {
-        const { data } = await supabaseClient.from("applications").select("applicant_profile_id, status").eq("job_id", role.id).limit(500);
+        const { data } = await supabaseClient.from('applications').select('applicant_profile_id, status').eq('job_id', role.id).limit(500);
         (data || []).forEach(row => {
           if (row?.applicant_profile_id) appMap.set(String(row.applicant_profile_id), safeText(row.status));
         });
       } catch (error) {
-        console.warn("applications lookup failed", error);
+        console.warn('applications lookup failed', error);
       }
 
       try {
-        const { data } = await supabaseClient.from("client_endorsement_view").select("application_id, application_id, endorsement_status").eq("job_id", role.id).limit(500);
+        const { data } = await supabaseClient.from('client_endorsement_view').select('application_id, application_id, endorsement_status').eq('job_id', role.id).limit(500);
         (data || []).forEach(row => {
           if (row?.application_id) endorsementMap.set(String(row.application_id), safeText(row.endorsement_status));
         });
       } catch (error) {
-        console.warn("endorsement lookup failed", error);
+        console.warn('endorsement lookup failed', error);
       }
 
       const [applicants, candidates, prospects] = await Promise.all([
-        fetchProfilesForSource("applicant_profiles"),
-        fetchProfilesForSource("candidate_profiles"),
-        fetchProfilesForSource("prospects")
+        fetchProfilesForSource('applicant_profiles'),
+        fetchProfilesForSource('candidate_profiles'),
+        fetchProfilesForSource('prospects')
       ]);
 
+      const roleArchetype = detectRoleArchetype(role);
+      const minThreshold = roleArchetype === 'csr' ? 22 : 18;
+
       const matches = [
-        ...applicants.map(profile => scoreProfileAgainstRole(profile, role, "applicant_profiles", appMap, endorsementMap)),
-        ...candidates.map(profile => scoreProfileAgainstRole(profile, role, "candidate_profiles", appMap, endorsementMap)),
-        ...prospects.map(profile => scoreProfileAgainstRole(profile, role, "prospects", appMap, endorsementMap))
-      ].filter(item => item.score >= 15).sort((a, b) => {
+        ...applicants.map(profile => scoreProfileAgainstRole(profile, role, 'applicant_profiles', appMap, endorsementMap)),
+        ...candidates.map(profile => scoreProfileAgainstRole(profile, role, 'candidate_profiles', appMap, endorsementMap)),
+        ...prospects.map(profile => scoreProfileAgainstRole(profile, role, 'prospects', appMap, endorsementMap))
+      ]
+      .filter(item => item.score >= minThreshold)
+      .sort((a, b) => {
         if (b.score !== a.score) return b.score - a.score;
         const sourceRank = { applicant_profiles: 3, prospects: 2, candidate_profiles: 1 };
         return (sourceRank[b.source] || 0) - (sourceRank[a.source] || 0);
@@ -1983,8 +2056,7 @@
       currentMatchedProfiles = matches;
       return matches;
     }
-
-    function renderMatchesSummary(items = []) {
+function renderMatchesSummary(items = []) {
       const total = items.length;
       const strong = items.filter(x => x.score >= 70).length;
       const good = items.filter(x => x.score >= 50 && x.score < 70).length;
