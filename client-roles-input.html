@@ -2409,129 +2409,262 @@ ${niceToHave}`;
     }
 
     function generateAiQuestions() {
-      const title = safeText(els.jobTitle.value);
-      const signal = getSignalCalibrationPayload();
-      const requirements = normalizeLines(els.requirements.value);
-      const prioritySkills = normalizeLines(els.prioritySkills.value);
+  const {
+    title,
+    workSetup,
+    requirements,
+    prioritySkills,
+    signal,
+    isCSR,
+    isSales,
+    isTech
+  } = inferRoleContext();
 
-      const generated = [];
+  const generated = [];
 
-      signal.non_negotiables.forEach(item => {
-        generated.push(createEmptyQuestion({
-          question: `This role has a non-negotiable requirement around "${item}". Walk us through a real example that proves you meet this requirement in practice.`,
-          focus_area: "Non-Negotiable",
-          response_type: "Open Text",
-          weight: "Critical"
-        }));
-      });
+  // 1) Knockout questions
+  signal.non_negotiables.slice(0, 4).forEach((item) => {
+    const raw = safeText(item);
+    const lower = raw.toLowerCase();
 
-      signal.must_have_skills.forEach(item => {
-        const skill = cleanSkillLine(item);
-        const weight = deriveWeightFromLine(item);
-        generated.push(createEmptyQuestion({
-          question: `Tell us about a real business situation where you applied ${skill} in a role similar to ${title || "this position"}. What was expected of you, what did you do, and what was the outcome?`,
-          focus_area: skill || "Must-Have Skill",
-          response_type: "Open Text",
-          weight
-        }));
-      });
-
-      signal.success_signals.slice(0, 3).forEach(item => {
-        generated.push(createEmptyQuestion({
-          question: `One success signal for this role is "${item}". Can you share an example that demonstrates this clearly?`,
-          focus_area: "Success Signal",
-          response_type: "Open Text",
-          weight: "High"
-        }));
-      });
-
-      if (signal.communication_weight === "Critical" || signal.communication_weight === "High") {
-        generated.push(createEmptyQuestion({
-          question: `This role places strong importance on communication. Tell us about a time you had to explain complex work clearly to a non-technical or business stakeholder.`,
-          focus_area: "Communication",
-          response_type: "Open Text",
-          weight: signal.communication_weight || "High"
-        }));
-      }
-
-      if (signal.stakeholder_weight === "Critical" || signal.stakeholder_weight === "High") {
-        generated.push(createEmptyQuestion({
-          question: `Describe a situation where you had to manage different stakeholder expectations while still delivering the right outcome.`,
-          focus_area: "Stakeholder Management",
-          response_type: "Open Text",
-          weight: signal.stakeholder_weight || "High"
-        }));
-      }
-
-      if (signal.autonomy_level) {
-        generated.push(createEmptyQuestion({
-          question: `This role expects a "${signal.autonomy_level}" style of working. How do you typically operate in that kind of environment?`,
-          focus_area: "Autonomy / Ownership",
-          response_type: "Open Text",
-          weight: "High"
-        }));
-      }
-
-      if (signal.decision_making) {
-        generated.push(createEmptyQuestion({
-          question: `Decision-making is important in this role. Based on this expectation: "${signal.decision_making}", how have you handled similar responsibility before?`,
-          focus_area: "Decision-Making",
-          response_type: "Open Text",
-          weight: "High"
-        }));
-      }
-
-      if (signal.setup_criticality) {
-        generated.push(createEmptyQuestion({
-          question: `The work setup fit for this role is considered ${signal.setup_criticality.toLowerCase()}. What about your experience and preferences makes you likely to succeed in this setup?`,
-          focus_area: "Work Setup Fit",
-          response_type: "Open Text",
-          weight: signal.setup_criticality === "Critical" ? "Critical" : "Medium"
-        }));
-      }
-
-      signal.business_priorities.slice(0, 3).forEach(item => {
-        generated.push(createEmptyQuestion({
-          question: `A business priority for this role is "${item}". How have you contributed to a similar outcome before?`,
-          focus_area: "Business Priority",
-          response_type: "Open Text",
-          weight: "High"
-        }));
-      });
-
-      if (!generated.length) {
-        const fallbackSignals = [...prioritySkills, ...requirements].slice(0, 6);
-        fallbackSignals.forEach((signalLine, i) => {
-          generated.push(createEmptyQuestion({
-            question: `Tell us about a real situation where you applied ${signalLine} in a role similar to ${title || "this position"}. What was the business need, what did you do, and what was the outcome?`,
-            focus_area: signalLine,
-            response_type: "Open Text",
-            weight: i < 2 ? "Critical" : "High"
-          }));
-        });
-      }
-
-      if (!generated.length) {
-        generated.push(
-          createEmptyQuestion({
-            question: "Walk us through your most relevant experience for this role.",
-            focus_area: "Relevant Experience",
-            response_type: "Open Text",
-            weight: "High"
-          }),
-          createEmptyQuestion({
-            question: "Why do you believe you would perform well in this position?",
-            focus_area: "Motivation / Fit",
-            response_type: "Open Text",
-            weight: "Medium"
-          })
-        );
-      }
-
-      questionItems = generated;
-      renderQuestions();
-      showNotice("Screening questions generated from TalentBuzz Signal Intelligence.");
+    if (lineLooksLikeLocationOrSetup(lower)) {
+      generated.push(
+        buildKnockoutQuestion(raw, {
+          question: `Are you willing and able to work ${workSetup ? workSetup.toLowerCase() : "in the required setup"} for this role? Please confirm your current location and estimated commute time if applicable.`,
+          focus_area: "Work Setup / Location",
+          response_type: "Short Answer",
+          ideal_signals: ["Direct confirmation", "Realistic location or commute plan"],
+          red_flags: ["Cannot commit to setup", "Unclear commute readiness"]
+        })
+      );
+      return;
     }
+
+    if (lineLooksLikeYearsExperience(lower)) {
+      generated.push(
+        buildKnockoutQuestion(raw, {
+          question: `Do you meet this requirement: "${raw}"? If yes, briefly state the company, account, or role and total tenure.`,
+          focus_area: "Relevant Experience",
+          response_type: "Short Answer",
+          ideal_signals: ["Specific employer or account", "Clear tenure"],
+          red_flags: ["Vague experience", "No proof"]
+        })
+      );
+      return;
+    }
+
+    if (lineLooksLikeLanguage(lower)) {
+      generated.push(
+        buildKnockoutQuestion(raw, {
+          question: `Do you meet this requirement: "${raw}"? Please answer briefly and include any customer-facing or communication-heavy experience that supports it.`,
+          focus_area: "Language / Communication Baseline",
+          response_type: "Short Answer"
+        })
+      );
+      return;
+    }
+
+    generated.push(buildKnockoutQuestion(raw));
+  });
+
+  // 2) Role-specific proof questions
+  if (isCSR) {
+    generated.push(
+      buildBehavioralQuestion(
+        `Tell us about a real customer interaction you handled in a voice account. What was the concern, how did you manage the conversation, and what was the outcome?`,
+        "Customer Handling",
+        "Critical",
+        {
+          category: "proof",
+          ideal_signals: ["Specific scenario", "Clear actions", "Outcome"],
+          red_flags: ["Generic answer", "No outcome"]
+        }
+      )
+    );
+
+    generated.push(
+      buildBehavioralQuestion(
+        `Tell us about a time you handled a difficult, upset, or irate customer over the phone. What did you do to de-escalate the situation?`,
+        "De-escalation",
+        "Critical",
+        {
+          category: "proof",
+          ideal_signals: ["Empathy", "Calm structure", "Resolution focus"],
+          red_flags: ["Blames customer", "No de-escalation method"]
+        }
+      )
+    );
+
+    generated.push(
+      buildBehavioralQuestion(
+        isSales
+          ? `What KPIs were you measured on in your previous account, such as conversion, sales, CSAT, AHT, QA, or attendance? Share your actual performance results if you remember them.`
+          : `What KPIs were you measured on in your previous account, such as CSAT, AHT, QA, attendance, or resolution? Share your actual performance results if you remember them.`,
+        "KPI Performance",
+        "Critical",
+        {
+          category: "proof",
+          ideal_signals: ["Mentions real KPIs", "Shares measurable performance"],
+          red_flags: ["No KPI awareness", "Only vague claims"]
+        }
+      )
+    );
+  }
+
+  if (isSales) {
+    generated.push(
+      buildBehavioralQuestion(
+        `Tell us about a time you successfully persuaded, converted, or upsold a customer. What approach did you use and what was the result?`,
+        "Sales / Conversion",
+        "High",
+        {
+          category: "proof",
+          ideal_signals: ["Consultative approach", "Clear result"],
+          red_flags: ["No measurable outcome"]
+        }
+      )
+    );
+  }
+
+  if (isTech) {
+    generated.push(
+      buildBehavioralQuestion(
+        `Tell us about a technical problem you solved that is relevant to this role. What was the issue, what did you do, and what was the business or user impact?`,
+        "Problem Solving",
+        "High",
+        {
+          category: "proof",
+          ideal_signals: ["Specific technical challenge", "Clear ownership", "Impact"],
+          red_flags: ["Too abstract", "No outcome"]
+        }
+      )
+    );
+  }
+
+  // 3) Must-have / priority skill proof
+  signal.must_have_skills.slice(0, 2).forEach((item) => {
+    const skill = stripImportanceSuffix(item);
+    const weight = normalizeImportance(item);
+
+    if (!lineLooksLikeYearsExperience(skill) && !lineLooksLikeLocationOrSetup(skill)) {
+      generated.push(
+        buildBehavioralQuestion(
+          `Tell us about a real situation where you used ${skill} in a relevant role. What did you do and what was the outcome?`,
+          skill || "Must-Have Skill",
+          weight,
+          {
+            category: "proof",
+            ideal_signals: ["Specific example", "Clear ownership", "Outcome"],
+            red_flags: ["Generic answer", "No ownership", "No result"]
+          }
+        )
+      );
+    }
+  });
+
+  // 4) Communication / simulation
+  if (["Critical", "High"].includes(signal.communication_weight)) {
+    generated.push(
+      buildBehavioralQuestion(
+        isCSR
+          ? `Please respond as if you are already speaking to a customer: "I’ve already called more than once and my concern is still not resolved. Why should I stay on the line with you?"`
+          : `Explain a work issue to a customer or stakeholder in a simple, calm, and professional way as if you were speaking to them live.`,
+        "Communication",
+        signal.communication_weight || "High",
+        {
+          category: "simulation",
+          ideal_signals: ["Clear structure", "Professional tone", "Empathy", "Clarity"],
+          red_flags: ["Defensive tone", "Poor grammar", "Unclear response"]
+        }
+      )
+    );
+  }
+
+  // 5) Team / autonomy
+  if (signal.autonomy_level === "Collaborative / Team-Dependent") {
+    generated.push(
+      buildBehavioralQuestion(
+        `Tell us about a time you worked closely with teammates or another support group to resolve an issue or complete an important task.`,
+        "Collaboration",
+        "High",
+        {
+          category: "team_fit",
+          ideal_signals: ["Good teamwork", "Clear role", "Good escalation judgment"],
+          red_flags: ["Avoids teamwork", "Cannot explain contribution"]
+        }
+      )
+    );
+  } else if (signal.autonomy_level === "Highly Independent") {
+    generated.push(
+      buildBehavioralQuestion(
+        `Tell us about a time you had to work independently with minimal guidance. How did you prioritize, decide, and deliver results?`,
+        "Autonomy / Ownership",
+        "High",
+        {
+          category: "team_fit",
+          ideal_signals: ["Ownership", "Independent decision-making", "Prioritization"],
+          red_flags: ["Needs constant direction", "No ownership"]
+        }
+      )
+    );
+  }
+
+  // 6) Work setup fit
+  if (signal.setup_criticality) {
+    generated.push(
+      buildBehavioralQuestion(
+        workSetup && /onsite/i.test(workSetup)
+          ? `This role is onsite. What arrangements do you currently have in place to support reliable attendance and punctuality?`
+          : `What about your setup, schedule, and work preferences makes you likely to succeed in this ${workSetup || "required"} environment?`,
+        "Work Setup Fit",
+        signal.setup_criticality === "Critical" ? "Critical" : "High",
+        {
+          category: "setup",
+          ideal_signals: ["Practical readiness", "Stable schedule", "Reliable setup"],
+          red_flags: ["No concrete setup", "Schedule conflict", "Location mismatch"]
+        }
+      )
+    );
+  }
+
+  // 7) Business priority
+  signal.business_priorities.slice(0, 1).forEach((item) => {
+    generated.push(
+      buildBehavioralQuestion(
+        `One business priority for this hire is "${item}". Share an example of how you contributed to a similar outcome before.`,
+        "Business Priority",
+        "High",
+        {
+          category: "business",
+          ideal_signals: ["Business awareness", "Relevant impact", "Outcome orientation"],
+          red_flags: ["Too generic", "No business impact"]
+        }
+      )
+    );
+  });
+
+  // 8) Fallback
+  if (!generated.length) {
+    [...prioritySkills, ...requirements].slice(0, 4).forEach((line, index) => {
+      generated.push(
+        buildBehavioralQuestion(
+          `Tell us about a real situation where you used ${line} in a relevant role. What was the situation, what did you do, and what was the outcome?`,
+          line,
+          index < 2 ? "Critical" : "High",
+          {
+            category: "proof"
+          }
+        )
+      );
+    });
+  }
+
+  questionItems = dedupeQuestions(generated).slice(0, 8);
+  renderQuestions();
+  generateScreeningSummary();
+
+  showNotice("AI screening questions rebuilt with knockout, proof, simulation, and fit logic.");
+}
 
     function generateScreeningSummary() {
       const payload = getEnhancedRolePayload();
