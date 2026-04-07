@@ -499,6 +499,22 @@
       text-align: center;
     }
 
+
+    .auth-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 12px;
+      align-items: center;
+    }
+
+    .cooldown-note {
+      margin-top: 10px;
+      color: var(--muted);
+      font-size: 0.84rem;
+      line-height: 1.5;
+    }
+
     .hidden {
       display: none !important;
     }
@@ -721,7 +737,7 @@
           <div id="newUserAuthSection" class="auth-section hidden">
             <h3>Create your TalentBuzz account</h3>
             <p>
-              New users need a password so they can sign in and continue updating their profile later.
+              New users can create an account with a password, or use a magic sign-in link if they already started before.
             </p>
 
             <div class="grid">
@@ -734,6 +750,15 @@
                 <label for="confirm_password">Confirm Password</label>
                 <input id="confirm_password" type="password" autocomplete="new-password" placeholder="Re-enter your password">
               </div>
+            </div>
+
+            <div class="auth-actions">
+              <button type="button" class="btn btn-secondary" id="sendMagicLinkBtn">Email me a sign-in link</button>
+              <button type="button" class="link-btn" id="resendMagicLinkBtn">Resend sign-in link</button>
+            </div>
+
+            <div class="cooldown-note" id="authCooldownNote">
+              To avoid email rate limits, wait about 1 minute before requesting another email.
             </div>
 
             <div class="hint">
@@ -791,6 +816,9 @@
   const authModeBanner = document.getElementById('authModeBanner');
   const newUserAuthSection = document.getElementById('newUserAuthSection');
   const goToLoginBtn = document.getElementById('goToLoginBtn');
+  const sendMagicLinkBtn = document.getElementById('sendMagicLinkBtn');
+  const resendMagicLinkBtn = document.getElementById('resendMagicLinkBtn');
+  const authCooldownNote = document.getElementById('authCooldownNote');
   const resumeInput = document.getElementById('resume');
   const resumeInsightCard = document.getElementById('resumeInsightCard');
   const scoreRow = document.getElementById('scoreRow');
@@ -806,6 +834,9 @@
   let existingProfile = null;
   let pendingProfilePhotoDataUrl = null;
   let openJobs = [];
+  let lastSignupAttempt = 0;
+  let lastMagicLinkAttempt = 0;
+  const AUTH_EMAIL_COOLDOWN = 60000;
 
   let resumeAnalysis = {
     resume_text: null,
@@ -857,6 +888,17 @@
     saveBtn.textContent = isSaving ? 'Saving...' : 'Save Profile';
     nextBtn.disabled = isSaving;
     backBtn.disabled = isSaving;
+
+    if (sendMagicLinkBtn) sendMagicLinkBtn.disabled = isSaving;
+    if (resendMagicLinkBtn) resendMagicLinkBtn.disabled = isSaving;
+
+    if (isSaving) {
+      saveBtn.style.pointerEvents = 'none';
+    } else {
+      setTimeout(() => {
+        saveBtn.style.pointerEvents = 'auto';
+      }, 1500);
+    }
   }
 
   function getFullName(user) {
@@ -1008,6 +1050,66 @@
       if (password.length < 8) throw new Error('Password must be at least 8 characters.');
       if (password !== confirmPassword) throw new Error('Passwords do not match.');
     }
+  }
+
+
+  function isRateLimitMessage(message) {
+    const msg = String(message || '').toLowerCase();
+    return (
+      msg.includes('rate limit') ||
+      msg.includes('too many requests') ||
+      msg.includes('over email rate limit') ||
+      msg.includes('email rate limit')
+    );
+  }
+
+  function isAlreadyRegisteredMessage(message) {
+    const msg = String(message || '').toLowerCase();
+    return (
+      msg.includes('already registered') ||
+      msg.includes('already been registered') ||
+      msg.includes('user already registered')
+    );
+  }
+
+  function enforceCooldown(lastAttemptTs, cooldownMs, label) {
+    const now = Date.now();
+    const remaining = cooldownMs - (now - lastAttemptTs);
+
+    if (lastAttemptTs && remaining > 0) {
+      const seconds = Math.ceil(remaining / 1000);
+      throw new Error(`Please wait about ${seconds} more second${seconds === 1 ? '' : 's'} before requesting another ${label}.`);
+    }
+
+    return now;
+  }
+
+  async function sendMagicLink(email, fullName) {
+    if (!email) throw new Error('Enter your email first.');
+    if (!isValidEmail(email)) throw new Error('Please enter a valid email address.');
+
+    const attemptTs = enforceCooldown(lastMagicLinkAttempt, AUTH_EMAIL_COOLDOWN, 'email');
+    lastMagicLinkAttempt = attemptTs;
+
+    const emailRedirectTo = `${window.location.origin}/create-profile.html?email=${encodeURIComponent(email)}${job ? `&job=${encodeURIComponent(job)}` : ''}${fromApply ? `&fromApply=${encodeURIComponent(fromApply)}` : ''}${redirect ? `&redirect=${encodeURIComponent(redirect)}` : ''}`;
+
+    const { error } = await supabaseClient.auth.signInWithOtp({
+      email,
+      options: {
+        emailRedirectTo,
+        shouldCreateUser: false,
+        data: fullName ? { full_name: fullName } : undefined
+      }
+    });
+
+    if (error) {
+      if (isRateLimitMessage(error.message)) {
+        throw new Error('Too many email requests. Please wait 1–2 minutes before trying again.');
+      }
+      throw error;
+    }
+
+    showMessage('Sign-in link sent. Please check your email. If it does not arrive right away, wait 1–2 minutes before requesting another one.', 'info');
   }
 
   function getLoginUrl(email) {
@@ -1623,6 +1725,31 @@
     window.location.href = getLoginUrl(email);
   });
 
+
+  sendMagicLinkBtn.addEventListener('click', async () => {
+    clearMessage();
+
+    try {
+      const email = getEmailInput().value.trim().toLowerCase();
+      const fullName = getFullNameInput().value.trim();
+      await sendMagicLink(email, fullName);
+    } catch (err) {
+      showMessage(err.message || 'Unable to send sign-in link.', 'error');
+    }
+  });
+
+  resendMagicLinkBtn.addEventListener('click', async () => {
+    clearMessage();
+
+    try {
+      const email = getEmailInput().value.trim().toLowerCase();
+      const fullName = getFullNameInput().value.trim();
+      await sendMagicLink(email, fullName);
+    } catch (err) {
+      showMessage(err.message || 'Unable to resend sign-in link.', 'error');
+    }
+  });
+
   profilePhotoInput.addEventListener('change', (e) => {
     const file = e.target.files?.[0];
 
@@ -1695,22 +1822,30 @@
           existingProfile = existingEmailProfile;
         }
 
+        const signupAttemptTs = enforceCooldown(lastSignupAttempt, AUTH_EMAIL_COOLDOWN, 'email');
+        lastSignupAttempt = signupAttemptTs;
+
+        const emailRedirectTo = `${window.location.origin}/create-profile.html?email=${encodeURIComponent(email)}${job ? `&job=${encodeURIComponent(job)}` : ''}${fromApply ? `&fromApply=${encodeURIComponent(fromApply)}` : ''}${redirect ? `&redirect=${encodeURIComponent(redirect)}` : ''}`;
+
         const { data: signUpData, error: signUpError } = await supabaseClient.auth.signUp({
           email,
           password,
-          options: { data: { full_name } }
+          options: {
+            data: { full_name },
+            emailRedirectTo
+          }
         });
 
         if (signUpError) {
           const signUpMessage = String(signUpError.message || '').toLowerCase();
 
-          if (
-            signUpMessage.includes('already registered') ||
-            signUpMessage.includes('already been registered') ||
-            signUpMessage.includes('user already registered')
-          ) {
+          if (isAlreadyRegisteredMessage(signUpMessage)) {
             window.location.href = getLoginUrl(email);
             return;
+          }
+
+          if (isRateLimitMessage(signUpMessage)) {
+            throw new Error('Too many email requests. Please wait 1–2 minutes before trying again.');
           }
 
           throw signUpError;
@@ -1721,12 +1856,12 @@
 
         if (!currentUser) {
           showMessage(
-            'Your account was created. Please check your email to confirm your account, then sign in to continue.',
+            'Account created. Check your email to confirm your account, then sign in to continue. If you do not receive it right away, wait 1–2 minutes before requesting another email.',
             'info'
           );
           setTimeout(() => {
             window.location.href = getLoginUrl(email);
-          }, 1800);
+          }, 2200);
           return;
         }
       }
@@ -1784,7 +1919,11 @@
       }, 700);
     } catch (err) {
       const msg = err?.message || 'Error saving profile.';
-      showMessage(msg, 'error');
+      if (isRateLimitMessage(msg)) {
+        showMessage('Too many email requests. Please wait 1–2 minutes before trying again.', 'error');
+      } else {
+        showMessage(msg, 'error');
+      }
     } finally {
       setSavingState(false);
     }
