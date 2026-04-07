@@ -193,7 +193,7 @@
 
     .grid {
       display: grid;
-      grid-template-columns: minmax(0, 1.2fr) minmax(360px, 0.8fr);
+      grid-template-columns: 1fr;
       gap: 22px;
     }
 
@@ -724,6 +724,35 @@
       color: var(--muted);
     }
 
+
+    .preview-modal {
+      position: fixed;
+      inset: 0;
+      background: rgba(2, 6, 23, 0.72);
+      backdrop-filter: blur(8px);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      z-index: 1190;
+    }
+
+    .preview-modal.show {
+      display: flex;
+    }
+
+    .preview-dialog {
+      width: min(980px, 96vw);
+      max-height: 88vh;
+      overflow: hidden;
+      background: rgba(8, 18, 37, 0.98);
+      border: 1px solid var(--line);
+      border-radius: 26px;
+      box-shadow: var(--shadow);
+      display: grid;
+      grid-template-rows: auto 1fr;
+    }
+
     .matches-modal {
       position: fixed;
       inset: 0;
@@ -1006,7 +1035,7 @@
             <div class="workspace-body" id="workspaceBody">
               <div class="sticky-actions">
                 <button class="primary-btn" id="saveRoleBtn" type="button">Save Role</button>
-                <button class="ghost-btn" id="refreshPreviewBtn" type="button">Refresh Preview</button>
+                <button class="ghost-btn" id="openPreviewBtn" type="button">View Preview</button>
                 <button class="signal-btn" id="buildSignalBtn" type="button">Build Signal Summary</button>
                 <button class="signal-btn" id="generateAiQuestionsBtn" type="button">Generate AI Questions</button>
                 <button class="ghost-btn" id="generateSummaryBtn" type="button">Build Screening Summary</button>
@@ -1394,28 +1423,27 @@
         </div>
       </div>
 
-      <div>
-        <div class="panel preview-panel">
-          <div class="panel-inner">
-            <div class="section-title">
-              <div>
-                <h3>Job Description Preview</h3>
-                <p>Preview the saved job description and AI screening setup for the selected role.</p>
-              </div>
-              <button class="ghost-btn" type="button" id="refreshPreviewBtnAside">Refresh Preview</button>
-            </div>
+  </div>
 
-            <div class="preview-box" id="jdPreview">
+  <div class="preview-modal" id="previewModal" aria-hidden="true">
+    <div class="preview-dialog">
+      <div class="matches-header">
+        <div class="matches-title">
+          <h3>Job Description Preview</h3>
+          <p>Preview the saved job description and AI screening setup only when needed.</p>
+        </div>
+        <button class="ghost-btn" type="button" id="closePreviewModalBtn">Close</button>
+      </div>
+
+      <div class="matches-body">
+        <div class="preview-box" id="jdPreview">
 No preview yet.
 
-Fill in the role fields and click “Refresh Preview”.
-            </div>
-          </div>
+Fill in the role fields and click “View Preview”.
         </div>
       </div>
     </div>
   </div>
-
 
   <div class="matches-modal" id="matchesModal" aria-hidden="true">
     <div class="matches-dialog">
@@ -1520,8 +1548,9 @@ Fill in the role fields and click “Refresh Preview”.
       addQuestionBtn: document.getElementById("addQuestionBtn"),
       generateAiQuestionsBtn: document.getElementById("generateAiQuestionsBtn"),
       generateSummaryBtn: document.getElementById("generateSummaryBtn"),
-      refreshPreviewBtn: document.getElementById("refreshPreviewBtn"),
-      refreshPreviewBtnAside: document.getElementById("refreshPreviewBtnAside"),
+      openPreviewBtn: document.getElementById("openPreviewBtn"),
+      previewModal: document.getElementById("previewModal"),
+      closePreviewModalBtn: document.getElementById("closePreviewModalBtn"),
 
       rolesTableBody: document.getElementById("rolesTableBody"),
       searchInput: document.getElementById("searchInput"),
@@ -1553,6 +1582,22 @@ Fill in the role fields and click “Refresh Preview”.
     let currentMatchesRoleId = "";
     let currentMatchesRole = null;
     let currentMatchedProfiles = [];
+
+    function openPreviewModal() {
+      els.previewModal.classList.add("show");
+      els.previewModal.setAttribute("aria-hidden", "false");
+    }
+
+    function closePreviewModal() {
+      els.previewModal.classList.remove("show");
+      els.previewModal.setAttribute("aria-hidden", "true");
+    }
+
+    function openRolePreview() {
+      refreshPreview();
+      openPreviewModal();
+    }
+
 
     function showNotice(message, type = "success") {
       els.notice.textContent = message;
@@ -3279,12 +3324,15 @@ ${niceToHave}`;
 
     els.generateAiQuestionsBtn.addEventListener("click", generateAiQuestions);
     els.generateSummaryBtn.addEventListener("click", generateScreeningSummary);
-    els.refreshPreviewBtn.addEventListener("click", refreshPreview);
-    els.refreshPreviewBtnAside.addEventListener("click", refreshPreview);
+    els.openPreviewBtn.addEventListener("click", openRolePreview);
     els.saveRoleBtn.addEventListener("click", saveRole);
     els.refreshRolesBtn.addEventListener("click", loadRoles);
     els.searchInput.addEventListener("input", renderRolesTable);
     els.holdFilter.addEventListener("change", renderRolesTable);
+    els.closePreviewModalBtn.addEventListener("click", closePreviewModal);
+    els.previewModal.addEventListener("click", (event) => {
+      if (event.target === els.previewModal) closePreviewModal();
+    });
     els.closeMatchesModalBtn.addEventListener("click", closeMatchesModal);
     els.refreshMatchesBtn.addEventListener("click", () => {
       if (currentMatchesRoleId) viewMatchedProfiles(currentMatchesRoleId);
