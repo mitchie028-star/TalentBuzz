@@ -1756,61 +1756,161 @@
       }
     }
 
-    function scoreProfileAgainstRole(profile, role, source, appMap = new Map(), endorsementMap = new Map()) {
-      const roleText = [
-        safeText(role.title),
-        safeText(Array.isArray(role.required_skills) ? role.required_skills.join(" ") : role.required_skills),
-        safeText(role.priority_skills),
+    function phraseMatch(profileText, phrase) {
+      const cleaned = normalizeToken(stripImportanceSuffix(phrase)).replace(/[^a-z0-9+#.\s]/g, " ").trim();
+      if (!cleaned || cleaned.length < 3) return false;
+      if (profileText.includes(cleaned)) return true;
+      const words = cleaned.split(/\s+/).filter(word => word.length > 2);
+      if (!words.length) return false;
+      const matched = words.filter(word => profileText.includes(word)).length;
+      return words.length === 1 ? matched === 1 : matched >= Math.ceil(words.length * 0.7);
+    }
+
+    function detectRoleArchetype(role) {
+      const text = normalizeToken([
+        role.title,
+        role.role_family,
+        role.work_setup,
+        Array.isArray(role.required_skills) ? role.required_skills.join(" ") : role.required_skills,
+        role.priority_skills,
         ...((role.ai_screening_config?.non_negotiables) || []),
         ...((role.ai_screening_config?.must_have_skills) || [])
-      ].join(" ").toLowerCase();
+      ].join(" "));
 
-      const profileText = [
-        safeText(profile.full_name),
+      if (/(customer service|customer experience|csr|call center|bpo|voice|chat support|technical support|retention|billing)/.test(text)) return "csr";
+      if (/(sales|business development|lead generation|retention agent|account executive|upsell|conversion)/.test(text)) return "sales";
+      if (/(architect|engineer|developer|software|cloud|data engineer|qlik|sql|power bi|analytics|automation)/.test(text)) return "tech";
+      if (/(finance|accounting|billing analyst|collections|credit|underwriter)/.test(text)) return "finance";
+      if (/(trainer|training|operations manager|team leader|quality analyst|qa)/.test(text)) return "ops";
+      return "general";
+    }
+
+    function archetypeKeywordMap(archetype) {
+      const map = {
+        csr: {
+          positive: ["customer service", "customer support", "csr", "call center", "bpo", "voice", "chat support", "technical support", "retention", "billing", "inbound", "outbound", "collections", "help desk"],
+          negative: ["solutions architect", "data engineer", "software engineer", "developer", "cloud architect", "integration architect", "mulesoft", "oracle sql", "project manager"]
+        },
+        sales: {
+          positive: ["sales", "business development", "upsell", "retention", "lead generation", "appointment setting", "account executive", "inside sales"],
+          negative: ["software engineer", "architect", "developer"]
+        },
+        tech: {
+          positive: ["engineer", "developer", "architect", "sql", "qlik", "power bi", "cloud", "api", "software", "data"],
+          negative: ["cashier", "service crew", "warehouseman"]
+        },
+        finance: {
+          positive: ["finance", "accounting", "credit", "collections", "underwriter", "billing", "analyst"],
+          negative: ["software engineer", "architect"]
+        },
+        ops: {
+          positive: ["trainer", "training", "operations", "team leader", "quality analyst", "workflow", "coaching"],
+          negative: []
+        },
+        general: { positive: [], negative: [] }
+      };
+      return map[archetype] || map.general;
+    }
+
+    function tokenizeLocation(value) {
+      return normalizeToken(value)
+        .split(/[^a-z0-9]+/)
+        .filter(token => token.length > 2 && !["city", "philippines", "metro", "national", "capital", "region"].includes(token));
+    }
+
+    function scoreProfileAgainstRole(profile, role, source, appMap = new Map(), endorsementMap = new Map()) {
+      const profileTitle = safeText(profile.current_title || profile.title || profile.headline || "");
+      const profileText = normalizeToken([
+        profileTitle,
         safeText(profile.location),
         safeText(profile.experience_summary),
         safeText(profile.raw_resume_text),
         safeText(profile.skills),
         safeText(profile.summary),
         safeText(profile.fit_summary)
-      ].join(" ").toLowerCase();
+      ].join(" "));
 
-      const keywords = uniqueLines(roleText.split(/[^a-z0-9+#.]+/i).filter(word => word && word.length > 2)).slice(0, 60);
-      let hits = 0;
-      const matchedKeywords = [];
-      const matchedSkills = [];
-      const penalties = [];
+      const roleArchetype = detectRoleArchetype(role);
+      const archetypeSignals = archetypeKeywordMap(roleArchetype);
       const reasons = [];
+      const penalties = [];
+      const matchedSkills = [];
+      const matchedKeywords = [];
+      let score = 0;
 
-      keywords.forEach(word => {
-        if (profileText.includes(word)) {
-          hits += word.length > 6 ? 3 : 2;
-          if (matchedKeywords.length < 8 && !matchedKeywords.includes(word)) matchedKeywords.push(word);
-        }
-      });
+      const prioritySkills = uniqueLines([
+        ...((role.ai_screening_config?.must_have_skills) || []).map(stripImportanceSuffix),
+        ...normalizeLines(role.priority_skills),
+        ...(Array.isArray(role.required_skills) ? role.required_skills : normalizeLines(role.required_skills))
+      ]).filter(Boolean);
 
-      const mustHave = (role.ai_screening_config?.must_have_skills || []).map(stripImportanceSuffix).filter(Boolean);
-      mustHave.forEach(skill => {
-        if (profileText.includes(skill.toLowerCase())) {
+      prioritySkills.slice(0, 12).forEach(skill => {
+        if (phraseMatch(profileText, skill)) {
+          score += 14;
           if (!matchedSkills.includes(skill)) matchedSkills.push(skill);
-          hits += 4;
-          reasons.push(`Matched must-have: ${skill}`);
-        } else if (penalties.length < 5) {
-          penalties.push(`Missing visible signal for ${skill}`);
+          reasons.push(`Matched skill: ${skill}`);
         }
       });
 
-      const nonNegotiables = role.ai_screening_config?.non_negotiables || [];
-      nonNegotiables.slice(0, 4).forEach(item => {
-        const token = safeText(stripImportanceSuffix(item)).toLowerCase();
-        if (token && profileText.includes(token)) {
-          hits += 3;
-          reasons.push(`Non-negotiable aligned: ${item}`);
+      (role.ai_screening_config?.non_negotiables || []).slice(0, 5).forEach(item => {
+        if (phraseMatch(profileText, item)) {
+          score += 12;
+          reasons.push(`Matched non-negotiable: ${item}`);
+        } else {
+          penalties.push(`Missing visible signal for ${stripImportanceSuffix(item)}`);
         }
       });
 
-      const rawScore = Math.min(95, hits * 2);
-      const score = Math.max(rawScore, matchedSkills.length ? 25 + matchedSkills.length * 8 : rawScore);
+      archetypeSignals.positive.forEach(keyword => {
+        if (profileText.includes(keyword)) {
+          score += 6;
+          if (!matchedKeywords.includes(keyword)) matchedKeywords.push(keyword);
+        }
+      });
+
+      archetypeSignals.negative.forEach(keyword => {
+        if (profileText.includes(keyword)) {
+          score -= 10;
+          penalties.push(`Conflicting background signal: ${keyword}`);
+        }
+      });
+
+      const roleTitle = normalizeToken(role.title);
+      const titleWords = roleTitle.split(/[^a-z0-9]+/).filter(word => word.length > 3 && !["customer", "service", "representative", "specialist", "associate", "agent", "senior", "junior"].includes(word));
+      let titleHits = 0;
+      titleWords.forEach(word => {
+        if (profileText.includes(word)) {
+          titleHits += 1;
+          if (!matchedKeywords.includes(word)) matchedKeywords.push(word);
+        }
+      });
+      score += titleHits * 4;
+      if (titleHits) reasons.push(`Role-specific title alignment: ${titleWords.filter(word => profileText.includes(word)).join(", ")}`);
+
+      const roleLocTokens = tokenizeLocation(role.location);
+      const profileLocTokens = tokenizeLocation(profile.location);
+      const locationOverlap = roleLocTokens.filter(token => profileLocTokens.includes(token));
+      if (locationOverlap.length) {
+        score += Math.min(8, locationOverlap.length * 4);
+        reasons.push(`Location alignment: ${locationOverlap.join(", ")}`);
+      }
+
+      if (role.work_setup && profileText.includes(normalizeToken(role.work_setup))) {
+        score += 4;
+        reasons.push(`Work setup alignment: ${role.work_setup}`);
+      }
+
+      if (roleArchetype === "csr") {
+        const csrCore = ["customer service", "csr", "call center", "bpo", "voice", "chat support", "technical support"];
+        const csrHits = csrCore.filter(term => profileText.includes(term)).length;
+        if (csrHits === 0) {
+          score -= 15;
+          penalties.push("No visible core CSR / BPO support background");
+        }
+      }
+
+      score = Math.max(0, Math.min(98, score));
+
       const profileId = String(profile.id || "");
       const applicationStatus = appMap.get(profileId) || "";
       const endorsementStatus = endorsementMap.get(profileId) || "";
@@ -1821,14 +1921,14 @@
       return {
         id: profileId,
         name: safeText(profile.full_name) || "Unnamed Profile",
-        title: safeText(profile.current_title || profile.title || profile.headline || ""),
+        title: profileTitle,
         location: safeText(profile.location || ""),
         email: safeText(profile.email || ""),
         source,
         score,
         strength: score >= 70 ? "strong" : score >= 50 ? "good" : score >= 30 ? "partial" : "weak",
-        matchedKeywords,
-        matchedSkills,
+        matchedKeywords: uniqueLines(matchedKeywords).slice(0, 8),
+        matchedSkills: uniqueLines(matchedSkills).slice(0, 8),
         reasons: uniqueLines(reasons).slice(0, 6),
         penalties: uniqueLines(penalties).slice(0, 6),
         alreadyApplied,
@@ -1874,7 +1974,7 @@
         ...applicants.map(profile => scoreProfileAgainstRole(profile, role, "applicant_profiles", appMap, endorsementMap)),
         ...candidates.map(profile => scoreProfileAgainstRole(profile, role, "candidate_profiles", appMap, endorsementMap)),
         ...prospects.map(profile => scoreProfileAgainstRole(profile, role, "prospects", appMap, endorsementMap))
-      ].filter(item => item.score >= 5).sort((a, b) => {
+      ].filter(item => item.score >= 15).sort((a, b) => {
         if (b.score !== a.score) return b.score - a.score;
         const sourceRank = { applicant_profiles: 3, prospects: 2, candidate_profiles: 1 };
         return (sourceRank[b.source] || 0) - (sourceRank[a.source] || 0);
