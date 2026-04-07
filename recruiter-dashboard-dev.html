@@ -625,7 +625,7 @@
               </tr>
             </thead>
             <tbody id="applicationsTable">
-              <tr><td colspan="8" class="empty loading">Loading candidates...</td></tr>
+              <tr><td colspan="8" class="empty loading">Loading candidates... If this stays here, there may be a query or permission error.</td></tr>
             </tbody>
           </table>
         </div>
@@ -898,52 +898,78 @@
       }
 
       async function loadRecruitersMap() {
-        const { data } = await supabaseClient.from("recruiters").select("email, full_name");
         state.recruitersMap = {};
-        (data || []).forEach((row) => {
-          state.recruitersMap[normalizeEmail(row.email)] = row.full_name || row.email;
-        });
+        try {
+          const { data, error } = await supabaseClient.from("recruiters").select("email, full_name");
+          if (error) {
+            console.warn("Recruiters lookup unavailable:", error.message);
+            return;
+          }
+          (data || []).forEach((row) => {
+            state.recruitersMap[normalizeEmail(row.email)] = row.full_name || row.email;
+          });
+        } catch (err) {
+          console.warn("Recruiters lookup failed:", err?.message || err);
+        }
       }
 
       async function loadProfiles() {
-        const { data, error } = await supabaseClient.from("applicant_profiles").select("*");
-        if (error) throw error;
-        state.allProfiles = Array.isArray(data) ? data : [];
+        try {
+          const { data, error } = await supabaseClient.from("applicant_profiles").select("*");
+          if (error) {
+            console.warn("Profiles lookup unavailable:", error.message);
+            state.allProfiles = [];
+            return;
+          }
+          state.allProfiles = Array.isArray(data) ? data : [];
+        } catch (err) {
+          console.warn("Profiles lookup failed:", err?.message || err);
+          state.allProfiles = [];
+        }
       }
 
       async function loadLeadsCount() {
         let total = 0;
-
-        const prospectsResp = await supabaseClient
-          .from("prospects")
-          .select("id", { count: "exact", head: true });
-
-        if (!prospectsResp.error && typeof prospectsResp.count === "number") {
-          total = prospectsResp.count;
-        } else {
-          const invitesResp = await supabaseClient
-            .from("buzzpool_invites")
+        try {
+          const prospectsResp = await supabaseClient
+            .from("prospects")
             .select("id", { count: "exact", head: true });
 
-          if (!invitesResp.error && typeof invitesResp.count === "number") {
-            total = invitesResp.count;
-          }
-        }
+          if (!prospectsResp.error && typeof prospectsResp.count === "number") {
+            total = prospectsResp.count;
+          } else {
+            const invitesResp = await supabaseClient
+              .from("buzzpool_invites")
+              .select("id", { count: "exact", head: true });
 
+            if (!invitesResp.error && typeof invitesResp.count === "number") {
+              total = invitesResp.count;
+            }
+          }
+        } catch (err) {
+          console.warn("Leads count unavailable:", err?.message || err);
+        }
         state.totalLeads = Number(total || 0);
       }
 
       async function loadAlertRows() {
-        const { data, error } = await supabaseClient
-          .from("job_role_alerts")
-          .select("*")
-          .order("created_at", { ascending: false });
-        if (error) throw error;
         state.alertRowsByAppKey.clear();
-        (data || []).forEach((row) => {
-          const key = `${row.job_id}::${row.applicant_profile_id}`;
-          if (!state.alertRowsByAppKey.has(key)) state.alertRowsByAppKey.set(key, row);
-        });
+        try {
+          const { data, error } = await supabaseClient
+            .from("job_role_alerts")
+            .select("*")
+            .order("created_at", { ascending: false });
+          if (error) {
+            console.warn("Job role alerts unavailable:", error.message);
+            return;
+          }
+          (data || []).forEach((row) => {
+            const key = `${row.job_id}::${row.applicant_profile_id}`;
+            if (!state.alertRowsByAppKey.has(key)) state.alertRowsByAppKey.set(key, row);
+          });
+        } catch (err) {
+          console.warn("Job role alerts failed:", err?.message || err);
+        }
       }
 
       async function loadApplications() {
@@ -990,7 +1016,7 @@
             is_top_talent,
             talent_tag,
             recruiter_top_talent_override,
-            applicant_profiles!applications_applicant_profile_id_fkey (
+            applicant_profiles:applicant_profile_id (
               id,
               full_name,
               email,
@@ -1000,16 +1026,10 @@
               resume_path,
               created_at,
               resume_url,
-              raw_resume_text,
-              parsed_resume_json,
               current_title,
               years_experience,
               skills,
               years_of_experience,
-              resume_file_name,
-              resume_uploaded_at,
-              resume_mime_type,
-              resume_size_bytes,
               experience_years,
               total_experience,
               cover_note,
@@ -1020,9 +1040,6 @@
               portfolio_url,
               profile_photo_url,
               experience,
-              profile_started_at,
-              profile_completed_at,
-              profile_completion_percent,
               profile_status,
               target_role,
               has_resume,
@@ -1044,18 +1061,12 @@
               profile_completion_score,
               screening_status,
               video_status,
-              video_intro_url,
-              video_submitted_at,
               recruiter_priority,
               fit_summary,
               last_scored_at,
-              updated_at,
-              email_opt_in,
-              do_not_contact,
-              unsubscribe_token,
-              last_role_alert_sent_at
+              updated_at
             ),
-            jobs!applications_job_id_fkey (
+            jobs:job_id (
               id,
               title,
               location,
@@ -1063,44 +1074,49 @@
               work_setup,
               client_name,
               country,
-              state_region,
               city,
-              status,
-              state,
               salary_min,
               salary_max,
               salary_currency,
-              client_uuid,
-              client_id,
               role_family,
               seniority_level,
               required_skills,
               nice_to_have_skills,
               client_priorities,
-              ai_screening_config,
               is_on_hold,
-              priority_skills,
-              screening_summary,
-              screening_config,
               target_titles,
               target_locations,
               min_experience_years
             )
           `)
           .order("created_at", { ascending: false });
-        if (error) throw error;
+
+        if (error) {
+          console.error("Applications query failed:", error);
+          throw error;
+        }
+
         state.allApplications = Array.isArray(data) ? data : [];
         state.aiScoreMap.clear();
         state.allApplications.forEach((app) => state.aiScoreMap.set(String(app.id), computeAiScore(app)));
       }
 
       async function loadJobConversionMetrics() {
-        const { data, error } = await supabaseClient
-          .from("job_conversion_metrics")
-          .select("*")
-          .order("created_at", { ascending: false });
-        if (error) throw error;
-        state.conversionRows = Array.isArray(data) ? data : [];
+        try {
+          const { data, error } = await supabaseClient
+            .from("job_conversion_metrics")
+            .select("*")
+            .order("created_at", { ascending: false });
+          if (error) {
+            console.warn("Job conversion metrics unavailable:", error.message);
+            state.conversionRows = [];
+            return;
+          }
+          state.conversionRows = Array.isArray(data) ? data : [];
+        } catch (err) {
+          console.warn("Job conversion metrics failed:", err?.message || err);
+          state.conversionRows = [];
+        }
       }
 
       function renderStats() {
@@ -1354,14 +1370,14 @@
         try {
           els.refreshBtn.disabled = true;
           els.refreshBtn.textContent = "Refreshing...";
-          await Promise.all([
-            loadRecruitersMap(),
-            loadProfiles(),
-            loadLeadsCount(),
-            loadAlertRows(),
-            loadApplications(),
-            loadJobConversionMetrics()
-          ]);
+
+          await loadRecruitersMap();
+          await loadProfiles();
+          await loadLeadsCount();
+          await loadAlertRows();
+          await loadJobConversionMetrics();
+          await loadApplications();
+
           populateFilters();
           renderStats();
           renderTable();
