@@ -1823,7 +1823,16 @@ function phraseMatch(profileText, phrase) {
     function tokenizeLocation(value) {
       return normalizeToken(value)
         .split(/[^a-z0-9]+/)
-        .filter(token => token.length > 2 && !['city', 'philippines', 'metro', 'national', 'capital', 'region'].includes(token));
+        .filter(token => token.length > 2 && !['city', 'philippines', 'metro', 'national', 'capital', 'region', 'area', 'province'].includes(token));
+    }
+
+    function getLocationSignals(value) {
+      const tokens = tokenizeLocation(value);
+      return {
+        raw: normalizeToken(value),
+        tokens,
+        strong: tokens.filter(token => token.length >= 4)
+      };
     }
 
     function normalizeSkillPhrase(value = '') {
@@ -1944,17 +1953,28 @@ function phraseMatch(profileText, phrase) {
         }
       }
 
-      const roleLocTokens = tokenizeLocation(role.location);
-      const profileLocTokens = tokenizeLocation(profile.location);
-      const locationOverlap = roleLocTokens.filter(token => profileLocTokens.includes(token));
+      const roleLocation = getLocationSignals(role.location);
+      const profileLocation = getLocationSignals(profile.location);
+      const locationOverlap = roleLocation.strong.filter(token => profileLocation.strong.includes(token));
+      const roleIsOnsite = role.work_setup && /onsite/i.test(role.work_setup);
+      const profileRelocationSignal = /(willing to relocate|relocate as required|willing to work onsite|open to relocate)/i.test(profileText);
+
       if (locationOverlap.length) {
-        score += Math.min(8, locationOverlap.length * 4);
+        score += Math.min(14, locationOverlap.length * 7);
         reasons.push(`Location alignment: ${locationOverlap.join(', ')}`);
+      } else if (roleIsOnsite && roleLocation.strong.length) {
+        score -= 18;
+        penalties.push(`Location mismatch for onsite role: needs ${role.location}`);
       }
 
-      if (role.work_setup && /onsite/i.test(role.work_setup) && /(onsite|willing to relocate|willing to work onsite)/i.test(profileText)) {
-        score += 4;
-        reasons.push(`Work setup alignment: ${role.work_setup}`);
+      if (roleIsOnsite) {
+        if (locationOverlap.length) {
+          score += 3;
+          reasons.push(`Work setup alignment: ${role.work_setup}`);
+        } else if (profileRelocationSignal) {
+          score += 1;
+          reasons.push(`Relocation openness detected for onsite role`);
+        }
       }
 
       // Minimal title alignment only for meaningful role tokens, never raw long titles.
@@ -1970,6 +1990,10 @@ function phraseMatch(profileText, phrase) {
       if (titleHits.length) {
         score += Math.min(12, titleHits.length * 4);
         reasons.push(`Role-specific title alignment: ${titleHits.join(', ')}`);
+      }
+
+      if (roleArchetype === 'csr' && roleIsOnsite && roleLocation.strong.length && !locationOverlap.length) {
+        score = Math.min(score, 18);
       }
 
       // Strong cap for archetype mismatch on support roles.
