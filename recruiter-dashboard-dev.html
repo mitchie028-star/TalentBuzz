@@ -489,6 +489,61 @@
     .empty { color: var(--muted); font-size: 0.95rem; padding: 10px 0 4px; }
     .loading { color: var(--muted); font-style: italic; }
 
+
+    .row-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 126px;
+      position: relative;
+    }
+    .btn-icon {
+      width: 38px;
+      min-width: 38px;
+      height: 38px;
+      padding: 0;
+      font-size: 1rem;
+      line-height: 1;
+    }
+    .action-menu-wrap {
+      position: relative;
+      display: inline-flex;
+    }
+    .action-menu {
+      display: none;
+      position: absolute;
+      top: calc(100% + 8px);
+      right: 0;
+      min-width: 180px;
+      background: #fff;
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 8px;
+      box-shadow: 0 18px 40px rgba(15, 23, 42, 0.12);
+      z-index: 40;
+    }
+    .action-menu.show {
+      display: block;
+    }
+    .action-menu-btn {
+      width: 100%;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 12px;
+      border: none;
+      background: transparent;
+      border-radius: 10px;
+      color: var(--text);
+      font: inherit;
+      font-weight: 700;
+      text-align: left;
+      cursor: pointer;
+    }
+    .action-menu-btn:hover {
+      background: #f8fbff;
+    }
+
     @media (max-width: 1380px) {
       .stats-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
       .filters-grid { grid-template-columns: 1fr 1fr 1fr 1fr; }
@@ -1863,12 +1918,17 @@
                 </div>
               </td>
               <td>
-                <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                <div class="row-actions">
                   <button class="btn btn-xs btn-outline" type="button" onclick="window.__openCandidate('${rowId}')">Open</button>
-                  <button class="btn btn-xs btn-soft" type="button" onclick="window.__openNotes('${rowId}')">Notes</button>
-                  <button class="btn btn-xs btn-outline" type="button" onclick="window.__openEndorse('${rowId}')">Endorse</button>
-                  <button class="btn btn-xs btn-outline" type="button" onclick="window.__openEditCandidate('${rowId}')">Edit</button>
-                  <button class="btn btn-xs btn-outline" type="button" onclick="window.__openAssignRecruiter('${rowId}')">Assign</button>
+                  <div class="action-menu-wrap">
+                    <button class="btn btn-xs btn-outline btn-icon" type="button" onclick="window.__toggleRowMenu(event, '${rowId}')">⋯</button>
+                    <div class="action-menu" id="actionMenu-${rowId}">
+                      <button class="action-menu-btn" type="button" onclick="window.__openNotes('${rowId}'); window.__closeAllRowMenus();">📝 Notes</button>
+                      <button class="action-menu-btn" type="button" onclick="window.__openEndorse('${rowId}'); window.__closeAllRowMenus();">📤 Endorse</button>
+                      <button class="action-menu-btn" type="button" onclick="window.__openEditCandidate('${rowId}'); window.__closeAllRowMenus();">✏️ Edit</button>
+                      <button class="action-menu-btn" type="button" onclick="window.__openAssignRecruiter('${rowId}'); window.__closeAllRowMenus();">👤 Assign Recruiter</button>
+                    </div>
+                  </div>
                 </div>
               </td>
             </tr>
@@ -1908,6 +1968,19 @@
         `;
       }
 
+      function closeAllRowMenus() {
+        document.querySelectorAll(".action-menu.show").forEach((menu) => menu.classList.remove("show"));
+      }
+
+      function toggleRowMenu(event, rowId) {
+        event.stopPropagation();
+        const targetMenu = document.getElementById(`actionMenu-${rowId}`);
+        if (!targetMenu) return;
+        const isOpen = targetMenu.classList.contains("show");
+        closeAllRowMenus();
+        if (!isOpen) targetMenu.classList.add("show");
+      }
+
       function openResumeModal(url) {
         if (!url) {
           showNotice("No resume available.", "error");
@@ -1937,6 +2010,7 @@
       }
 
       function closeDrawer() {
+        closeAllRowMenus();
         state.selectedApplicationId = null;
         els.workspace.classList.remove("drawer-open");
         document.querySelectorAll("#applicationsTable tr").forEach((row) => row.classList.remove("is-active"));
@@ -1951,6 +2025,7 @@
       }
 
       async function openCandidateDrawer(applicationId) {
+        closeAllRowMenus();
         const app = state.allApplications.find((item) => String(item.id) === String(applicationId));
         if (!app) return;
         state.selectedApplicationId = String(applicationId);
@@ -2023,7 +2098,10 @@
 
       function bindEvents() {
         els.menuToggleBtn?.addEventListener("click", (event) => { event.stopPropagation(); toggleMenu(); });
-        document.addEventListener("click", (event) => { if (!event.target.closest(".menu-wrap")) toggleMenu(true); });
+        document.addEventListener("click", (event) => {
+          if (!event.target.closest(".menu-wrap")) toggleMenu(true);
+          if (!event.target.closest(".action-menu-wrap")) closeAllRowMenus();
+        });
         [els.searchInput, els.statusFilter, els.recruiterFilter, els.sourceFilter, els.jobFilter, els.clientFilter, els.scoreFilter].forEach((el) => {
           el?.addEventListener("input", renderTable);
           el?.addEventListener("change", renderTable);
@@ -2079,6 +2157,8 @@
         const app = state.allApplications.find((item) => String(item.id) === String(applicationId));
         if (app) openAssignRecruiterModal(app);
       };
+      window.__toggleRowMenu = toggleRowMenu;
+      window.__closeAllRowMenus = closeAllRowMenus;
       bindEvents();
       refreshAll();
     });
