@@ -290,6 +290,44 @@
     .summary-box { margin-top: 14px; }
     .summary-box p { color: #d7e7fb; white-space: pre-wrap; }
 
+
+    .matches-toolbar, .matches-summary, .match-pill-row, .match-actions {
+      display: flex; flex-wrap: wrap; gap: 10px;
+    }
+    .matches-summary { margin-bottom: 14px; }
+    .match-summary-pill {
+      display: inline-flex; align-items: center; gap: 8px; padding: 8px 12px; border-radius: 999px;
+      background: rgba(255,255,255,0.06); border: 1px solid var(--soft-line); color: #dbeafe; font-size: 0.82rem; font-weight: 700;
+    }
+    .matches-grid { display: grid; gap: 14px; }
+    .match-card {
+      background: rgba(255,255,255,0.045); border: 1px solid var(--soft-line); border-radius: 20px; padding: 16px;
+    }
+    .match-card-top {
+      display: flex; justify-content: space-between; align-items: flex-start; gap: 14px; margin-bottom: 12px;
+    }
+    .match-name { font-weight: 800; color: #f8fbff; margin-bottom: 4px; }
+    .match-score {
+      min-width: 82px; text-align: center; border-radius: 999px; padding: 10px 12px; font-weight: 800;
+      background: rgba(37,99,235,0.14); border: 1px solid rgba(59,130,246,0.26); color: #dbeafe;
+    }
+    .match-score.strong { background: rgba(16,185,129,0.14); border-color: rgba(16,185,129,0.24); color: #bbf7d0; }
+    .match-score.good { background: rgba(37,99,235,0.14); border-color: rgba(59,130,246,0.26); color: #dbeafe; }
+    .match-score.partial { background: rgba(245,158,11,0.14); border-color: rgba(245,158,11,0.24); color: #fde68a; }
+    .match-score.weak { background: rgba(239,68,68,0.14); border-color: rgba(239,68,68,0.22); color: #fecaca; }
+    .match-chip {
+      display: inline-flex; align-items: center; padding: 6px 10px; border-radius: 999px; border: 1px solid var(--soft-line);
+      background: rgba(255,255,255,0.05); color: #dbeafe; font-size: 0.75rem; font-weight: 800;
+    }
+    .match-chip.good { background: rgba(16,185,129,0.12); border-color: rgba(16,185,129,0.22); color: #bbf7d0; }
+    .match-chip.bad { background: rgba(239,68,68,0.12); border-color: rgba(239,68,68,0.22); color: #fecaca; }
+    .match-section { margin-top: 12px; }
+    .match-section h4 { margin: 0 0 8px; color: #dbeafe; font-size: 0.82rem; font-weight: 800; }
+    .match-list { display: grid; gap: 8px; }
+    .match-list-item {
+      border: 1px solid var(--soft-line); background: rgba(255,255,255,0.04); color: #d7e7fb; border-radius: 14px; padding: 10px 12px; font-size: 0.86rem; line-height: 1.55;
+    }
+
     .notice {
       position: fixed; right: 24px; bottom: 24px; min-width: 260px; max-width: 520px; border-radius: 18px;
       padding: 14px 16px; border: 1px solid var(--soft-line); background: rgba(15,23,42,0.96); color: #f8fafc;
@@ -634,6 +672,48 @@
     </div>
   </div>
 
+
+  <div class="modal" id="matchesModal" aria-hidden="true">
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <div class="modal-title">
+          <h3 id="matchesModalTitle">Matched Profiles</h3>
+          <p id="matchesModalSubtitle">Role-aligned profiles based on requirements, priority skills, non-negotiables, and available profile data.</p>
+        </div>
+        <button class="ghost-btn" type="button" id="closeMatchesModalBtn">Close</button>
+      </div>
+      <div class="modal-body">
+        <div class="matches-toolbar" style="margin-bottom:14px;">
+          <input id="matchesSearchInput" type="text" placeholder="Search matched profiles" />
+          <select id="matchesScoreFilter">
+            <option value="all">All Scores</option>
+            <option value="70">70+ Strong Match</option>
+            <option value="50">50+ Good Match</option>
+            <option value="30">30+ Partial Match</option>
+            <option value="5">5+ Any Match</option>
+          </select>
+          <select id="matchesSourceFilter">
+            <option value="all">All Sources</option>
+            <option value="applicant_profiles">Applicants</option>
+            <option value="prospects">Prospects</option>
+            <option value="candidate_profiles">Candidate Profiles</option>
+          </select>
+          <select id="matchesPipelineFilter">
+            <option value="all">All Pipeline States</option>
+            <option value="already_applied">Already Applied</option>
+            <option value="not_applied">Not Yet Applied</option>
+            <option value="top_talent">Top Talent</option>
+            <option value="exclude_rejected">Exclude Rejected</option>
+            <option value="exclude_endorsed">Exclude Endorsed</option>
+          </select>
+          <button class="ghost-btn" type="button" id="refreshMatchesBtn">Refresh Matches</button>
+        </div>
+        <div class="matches-summary" id="matchesSummaryBar"></div>
+        <div class="matches-grid" id="matchesGrid"><div class="empty-state">No matched profiles loaded yet.</div></div>
+      </div>
+    </div>
+  </div>
+
   <div id="notice" class="notice"></div>
 
   <script>
@@ -710,11 +790,25 @@
       statActive: document.getElementById("statActive"),
       statHold: document.getElementById("statHold"),
       statQuestions: document.getElementById("statQuestions"),
+      matchesModal: document.getElementById("matchesModal"),
+      matchesModalTitle: document.getElementById("matchesModalTitle"),
+      matchesModalSubtitle: document.getElementById("matchesModalSubtitle"),
+      closeMatchesModalBtn: document.getElementById("closeMatchesModalBtn"),
+      refreshMatchesBtn: document.getElementById("refreshMatchesBtn"),
+      matchesSearchInput: document.getElementById("matchesSearchInput"),
+      matchesScoreFilter: document.getElementById("matchesScoreFilter"),
+      matchesSourceFilter: document.getElementById("matchesSourceFilter"),
+      matchesPipelineFilter: document.getElementById("matchesPipelineFilter"),
+      matchesSummaryBar: document.getElementById("matchesSummaryBar"),
+      matchesGrid: document.getElementById("matchesGrid"),
       notice: document.getElementById("notice")
     };
 
     let rolesCache = [];
     let questionItems = [];
+    let currentMatchesRoleId = "";
+    let currentMatchesRole = null;
+    let currentMatchedProfiles = [];
 
     function showNotice(message, type = "success") {
       els.notice.textContent = message;
@@ -767,6 +861,29 @@
       const lines = normalizeLines(text);
       if (!lines.length) return "Not specified";
       return lines.map(line => `- ${line.replace(/^[-•*]\s*/, "")}`).join("\n");
+    }
+
+    function normalizeToken(value) {
+      return safeText(value).toLowerCase().replace(/\s+/g, " ");
+    }
+
+    function sourceLabel(source) {
+      const map = {
+        applicant_profiles: "Applicants",
+        prospects: "Prospects",
+        candidate_profiles: "Candidate Profiles"
+      };
+      return map[source] || source || "Unknown";
+    }
+
+    function openMatchesModal() {
+      els.matchesModal.classList.add("show");
+      els.matchesModal.setAttribute("aria-hidden", "false");
+    }
+
+    function closeMatchesModal() {
+      els.matchesModal.classList.remove("show");
+      els.matchesModal.setAttribute("aria-hidden", "true");
     }
 
     function buildCompensationMeta() {
@@ -1622,6 +1739,280 @@
       });
     }
 
+    async function fetchProfilesForSource(tableName) {
+      const columns = {
+        applicant_profiles: "id, full_name, email, phone, location, experience_summary, resume_url, raw_resume_text",
+        prospects: "id, full_name, email, location, skills, summary, linkedin_url, portfolio_url, is_top_talent, applied_job_id, fit_summary",
+        candidate_profiles: "id, full_name, email, location, skills, summary, linkedin_url, portfolio_url, is_top_talent, fit_summary"
+      };
+
+      try {
+        const { data, error } = await supabaseClient.from(tableName).select(columns[tableName] || "*").limit(200);
+        if (error) throw error;
+        return data || [];
+      } catch (error) {
+        console.warn(`Failed loading ${tableName}`, error);
+        return [];
+      }
+    }
+
+    function scoreProfileAgainstRole(profile, role, source, appMap = new Map(), endorsementMap = new Map()) {
+      const roleText = [
+        safeText(role.title),
+        safeText(Array.isArray(role.required_skills) ? role.required_skills.join(" ") : role.required_skills),
+        safeText(role.priority_skills),
+        ...((role.ai_screening_config?.non_negotiables) || []),
+        ...((role.ai_screening_config?.must_have_skills) || [])
+      ].join(" ").toLowerCase();
+
+      const profileText = [
+        safeText(profile.full_name),
+        safeText(profile.location),
+        safeText(profile.experience_summary),
+        safeText(profile.raw_resume_text),
+        safeText(profile.skills),
+        safeText(profile.summary),
+        safeText(profile.fit_summary)
+      ].join(" ").toLowerCase();
+
+      const keywords = uniqueLines(roleText.split(/[^a-z0-9+#.]+/i).filter(word => word && word.length > 2)).slice(0, 60);
+      let hits = 0;
+      const matchedKeywords = [];
+      const matchedSkills = [];
+      const penalties = [];
+      const reasons = [];
+
+      keywords.forEach(word => {
+        if (profileText.includes(word)) {
+          hits += word.length > 6 ? 3 : 2;
+          if (matchedKeywords.length < 8 && !matchedKeywords.includes(word)) matchedKeywords.push(word);
+        }
+      });
+
+      const mustHave = (role.ai_screening_config?.must_have_skills || []).map(stripImportanceSuffix).filter(Boolean);
+      mustHave.forEach(skill => {
+        if (profileText.includes(skill.toLowerCase())) {
+          if (!matchedSkills.includes(skill)) matchedSkills.push(skill);
+          hits += 4;
+          reasons.push(`Matched must-have: ${skill}`);
+        } else if (penalties.length < 5) {
+          penalties.push(`Missing visible signal for ${skill}`);
+        }
+      });
+
+      const nonNegotiables = role.ai_screening_config?.non_negotiables || [];
+      nonNegotiables.slice(0, 4).forEach(item => {
+        const token = safeText(stripImportanceSuffix(item)).toLowerCase();
+        if (token && profileText.includes(token)) {
+          hits += 3;
+          reasons.push(`Non-negotiable aligned: ${item}`);
+        }
+      });
+
+      const rawScore = Math.min(95, hits * 2);
+      const score = Math.max(rawScore, matchedSkills.length ? 25 + matchedSkills.length * 8 : rawScore);
+      const profileId = String(profile.id || "");
+      const applicationStatus = appMap.get(profileId) || "";
+      const endorsementStatus = endorsementMap.get(profileId) || "";
+      const alreadyApplied = !!applicationStatus || (!!profile.applied_job_id && String(profile.applied_job_id) === String(role.id));
+      const isTopTalent = !!profile.is_top_talent;
+      const fitSummary = safeText(profile.fit_summary || profile.experience_summary || profile.summary || "No summary available.");
+
+      return {
+        id: profileId,
+        name: safeText(profile.full_name) || "Unnamed Profile",
+        title: safeText(profile.current_title || profile.title || profile.headline || ""),
+        location: safeText(profile.location || ""),
+        email: safeText(profile.email || ""),
+        source,
+        score,
+        strength: score >= 70 ? "strong" : score >= 50 ? "good" : score >= 30 ? "partial" : "weak",
+        matchedKeywords,
+        matchedSkills,
+        reasons: uniqueLines(reasons).slice(0, 6),
+        penalties: uniqueLines(penalties).slice(0, 6),
+        alreadyApplied,
+        applicationStatus,
+        endorsementStatus,
+        isTopTalent,
+        linkedinUrl: safeText(profile.linkedin_url || ""),
+        portfolioUrl: safeText(profile.portfolio_url || ""),
+        resumeUrl: safeText(profile.resume_url || ""),
+        fitSummary
+      };
+    }
+
+    async function computeMatchesForRole(role) {
+      const appMap = new Map();
+      const endorsementMap = new Map();
+
+      try {
+        const { data } = await supabaseClient.from("applications").select("applicant_profile_id, status").eq("job_id", role.id).limit(500);
+        (data || []).forEach(row => {
+          if (row?.applicant_profile_id) appMap.set(String(row.applicant_profile_id), safeText(row.status));
+        });
+      } catch (error) {
+        console.warn("applications lookup failed", error);
+      }
+
+      try {
+        const { data } = await supabaseClient.from("client_endorsement_view").select("application_id, application_id, endorsement_status").eq("job_id", role.id).limit(500);
+        (data || []).forEach(row => {
+          if (row?.application_id) endorsementMap.set(String(row.application_id), safeText(row.endorsement_status));
+        });
+      } catch (error) {
+        console.warn("endorsement lookup failed", error);
+      }
+
+      const [applicants, candidates, prospects] = await Promise.all([
+        fetchProfilesForSource("applicant_profiles"),
+        fetchProfilesForSource("candidate_profiles"),
+        fetchProfilesForSource("prospects")
+      ]);
+
+      const matches = [
+        ...applicants.map(profile => scoreProfileAgainstRole(profile, role, "applicant_profiles", appMap, endorsementMap)),
+        ...candidates.map(profile => scoreProfileAgainstRole(profile, role, "candidate_profiles", appMap, endorsementMap)),
+        ...prospects.map(profile => scoreProfileAgainstRole(profile, role, "prospects", appMap, endorsementMap))
+      ].filter(item => item.score >= 5).sort((a, b) => {
+        if (b.score !== a.score) return b.score - a.score;
+        const sourceRank = { applicant_profiles: 3, prospects: 2, candidate_profiles: 1 };
+        return (sourceRank[b.source] || 0) - (sourceRank[a.source] || 0);
+      });
+
+      currentMatchedProfiles = matches;
+      return matches;
+    }
+
+    function renderMatchesSummary(items = []) {
+      const total = items.length;
+      const strong = items.filter(x => x.score >= 70).length;
+      const good = items.filter(x => x.score >= 50 && x.score < 70).length;
+      const partial = items.filter(x => x.score >= 30 && x.score < 50).length;
+      const applied = items.filter(x => x.alreadyApplied).length;
+      const topTalent = items.filter(x => x.isTopTalent).length;
+
+      els.matchesSummaryBar.innerHTML = `
+        <span class="match-summary-pill">Total: ${total}</span>
+        <span class="match-summary-pill">70+ Strong: ${strong}</span>
+        <span class="match-summary-pill">50+ Good: ${good}</span>
+        <span class="match-summary-pill">30+ Partial: ${partial}</span>
+        <span class="match-summary-pill">Already Applied: ${applied}</span>
+        <span class="match-summary-pill">Top Talent: ${topTalent}</span>
+      `;
+    }
+
+    function renderMatchedProfiles() {
+      const query = normalizeToken(els.matchesSearchInput.value);
+      const thresholdValue = safeText(els.matchesScoreFilter.value);
+      const sourceValue = safeText(els.matchesSourceFilter.value || "all");
+      const pipelineValue = safeText(els.matchesPipelineFilter.value || "all");
+      const threshold = thresholdValue === "all" ? 0 : Number(thresholdValue) || 0;
+
+      const filtered = currentMatchedProfiles.filter(item => {
+        if (item.score < threshold) return false;
+        if (sourceValue !== "all" && item.source !== sourceValue) return false;
+        if (pipelineValue === "already_applied" && !item.alreadyApplied) return false;
+        if (pipelineValue === "not_applied" && item.alreadyApplied) return false;
+        if (pipelineValue === "top_talent" && !item.isTopTalent) return false;
+        if (pipelineValue === "exclude_rejected" && normalizeToken(item.applicationStatus) === "rejected") return false;
+        if (pipelineValue === "exclude_endorsed" && normalizeToken(item.endorsementStatus) === "sent") return false;
+        const haystack = normalizeToken([item.name, item.title, item.location, item.email, item.source, item.applicationStatus, item.endorsementStatus, item.reasons.join(" "), item.penalties.join(" "), item.matchedSkills.join(" ")].join(" "));
+        return !query || haystack.includes(query);
+      });
+
+      renderMatchesSummary(filtered);
+
+      if (!filtered.length) {
+        els.matchesGrid.innerHTML = `<div class="empty-state">No matched profiles found for the current filters.</div>`;
+        return;
+      }
+
+      els.matchesGrid.innerHTML = filtered.map(item => `
+        <div class="match-card">
+          <div class="match-card-top">
+            <div>
+              <div class="match-name">${escapeHtml(item.name)}</div>
+              <div class="subtext">${escapeHtml(item.title || "No headline")}<br>${escapeHtml(item.location || "No location")}${item.email ? `<br>${escapeHtml(item.email)}` : ``}</div>
+            </div>
+            <div class="match-score ${item.strength}">${item.score}</div>
+          </div>
+
+          <div class="match-pill-row">
+            <span class="match-chip">${escapeHtml(sourceLabel(item.source))}</span>
+            ${item.alreadyApplied ? `<span class="match-chip good">Already Applied</span>` : `<span class="match-chip">Not Yet Applied</span>`}
+            ${item.applicationStatus ? `<span class="match-chip">${escapeHtml(item.applicationStatus)}</span>` : ``}
+            ${item.endorsementStatus ? `<span class="match-chip">${escapeHtml(item.endorsementStatus)}</span>` : ``}
+            ${item.isTopTalent ? `<span class="match-chip good">Top Talent</span>` : ``}
+          </div>
+
+          <div class="match-section">
+            <h4>Why matched</h4>
+            <div class="match-list">
+              ${(item.reasons.length ? item.reasons : ["General title/keyword alignment"]).map(reason => `<div class="match-list-item">${escapeHtml(reason)}</div>`).join("")}
+            </div>
+          </div>
+
+          ${item.penalties.length ? `
+            <div class="match-section">
+              <h4>Risk flags</h4>
+              <div class="match-pill-row">
+                ${item.penalties.map(flag => `<span class="match-chip bad">${escapeHtml(flag)}</span>`).join("")}
+              </div>
+            </div>
+          ` : ""}
+
+          ${item.matchedSkills.length ? `
+            <div class="match-section">
+              <h4>Matched skills</h4>
+              <div class="match-pill-row">
+                ${item.matchedSkills.map(skill => `<span class="match-chip good">${escapeHtml(skill)}</span>`).join("")}
+              </div>
+            </div>
+          ` : ""}
+
+          ${item.fitSummary ? `
+            <div class="match-section">
+              <h4>Fit summary</h4>
+              <div class="match-list"><div class="match-list-item">${escapeHtml(item.fitSummary)}</div></div>
+            </div>
+          ` : ""}
+
+          <div class="match-actions">
+            ${item.linkedinUrl ? `<a class="small-btn" href="${escapeHtml(item.linkedinUrl)}" target="_blank" rel="noopener noreferrer">Open LinkedIn</a>` : ""}
+            ${item.portfolioUrl ? `<a class="small-btn" href="${escapeHtml(item.portfolioUrl)}" target="_blank" rel="noopener noreferrer">Portfolio</a>` : ""}
+            ${item.resumeUrl ? `<a class="small-btn" href="${escapeHtml(item.resumeUrl)}" target="_blank" rel="noopener noreferrer">Resume</a>` : ""}
+            ${item.email ? `<a class="small-btn" href="mailto:${escapeHtml(item.email)}">Email</a>` : ""}
+          </div>
+        </div>
+      `).join("");
+    }
+
+    async function viewMatchedProfiles(roleId) {
+      const role = rolesCache.find(item => String(item.id) === String(roleId));
+      if (!role) {
+        showNotice("Role not found.", "error");
+        return;
+      }
+
+      currentMatchesRoleId = role.id;
+      currentMatchesRole = role;
+      els.matchesModalTitle.textContent = `${role.title || "Role"} Matches`;
+      els.matchesModalSubtitle.textContent = `${role.client_name || "No client"} • ${role.location || "No location"} • ${role.work_setup || "No setup"}`;
+      els.matchesGrid.innerHTML = `<div class="empty-state">Loading matched profiles...</div>`;
+      els.matchesSummaryBar.innerHTML = "";
+      openMatchesModal();
+
+      try {
+        await computeMatchesForRole(role);
+        renderMatchedProfiles();
+      } catch (error) {
+        console.error("viewMatchedProfiles failed:", error);
+        els.matchesGrid.innerHTML = `<div class="empty-state">Failed to load matches.</div>`;
+        showNotice(`Failed to load matches: ${error.message || "Unknown error"}`, "error");
+      }
+    }
+
     function renderRolesTable() {
       const roles = getFilteredRoles();
       if (!roles.length) {
@@ -1658,6 +2049,7 @@
             <td>
               <div class="role-row-actions">
                 <button class="small-btn" type="button" onclick="editRole('${role.id}')">Edit</button>
+                <button class="small-btn" type="button" onclick="viewMatchedProfiles('${role.id}')">Matched Profiles</button>
                 <button class="small-btn" type="button" onclick="toggleHoldRole('${role.id}', ${role.is_on_hold ? "false" : "true"})">${role.is_on_hold ? "Reopen" : "Put On-Hold"}</button>
               </div>
             </td>
@@ -1832,6 +2224,7 @@
 
     window.editRole = editRole;
     window.toggleHoldRole = toggleHoldRole;
+    window.viewMatchedProfiles = viewMatchedProfiles;
 
     function bindPreviewRefresh() {
       [
@@ -1872,6 +2265,13 @@
         }
       });
       els.tabButtons.forEach(btn => btn.addEventListener("click", () => switchTab(btn.dataset.tab)));
+      els.closeMatchesModalBtn.addEventListener("click", closeMatchesModal);
+      els.matchesModal.addEventListener("click", (event) => { if (event.target === els.matchesModal) closeMatchesModal(); });
+      els.refreshMatchesBtn.addEventListener("click", () => { if (currentMatchesRoleId) viewMatchedProfiles(currentMatchesRoleId); });
+      els.matchesSearchInput.addEventListener("input", renderMatchedProfiles);
+      els.matchesScoreFilter.addEventListener("change", renderMatchedProfiles);
+      els.matchesSourceFilter.addEventListener("change", renderMatchedProfiles);
+      els.matchesPipelineFilter.addEventListener("change", renderMatchedProfiles);
       bindPreviewRefresh();
     }
 
