@@ -48,10 +48,9 @@
       box-shadow:var(--shadow);
       padding:32px;
       text-align:center;
-      position:relative;
-      z-index:1;
     }
 
+    /* ✅ LOGO */
     .logo{
       width:160px;
       margin:0 auto 18px;
@@ -120,23 +119,6 @@
       color:var(--blue);
     }
 
-    .form-row-right{
-      display:flex;
-      justify-content:flex-end;
-      margin-top:8px;
-    }
-
-    .text-link{
-      border:none;
-      background:transparent;
-      padding:0;
-      color:var(--blue);
-      font:inherit;
-      font-size:.9rem;
-      font-weight:700;
-      cursor:pointer;
-    }
-
     .actions{
       margin-top:18px;
     }
@@ -149,7 +131,6 @@
       font-weight:800;
       cursor:pointer;
       transition:0.2s;
-      font:inherit;
     }
 
     .btn-primary{
@@ -157,9 +138,9 @@
       color:#fff;
     }
 
-    .btn-primary:disabled{
-      opacity:.7;
-      cursor:not-allowed;
+    .btn-primary:hover{
+      transform:translateY(-1px);
+      box-shadow:0 8px 20px rgba(37,99,235,0.25);
     }
 
     .msg{
@@ -168,33 +149,66 @@
       border-radius:12px;
       display:none;
       font-weight:700;
-      line-height:1.6;
     }
 
     .msg.show{display:block}
-    .msg.error{background:#fef2f2;color:var(--danger);}
-    .msg.success{background:#ecfdf5;color:var(--success);}
-    .msg.info{background:#eff6ff;color:var(--info);}
 
-    .modal-backdrop{
-      position:fixed;
-      inset:0;
-      background:rgba(15,23,42,.45);
-      display:none;
-      align-items:center;
-      justify-content:center;
-      padding:20px;
-      z-index:20;
+    .msg.error{
+      background:#fef2f2;
+      color:var(--danger);
     }
 
-    .modal-backdrop.show{display:flex;}
+    .msg.success{
+      background:#ecfdf5;
+      color:var(--success);
+    }
 
-    .modal{
-      width:100%;
-      max-width:420px;
+    .msg.info{
+      background:#eff6ff;
+      color:var(--info);
+    }
+
+    .links{
+      margin-top:18px;
+      display:flex;
+      justify-content:space-between;
+      font-size:.9rem;
+    }
+
+    .links a{
+      color:var(--blue);
+      font-weight:700;
+      text-decoration:none;
+    }
+
+    .divider{
+      margin:22px 0 14px;
+      font-size:.75rem;
+      color:var(--muted);
+      text-transform:uppercase;
+      letter-spacing:.1em;
+      display:flex;
+      align-items:center;
+      gap:10px;
+    }
+
+    .divider::before,
+    .divider::after{
+      content:"";
+      flex:1;
+      height:1px;
+      background:var(--line);
+    }
+
+    .oauth-grid{
+      display:grid;
+      gap:10px;
+    }
+
+    .btn-secondary{
       background:#fff;
-      border-radius:22px;
-      padding:24px;
+      border:1px solid var(--line);
+      color:var(--blue);
     }
   </style>
 </head>
@@ -202,8 +216,12 @@
 
 <div class="shell">
   <div class="card">
+
+    <!-- ✅ LOGO HERE -->
+    <img src="logo.png" alt="TalentBuzz Logo" class="logo">
+
     <h1>Welcome Back</h1>
-    <p class="subtitle">Sign in to your TalentBuzz account</p>
+    <p class="subtitle">Sign in to access your TalentBuzz profile</p>
 
     <form id="loginForm">
       <label>Email</label>
@@ -215,88 +233,93 @@
         <button type="button" id="togglePasswordBtn" class="toggle-password">Show</button>
       </div>
 
-      <div class="form-row-right">
-        <button type="button" id="forgotPasswordBtn" class="text-link">Forgot password?</button>
-      </div>
-
       <div class="actions">
-        <button id="submitBtn" class="btn btn-primary">Login</button>
+        <button id="submitBtn" type="submit" class="btn btn-primary">Login</button>
       </div>
 
       <div id="messageBox" class="msg"></div>
     </form>
-  </div>
-</div>
 
-<div id="resetModalBackdrop" class="modal-backdrop">
-  <div class="modal">
-    <h2>Reset password</h2>
-    <p>Enter your email and we'll send a reset link.</p>
+    <div class="links">
+      <a href="create-profile.html">Create account</a>
+      <a href="recruiter-login.html">Recruiter</a>
+    </div>
 
-    <input id="resetEmail" type="email" placeholder="you@example.com">
-    <div id="resetMessageBox" class="msg"></div>
+    <div class="divider">or continue with</div>
 
-    <button id="sendResetBtn" class="btn btn-primary">Send reset link</button>
+    <div class="oauth-grid">
+      <button id="googleBtn" class="btn btn-secondary">Google</button>
+      <button id="linkedinBtn" class="btn btn-secondary">LinkedIn</button>
+    </div>
+
   </div>
 </div>
 
 <script>
-const supabaseClient = supabase.createClient(
-  'https://dilalntcxmvdcmwxjcct.supabase.co',
-  'sb_publishable_HrLVIUwnaRo54yijtrbWBQ_1aeb4ezs'
-);
+const SUPABASE_URL = 'https://dilalntcxmvdcmwxjcct.supabase.co';
+const SUPABASE_ANON_KEY = 'sb_publishable_HrLVIUwnaRo54yijtrbWBQ_1aeb4ezs';
+const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-const sendResetBtn = document.getElementById('sendResetBtn');
-const resetEmailInput = document.getElementById('resetEmail');
-const resetMessageBox = document.getElementById('resetMessageBox');
+const emailInput = document.getElementById('email');
+const passwordInput = document.getElementById('password');
+const messageBox = document.getElementById('messageBox');
+const submitBtn = document.getElementById('submitBtn');
 
-function showResetMessage(msg, type='error'){
-  resetMessageBox.textContent = msg;
-  resetMessageBox.className = 'msg show ' + type;
+function showMessage(message, type='error'){
+  messageBox.textContent = message;
+  messageBox.className = `msg show ${type}`;
 }
 
-async function sendPasswordReset(){
-  const email = resetEmailInput.value.trim();
+function getNextRoute(){
+  const params = new URLSearchParams(window.location.search);
+  return params.get('next') === 'create-profile'
+    ? 'create-profile.html'
+    : 'dashboard.html';
+}
 
-  if(!email || !email.includes('@')){
-    showResetMessage('Please enter a valid email.', 'error');
-    return;
+function prefillEmail(){
+  const params = new URLSearchParams(window.location.search);
+  const email = params.get('email');
+  if(email) emailInput.value = email;
+}
+
+function showMessageFromUrl(){
+  const msg = new URLSearchParams(window.location.search).get('message');
+  if(msg === 'account_exists_signin'){
+    showMessage('This email already has an account. Please sign in.', 'info');
   }
+}
 
-  sendResetBtn.disabled = true;
-  sendResetBtn.textContent = 'Sending reset link...';
+document.getElementById('togglePasswordBtn').onclick = () => {
+  passwordInput.type = passwordInput.type === 'password' ? 'text' : 'password';
+};
+
+document.getElementById('loginForm').addEventListener('submit', async (e)=>{
+  e.preventDefault();
+
+  submitBtn.disabled = true;
+  submitBtn.textContent = 'Signing in...';
 
   try{
-    const { error } = await supabaseClient.auth.resetPasswordForEmail(email, {
-      redirectTo: 'https://talentbuzz.pro/update-password.html'
+    const { error } = await supabaseClient.auth.signInWithPassword({
+      email: emailInput.value,
+      password: passwordInput.value
     });
 
     if(error) throw error;
 
-    showResetMessage(
-      'If an account exists, a reset link has been sent. Check your email.',
-      'success'
-    );
+    window.location.href = getNextRoute();
 
   }catch(err){
-    console.error(err);
-
-    let message = 'Failed to send reset email.';
-
-    if(typeof err === 'string'){
-      message = err;
-    } else if(err?.message){
-      message = err.message;
-    }
-
-    showResetMessage(message, 'error');
+    showMessage(err.message);
+  }finally{
+    submitBtn.disabled = false;
+    submitBtn.textContent = 'Login';
   }
+});
 
-  sendResetBtn.disabled = false;
-  sendResetBtn.textContent = 'Send reset link';
-}
-
-sendResetBtn.addEventListener('click', sendPasswordReset);
+prefillEmail();
+showMessageFromUrl();
 </script>
 
 </body>
