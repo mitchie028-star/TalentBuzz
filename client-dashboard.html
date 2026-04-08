@@ -263,6 +263,23 @@
       box-shadow:0 0 0 3px rgba(147,197,253,.25);
     }
 
+    .inline-toggle{
+      display:flex;
+      align-items:center;
+      gap:8px;
+      font-weight:800;
+      color:#334155;
+      white-space:nowrap;
+    }
+
+    .inline-toggle input{
+      width:16px;
+      height:16px;
+      padding:0;
+      margin:0;
+      accent-color:var(--blue-light);
+    }
+
     .table-wrap{
       overflow:auto;
       border:1px solid var(--line);
@@ -599,6 +616,7 @@
       </div>
     </div>
 
+    <div id="previewBanner" class="notice info" style="display:none;"></div>
     <div id="notice" class="notice"></div>
 
     <div class="stats">
@@ -664,8 +682,8 @@
           <option value="2">2 / 5</option>
           <option value="1">1 / 5</option>
         </select>
-        <label style="display:flex;align-items:center;gap:8px;font-weight:700;white-space:nowrap;">
-          <input type="checkbox" id="pendingOnlyToggle" style="width:auto;padding:0;box-shadow:none;" />
+        <label class="inline-toggle">
+          <input type="checkbox" id="pendingOnlyToggle" />
           Pending only
         </label>
       </div>
@@ -675,7 +693,7 @@
           <thead>
             <tr>
               <th>Candidate</th>
-              <th>Role</th>
+              <th>Requisition</th>
               <th>Status</th>
               <th>Rating</th>
               <th>Experience</th>
@@ -825,6 +843,17 @@
     const SUPABASE_URL = "https://dilalntcxmvdcmwxjcct.supabase.co";
     const SUPABASE_ANON_KEY = "sb_publishable_HrLVIUwnaRo54yijtrbWBQ_1aeb4ezs";
 
+    const PREVIEW_ALLOWED_EMAILS = [
+      "eric.se@talentbuzz.pro",
+      "eric.s@talentbuzz.pro",
+      "michelle.giray@talentbuzz.pro",
+      "mitchie028@gmail.com",
+      "angel.n@talentbuzz.pro",
+      "jercey.cayetano@talentbuzz.pro",
+      "jayson.c@talentbuzz.pro",
+      "xyrene.e@talentbuzz.pro"
+    ];
+
     const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
     const state = {
@@ -841,6 +870,7 @@
 
     const els = {
       notice: document.getElementById("notice"),
+      previewBanner: document.getElementById("previewBanner"),
       table: document.getElementById("endorsementsTable"),
       searchInput: document.getElementById("searchInput"),
       roleFilter: document.getElementById("roleFilter"),
@@ -896,6 +926,35 @@
     function safeText(value, fallback = "-") {
       const str = String(value ?? "").trim();
       return str || fallback;
+    }
+
+    function getQueryParam(name) {
+      const params = new URLSearchParams(window.location.search);
+      return params.get(name);
+    }
+
+    function isPreviewMode() {
+      return getQueryParam("preview") === "1";
+    }
+
+    function getPreviewClientId() {
+      return getQueryParam("preview_client_id");
+    }
+
+    function isAllowedPreviewUser(email) {
+      return PREVIEW_ALLOWED_EMAILS.includes(normalize(email));
+    }
+
+    function setPreviewBanner(clientName) {
+      els.previewBanner.style.display = "block";
+      els.previewBanner.className = "notice info show";
+      els.previewBanner.textContent = `Preview Mode: You are viewing the client dashboard as ${clientName}.`;
+    }
+
+    function hidePreviewBanner() {
+      els.previewBanner.style.display = "none";
+      els.previewBanner.className = "notice info";
+      els.previewBanner.textContent = "";
     }
 
     function showNotice(message, type = "info") {
@@ -968,6 +1027,46 @@
 
       state.currentSessionUser = session.user;
 
+      if (isPreviewMode()) {
+        const signedInEmail = normalize(session.user.email);
+        const previewClientId = getPreviewClientId();
+
+        if (!isAllowedPreviewUser(signedInEmail)) {
+          alert("Preview mode is restricted to internal TalentBuzz users.");
+          await redirectToLogin();
+          return false;
+        }
+
+        if (!previewClientId) {
+          throw new Error("Missing preview_client_id in URL.");
+        }
+
+        const { data: previewClient, error: previewClientError } = await supabaseClient
+          .from("clients")
+          .select("id, client_name")
+          .eq("id", previewClientId)
+          .maybeSingle();
+
+        if (previewClientError) throw previewClientError;
+        if (!previewClient) throw new Error("Preview client not found.");
+
+        state.currentClientUser = {
+          id: "preview-mode",
+          client_id: previewClient.id,
+          full_name: "TalentBuzz Preview Mode",
+          email: session.user.email,
+          clients: {
+            client_name: previewClient.client_name
+          }
+        };
+
+        setPreviewBanner(previewClient.client_name);
+        showNotice(`Preview access granted for ${previewClient.client_name}.`, "info");
+        return true;
+      }
+
+      hidePreviewBanner();
+
       const clientUser = await getAuthorizedClientUser(session.user.email);
 
       if (!clientUser || !clientUser.client_id) {
@@ -996,11 +1095,11 @@
         ? (ratings.reduce((a, b) => a + b, 0) / ratings.length).toFixed(1)
         : "-";
 
-      els.statEndorsed.textContent = endorsed;
-      els.statInterview.textContent = interview;
-      els.statShortlisted.textContent = shortlisted;
-      els.statRejected.textContent = rejected;
-      els.statPending.textContent = pending;
+      els.statEndorsed.textContent = String(endorsed);
+      els.statInterview.textContent = String(interview);
+      els.statShortlisted.textContent = String(shortlisted);
+      els.statRejected.textContent = String(rejected);
+      els.statPending.textContent = String(pending);
       els.statAvgRating.textContent = avgRating;
     }
 
@@ -1025,7 +1124,7 @@
       const role = normalize(els.roleFilter.value);
       const status = normalize(els.statusFilter.value);
       const rating = normalize(els.ratingFilter.value);
-      const pendingOnly = els.pendingOnlyToggle?.checked;
+      const pendingOnly = els.pendingOnlyToggle.checked;
 
       return state.rows.filter(row => {
         const candidateName = normalize(row.full_name);
@@ -1140,6 +1239,8 @@
     }
 
     async function markViewed() {
+      if (isPreviewMode()) return;
+
       const ids = state.rows
         .filter(row => row.endorsement_id && !row.client_viewed_at)
         .map(row => row.endorsement_id);
@@ -1306,7 +1407,7 @@
     els.roleFilter.addEventListener("change", renderRows);
     els.statusFilter.addEventListener("change", renderRows);
     els.ratingFilter.addEventListener("change", renderRows);
-    els.pendingOnlyToggle?.addEventListener("change", renderRows);
+    els.pendingOnlyToggle.addEventListener("change", renderRows);
 
     els.table.addEventListener("click", (event) => {
       const viewBtn = event.target.closest(".view-candidate-btn");
