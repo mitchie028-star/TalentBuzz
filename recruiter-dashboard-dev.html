@@ -1160,6 +1160,7 @@
       const SUPABASE_URL = "https://dilalntcxmvdcmwxjcct.supabase.co";
       const SUPABASE_ANON_KEY = "sb_publishable_HrLVIUwnaRo54yijtrbWBQ_1aeb4ezs";
       const RESUME_BUCKET = "resumes";
+      const RESUME_BUCKET_FALLBACKS = ["resumes", "resume", "cv", "cvs"];
       const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
       const ACTIVE_STATUSES = ["submitted", "endorsed", "assessment", "initial", "final"];
@@ -1363,15 +1364,81 @@
         return "-";
       }
 
-      function getResumeUrl(app) {
+      function buildStoragePublicUrl(bucket, filePath) {
+        if (!bucket || !filePath) return "";
+        const cleanBucket = String(bucket || "").trim().replace(/^\/+|\/+$/g, "");
+        const cleanPath = String(filePath || "").trim().replace(/^\/+/, "");
+        if (!cleanBucket || !cleanPath) return "";
+        return `${SUPABASE_URL}/storage/v1/object/public/${encodeURIComponent(cleanBucket)}/${cleanPath.split("/").map((part) => encodeURIComponent(part)).join("/")}`;
+      }
+
+      function extractBucketAndPath(value) {
+        const raw = String(value || "").trim();
+        if (!raw) return { bucket: "", path: "" };
+
+        try {
+          const url = new URL(raw);
+          const marker = "/storage/v1/object/public/";
+          const idx = url.pathname.indexOf(marker);
+          if (idx >= 0) {
+            const remainder = url.pathname.slice(idx + marker.length);
+            const parts = remainder.split("/").filter(Boolean).map((part) => decodeURIComponent(part));
+            const bucket = parts.shift() || "";
+            return { bucket, path: parts.join("/") };
+          }
+        } catch (_) {}
+
+        const trimmed = raw.replace(/^\/+/, "");
+        const storagePrefixMatch = trimmed.match(/^storage\/v1\/object\/public\/([^/]+)\/(.+)$/i);
+        if (storagePrefixMatch) {
+          return { bucket: decodeURIComponent(storagePrefixMatch[1] || ""), path: decodeURIComponent(storagePrefixMatch[2] || "") };
+        }
+
+        const firstSegment = trimmed.split("/")[0] || "";
+        if (RESUME_BUCKET_FALLBACKS.includes(firstSegment.toLowerCase())) {
+          return { bucket: firstSegment, path: trimmed.split("/").slice(1).join("/") };
+        }
+
+        return { bucket: "", path: trimmed };
+      }
+
+      function getResumeAsset(app) {
         const profile = getProfileFromApplication(app);
-        if (!profile) return "";
+        if (!profile) return { url: "", bucket: "", path: "", source: "none" };
+
         const direct = String(profile.resume_url || "").trim();
-        if (direct) return direct;
-        const path = String(profile.resume_path || "").trim();
-        if (!path) return "";
-        const { data } = supabaseClient.storage.from(RESUME_BUCKET).getPublicUrl(path);
-        return data?.publicUrl || "";
+        const resumePath = String(profile.resume_path || "").trim();
+
+        if (direct) {
+          const parsed = extractBucketAndPath(direct);
+          return {
+            url: direct,
+            bucket: parsed.bucket || RESUME_BUCKET,
+            path: parsed.path || resumePath,
+            source: "resume_url"
+          };
+        }
+
+        if (!resumePath) return { url: "", bucket: "", path: "", source: "none" };
+
+        const parsedPath = extractBucketAndPath(resumePath);
+        const cleanPath = parsedPath.path || resumePath.replace(/^\/+/, "");
+        const bucketCandidates = [];
+        if (parsedPath.bucket) bucketCandidates.push(parsedPath.bucket);
+        bucketCandidates.push(RESUME_BUCKET, ...RESUME_BUCKET_FALLBACKS);
+        const uniqueBuckets = [...new Set(bucketCandidates.filter(Boolean))];
+
+        const bucket = uniqueBuckets[0] || RESUME_BUCKET;
+        return {
+          url: buildStoragePublicUrl(bucket, cleanPath),
+          bucket,
+          path: cleanPath,
+          source: "resume_path"
+        };
+      }
+
+      function getResumeUrl(app) {
+        return getResumeAsset(app).url || "";
       }
 
       function getResumeExtension(fileName) {
@@ -1403,12 +1470,16 @@
             upsert: true,
             contentType: file.type || undefined
           });
-        if (uploadError) throw uploadError;
+        if (uploadError) {
+          if (/bucket not found/i.test(String(uploadError.message || ""))) {
+            throw new Error(`Supabase storage bucket "${RESUME_BUCKET}" was not found. Create a public bucket named "${RESUME_BUCKET}" first, then try uploading again.`);
+          }
+          throw uploadError;
+        }
 
-        const { data: publicUrlData } = supabaseClient.storage.from(RESUME_BUCKET).getPublicUrl(filePath);
         return {
           resume_path: filePath,
-          resume_url: publicUrlData?.publicUrl || null,
+          resume_url: buildStoragePublicUrl(RESUME_BUCKET, filePath),
           has_resume: true,
           no_resume: false
         };
@@ -2522,7 +2593,8 @@
         const profile = getProfileFromApplication(app);
         const ai = state.aiScoreMap.get(String(app.id)) || computeAiScore(app);
         const alertRow = getAlertRowForApp(app);
-        const resumeUrl = getResumeUrl(app);
+        const resumeAsset = getResumeAsset(app);
+        const resumeUrl = resumeAsset.url;
 
         els.drawerCandidateName.textContent = profile?.full_name || app?.email || "Candidate";
         els.drawerCandidateMeta.textContent = `${app?.job_title || app?.jobs?.title || 'No role'} • ${getRecruiterName(app?.recruiter_email)} • ${app?.status || 'submitted'}`;
@@ -2543,8 +2615,18 @@
         els.drawerClickCount.textContent = String(Number(alertRow?.click_count || 0));
         els.drawerFollowUpCount.textContent = String(Number(alertRow?.follow_up_count || 0));
         els.drawerAppliedAt.textContent = formatDateTime(alertRow?.applied_at);
-        els.drawerResumeMeta.textContent = resumeUrl ? "Resume available for preview." : "No resume file attached yet.";
-        els.drawerResumeLaunchBtn.onclick = () => openResumeModal(resumeUrl);
+                els.drawerResumeMeta.textContent = resumeUrl
+          ? `Resume available${resumeAsset.bucket ? ` • bucket: ${resumeAsset.bucket}` : ""}${resumeAsset.path ? ` • ${resumeAsset.path}` : ""}`
+          : "No resume uploaded yet.";
+        els.drawerResumeLaunchBtn.disabled = !resumeUrl;
+        els.drawerResumeLaunchBtn.onclick = () => {
+          if (!resumeUrl) {
+            showNotice('No resume available.', 'error');
+            return;
+          }
+          openResumeModal(resumeUrl);
+        };
+
         if (els.drawerOpenNotesBtn) els.drawerOpenNotesBtn.onclick = () => openInterviewNotesModal(app);
         if (els.drawerEndorseBtn) els.drawerEndorseBtn.onclick = () => openEndorseModal(app);
         if (els.drawerEditCandidateBtn) els.drawerEditCandidateBtn.onclick = () => openEditCandidateModal(app);
