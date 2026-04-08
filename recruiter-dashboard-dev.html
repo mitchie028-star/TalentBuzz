@@ -1329,7 +1329,7 @@
                 endorsement_sent_to,
                 sla_status,
                 sla_due_at,
-                applicant_profiles (
+                applicant_profiles!applications_applicant_profile_id_fkey (
                   id,
                   full_name,
                   email,
@@ -1344,7 +1344,7 @@
                   resume_url,
                   resume_path
                 ),
-                jobs (
+                jobs!applications_job_id_fkey (
                   id,
                   title,
                   client_name,
@@ -1857,37 +1857,7 @@
       }
 
       function cleanResumePath(path) {
-        return String(path || "")
-          .trim()
-          .replace(/^\/+/, "")
-          .replace(/^storage\/v1\/object\/(public|sign)\/[^/]+\//i, "")
-          .replace(/^resumes\//i, "");
-      }
-
-      function buildPublicResumeUrl(filePath) {
-        const cleanedPath = cleanResumePath(filePath);
-        if (!cleanedPath) return "";
-        const encodedPath = cleanedPath.split("/").map((part) => encodeURIComponent(part)).join("/");
-        return `${SUPABASE_URL}/storage/v1/object/public/${RESUME_BUCKET}/${encodedPath}`;
-      }
-
-      function extractResumePathFromUrl(url) {
-        const raw = String(url || "").trim();
-        if (!raw) return "";
-        try {
-          const parsed = new URL(raw);
-          const marker = "/storage/v1/object/";
-          const idx = parsed.pathname.indexOf(marker);
-          if (idx === -1) return "";
-          const tail = parsed.pathname.slice(idx + marker.length);
-          const parts = tail.split("/").filter(Boolean);
-          if (parts.length < 3) return "";
-          const [, bucket, ...rest] = parts;
-          if (String(bucket).toLowerCase() !== String(RESUME_BUCKET).toLowerCase()) return rest.join("/");
-          return rest.join("/");
-        } catch {
-          return "";
-        }
+        return String(path || "").trim().replace(/^\/+/, "").replace(/^resumes\//i, "");
       }
 
       function hasResumeFile(appOrProfile) {
@@ -1901,11 +1871,18 @@
 
         const rawResumePath = String(profile.resume_path || "").trim();
         const rawResumeUrl = String(profile.resume_url || "").trim();
-        const derivedPath = cleanResumePath(rawResumePath) || cleanResumePath(extractResumePathFromUrl(rawResumeUrl));
 
-        if (derivedPath) return buildPublicResumeUrl(derivedPath);
-        if (rawResumeUrl) return rawResumeUrl;
-        return "";
+        if (!rawResumePath) return rawResumeUrl || "";
+
+        const cleanedPath = cleanResumePath(rawResumePath);
+        if (!cleanedPath) return rawResumeUrl || "";
+
+        const directPublicUrl = `${SUPABASE_URL}/storage/v1/object/public/${encodeURIComponent(RESUME_BUCKET)}/${cleanedPath
+          .split("/")
+          .map((part) => encodeURIComponent(part))
+          .join("/")}`;
+
+        return directPublicUrl;
       }
 
       function openResumeModal(url) {
@@ -1917,14 +1894,11 @@
           els.downloadResumeBtn.style.display = "inline-flex";
         }
         if (els.resumeFrame) {
-          els.resumeFrame.src = isPdf ? url : "about:blank";
+          els.resumeFrame.src = isPdf ? url : `https://docs.google.com/gview?url=${encodeURIComponent(url)}&embedded=true`;
         }
         if (els.resumeModal) {
           els.resumeModal.classList.add("show");
           document.body.style.overflow = "hidden";
-        }
-        if (!isPdf) {
-          window.open(url, "_blank", "noopener,noreferrer");
         }
       }
 
