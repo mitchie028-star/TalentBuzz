@@ -1402,38 +1402,63 @@
         return { bucket: "", path: trimmed };
       }
 
-      function getResumeAsset(app) {
+      function getResumeCandidateUrls(app) {
         const profile = getProfileFromApplication(app);
-        if (!profile) return { url: "", bucket: "", path: "", source: "none" };
+        if (!profile) return [];
 
         const direct = String(profile.resume_url || "").trim();
         const resumePath = String(profile.resume_path || "").trim();
+        const candidates = [];
+        const seen = new Set();
+
+        const pushUrl = (url) => {
+          const clean = String(url || "").trim();
+          if (!clean || seen.has(clean)) return;
+          seen.add(clean);
+          candidates.push(clean);
+        };
+
+        const pushBucketPathCandidates = (bucket, filePath) => {
+          const cleanPath = String(filePath || "").trim().replace(/^\/+/, "");
+          if (!cleanPath) return;
+          const bucketCandidates = [];
+          if (bucket) bucketCandidates.push(String(bucket).trim());
+          bucketCandidates.push(RESUME_BUCKET, ...RESUME_BUCKET_FALLBACKS);
+          [...new Set(bucketCandidates.filter(Boolean))].forEach((bucketName) => {
+            pushUrl(buildStoragePublicUrl(bucketName, cleanPath));
+          });
+        };
 
         if (direct) {
-          const parsed = extractBucketAndPath(direct);
-          return {
-            url: direct,
-            bucket: parsed.bucket || RESUME_BUCKET,
-            path: parsed.path || resumePath,
-            source: "resume_url"
-          };
+          const parsedDirect = extractBucketAndPath(direct);
+          const isSupabaseStorageUrl = /\/storage\/v1\/object\/public\//i.test(direct) || /^storage\/v1\/object\/public\//i.test(direct.replace(/^\/+/, ""));
+          if (!isSupabaseStorageUrl && /^https?:\/\//i.test(direct)) {
+            pushUrl(direct);
+          } else {
+            pushBucketPathCandidates(parsedDirect.bucket, parsedDirect.path || resumePath || direct);
+            pushUrl(direct);
+          }
         }
 
-        if (!resumePath) return { url: "", bucket: "", path: "", source: "none" };
+        if (resumePath) {
+          const parsedPath = extractBucketAndPath(resumePath);
+          const cleanPath = parsedPath.path || resumePath.replace(/^\/+/, "");
+          pushBucketPathCandidates(parsedPath.bucket, cleanPath);
+        }
 
-        const parsedPath = extractBucketAndPath(resumePath);
-        const cleanPath = parsedPath.path || resumePath.replace(/^\/+/, "");
-        const bucketCandidates = [];
-        if (parsedPath.bucket) bucketCandidates.push(parsedPath.bucket);
-        bucketCandidates.push(RESUME_BUCKET, ...RESUME_BUCKET_FALLBACKS);
-        const uniqueBuckets = [...new Set(bucketCandidates.filter(Boolean))];
+        return candidates;
+      }
 
-        const bucket = uniqueBuckets[0] || RESUME_BUCKET;
+      function getResumeAsset(app) {
+        const urls = getResumeCandidateUrls(app);
+        const firstUrl = urls[0] || "";
+        const parsed = extractBucketAndPath(firstUrl);
         return {
-          url: buildStoragePublicUrl(bucket, cleanPath),
-          bucket,
-          path: cleanPath,
-          source: "resume_path"
+          url: firstUrl,
+          bucket: parsed.bucket || RESUME_BUCKET,
+          path: parsed.path || "",
+          source: firstUrl ? "resolved" : "none",
+          candidates: urls
         };
       }
 
@@ -2539,7 +2564,23 @@
         if (!isOpen) targetMenu.classList.add("show");
       }
 
-      function openResumeModal(url) {
+      async function resolveWorkingResumeUrl(appOrUrl) {
+        const candidates = typeof appOrUrl === "string"
+          ? [String(appOrUrl || "").trim()].filter(Boolean)
+          : getResumeCandidateUrls(appOrUrl);
+
+        for (const candidate of candidates) {
+          try {
+            const response = await fetch(candidate, { method: "HEAD", cache: "no-store" });
+            if (response.ok) return candidate;
+          } catch (_) {}
+        }
+
+        return candidates[0] || "";
+      }
+
+      async function openResumeModal(appOrUrl) {
+        const url = await resolveWorkingResumeUrl(appOrUrl);
         if (!url) {
           showNotice("No resume available.", "error");
           return;
