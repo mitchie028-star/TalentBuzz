@@ -141,11 +141,14 @@
       align-self: flex-start;
     }
 
-    .utility-pill, .menu-toggle {
+    .menu-wrap { position: relative; }
+
+    .menu-toggle {
       display: inline-flex;
       align-items: center;
-      gap: 8px;
+      justify-content: center;
       min-height: 48px;
+      min-width: 48px;
       padding: 0 14px;
       border-radius: 14px;
       border: 1px solid var(--border);
@@ -156,20 +159,6 @@
       cursor: pointer;
       font-family: inherit;
       text-decoration: none;
-    }
-
-    .utility-pill.glass {
-      background: rgba(255,255,255,0.75);
-      backdrop-filter: blur(8px);
-      border: 1px solid rgba(226,232,240,0.9);
-    }
-
-    .menu-wrap { position: relative; }
-
-    .menu-toggle.premium {
-      min-width: 48px;
-      padding: 0;
-      justify-content: center;
     }
 
     .menu-lines {
@@ -534,7 +523,7 @@
           <button id="openAddClientBtn" class="btn btn-primary" type="button">+ Add Client</button>
 
           <div class="menu-wrap">
-            <button class="menu-toggle premium" id="menuToggleBtn" type="button" title="Menu">
+            <button class="menu-toggle" id="menuToggleBtn" type="button" title="Menu">
               <span class="menu-lines"><span></span><span></span><span></span></span>
             </button>
 
@@ -654,19 +643,14 @@
       </div>
       <div class="modal-body">
         <div class="modal-grid">
-          <div class="field">
+          <div class="field full">
             <label for="clientNameInput">Client Name</label>
             <input id="clientNameInput" type="text" placeholder="Company or contact name" />
           </div>
 
-          <div class="field">
+          <div class="field full">
             <label for="clientEmailInput">Client Email</label>
             <input id="clientEmailInput" type="email" placeholder="client@email.com" />
-          </div>
-
-          <div class="field full">
-            <label for="clientIdInput">Client ID</label>
-            <input id="clientIdInput" type="text" placeholder="Existing client_id from your jobs/clients table" />
           </div>
         </div>
 
@@ -683,6 +667,7 @@
   <script>
     const SUPABASE_URL = "https://dilalntcxmvdcmwxjcct.supabase.co";
     const SUPABASE_ANON_KEY = "sb_publishable_HrLVIUwnaRo54yijtrbWBQ_1aeb4ezs";
+    const APP_BASE_URL = "https://talentbuzz.pro";
     const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
     const els = {
@@ -713,14 +698,12 @@
       clientModalNotice: document.getElementById("clientModalNotice"),
       clientNameInput: document.getElementById("clientNameInput"),
       clientEmailInput: document.getElementById("clientEmailInput"),
-      clientIdInput: document.getElementById("clientIdInput"),
       saveClientBtn: document.getElementById("saveClientBtn"),
       saveAndInviteBtn: document.getElementById("saveAndInviteBtn")
     };
 
     const state = {
-      rows: [],
-      selectedClient: null
+      rows: []
     };
 
     function normalizeText(value) {
@@ -787,7 +770,6 @@
       els.clientModalTitle.textContent = "Add Client";
       els.clientNameInput.value = "";
       els.clientEmailInput.value = "";
-      els.clientIdInput.value = "";
       els.clientModal.classList.add("show");
       document.body.style.overflow = "hidden";
     }
@@ -831,9 +813,12 @@
 
     function populateClientFilter() {
       const current = els.clientFilter.value;
-      const names = [...new Set(state.rows.map(r => String(r.full_name || "").trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+      const names = [...new Set(
+        state.rows.map(r => String(r.full_name || "").trim()).filter(Boolean)
+      )].sort((a, b) => a.localeCompare(b));
 
-      els.clientFilter.innerHTML = `<option value="">All clients</option>` +
+      els.clientFilter.innerHTML =
+        `<option value="">All clients</option>` +
         names.map(name => `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`).join("");
 
       if (names.includes(current)) {
@@ -871,6 +856,7 @@
       els.clientTable.innerHTML = rows.map(row => {
         const status = getPortalStatus(row);
         const statusLabel = getPortalStatusLabel(status);
+        const inviteLink = row.token ? `${APP_BASE_URL}/client-set-password.html?token=${row.token}` : "";
 
         return `
           <tr>
@@ -898,7 +884,7 @@
             <td>
               <div class="row-actions">
                 ${status !== "active" ? `<button class="btn btn-soft btn-xs resend-invite-btn" type="button" data-email="${escapeHtml(row.email)}">Resend Invite</button>` : ""}
-                <button class="btn btn-outline btn-xs copy-link-btn" type="button" data-token="${escapeHtml(row.token || "")}">Copy Link</button>
+                <button class="btn btn-outline btn-xs copy-link-btn" type="button" data-link="${escapeHtml(inviteLink)}">Copy Link</button>
               </div>
             </td>
           </tr>
@@ -988,7 +974,6 @@
     async function saveClientRecord(sendInviteAfter = false) {
       const fullName = String(els.clientNameInput.value || "").trim();
       const email = normalizeEmail(els.clientEmailInput.value);
-      const clientId = String(els.clientIdInput.value || "").trim();
 
       if (!fullName) {
         showModalNotice("Client name is required.");
@@ -1000,19 +985,54 @@
         return;
       }
 
-      if (!clientId) {
-        showModalNotice("Client ID is required.");
-        return;
-      }
-
       els.saveClientBtn.disabled = true;
       els.saveAndInviteBtn.disabled = true;
 
       try {
+        const { data: existingPortalUser, error: existingPortalUserError } = await supabaseClient
+          .from("client_users")
+          .select("id")
+          .eq("email", email)
+          .maybeSingle();
+
+        if (existingPortalUserError) {
+          throw existingPortalUserError;
+        }
+
+        if (existingPortalUser?.id) {
+          throw new Error("A client portal user with this email already exists.");
+        }
+
+        const { data: latestInvite, error: latestInviteLookupError } = await supabaseClient
+          .from("client_invites")
+          .select("id, client_id, full_name, email")
+          .eq("email", email)
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (latestInviteLookupError) {
+          throw latestInviteLookupError;
+        }
+
+        if (latestInvite?.id) {
+          throw new Error("A client invite already exists for this email. Use resend invite instead.");
+        }
+
+        const { data: newClient, error: createClientError } = await supabaseClient
+          .from("clients")
+          .insert([{ name: fullName }])
+          .select("id, name")
+          .single();
+
+        if (createClientError) {
+          throw createClientError;
+        }
+
         const { error: insertInviteError } = await supabaseClient
           .from("client_invites")
           .insert([{
-            client_id: clientId,
+            client_id: newClient.id,
             full_name: fullName,
             email,
             token: null,
@@ -1028,7 +1048,10 @@
           await resendClientInvite(email);
         }
 
-        showNotice(sendInviteAfter ? "Client saved and invite sent." : "Client record saved.", "success");
+        showNotice(
+          sendInviteAfter ? "Client created and invite sent." : "Client created successfully.",
+          "success"
+        );
         closeClientModal();
         await loadClients();
       } catch (error) {
@@ -1040,13 +1063,11 @@
       }
     }
 
-    async function copyInviteLink(token) {
-      if (!token) {
-        showNotice("No invite token available for this record.", "error");
+    async function copyInviteLink(link) {
+      if (!link) {
+        showNotice("No invite link available for this record.", "error");
         return;
       }
-
-      const link = `https://talentbuzz.pro/client-set-password.html?token=${token}`;
 
       try {
         await navigator.clipboard.writeText(link);
@@ -1119,7 +1140,7 @@
 
       const copyBtn = event.target.closest(".copy-link-btn");
       if (copyBtn) {
-        await copyInviteLink(copyBtn.dataset.token || "");
+        await copyInviteLink(copyBtn.dataset.link || "");
       }
 
       if (event.target === els.clientModal) {
