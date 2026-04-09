@@ -1957,10 +1957,67 @@
         state.selectedEndorsementApp = null;
       }
 
+
+      async function syncEndorsementRecord(app, options = {}) {
+        const applicationId = app?.id || app?.application_id || null;
+        const jobId = app?.job_id || app?.jobs?.id || null;
+        if (!applicationId || !jobId) {
+          throw new Error("Missing application_id or job_id for endorsement sync.");
+        }
+
+        const sentAt = options.sentAt || new Date().toISOString();
+
+        const { data: existing, error: existingError } = await supabaseClient
+          .from("application_endorsements")
+          .select("id")
+          .eq("application_id", applicationId)
+          .limit(1)
+          .maybeSingle();
+
+        if (existingError) throw existingError;
+
+        const payload = {
+          application_id: applicationId,
+          job_id: jobId,
+          sent_at: sentAt
+        };
+
+        if (existing?.id) {
+          const { error: updateError } = await supabaseClient
+            .from("application_endorsements")
+            .update(payload)
+            .eq("id", existing.id);
+          if (updateError) throw updateError;
+          return existing.id;
+        }
+
+        const { data: inserted, error: insertError } = await supabaseClient
+          .from("application_endorsements")
+          .insert(payload)
+          .select("id")
+          .single();
+
+        if (insertError) throw insertError;
+        return inserted?.id || null;
+      }
+
+      async function removeEndorsementRecord(app) {
+        const applicationId = app?.id || app?.application_id || null;
+        if (!applicationId) return;
+
+        const { error } = await supabaseClient
+          .from("application_endorsements")
+          .delete()
+          .eq("application_id", applicationId);
+
+        if (error) throw error;
+      }
+
       async function saveEndorsement(markAsSent = false) {
         const app = state.selectedEndorsementApp;
         if (!app) return;
         try {
+          const sentAt = new Date().toISOString();
           const payload = {
             endorsement_sent_to: getSafeValue(els.endorseRecipient).trim() || null,
             endorsed_by: null
@@ -1968,10 +2025,15 @@
           if (markAsSent) {
             payload.status = "endorsed";
             payload.endorsement_status = "sent";
-            payload.endorsement_sent_at = new Date().toISOString();
+            payload.endorsement_sent_at = sentAt;
           }
           const { error } = await supabaseClient.from("applications").update(payload).eq("id", app.id);
           if (error) throw error;
+
+          if (markAsSent) {
+            await syncEndorsementRecord(app, { sentAt });
+          }
+
           showNotice(markAsSent ? "Candidate marked as endorsed." : "Endorsement draft saved.", "success");
           closeEndorseModal();
           await refreshAll();
@@ -2321,6 +2383,14 @@
             applicationError = fallbackResp.error;
           }
           if (applicationError) throw applicationError;
+
+          if (selectedStatus === "endorsed") {
+            await syncEndorsementRecord(app, {
+              sentAt: applicationPayload.last_status_change_at || new Date().toISOString()
+            });
+          } else if ((state.editCandidateOriginalStatus || "").trim().toLowerCase() === "endorsed") {
+            await removeEndorsementRecord(app);
+          }
 
           const historyResult = await insertNotesHistoryEntry({
             applicationId,
