@@ -11,7 +11,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
 
-  <style> 
+  <style>
     :root {
       --primary: #1e3a8a;
       --primary-2: #2563eb;
@@ -1201,6 +1201,77 @@
       gap: 8px;
       flex-wrap: wrap;
     }
+    .chat-thread-message-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      margin-top: 12px;
+      max-height: 190px;
+      overflow: auto;
+      padding-right: 2px;
+    }
+    .chat-thread-message {
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 10px 12px;
+      background: #fff;
+    }
+    .chat-thread-message.outbound {
+      background: #eff6ff;
+      border-color: #bfdbfe;
+    }
+    .chat-thread-message-meta {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 6px;
+      font-size: 0.74rem;
+      color: var(--muted);
+      font-weight: 800;
+    }
+    .chat-thread-message-body {
+      color: var(--text);
+      font-size: 0.9rem;
+      line-height: 1.5;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .chat-thread-compose {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      margin-top: 14px;
+      border-top: 1px solid var(--border);
+      padding-top: 14px;
+    }
+    .chat-thread-compose textarea {
+      width: 100%;
+      min-height: 92px;
+      resize: vertical;
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 12px;
+      font: inherit;
+      outline: none;
+      background: #fff;
+    }
+    .chat-thread-compose textarea:focus {
+      border-color: #93c5fd;
+      box-shadow: 0 0 0 3px rgba(147, 197, 253, 0.25);
+    }
+    .chat-thread-compose-actions {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .chat-thread-compose-hint {
+      color: var(--muted);
+      font-size: 0.78rem;
+      line-height: 1.4;
+    }
     @keyframes chatPulse {
       0%, 100% { transform: scale(1); box-shadow: 0 18px 40px rgba(30, 58, 138, 0.28); }
       50% { transform: scale(1.04); box-shadow: 0 20px 46px rgba(220, 38, 38, 0.24); }
@@ -1855,9 +1926,19 @@
             </div>
           </div>
           <div class="chat-thread-detail-preview" id="chatWidgetDetailPreview">Latest message preview will appear here.</div>
+          <div class="chat-thread-message-list" id="chatWidgetMessageList">
+            <div class="chat-empty">Recent messages will appear here.</div>
+          </div>
           <div class="chat-thread-detail-actions">
             <a href="recruiter-chat.html" class="btn btn-soft btn-xs" id="chatWidgetOpenFullBtn">Open full chat</a>
             <button class="btn btn-outline btn-xs" type="button" id="chatWidgetMarkSeenBtn">Mark as seen</button>
+          </div>
+          <div class="chat-thread-compose">
+            <textarea id="chatWidgetReplyInput" placeholder="Type your reply here..."></textarea>
+            <div class="chat-thread-compose-actions">
+              <div class="chat-thread-compose-hint" id="chatWidgetReplyHint">Reply from recruiter side without leaving the dashboard.</div>
+              <button class="btn btn-primary btn-xs" type="button" id="chatWidgetSendBtn">Send Reply</button>
+            </div>
           </div>
         </div>
       </div>
@@ -1912,7 +1993,7 @@
         unassignedApplicationsModal: getElement("unassignedApplicationsModal"), closeUnassignedApplicationsModal: getElement("closeUnassignedApplicationsModal"), unassignedApplicationsSummary: getElement("unassignedApplicationsSummary"), unassignedApplicationsCountChip: getElement("unassignedApplicationsCountChip"), refreshUnassignedApplicationsBtn: getElement("refreshUnassignedApplicationsBtn"), unassignedApplicationsTable: getElement("unassignedApplicationsTable"),
         chatWidget: getElement("chatWidget"), chatWidgetLauncher: getElement("chatWidgetLauncher"), chatWidgetLauncherBadge: getElement("chatWidgetLauncherBadge"), chatWidgetPanel: getElement("chatWidgetPanel"), chatWidgetMinimizeBtn: getElement("chatWidgetMinimizeBtn"), chatWidgetCloseBtn: getElement("chatWidgetCloseBtn"),
         chatWidgetTabs: getElement("chatWidgetTabs"), chatWidgetFilters: getElement("chatWidgetFilters"), chatWidgetSearchInput: getElement("chatWidgetSearchInput"), chatWidgetList: getElement("chatWidgetList"), chatWidgetDetail: getElement("chatWidgetDetail"),
-        chatWidgetDetailTitle: getElement("chatWidgetDetailTitle"), chatWidgetDetailMeta: getElement("chatWidgetDetailMeta"), chatWidgetDetailPreview: getElement("chatWidgetDetailPreview"), chatWidgetOpenFullBtn: getElement("chatWidgetOpenFullBtn"), chatWidgetMarkSeenBtn: getElement("chatWidgetMarkSeenBtn"),
+        chatWidgetDetailTitle: getElement("chatWidgetDetailTitle"), chatWidgetDetailMeta: getElement("chatWidgetDetailMeta"), chatWidgetDetailPreview: getElement("chatWidgetDetailPreview"), chatWidgetMessageList: getElement("chatWidgetMessageList"), chatWidgetReplyInput: getElement("chatWidgetReplyInput"), chatWidgetReplyHint: getElement("chatWidgetReplyHint"), chatWidgetSendBtn: getElement("chatWidgetSendBtn"), chatWidgetOpenFullBtn: getElement("chatWidgetOpenFullBtn"), chatWidgetMarkSeenBtn: getElement("chatWidgetMarkSeenBtn"),
         chatCandidatesTabCount: getElement("chatCandidatesTabCount"), chatClientsTabCount: getElement("chatClientsTabCount"), chatAllFilterCount: getElement("chatAllFilterCount"), chatUnreadFilterCount: getElement("chatUnreadFilterCount")
       };
 
@@ -1940,7 +2021,8 @@
         activeChatTab: "candidates",
         activeChatFilter: "all",
         chatThreads: [],
-        chatSelectedThreadKey: null
+        chatSelectedThreadKey: null,
+        chatSending: false
       };
 
       const getSafeValue = (el) => el?.value || "";
@@ -3584,6 +3666,159 @@
         } catch (_) {}
       }
 
+
+      function getSelectedChatThread() {
+        return state.chatThreads.find((thread) => thread.threadKey === state.chatSelectedThreadKey) || null;
+      }
+
+      async function loadThreadMessages(thread) {
+        if (!thread) return [];
+        try {
+          if (thread.threadType === "candidate") {
+            let query = supabaseClient
+              .from("applicant_messages")
+              .select("id, applicant_email, applicant_profile_id, application_id, sender_type, message, created_at")
+              .order("created_at", { ascending: false })
+              .limit(20);
+
+            if (thread.applicationId) query = query.eq("application_id", thread.applicationId);
+            else if (thread.applicantProfileId) query = query.eq("applicant_profile_id", thread.applicantProfileId);
+            else if (thread.email) query = query.eq("applicant_email", thread.email);
+
+            const { data, error } = await query;
+            if (error) throw error;
+            return (data || []).sort((a, b) => new Date(a.created_at || 0) - new Date(b.created_at || 0));
+          }
+
+          try {
+            let query = supabaseClient
+              .from("client_messages")
+              .select("*")
+              .order("created_at", { ascending: false })
+              .limit(20);
+
+            if (thread.email) query = query.or(`client_email.eq.${thread.email},email.eq.${thread.email}`);
+            const { data, error } = await query;
+            if (error) throw error;
+            return (data || []).sort((a, b) => new Date(a.created_at || 0) - new Date(b.created_at || 0));
+          } catch (_) {
+            return [];
+          }
+        } catch (err) {
+          console.warn("Unable to load thread messages:", err?.message || err);
+          return [];
+        }
+      }
+
+      function renderChatMessageList(messages = []) {
+        if (!els.chatWidgetMessageList) return;
+        if (!messages.length) {
+          els.chatWidgetMessageList.innerHTML = '<div class="chat-empty">No messages yet in this thread.</div>';
+          return;
+        }
+        const currentEmail = getCurrentUserEmail();
+        els.chatWidgetMessageList.innerHTML = messages.map((row) => {
+          const senderType = normalizeText(row?.sender_type || "");
+          const senderEmail = normalizeEmail(row?.recruiter_email || row?.sender_email || row?.email || "");
+          const outbound = ["recruiter", "admin", "system"].includes(senderType) || (!!currentEmail && senderEmail === currentEmail);
+          const senderLabel = outbound ? "Recruiter" : (row?.client_name || row?.applicant_email || row?.client_email || row?.email || "Sender");
+          return `
+            <div class="chat-thread-message ${outbound ? 'outbound' : ''}">
+              <div class="chat-thread-message-meta">
+                <span>${escapeHtml(senderLabel)}</span>
+                <span>${escapeHtml(formatDateTime(row?.created_at || row?.updated_at || ""))}</span>
+              </div>
+              <div class="chat-thread-message-body">${escapeHtml(row?.message || row?.last_message || "")}</div>
+            </div>
+          `;
+        }).join("");
+        els.chatWidgetMessageList.scrollTop = els.chatWidgetMessageList.scrollHeight;
+      }
+
+      async function sendChatReply() {
+        const thread = getSelectedChatThread();
+        const message = (els.chatWidgetReplyInput?.value || "").trim();
+        if (!thread) {
+          showNotice("Select a chat thread first.", "error");
+          return;
+        }
+        if (!message) {
+          showNotice("Type a reply first.", "error");
+          els.chatWidgetReplyInput?.focus();
+          return;
+        }
+        if (state.chatSending) return;
+
+        const recruiterEmail = getCurrentUserEmail() || normalizeEmail(thread?.recruiter_email || "");
+        state.chatSending = true;
+        if (els.chatWidgetSendBtn) {
+          els.chatWidgetSendBtn.disabled = true;
+          els.chatWidgetSendBtn.textContent = "Sending...";
+        }
+
+        try {
+          if (thread.threadType === "candidate") {
+            const payload = {
+              applicant_email: thread.email || null,
+              applicant_profile_id: thread.applicantProfileId || null,
+              application_id: thread.applicationId || null,
+              sender_type: "recruiter",
+              message
+            };
+            const { error } = await supabaseClient.from("applicant_messages").insert(payload);
+            if (error) throw error;
+          } else {
+            let sent = false;
+            const clientPayload = {
+              client_email: thread.email || null,
+              email: thread.email || null,
+              client_name: thread.name || null,
+              sender_type: "recruiter",
+              recruiter_email: recruiterEmail || null,
+              message
+            };
+
+            try {
+              const { error } = await supabaseClient.from("client_messages").insert(clientPayload);
+              if (error) throw error;
+              sent = true;
+            } catch (clientErr) {
+              try {
+                const { error } = await supabaseClient.from("chat_messages").insert({
+                  thread_id: (thread.id || "").startsWith("client:") ? null : thread.id,
+                  sender_type: "recruiter",
+                  sender_email: recruiterEmail || null,
+                  participant_email: thread.email || null,
+                  message
+                });
+                if (error) throw error;
+                sent = true;
+              } catch (fallbackErr) {
+                throw fallbackErr;
+              }
+            }
+
+            if (!sent) throw new Error("Unable to send client reply.");
+          }
+
+          if (els.chatWidgetReplyInput) els.chatWidgetReplyInput.value = "";
+          markThreadSeen(thread.threadKey);
+          await refreshChatWidget();
+          const refreshed = state.chatThreads.find((item) => item.threadKey === thread.threadKey) || thread;
+          state.chatSelectedThreadKey = refreshed.threadKey;
+          renderChatThreadDetail(refreshed);
+          showNotice("Reply sent.", "success");
+        } catch (err) {
+          showNotice(err?.message || "Unable to send chat reply.", "error");
+        } finally {
+          state.chatSending = false;
+          if (els.chatWidgetSendBtn) {
+            els.chatWidgetSendBtn.disabled = false;
+            els.chatWidgetSendBtn.textContent = "Send Reply";
+          }
+        }
+      }
+
       function markThreadSeen(threadKey) {
         if (!threadKey) return;
         const map = getSeenChatMap();
@@ -3830,7 +4065,7 @@
         els.chatWidgetLauncher?.classList.toggle("pulse", totalUnread > 0);
       }
 
-      function renderChatThreadDetail(thread) {
+      async function renderChatThreadDetail(thread) {
         if (!els.chatWidgetDetail) return;
         if (!thread) {
           els.chatWidgetDetail.classList.remove("show");
@@ -3838,6 +4073,13 @@
           if (els.chatWidgetDetailMeta) els.chatWidgetDetailMeta.textContent = "Pick a thread to preview the latest message.";
           if (els.chatWidgetDetailPreview) els.chatWidgetDetailPreview.textContent = "Latest message preview will appear here.";
           if (els.chatWidgetOpenFullBtn) els.chatWidgetOpenFullBtn.href = "recruiter-chat.html";
+          if (els.chatWidgetReplyHint) els.chatWidgetReplyHint.textContent = "Reply from recruiter side without leaving the dashboard.";
+          if (els.chatWidgetReplyInput) {
+            els.chatWidgetReplyInput.value = "";
+            els.chatWidgetReplyInput.disabled = true;
+          }
+          if (els.chatWidgetSendBtn) els.chatWidgetSendBtn.disabled = true;
+          renderChatMessageList([]);
           return;
         }
         els.chatWidgetDetail.classList.add("show");
@@ -3850,6 +4092,17 @@
           els.chatWidgetOpenFullBtn.href = thread.href || "recruiter-chat.html";
           els.chatWidgetOpenFullBtn.textContent = thread.openLabel || "Open full chat";
         }
+        if (els.chatWidgetReplyHint) {
+          els.chatWidgetReplyHint.textContent = thread.threadType === "client"
+            ? "Send a recruiter reply to this client thread."
+            : "Send a recruiter reply to this candidate thread.";
+        }
+        if (els.chatWidgetReplyInput) els.chatWidgetReplyInput.disabled = false;
+        if (els.chatWidgetSendBtn) els.chatWidgetSendBtn.disabled = false;
+        if (els.chatWidgetMessageList) els.chatWidgetMessageList.innerHTML = '<div class="chat-empty">Loading recent messages...</div>';
+        const messages = await loadThreadMessages(thread);
+        const stillSelected = state.chatSelectedThreadKey === thread.threadKey;
+        if (stillSelected) renderChatMessageList(messages);
       }
 
       function renderChatWidget() {
@@ -3878,7 +4131,7 @@
         if (!els.chatWidgetList) return;
         if (!visibleThreads.length) {
           els.chatWidgetList.innerHTML = '<div class="chat-empty">No chats found for this view yet.</div>';
-          renderChatThreadDetail(null);
+          void renderChatThreadDetail(null);
           return;
         }
 
@@ -3902,7 +4155,7 @@
 
         const selectedThread = visibleThreads.find((thread) => thread.threadKey === state.chatSelectedThreadKey) || visibleThreads[0];
         state.chatSelectedThreadKey = selectedThread?.threadKey || null;
-        renderChatThreadDetail(selectedThread);
+        void renderChatThreadDetail(selectedThread);
 
         els.chatWidgetList.querySelectorAll("[data-chat-thread-key]").forEach((node) => {
           node.addEventListener("click", () => {
@@ -3910,7 +4163,7 @@
             state.chatSelectedThreadKey = threadKey;
             markThreadSeen(threadKey);
             const refreshed = state.chatThreads.find((thread) => thread.threadKey === threadKey) || selectedThread;
-            renderChatThreadDetail(refreshed);
+            void renderChatThreadDetail(refreshed);
             renderChatWidget();
           });
         });
@@ -3984,6 +4237,13 @@
         els.chatWidgetCloseBtn?.addEventListener("click", closeChatWidget);
         els.chatWidgetMarkSeenBtn?.addEventListener("click", () => {
           if (state.chatSelectedThreadKey) markThreadSeen(state.chatSelectedThreadKey);
+        });
+        els.chatWidgetSendBtn?.addEventListener("click", sendChatReply);
+        els.chatWidgetReplyInput?.addEventListener("keydown", (event) => {
+          if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
+            event.preventDefault();
+            sendChatReply();
+          }
         });
         els.chatWidgetTabs?.querySelectorAll("[data-chat-tab]").forEach((btn) => {
           btn.addEventListener("click", () => {
