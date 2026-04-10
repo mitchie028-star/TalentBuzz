@@ -119,10 +119,12 @@
       padding:12px 16px;
       font-weight:800;
       font-size:.95rem;
+      cursor:pointer;
     }
     .btn-primary {
       background:linear-gradient(135deg,var(--blue),var(--blue-light));
       color:white;
+      border:none;
     }
     .btn-secondary {
       background:white;
@@ -232,15 +234,90 @@
       const max = job.salary_max != null ? String(job.salary_max) : '';
 
       if (!currency && !min && !max) return 'Not specified';
-      if (min && max) return `${escapeHtml(currency)} ${escapeHtml(min)} - ${escapeHtml(max)}`;
-      if (min) return `${escapeHtml(currency)} ${escapeHtml(min)}`;
-      if (max) return `${escapeHtml(currency)} ${escapeHtml(max)}`;
+      if (min && max) return escapeHtml(`${currency} ${min} - ${max}`.trim());
+      if (min) return escapeHtml(`${currency} ${min}`.trim());
+      if (max) return escapeHtml(`${currency} ${max}`.trim());
       return escapeHtml(currency);
     }
 
     function buildApplyLink(job) {
       return `apply.html?id=${encodeURIComponent(job.id)}`;
     }
+
+    function slugify(value) {
+      return String(value || '')
+        .toLowerCase()
+        .trim()
+        .normalize('NFKD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '')
+        .replace(/-{2,}/g, '-');
+    }
+
+    async function generateUniqueSlug(title, excludeId = null) {
+      const baseSlug = slugify(title) || 'job';
+      let nextSlug = baseSlug;
+      let counter = 1;
+
+      while (true) {
+        let query = supabaseClient
+          .from('jobs')
+          .select('id', { count: 'exact', head: false })
+          .eq('slug', nextSlug);
+
+        if (excludeId) {
+          query = query.neq('id', excludeId);
+        }
+
+        const { data, error } = await query;
+        if (error) throw error;
+
+        if (!data || data.length === 0) {
+          return nextSlug;
+        }
+
+        counter += 1;
+        nextSlug = `${baseSlug}-${counter}`;
+      }
+    }
+
+    async function createJobWithUniqueSlug(payload) {
+      const safePayload = { ...(payload || {}) };
+      safePayload.slug = await generateUniqueSlug(safePayload.slug || safePayload.title || 'job');
+
+      const { data, error } = await supabaseClient
+        .from('jobs')
+        .insert(safePayload)
+        .select()
+        .single();
+
+      if (error) throw error;
+      return data;
+    }
+
+    async function updateJobWithUniqueSlug(jobIdValue, payload, regenerateSlug = false) {
+      const safePayload = { ...(payload || {}) };
+
+      if (regenerateSlug) {
+        safePayload.slug = await generateUniqueSlug(safePayload.slug || safePayload.title || 'job', jobIdValue);
+      }
+
+      const { data, error } = await supabaseClient
+        .from('jobs')
+        .update(safePayload)
+        .eq('id', jobIdValue)
+        .select()
+        .single();
+
+      if (error) throw error;
+      return data;
+    }
+
+    window.slugify = slugify;
+    window.generateUniqueSlug = generateUniqueSlug;
+    window.createJobWithUniqueSlug = createJobWithUniqueSlug;
+    window.updateJobWithUniqueSlug = updateJobWithUniqueSlug;
 
     async function loadJobById(idValue) {
       const { data, error } = await supabaseClient
@@ -258,7 +335,9 @@
         .from('jobs')
         .select('*')
         .eq('slug', slugValue)
-        .single();
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
 
       if (error) throw error;
       return data;
@@ -322,6 +401,11 @@
               <span class="sidebar-label">Salary</span>
               <div class="sidebar-value">${formatSalary(data)}</div>
             </div>
+
+            <div class="sidebar-item">
+              <span class="sidebar-label">Slug</span>
+              <div class="sidebar-value">${escapeHtml(data.slug || 'Not available')}</div>
+            </div>
           </aside>
         </div>
       `;
@@ -347,7 +431,7 @@
 
         renderJob(data);
       } catch (error) {
-        console.error(error);
+        console.error('Failed to load job:', error);
         jobPage.className = 'empty-state';
         jobPage.textContent = error?.message || 'Job not found.';
       }
