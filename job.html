@@ -144,14 +144,40 @@
       color:var(--blue);
     }
     .job-description {
-      white-space:pre-wrap;
       color:var(--text);
       line-height:1.85;
+    }
+    .job-description > *:first-child {
+      margin-top: 0;
+    }
+    .job-description > *:last-child {
+      margin-bottom: 0;
+    }
+    .job-description p {
+      margin: 0 0 14px;
+      white-space: pre-wrap;
+    }
+    .job-section {
+      margin: 0 0 22px;
+    }
+    .job-section h3 {
+      margin: 0 0 10px;
+      color: var(--blue);
+      font-size: 1.02rem;
+      line-height: 1.35;
+    }
+    .job-section ul {
+      margin: 0;
+      padding-left: 18px;
+    }
+    .job-section li {
+      margin: 0 0 8px;
     }
     .sidebar-card {
       padding:20px;
       position:sticky;
       top:88px;
+      height: fit-content;
     }
     .sidebar-item { margin-bottom:14px; }
     .sidebar-label {
@@ -166,6 +192,7 @@
     .sidebar-value {
       color:var(--text);
       font-size:.95rem;
+      white-space: pre-wrap;
     }
     .loading, .empty-state {
       text-align:center;
@@ -205,7 +232,7 @@
   <script>
     const SUPABASE_URL = 'https://dilalntcxmvdcmwxjcct.supabase.co';
     const SUPABASE_ANON_KEY = 'sb_publishable_HrLVIUwnaRo54yijtrbWBQ_1aeb4ezs';
-    const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
     const params = new URLSearchParams(window.location.search);
     const jobId = params.get('job_id');
@@ -222,10 +249,30 @@
         .replaceAll("'", '&#039;');
     }
 
-    function formatText(text) {
-      const value = String(text || '').trim();
-      if (!value) return 'No job description available.';
-      return escapeHtml(value);
+    function firstFilled(obj, keys) {
+      for (const key of keys) {
+        const value = obj?.[key];
+        if (value === null || value === undefined) continue;
+        if (typeof value === 'string' && value.trim()) return value.trim();
+        if (Array.isArray(value) && value.length) return value;
+        if (typeof value === 'number') return String(value);
+        if (typeof value === 'boolean') return value ? 'Yes' : 'No';
+      }
+      return '';
+    }
+
+    function normalizeList(value) {
+      if (Array.isArray(value)) {
+        return value.map(item => String(item ?? '').trim()).filter(Boolean);
+      }
+
+      const text = String(value ?? '').trim();
+      if (!text) return [];
+
+      return text
+        .split(/\n|•|\u2022|(?=\s*-\s)|(?=\d+\.)/g)
+        .map(line => line.replace(/^\s*(?:•|-|\d+\.)\s*/, '').trim())
+        .filter(Boolean);
     }
 
     function formatSalary(job) {
@@ -242,6 +289,126 @@
 
     function buildApplyLink(job) {
       return `apply.html?id=${encodeURIComponent(job.id)}`;
+    }
+
+    function formatParagraphBlock(text) {
+      const value = String(text || '').trim();
+      if (!value) return '';
+      return value
+        .split(/\n{2,}/)
+        .map(part => part.trim())
+        .filter(Boolean)
+        .map(part => `<p>${escapeHtml(part)}</p>`)
+        .join('');
+    }
+
+    function formatListBlock(items) {
+      const list = normalizeList(items);
+      if (!list.length) return '';
+      return `<ul>${list.map(item => `<li>${escapeHtml(item)}</li>`).join('')}</ul>`;
+    }
+
+    function renderSection(title, contentHtml) {
+      if (!contentHtml) return '';
+      return `
+        <section class="job-section">
+          <h3>${escapeHtml(title)}</h3>
+          ${contentHtml}
+        </section>
+      `;
+    }
+
+    function buildDescriptionHtml(job) {
+      const mainDescription = firstFilled(job, [
+        'job_description',
+        'job_description_full',
+        'full_job_description',
+        'description',
+        'jd_preview',
+        'job_description_preview'
+      ]);
+
+      const overview = firstFilled(job, [
+        'overview',
+        'job_summary',
+        'summary',
+        'position_summary',
+        'about_the_role'
+      ]);
+
+      const whyJoinText = firstFilled(job, [
+        'why_join',
+        'why_join_us',
+        'benefits_overview',
+        'company_benefits'
+      ]);
+
+      const benefitsList = firstFilled(job, [
+        'benefits',
+        'perks',
+        'compensation_and_benefits'
+      ]);
+
+      const responsibilities = firstFilled(job, [
+        'responsibilities',
+        'key_responsibilities',
+        'duties',
+        'job_responsibilities'
+      ]);
+
+      const requirements = firstFilled(job, [
+        'requirements',
+        'qualifications',
+        'what_were_looking_for',
+        'what_we_are_looking_for',
+        'skills_required',
+        'must_have'
+      ]);
+
+      const preferred = firstFilled(job, [
+        'nice_to_have',
+        'preferred_qualifications',
+        'preferred_skills'
+      ]);
+
+      const tools = firstFilled(job, [
+        'tools',
+        'systems',
+        'platforms',
+        'tech_stack'
+      ]);
+
+      const shiftValue = firstFilled(job, ['shift', 'work_shift', 'shift_schedule']);
+      const scheduleValue = firstFilled(job, ['schedule']);
+      const workSetupValue = firstFilled(job, ['work_setup']);
+
+      const assembled = [
+        overview ? renderSection('Overview', formatParagraphBlock(overview)) : '',
+        mainDescription ? renderSection('Job Description', formatParagraphBlock(mainDescription)) : '',
+        whyJoinText ? renderSection('Why join', formatParagraphBlock(whyJoinText)) : '',
+        benefitsList ? renderSection('Benefits', formatListBlock(benefitsList)) : '',
+        responsibilities ? renderSection('What you will do', formatListBlock(responsibilities)) : '',
+        requirements ? renderSection('What we are looking for', formatListBlock(requirements)) : '',
+        preferred ? renderSection('Nice to have', formatListBlock(preferred)) : '',
+        tools ? renderSection('Tools / Systems', formatListBlock(tools)) : '',
+        (workSetupValue || shiftValue || scheduleValue)
+          ? renderSection(
+              'Work setup & shift',
+              formatParagraphBlock(
+                [
+                  workSetupValue ? `Work setup: ${workSetupValue}` : '',
+                  shiftValue ? `Shift: ${shiftValue}` : '',
+                  scheduleValue ? `Schedule: ${scheduleValue}` : ''
+                ].filter(Boolean).join('\n')
+              )
+            )
+          : ''
+      ].join('');
+
+      if (assembled.trim()) return assembled;
+      if (mainDescription) return formatParagraphBlock(mainDescription);
+
+      return '<p>No job description available.</p>';
     }
 
     function slugify(value) {
@@ -346,17 +513,27 @@
     function renderJob(data) {
       document.title = `${data.title || 'Job Details'} | TalentBuzz`;
 
+      const locationValue = firstFilled(data, ['location']) || [
+        firstFilled(data, ['city']),
+        firstFilled(data, ['state_region', 'state']),
+        firstFilled(data, ['country'])
+      ].filter(Boolean).join(', ') || 'Location not specified';
+
+      const shiftValue = firstFilled(data, ['shift', 'work_shift', 'shift_schedule']);
+      const heroMeta = [
+        firstFilled(data, ['client_name']) || 'Confidential Client',
+        locationValue,
+        firstFilled(data, ['work_setup']) || 'Setup not specified',
+        firstFilled(data, ['employment_type']),
+        shiftValue
+      ].filter(Boolean).map(escapeHtml).join(' • ');
+
       jobPage.className = '';
       jobPage.innerHTML = `
         <div class="hero-card">
           <div class="eyebrow">Selected Role</div>
           <h1>${escapeHtml(data.title || 'Untitled Role')}</h1>
-          <div class="meta">
-            ${escapeHtml(data.client_name || 'Confidential Client')} •
-            ${escapeHtml(data.location || 'Location not specified')} •
-            ${escapeHtml(data.work_setup || 'Setup not specified')}
-            ${data.employment_type ? ` • ${escapeHtml(data.employment_type)}` : ''}
-          </div>
+          <div class="meta">${heroMeta}</div>
 
           <div class="hero-actions">
             <a href="${buildApplyLink(data)}" class="btn btn-primary">
@@ -371,7 +548,7 @@
         <div class="layout">
           <div class="detail-card">
             <h2>Job Description</h2>
-            <div class="job-description">${formatText(data.job_description)}</div>
+            <div class="job-description">${buildDescriptionHtml(data)}</div>
           </div>
 
           <aside class="sidebar-card">
@@ -379,22 +556,27 @@
 
             <div class="sidebar-item">
               <span class="sidebar-label">Client</span>
-              <div class="sidebar-value">${escapeHtml(data.client_name || 'Confidential')}</div>
+              <div class="sidebar-value">${escapeHtml(firstFilled(data, ['client_name']) || 'Confidential')}</div>
             </div>
 
             <div class="sidebar-item">
               <span class="sidebar-label">Location</span>
-              <div class="sidebar-value">${escapeHtml(data.location || 'Not specified')}</div>
+              <div class="sidebar-value">${escapeHtml(locationValue)}</div>
             </div>
 
             <div class="sidebar-item">
               <span class="sidebar-label">Work Setup</span>
-              <div class="sidebar-value">${escapeHtml(data.work_setup || 'Not specified')}</div>
+              <div class="sidebar-value">${escapeHtml(firstFilled(data, ['work_setup']) || 'Not specified')}</div>
             </div>
 
             <div class="sidebar-item">
               <span class="sidebar-label">Employment Type</span>
-              <div class="sidebar-value">${escapeHtml(data.employment_type || 'Not specified')}</div>
+              <div class="sidebar-value">${escapeHtml(firstFilled(data, ['employment_type']) || 'Not specified')}</div>
+            </div>
+
+            <div class="sidebar-item">
+              <span class="sidebar-label">Shift</span>
+              <div class="sidebar-value">${escapeHtml(shiftValue || 'Not specified')}</div>
             </div>
 
             <div class="sidebar-item">
