@@ -64,7 +64,7 @@
         <div class="brand-fallback" aria-hidden="true">TB</div>
         <div class="brand-copy">
           <h1>TalentBuzz Role Intake Workspace</h1>
-          <p>Original-style workspace with corrected full JD save logic.</p>
+          <p>Original-style workspace with corrected full JD save logic and edit-safe parsing.</p>
         </div>
       </div>
       <div class="top-actions">
@@ -150,17 +150,22 @@
             <div class="field-full"><label for="salaryNotes">Salary Notes</label><textarea id="salaryNotes" placeholder="e.g. Open to strong candidates, plus incentives, negotiable based on experience"></textarea></div>
           </div>
         </div>
+
         <div class="tab-panel" data-panel="jd">
-          <div class="section-title"><div><h3>JD Upload + Core Role Info</h3><p>Parse a JD, then refine overview, requirements, and skills.</p></div><div class="toolbar"><button class="signal-btn" type="button" id="parseJDBtn">Parse JD</button><button class="ghost-btn" type="button" id="clearJDBtn">Clear JD Input</button></div></div>
+          <div class="section-title">
+            <div><h3>JD Upload + Core Role Info</h3><p>Parse a JD, then refine overview, requirements, and skills.</p></div>
+            <div class="toolbar"><button class="signal-btn" type="button" id="parseJDBtn">Parse JD</button><button class="ghost-btn" type="button" id="clearJDBtn">Clear JD Input</button></div>
+          </div>
           <div class="form-grid">
             <div class="field field-full"><label for="jdUpload">Upload JD File</label><input id="jdUpload" type="file" accept=".txt,.md,.docx,.pdf" /><div class="helper">Best results: text PDF, DOCX, TXT, or pasted JD text.</div></div>
             <div class="field field-full"><label for="jdRawText">Or Paste JD Text</label><textarea id="jdRawText" placeholder="Paste the JD here if you do not want to upload a file."></textarea></div>
-            <div class="field-full"><label for="jobDescription">Role Overview / Job Description</label><textarea id="jobDescription" placeholder="Write the role overview, impact, and day-to-day responsibilities."></textarea></div>
+            <div class="field-full"><label for="jobDescription">Role Overview / Job Description</label><textarea id="jobDescription" placeholder="Write the role overview, impact, and day-to-day responsibilities."></textarea><div class="helper">This is the editable overview field only. The final saved job description comes from the full compiled Preview.</div></div>
             <div class="field-full"><label for="requirements">Core Requirements</label><textarea id="requirements" placeholder="Add role requirements. Use one line per item or paste your existing notes."></textarea></div>
             <div class="field"><label for="prioritySkills">Priority Skills</label><textarea id="prioritySkills" placeholder="e.g. Qlik Sense, SQL, stakeholder communication"></textarea></div>
             <div class="field"><label for="niceToHaveSkills">Nice-to-Have Skills</label><textarea id="niceToHaveSkills" placeholder="e.g. Snowflake, ETL, enterprise analytics"></textarea></div>
           </div>
         </div>
+
         <div class="tab-panel" data-panel="signals">
           <div class="section-title"><div><h3>Signal Intelligence</h3><p>Set what matters most before generating questions.</p></div><div class="toolbar"><button class="signal-btn" type="button" id="buildSignalBtn">Build Signal Summary</button></div></div>
           <div class="signal-grid">
@@ -175,11 +180,13 @@
           </div>
           <div class="signal-note" id="signalSummaryOutput">No signal summary generated yet.</div>
         </div>
+
         <div class="tab-panel" data-panel="screening">
           <div class="section-title"><div><h3>Screening Builder</h3><p>Generate recruiter-grade questions and refine them if needed.</p></div><div class="toolbar"><button class="signal-btn" type="button" id="generateAiQuestionsBtn">Generate AI Questions</button><button class="ghost-btn" type="button" id="addQuestionBtn">Add Question</button><button class="ghost-btn" type="button" id="generateSummaryBtn">Build Screening Summary</button></div></div>
           <div class="questions-wrap" id="questionsWrap"></div>
           <div class="summary-box"><h4>Screening Strategy Summary</h4><p id="screeningSummaryOutput">No summary generated yet.</p></div>
         </div>
+
         <div class="tab-panel" data-panel="preview">
           <div class="section-title"><div><h3>Role Preview</h3><p>Check the final structure before saving. This exact compiled preview is what gets stored into <strong>jobs.job_description</strong>.</p></div></div>
           <div class="preview-box" id="jdPreview">No preview yet.</div>
@@ -746,36 +753,27 @@
     function applyParsedJDText(text){
       const lines = normalizeLines(text);
 
-      if(!safeText(els.jobDescription.value)){
-        els.jobDescription.value = lines.slice(0,8).join("\n");
-      }
+      // Always overwrite editable fields when user clicks Parse JD.
+      els.jobDescription.value = lines.slice(0,8).join("\n");
 
-      if(!safeText(els.requirements.value)){
-        const reqLines = lines
-          .filter(line => /require|qualif|skill|experience|must|proficient|knowledge/i.test(line))
-          .slice(0,12);
+      const reqLines = lines
+        .filter(line => /require|qualif|skill|experience|must|proficient|knowledge/i.test(line))
+        .slice(0,12);
 
-        if(reqLines.length){
-          els.requirements.value = reqLines.join("\n");
-        }
-      }
+      els.requirements.value = reqLines.length ? reqLines.join("\n") : "";
 
-      if(!safeText(els.prioritySkills.value)){
-        const hits = [];
-        const pool = [
-          "qlik sense","sql","snowflake","excel","python","power bi","tableau","recruitment",
-          "sourcing","customer service","sales","crm","stakeholder management","communication","analytics","reporting"
-        ];
+      const hits = [];
+      const pool = [
+        "qlik sense","sql","snowflake","excel","python","power bi","tableau","recruitment",
+        "sourcing","customer service","sales","crm","stakeholder management","communication","analytics","reporting"
+      ];
 
-        const lower = text.toLowerCase();
-        pool.forEach(skill => {
-          if(lower.includes(skill)) hits.push(skill);
-        });
+      const lower = text.toLowerCase();
+      pool.forEach(skill => {
+        if(lower.includes(skill)) hits.push(skill);
+      });
 
-        if(hits.length){
-          els.prioritySkills.value = uniqueLines(hits).join("\n");
-        }
-      }
+      els.prioritySkills.value = hits.length ? uniqueLines(hits).join("\n") : "";
 
       refreshPreview();
     }
@@ -841,12 +839,19 @@
       els.salaryMin.value = role.salary_min ?? "";
       els.salaryMax.value = role.salary_max ?? "";
 
-      els.jobDescription.value = role.job_description || "";
+      // Critical fix: do NOT recycle compiled job_description back into the editable overview field.
+      els.jdRawText.value = role.jd_raw_text || "";
+      els.jobDescription.value =
+        role.ai_screening_config?.jd_overview_only ||
+        role.overview ||
+        "";
+
       els.requirements.value = Array.isArray(role.required_skills) ? role.required_skills.join("\n") : "";
       els.prioritySkills.value = role.priority_skills ? String(role.priority_skills).split(",").map(x => x.trim()).filter(Boolean).join("\n") : "";
       els.niceToHaveSkills.value = Array.isArray(role.nice_to_have_skills) ? role.nice_to_have_skills.join("\n") : "";
       els.signalBusinessPriorities.value = Array.isArray(role.client_priorities) ? role.client_priorities.join("\n") : "";
       els.screeningSummaryOutput.textContent = role.screening_summary || "No summary generated yet.";
+      els.signalSummaryOutput.textContent = role.ai_screening_config?.signal_summary || "No signal summary generated yet.";
 
       questionItems = Array.isArray(role.screening_config) ? role.screening_config : [];
       renderQuestions();
@@ -900,7 +905,14 @@
         location: safeText(els.location.value) || null,
         employment_type: safeText(els.employmentType.value) || null,
         work_setup: safeText(els.workSetup.value) || null,
+
+        // Store the compiled preview here.
         job_description: compiledJobDescription || null,
+
+        // Keep raw and editable pieces separate.
+        jd_raw_text: safeText(els.jdRawText.value) || null,
+        overview: safeText(els.jobDescription.value) || null,
+
         slug: slugify(`${clientName}-${title}`) || null,
         salary_currency: safeText(els.salaryCurrency.value) || "PHP",
         salary_min: parseBudgetNumber(els.salaryMin.value),
@@ -1029,7 +1041,7 @@
       els.salaryCurrency,els.salaryPeriod,els.salaryMin,els.salaryMax,els.salaryNotes,els.jobDescription,els.requirements,
       els.prioritySkills,els.niceToHaveSkills,els.signalNonNegotiables,els.signalRedFlags,els.signalMustHaveSkills,
       els.signalSuccessSignals,els.signalSetupCriticality,els.signalEnvironmentNotes,els.signalCommunicationWeight,
-      els.signalStakeholderWeight,els.signalAutonomyLevel,els.signalDecisionMaking,els.signalBusinessPriorities
+      els.signalStakeholderWeight,els.signalAutonomyLevel,els.signalDecisionMaking,els.signalBusinessPriorities,els.jdRawText
     ].forEach(el => {
       el.addEventListener("input",refreshPreview);
       el.addEventListener("change",refreshPreview);
@@ -1063,7 +1075,7 @@
 
     if (els.openHelpBtn) {
       els.openHelpBtn.addEventListener("click", () => {
-        showNotice("What changed: Save now uses the compiled Preview content for jobs.job_description, so public job.html matches what you preview here.");
+        showNotice("What changed: Edit mode no longer recycles the old compiled job_description into the editable overview field. Parse JD now overwrites the editable fields, and Save stores the compiled Preview into jobs.job_description.");
       });
     }
 
