@@ -64,7 +64,7 @@
         <div class="brand-fallback" aria-hidden="true">TB</div>
         <div class="brand-copy">
           <h1>TalentBuzz Role Intake Workspace</h1>
-          <p>Original-style workspace with corrected client_id save logic.</p>
+          <p>Original-style workspace with corrected full JD save logic.</p>
         </div>
       </div>
       <div class="top-actions">
@@ -181,7 +181,7 @@
           <div class="summary-box"><h4>Screening Strategy Summary</h4><p id="screeningSummaryOutput">No summary generated yet.</p></div>
         </div>
         <div class="tab-panel" data-panel="preview">
-          <div class="section-title"><div><h3>Role Preview</h3><p>Check the final structure before saving.</p></div></div>
+          <div class="section-title"><div><h3>Role Preview</h3><p>Check the final structure before saving. This exact compiled preview is what gets stored into <strong>jobs.job_description</strong>.</p></div></div>
           <div class="preview-box" id="jdPreview">No preview yet.</div>
         </div>
       </div>
@@ -190,87 +190,889 @@
   </div>
 
   <div id="notice" class="notice"></div>
+
   <script>
     const SUPABASE_URL = "https://dilalntcxmvdcmwxjcct.supabase.co";
     const SUPABASE_ANON_KEY = "sb_publishable_HrLVIUwnaRo54yijtrbWBQ_1aeb4ezs";
     const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
     const els = {};
-    ["roleModal","roleModalTitle","closeRoleModalBtn","newRoleBtn","newRoleBtnHero","refreshRolesBtn","clearRoleBtn","roleId","clientId","clientName","clientSuggestions","existingClientSelect","jobTitle","roleFamily","location","workSetup","employmentType","seniority","roleStatus","salaryCurrency","salaryPeriod","salaryMin","salaryMax","salaryNotes","jdUpload","jdRawText","parseJDBtn","clearJDBtn","jobDescription","requirements","prioritySkills","niceToHaveSkills","signalNonNegotiables","signalRedFlags","signalMustHaveSkills","signalSuccessSignals","signalSetupCriticality","signalEnvironmentNotes","signalCommunicationWeight","signalStakeholderWeight","signalAutonomyLevel","signalDecisionMaking","signalBusinessPriorities","signalSummaryOutput","buildSignalBtn","questionsWrap","screeningSummaryOutput","jdPreview","addQuestionBtn","generateAiQuestionsBtn","generateSummaryBtn","saveRoleBtn","rolesTableBody","searchInput","holdFilter","statRoles","statActive","statHold","statQuestions","notice"].forEach(id=>els[id]=document.getElementById(id));
+    [
+      "roleModal","roleModalTitle","closeRoleModalBtn","newRoleBtn","newRoleBtnHero","refreshRolesBtn","clearRoleBtn","roleId","clientId",
+      "clientName","clientSuggestions","existingClientSelect","jobTitle","roleFamily","location","workSetup","employmentType","seniority",
+      "roleStatus","salaryCurrency","salaryPeriod","salaryMin","salaryMax","salaryNotes","jdUpload","jdRawText","parseJDBtn","clearJDBtn",
+      "jobDescription","requirements","prioritySkills","niceToHaveSkills","signalNonNegotiables","signalRedFlags","signalMustHaveSkills",
+      "signalSuccessSignals","signalSetupCriticality","signalEnvironmentNotes","signalCommunicationWeight","signalStakeholderWeight",
+      "signalAutonomyLevel","signalDecisionMaking","signalBusinessPriorities","signalSummaryOutput","buildSignalBtn","questionsWrap",
+      "screeningSummaryOutput","jdPreview","addQuestionBtn","generateAiQuestionsBtn","generateSummaryBtn","saveRoleBtn","rolesTableBody",
+      "searchInput","holdFilter","statRoles","statActive","statHold","statQuestions","notice","openHelpBtn"
+    ].forEach(id => els[id] = document.getElementById(id));
+
     els.tabButtons = [...document.querySelectorAll(".tab-btn")];
     els.tabPanels = [...document.querySelectorAll(".tab-panel")];
-    let clientsCache = [], rolesCache = [], questionItems = [];
 
-    function showNotice(message, type="success"){ els.notice.textContent = message; els.notice.className = `notice show ${type}`; clearTimeout(showNotice._timer); showNotice._timer = setTimeout(() => els.notice.className = "notice", 4500); }
+    let clientsCache = [];
+    let rolesCache = [];
+    let questionItems = [];
+
+    function showNotice(message, type="success"){
+      els.notice.textContent = message;
+      els.notice.className = `notice show ${type}`;
+      clearTimeout(showNotice._timer);
+      showNotice._timer = setTimeout(() => els.notice.className = "notice", 4500);
+    }
+
     const safeText = v => String(v ?? "").trim();
-    const normalizeLines = v => safeText(v).split(/\r?\n/).map(x=>x.trim()).filter(Boolean);
-    const uniqueLines = arr => [...new Set((arr||[]).map(x=>safeText(x).replace(/^[-•*]\s*/, "")).filter(Boolean))];
-    const parseBudgetNumber = v => { const c = String(v ?? "").replace(/[^\d.\-]/g,"").trim(); if(!c) return null; const n = Number(c); return Number.isFinite(n) ? n : null; };
-    const getCurrencySymbol = c => ({PHP:"₱",USD:"$",HKD:"HK$",SGD:"S$",EUR:"€",GBP:"£",AUD:"A$",CAD:"C$",JPY:"¥"})[c] || c || "PHP";
-    const formatBudgetValue = (v,c) => { const n = parseBudgetNumber(v); return n===null ? "" : `${getCurrencySymbol(c)}${n.toLocaleString(undefined,{minimumFractionDigits:n%1===0?0:2,maximumFractionDigits:2})}`; };
-    const formatSalaryBudgetLine = obj => { const min = formatBudgetValue(obj.salary_min,obj.salary_currency), max = formatBudgetValue(obj.salary_max,obj.salary_currency), p = obj.salary_period || "Monthly"; if(min&&max) return `${min} - ${max} (${p})`; if(min) return `From ${min} (${p})`; if(max) return `Up to ${max} (${p})`; return ""; };
-    const slugify = v => safeText(v).toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-+|-+$/g,"").slice(0,120);
 
-    function setModalOpen(open){ els.roleModal.classList.toggle("show", open); els.roleModal.setAttribute("aria-hidden", open ? "false" : "true"); }
-    function switchTab(name){ els.tabButtons.forEach(b=>b.classList.toggle("active", b.dataset.tab===name)); els.tabPanels.forEach(p=>p.classList.toggle("active", p.dataset.panel===name)); }
-    async function loadClients(){ const {data,error} = await supabaseClient.from("clients").select("id, client_name, active").order("client_name",{ascending:true}); if(error){ showNotice(`Failed to load clients: ${error.message}`,"error"); return; } clientsCache=data||[]; els.existingClientSelect.innerHTML='<option value="">Choose existing client</option>'; els.clientSuggestions.innerHTML=''; clientsCache.forEach(c=>{ const o=document.createElement("option"); o.value=c.id; o.textContent=c.client_name||""; els.existingClientSelect.appendChild(o); const d=document.createElement("option"); d.value=c.client_name||""; els.clientSuggestions.appendChild(d); }); }
-    function setClientSelectionById(id){ const c=clientsCache.find(x=>x.id===id); if(!c) return; els.clientId.value=c.id; els.clientName.value=c.client_name||""; els.existingClientSelect.value=c.id; }
-    function syncClientSelectionByName(){ const typed=safeText(els.clientName.value).toLowerCase(); const match=clientsCache.find(c=>safeText(c.client_name).toLowerCase()===typed); if(match){ els.clientId.value=match.id; els.existingClientSelect.value=match.id; } else { els.clientId.value=""; els.existingClientSelect.value=""; } }
+    const normalizeLines = v =>
+      safeText(v)
+        .split(/\r?\n/)
+        .map(x => x.trim())
+        .filter(Boolean);
 
-    function normalizeStatus(v){ const x=safeText(v).toLowerCase(); if(x==="closed") return {label:"Closed",cls:"pill pill-closed"}; if(x==="draft") return {label:"Draft",cls:"pill pill-draft"}; return {label:"Open",cls:"pill pill-open"}; }
-    function renderStats(){ const total=rolesCache.length, active=rolesCache.filter(r=>!r.is_on_hold && safeText(r.status).toLowerCase()==="open").length, hold=rolesCache.filter(r=>!!r.is_on_hold).length, avg=total?Math.round(rolesCache.reduce((s,r)=>s+(Array.isArray(r.screening_config)?r.screening_config.length:0),0)/total):0; els.statRoles.textContent=String(total); els.statActive.textContent=String(active); els.statHold.textContent=String(hold); els.statQuestions.textContent=String(avg); }
-    function getFilteredRoles(){ const q=safeText(els.searchInput.value).toLowerCase(), f=els.holdFilter.value; return rolesCache.filter(r=>{ const txt=`${r.title||""} ${r.client_name||""}`.toLowerCase(); const searchOk=!q||txt.includes(q); const holdOk=f==="all"?true:f==="active"?!r.is_on_hold:!!r.is_on_hold; return searchOk&&holdOk; }); }
-    function renderRolesTable(){ const rows=getFilteredRoles(); if(!rows.length){ els.rolesTableBody.innerHTML='<tr><td colspan="6" class="empty-state">No roles found.</td></tr>'; renderStats(); return; } els.rolesTableBody.innerHTML=rows.map(r=>{ const st=normalizeStatus(r.status), budget=formatSalaryBudgetLine(r), qCount=Array.isArray(r.screening_config)?r.screening_config.length:0; return `<tr><td><div class="role-title">${r.title||"Untitled Role"}</div><div class="subtext">${r.role_family||"No role family"} · ${r.seniority_level||"No seniority"}</div></td><td><div>${r.client_name||"No client"}</div><div class="subtext">${r.location||"No location"}</div></td><td><div>${r.work_setup||"Not set"}</div><div class="subtext">${r.employment_type||"Not set"}</div>${budget?`<div style="margin-top:8px;"><span class="budget-pill">${budget}</span></div>`:""}</td><td><span class="${st.cls}">${st.label}</span>${r.is_on_hold?'<div style="margin-top:8px;"><span class="pill pill-hold">On Hold</span></div>':""}</td><td><div>${qCount} question(s)</div><div class="subtext">${r.screening_summary||"No summary yet"}</div></td><td><div class="toolbar"><button class="small-btn" type="button" onclick="editRole('${r.id}')">Edit</button><button class="small-btn" type="button" onclick="toggleHoldRole('${r.id}', ${r.is_on_hold?'false':'true'})">${r.is_on_hold?"Resume":"Hold"}</button></div></td></tr>`; }).join(""); renderStats(); }
-    async function loadRoles(){ els.rolesTableBody.innerHTML='<tr><td colspan="6" class="empty-state">Loading roles...</td></tr>'; const {data,error}=await supabaseClient.from("jobs").select("*").order("created_at",{ascending:false}); if(error){ els.rolesTableBody.innerHTML='<tr><td colspan="6" class="empty-state">Failed to load roles.</td></tr>'; showNotice(`Failed to load roles: ${error.message}`,"error"); return; } rolesCache=(data||[]).map(r=>{ if(typeof r.screening_config==="string"){ try{r.screening_config=JSON.parse(r.screening_config)}catch{r.screening_config=[]} } return r; }); renderRolesTable(); }
+    const uniqueLines = arr =>
+      [...new Set((arr || []).map(x => safeText(x).replace(/^[-•*]\s*/, "")).filter(Boolean))];
 
-    function getSignalCalibrationPayload(){ return { non_negotiables:normalizeLines(els.signalNonNegotiables.value), red_flags:normalizeLines(els.signalRedFlags.value), must_have_skills:normalizeLines(els.signalMustHaveSkills.value), success_signals:normalizeLines(els.signalSuccessSignals.value), setup_criticality:safeText(els.signalSetupCriticality.value), environment_notes:safeText(els.signalEnvironmentNotes.value), communication_weight:safeText(els.signalCommunicationWeight.value), stakeholder_weight:safeText(els.signalStakeholderWeight.value), autonomy_level:safeText(els.signalAutonomyLevel.value), decision_making:safeText(els.signalDecisionMaking.value), business_priorities:normalizeLines(els.signalBusinessPriorities.value) }; }
-    function buildSignalSummaryText(s){ return ["TalentBuzz Signal Intelligence","","Non-Negotiables:",...(s.non_negotiables.length?s.non_negotiables.map(x=>`- ${x}`):["- None defined yet"]),"","Must-Have Skills + Importance:",...(s.must_have_skills.length?s.must_have_skills.map(x=>`- ${x}`):["- None defined yet"]),"","Success Signals:",...(s.success_signals.length?s.success_signals.map(x=>`- ${x}`):["- None defined yet"]),"","Red Flags / Deal Breakers:",...(s.red_flags.length?s.red_flags.map(x=>`- ${x}`):["- None defined yet"]),"",`Setup Criticality: ${s.setup_criticality||"Not set"}`,`Communication Weight: ${s.communication_weight||"Not set"}`,`Stakeholder Weight: ${s.stakeholder_weight||"Not set"}`,`Autonomy Level: ${s.autonomy_level||"Not set"}`,"","Environment Notes:",s.environment_notes||"Not set","","Decision-Making Expectation:",s.decision_making||"Not set","","Business Priorities:",...(s.business_priorities.length?s.business_priorities.map(x=>`- ${x}`):["- None defined yet"])].join("\n"); }
-    function buildSignalSummary(){ const s=getSignalCalibrationPayload(); els.signalSummaryOutput.textContent=buildSignalSummaryText(s); refreshPreview(); showNotice("Signal Intelligence summary generated."); }
+    const parseBudgetNumber = v => {
+      const cleaned = String(v ?? "").replace(/[^\d.\-]/g, "").trim();
+      if (!cleaned) return null;
+      const num = Number(cleaned);
+      return Number.isFinite(num) ? num : null;
+    };
 
-    function createEmptyQuestion(overrides={}){ return {question:"",focus_area:"",response_type:"Open Text",weight:"Medium",category:"general",knockout:false,...overrides}; }
-    function renderQuestions(){ if(!questionItems.length){ els.questionsWrap.innerHTML='<div class="empty-state">No screening questions yet. Click <strong>Generate AI Questions</strong> or add one manually.</div>'; return; } els.questionsWrap.innerHTML=questionItems.map((item,i)=>`<div class="question-card"><div class="question-top"><div class="question-top-left"><span class="question-index">${i+1}</span><span class="chip">${item.focus_area||"General"}</span><span class="chip">${item.weight||"Medium"}</span>${item.category?`<span class="chip">${item.category}</span>`:""}${item.knockout?'<span class="chip">Knockout</span>':""}</div><div class="question-actions"><button class="small-btn" type="button" onclick="duplicateQuestion(${i})">Duplicate</button><button class="small-btn danger-btn" type="button" onclick="removeQuestion(${i})">Remove</button></div></div><div class="field field-full"><label>Question</label><textarea onchange="updateQuestionField(${i}, 'question', this.value)">${item.question||""}</textarea></div><div class="question-grid"><div class="field"><label>Focus Area</label><input type="text" value="${item.focus_area||""}" onchange="updateQuestionField(${i}, 'focus_area', this.value)" /></div><div class="field"><label>Response Type</label><select onchange="updateQuestionField(${i}, 'response_type', this.value)"><option ${item.response_type==="Open Text"?"selected":""}>Open Text</option><option ${item.response_type==="Yes/No"?"selected":""}>Yes/No</option><option ${item.response_type==="Short Answer"?"selected":""}>Short Answer</option><option ${item.response_type==="Multiple Choice"?"selected":""}>Multiple Choice</option></select></div><div class="field"><label>Weight</label><select onchange="updateQuestionField(${i}, 'weight', this.value)"><option ${item.weight==="Low"?"selected":""}>Low</option><option ${item.weight==="Medium"?"selected":""}>Medium</option><option ${item.weight==="High"?"selected":""}>High</option><option ${item.weight==="Critical"?"selected":""}>Critical</option></select></div><div class="field"><label>Category</label><select onchange="updateQuestionField(${i}, 'category', this.value)"><option value="general" ${item.category==="general"?"selected":""}>general</option><option value="knockout" ${item.category==="knockout"?"selected":""}>knockout</option><option value="proof" ${item.category==="proof"?"selected":""}>proof</option><option value="simulation" ${item.category==="simulation"?"selected":""}>simulation</option><option value="setup" ${item.category==="setup"?"selected":""}>setup</option><option value="team_fit" ${item.category==="team_fit"?"selected":""}>team_fit</option><option value="business" ${item.category==="business"?"selected":""}>business</option></select></div></div></div>`).join(""); }
-    window.updateQuestionField=(i,f,v)=>{ if(!questionItems[i]) return; questionItems[i][f]=v; refreshPreview(); };
-    window.duplicateQuestion=i=>{ const o=questionItems[i]; if(!o) return; questionItems.splice(i+1,0,JSON.parse(JSON.stringify(o))); renderQuestions(); refreshPreview(); };
-    window.removeQuestion=i=>{ questionItems.splice(i,1); renderQuestions(); refreshPreview(); };
+    const getCurrencySymbol = c =>
+      ({PHP:"₱",USD:"$",HKD:"HK$",SGD:"S$",EUR:"€",GBP:"£",AUD:"A$",CAD:"C$",JPY:"¥"})[c] || c || "PHP";
 
-    function generateAiQuestions(){ const generated=[], nonNeg=normalizeLines(els.signalNonNegotiables.value), skills=normalizeLines(els.prioritySkills.value), reqs=normalizeLines(els.requirements.value); nonNeg.slice(0,3).forEach(item=>generated.push(createEmptyQuestion({question:`Please confirm whether you meet this non-negotiable requirement: "${item}".`,focus_area:"Non-Negotiable",response_type:"Short Answer",weight:"Critical",category:"knockout",knockout:true}))); skills.slice(0,3).forEach(skill=>generated.push(createEmptyQuestion({question:`Tell us about a real situation where you used ${skill} in a relevant role. What did you do and what was the outcome?`,focus_area:skill,response_type:"Open Text",weight:"High",category:"proof"}))); if(!generated.length){ reqs.slice(0,4).forEach((line,i)=>generated.push(createEmptyQuestion({question:`Tell us about your experience with: ${line}.`,focus_area:line,response_type:"Open Text",weight:i<2?"Critical":"High",category:"general"}))); } questionItems=generated.slice(0,8); renderQuestions(); generateScreeningSummary(); refreshPreview(); showNotice("AI screening questions generated successfully."); }
-    function generateScreeningSummary(){ const focus=[...new Set(questionItems.map(q=>safeText(q.focus_area)).filter(Boolean))], knock=questionItems.filter(q=>q.knockout).length; const s=["Screening Structure:",`- Total Questions: ${questionItems.length}`,`- Knockout Questions: ${knock}`,"","Focus Areas:",...(focus.length?focus.map(a=>`- ${a}`):["- General role fit"]),"","Recommendation:","Validate knockout items first, then look for proof of execution and communication quality."].join("\n"); els.screeningSummaryOutput.textContent=s; refreshPreview(); return s; }
+    const formatBudgetValue = (v,c) => {
+      const n = parseBudgetNumber(v);
+      return n === null ? "" : `${getCurrencySymbol(c)}${n.toLocaleString(undefined,{minimumFractionDigits:n%1===0?0:2,maximumFractionDigits:2})}`;
+    };
 
-    function refreshPreview(){ const salaryLine=formatSalaryBudgetLine({salary_min:els.salaryMin.value,salary_max:els.salaryMax.value,salary_currency:els.salaryCurrency.value,salary_period:els.salaryPeriod.value}); const preview=[`Client: ${safeText(els.clientName.value)||"Not set"}`,`Job Title: ${safeText(els.jobTitle.value)||"Not set"}`,`Role Family: ${safeText(els.roleFamily.value)||"Not set"}`,`Seniority: ${safeText(els.seniority.value)||"Not set"}`,`Location: ${safeText(els.location.value)||"Not set"}`,`Work Setup: ${safeText(els.workSetup.value)||"Not set"}`,`Employment Type: ${safeText(els.employmentType.value)||"Not set"}`,`Status: ${safeText(els.roleStatus.value)||"Open"}`,salaryLine?`Salary: ${salaryLine}`:"","","Role Overview",safeText(els.jobDescription.value)||"Not set","","Requirements",...(normalizeLines(els.requirements.value).length?normalizeLines(els.requirements.value).map(x=>`- ${x}`):["- Not set"]),"","Priority Skills",...(normalizeLines(els.prioritySkills.value).length?normalizeLines(els.prioritySkills.value).map(x=>`- ${x}`):["- Not set"]),"","Nice-to-Have Skills",...(normalizeLines(els.niceToHaveSkills.value).length?normalizeLines(els.niceToHaveSkills.value).map(x=>`- ${x}`):["- Not set"]),"","Signal Summary",safeText(els.signalSummaryOutput.textContent)||"No summary generated yet.","","Screening Summary",safeText(els.screeningSummaryOutput.textContent)||"No summary generated yet."].filter(Boolean).join("\n"); els.jdPreview.textContent=preview; }
+    const formatSalaryBudgetLine = obj => {
+      const min = formatBudgetValue(obj.salary_min,obj.salary_currency);
+      const max = formatBudgetValue(obj.salary_max,obj.salary_currency);
+      const period = obj.salary_period || "Monthly";
+      if (min && max) return `${min} - ${max} (${period})`;
+      if (min) return `From ${min} (${period})`;
+      if (max) return `Up to ${max} (${period})`;
+      return "";
+    };
 
-    async function parseJDFile(file){ const name=safeText(file.name).toLowerCase(); if(name.endsWith(".txt")||name.endsWith(".md")) return await file.text(); if(name.endsWith(".docx")){ const arrayBuffer=await file.arrayBuffer(); const result=await window.mammoth.extractRawText({arrayBuffer}); return safeText(result.value); } if(name.endsWith(".pdf")){ const bytes=new Uint8Array(await file.arrayBuffer()); const pdf=await window.pdfjsLib.getDocument({data:bytes}).promise; let text=""; for(let pageNum=1; pageNum<=pdf.numPages; pageNum++){ const page=await pdf.getPage(pageNum); const content=await page.getTextContent(); text += content.items.map(item=>item.str).join(" ")+"\n"; } return safeText(text); } throw new Error("Unsupported JD file type."); }
-    function applyParsedJDText(text){ const lines=normalizeLines(text); if(!safeText(els.jobDescription.value)) els.jobDescription.value=lines.slice(0,8).join("\n"); if(!safeText(els.requirements.value)){ const reqLines=lines.filter(line=>/require|qualif|skill|experience|must|proficient|knowledge/i.test(line)).slice(0,12); if(reqLines.length) els.requirements.value=reqLines.join("\n"); } if(!safeText(els.prioritySkills.value)){ const hits=[], pool=["qlik sense","sql","snowflake","excel","python","power bi","tableau","recruitment","sourcing","customer service","sales","crm","stakeholder management","communication","analytics","reporting"]; const lower=text.toLowerCase(); pool.forEach(skill=>{ if(lower.includes(skill)) hits.push(skill); }); if(hits.length) els.prioritySkills.value=uniqueLines(hits).join("\n"); } refreshPreview(); }
+    const slugify = v =>
+      safeText(v)
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g,"-")
+        .replace(/^-+|-+$/g,"")
+        .slice(0,120);
 
-    function clearForm(){ els.roleId.value=""; els.clientId.value=""; els.clientName.value=""; els.existingClientSelect.value=""; els.jobTitle.value=""; els.roleFamily.value=""; els.location.value=""; els.workSetup.value=""; els.employmentType.value=""; els.seniority.value=""; els.roleStatus.value="Open"; els.salaryCurrency.value="PHP"; els.salaryPeriod.value="Monthly"; els.salaryMin.value=""; els.salaryMax.value=""; els.salaryNotes.value=""; els.jdUpload.value=""; els.jdRawText.value=""; els.jobDescription.value=""; els.requirements.value=""; els.prioritySkills.value=""; els.niceToHaveSkills.value=""; els.signalNonNegotiables.value=""; els.signalRedFlags.value=""; els.signalMustHaveSkills.value=""; els.signalSuccessSignals.value=""; els.signalSetupCriticality.value=""; els.signalEnvironmentNotes.value=""; els.signalCommunicationWeight.value=""; els.signalStakeholderWeight.value=""; els.signalAutonomyLevel.value=""; els.signalDecisionMaking.value=""; els.signalBusinessPriorities.value=""; els.signalSummaryOutput.textContent="No signal summary generated yet."; els.screeningSummaryOutput.textContent="No summary generated yet."; questionItems=[]; renderQuestions(); refreshPreview(); els.roleModalTitle.textContent="Role Workspace"; }
-    function populateRoleForm(role){ clearForm(); els.roleId.value=role.id||""; els.clientId.value=role.client_id||role.client_uuid||""; els.clientName.value=role.client_name||""; if(els.clientId.value) els.existingClientSelect.value=els.clientId.value; els.jobTitle.value=role.title||""; els.roleFamily.value=role.role_family||""; els.location.value=role.location||""; els.workSetup.value=role.work_setup||""; els.employmentType.value=role.employment_type||""; els.seniority.value=role.seniority_level||""; els.roleStatus.value=role.status?role.status.charAt(0).toUpperCase()+role.status.slice(1):"Open"; els.salaryCurrency.value=role.salary_currency||"PHP"; els.salaryMin.value=role.salary_min??""; els.salaryMax.value=role.salary_max??""; els.jobDescription.value=role.job_description||""; els.requirements.value=Array.isArray(role.required_skills)?role.required_skills.join("\n"):""; els.prioritySkills.value=role.priority_skills?String(role.priority_skills).split(",").map(x=>x.trim()).filter(Boolean).join("\n"):""; els.niceToHaveSkills.value=Array.isArray(role.nice_to_have_skills)?role.nice_to_have_skills.join("\n"):""; els.signalBusinessPriorities.value=Array.isArray(role.client_priorities)?role.client_priorities.join("\n"):""; els.screeningSummaryOutput.textContent=role.screening_summary||"No summary generated yet."; questionItems=Array.isArray(role.screening_config)?role.screening_config:[]; renderQuestions(); refreshPreview(); els.roleModalTitle.textContent="Edit Role"; }
+    function setModalOpen(open){
+      els.roleModal.classList.toggle("show", open);
+      els.roleModal.setAttribute("aria-hidden", open ? "false" : "true");
+    }
 
-    async function resolveClientId(){ const existingId=safeText(els.clientId.value), clientName=safeText(els.clientName.value); if(existingId) return existingId; if(!clientName) throw new Error("Please select or enter a client."); const matched=clientsCache.find(c=>safeText(c.client_name).toLowerCase()===clientName.toLowerCase()); if(matched){ els.clientId.value=matched.id; return matched.id; } const {data,error}=await supabaseClient.from("clients").insert([{client_name:clientName}]).select("id, client_name, active").single(); if(error) throw error; await loadClients(); els.clientId.value=data.id; els.existingClientSelect.value=data.id; return data.id; }
+    function switchTab(name){
+      els.tabButtons.forEach(b => b.classList.toggle("active", b.dataset.tab === name));
+      els.tabPanels.forEach(p => p.classList.toggle("active", p.dataset.panel === name));
+    }
 
-    function buildRolePayload(clientId){ const clientName=safeText(els.clientName.value), title=safeText(els.jobTitle.value), statusLower=safeText(els.roleStatus.value).toLowerCase()||"open"; const screeningSummary=safeText(els.screeningSummaryOutput.textContent)==="No summary generated yet."?"":safeText(els.screeningSummaryOutput.textContent); return { title, client_id:clientId, client_uuid:clientId, client_name:clientName, location:safeText(els.location.value)||null, employment_type:safeText(els.employmentType.value)||null, work_setup:safeText(els.workSetup.value)||null, job_description:safeText(els.jobDescription.value)||null, slug:slugify(`${clientName}-${title}`)||null, salary_currency:safeText(els.salaryCurrency.value)||"PHP", salary_min:parseBudgetNumber(els.salaryMin.value), salary_max:parseBudgetNumber(els.salaryMax.value), role_family:safeText(els.roleFamily.value)||null, seniority_level:safeText(els.seniority.value)||null, required_skills:uniqueLines(normalizeLines(els.requirements.value)), nice_to_have_skills:uniqueLines(normalizeLines(els.niceToHaveSkills.value)), client_priorities:uniqueLines(normalizeLines(els.signalBusinessPriorities.value)), priority_skills:uniqueLines(normalizeLines(els.prioritySkills.value)).join(", "), screening_summary:screeningSummary||null, screening_config:questionItems, ai_screening_config:{ signal_summary:safeText(els.signalSummaryOutput.textContent), compensation_notes:safeText(els.salaryNotes.value), salary_period:safeText(els.salaryPeriod.value)||"Monthly" }, status:statusLower, is_on_hold:false, min_experience_years:null, updated_at:new Date().toISOString() }; }
+    async function loadClients(){
+      const {data,error} = await supabaseClient
+        .from("clients")
+        .select("id, client_name, active")
+        .order("client_name",{ascending:true});
 
-    async function saveRole(){ try{ const clientId=await resolveClientId(); const payload=buildRolePayload(clientId); if(!payload.title) throw new Error("Please enter a job title."); if(!payload.client_id) throw new Error("Client is required."); const roleId=safeText(els.roleId.value); if(roleId){ const {error}=await supabaseClient.from("jobs").update(payload).eq("id", roleId); if(error) throw error; showNotice("Role updated successfully."); } else { const {error}=await supabaseClient.from("jobs").insert([{...payload, created_at:new Date().toISOString()}]); if(error) throw error; showNotice("Role saved successfully."); } setModalOpen(false); await loadClients(); await loadRoles(); } catch(error){ console.error("saveRole error", error); showNotice(`Failed to save role: ${error.message || "Unknown error"}`, "error"); } }
-    async function toggleHoldRole(roleId, shouldHold){ const {error}=await supabaseClient.from("jobs").update({is_on_hold:shouldHold, updated_at:new Date().toISOString()}).eq("id", roleId); if(error){ showNotice(`Failed to update role: ${error.message}`,"error"); return; } await loadRoles(); showNotice(shouldHold?"Role moved to on-hold.":"Role resumed."); }
-    window.editRole = roleId => { const role=rolesCache.find(r=>r.id===roleId); if(!role) return; populateRoleForm(role); setModalOpen(true); switchTab("basics"); };
+      if(error){
+        showNotice(`Failed to load clients: ${error.message}`,"error");
+        return;
+      }
+
+      clientsCache = data || [];
+      els.existingClientSelect.innerHTML = '<option value="">Choose existing client</option>';
+      els.clientSuggestions.innerHTML = '';
+
+      clientsCache.forEach(c => {
+        const option = document.createElement("option");
+        option.value = c.id;
+        option.textContent = c.client_name || "";
+        els.existingClientSelect.appendChild(option);
+
+        const item = document.createElement("option");
+        item.value = c.client_name || "";
+        els.clientSuggestions.appendChild(item);
+      });
+    }
+
+    function setClientSelectionById(id){
+      const client = clientsCache.find(x => x.id === id);
+      if(!client) return;
+      els.clientId.value = client.id;
+      els.clientName.value = client.client_name || "";
+      els.existingClientSelect.value = client.id;
+    }
+
+    function syncClientSelectionByName(){
+      const typed = safeText(els.clientName.value).toLowerCase();
+      const match = clientsCache.find(c => safeText(c.client_name).toLowerCase() === typed);
+      if(match){
+        els.clientId.value = match.id;
+        els.existingClientSelect.value = match.id;
+      } else {
+        els.clientId.value = "";
+        els.existingClientSelect.value = "";
+      }
+    }
+
+    function normalizeStatus(v){
+      const x = safeText(v).toLowerCase();
+      if(x === "closed") return {label:"Closed",cls:"pill pill-closed"};
+      if(x === "draft") return {label:"Draft",cls:"pill pill-draft"};
+      return {label:"Open",cls:"pill pill-open"};
+    }
+
+    function renderStats(){
+      const total = rolesCache.length;
+      const active = rolesCache.filter(r => !r.is_on_hold && safeText(r.status).toLowerCase() === "open").length;
+      const hold = rolesCache.filter(r => !!r.is_on_hold).length;
+      const avg = total
+        ? Math.round(rolesCache.reduce((s,r) => s + (Array.isArray(r.screening_config) ? r.screening_config.length : 0), 0) / total)
+        : 0;
+
+      els.statRoles.textContent = String(total);
+      els.statActive.textContent = String(active);
+      els.statHold.textContent = String(hold);
+      els.statQuestions.textContent = String(avg);
+    }
+
+    function getFilteredRoles(){
+      const q = safeText(els.searchInput.value).toLowerCase();
+      const f = els.holdFilter.value;
+
+      return rolesCache.filter(r => {
+        const haystack = `${r.title || ""} ${r.client_name || ""}`.toLowerCase();
+        const searchOk = !q || haystack.includes(q);
+        const holdOk = f === "all" ? true : f === "active" ? !r.is_on_hold : !!r.is_on_hold;
+        return searchOk && holdOk;
+      });
+    }
+
+    function renderRolesTable(){
+      const rows = getFilteredRoles();
+
+      if(!rows.length){
+        els.rolesTableBody.innerHTML = '<tr><td colspan="6" class="empty-state">No roles found.</td></tr>';
+        renderStats();
+        return;
+      }
+
+      els.rolesTableBody.innerHTML = rows.map(r => {
+        const st = normalizeStatus(r.status);
+        const budget = formatSalaryBudgetLine(r);
+        const qCount = Array.isArray(r.screening_config) ? r.screening_config.length : 0;
+
+        return `
+          <tr>
+            <td>
+              <div class="role-title">${r.title || "Untitled Role"}</div>
+              <div class="subtext">${r.role_family || "No role family"} · ${r.seniority_level || "No seniority"}</div>
+            </td>
+            <td>
+              <div>${r.client_name || "No client"}</div>
+              <div class="subtext">${r.location || "No location"}</div>
+            </td>
+            <td>
+              <div>${r.work_setup || "Not set"}</div>
+              <div class="subtext">${r.employment_type || "Not set"}</div>
+              ${budget ? `<div style="margin-top:8px;"><span class="budget-pill">${budget}</span></div>` : ""}
+            </td>
+            <td>
+              <span class="${st.cls}">${st.label}</span>
+              ${r.is_on_hold ? '<div style="margin-top:8px;"><span class="pill pill-hold">On Hold</span></div>' : ""}
+            </td>
+            <td>
+              <div>${qCount} question(s)</div>
+              <div class="subtext">${r.screening_summary || "No summary yet"}</div>
+            </td>
+            <td>
+              <div class="toolbar">
+                <button class="small-btn" type="button" onclick="editRole('${r.id}')">Edit</button>
+                <button class="small-btn" type="button" onclick="toggleHoldRole('${r.id}', ${r.is_on_hold ? 'false' : 'true'})">${r.is_on_hold ? "Resume" : "Hold"}</button>
+              </div>
+            </td>
+          </tr>
+        `;
+      }).join("");
+
+      renderStats();
+    }
+
+    async function loadRoles(){
+      els.rolesTableBody.innerHTML = '<tr><td colspan="6" class="empty-state">Loading roles...</td></tr>';
+
+      const {data,error} = await supabaseClient
+        .from("jobs")
+        .select("*")
+        .order("created_at",{ascending:false});
+
+      if(error){
+        els.rolesTableBody.innerHTML = '<tr><td colspan="6" class="empty-state">Failed to load roles.</td></tr>';
+        showNotice(`Failed to load roles: ${error.message}`,"error");
+        return;
+      }
+
+      rolesCache = (data || []).map(r => {
+        if(typeof r.screening_config === "string"){
+          try { r.screening_config = JSON.parse(r.screening_config); }
+          catch { r.screening_config = []; }
+        }
+        return r;
+      });
+
+      renderRolesTable();
+    }
+
+    function getSignalCalibrationPayload(){
+      return {
+        non_negotiables: normalizeLines(els.signalNonNegotiables.value),
+        red_flags: normalizeLines(els.signalRedFlags.value),
+        must_have_skills: normalizeLines(els.signalMustHaveSkills.value),
+        success_signals: normalizeLines(els.signalSuccessSignals.value),
+        setup_criticality: safeText(els.signalSetupCriticality.value),
+        environment_notes: safeText(els.signalEnvironmentNotes.value),
+        communication_weight: safeText(els.signalCommunicationWeight.value),
+        stakeholder_weight: safeText(els.signalStakeholderWeight.value),
+        autonomy_level: safeText(els.signalAutonomyLevel.value),
+        decision_making: safeText(els.signalDecisionMaking.value),
+        business_priorities: normalizeLines(els.signalBusinessPriorities.value)
+      };
+    }
+
+    function buildSignalSummaryText(s){
+      return [
+        "TalentBuzz Signal Intelligence",
+        "",
+        "Non-Negotiables:",
+        ...(s.non_negotiables.length ? s.non_negotiables.map(x => `- ${x}`) : ["- None defined yet"]),
+        "",
+        "Must-Have Skills + Importance:",
+        ...(s.must_have_skills.length ? s.must_have_skills.map(x => `- ${x}`) : ["- None defined yet"]),
+        "",
+        "Success Signals:",
+        ...(s.success_signals.length ? s.success_signals.map(x => `- ${x}`) : ["- None defined yet"]),
+        "",
+        "Red Flags / Deal Breakers:",
+        ...(s.red_flags.length ? s.red_flags.map(x => `- ${x}`) : ["- None defined yet"]),
+        "",
+        `Setup Criticality: ${s.setup_criticality || "Not set"}`,
+        `Communication Weight: ${s.communication_weight || "Not set"}`,
+        `Stakeholder Weight: ${s.stakeholder_weight || "Not set"}`,
+        `Autonomy Level: ${s.autonomy_level || "Not set"}`,
+        "",
+        "Environment Notes:",
+        s.environment_notes || "Not set",
+        "",
+        "Decision-Making Expectation:",
+        s.decision_making || "Not set",
+        "",
+        "Business Priorities:",
+        ...(s.business_priorities.length ? s.business_priorities.map(x => `- ${x}`) : ["- None defined yet"])
+      ].join("\n");
+    }
+
+    function buildSignalSummary(){
+      const s = getSignalCalibrationPayload();
+      els.signalSummaryOutput.textContent = buildSignalSummaryText(s);
+      refreshPreview();
+      showNotice("Signal Intelligence summary generated.");
+    }
+
+    function createEmptyQuestion(overrides = {}){
+      return {
+        question:"",
+        focus_area:"",
+        response_type:"Open Text",
+        weight:"Medium",
+        category:"general",
+        knockout:false,
+        ...overrides
+      };
+    }
+
+    function renderQuestions(){
+      if(!questionItems.length){
+        els.questionsWrap.innerHTML = '<div class="empty-state">No screening questions yet. Click <strong>Generate AI Questions</strong> or add one manually.</div>';
+        return;
+      }
+
+      els.questionsWrap.innerHTML = questionItems.map((item,i) => `
+        <div class="question-card">
+          <div class="question-top">
+            <div class="question-top-left">
+              <span class="question-index">${i+1}</span>
+              <span class="chip">${item.focus_area || "General"}</span>
+              <span class="chip">${item.weight || "Medium"}</span>
+              ${item.category ? `<span class="chip">${item.category}</span>` : ""}
+              ${item.knockout ? '<span class="chip">Knockout</span>' : ""}
+            </div>
+            <div class="question-actions">
+              <button class="small-btn" type="button" onclick="duplicateQuestion(${i})">Duplicate</button>
+              <button class="small-btn danger-btn" type="button" onclick="removeQuestion(${i})">Remove</button>
+            </div>
+          </div>
+          <div class="field field-full">
+            <label>Question</label>
+            <textarea onchange="updateQuestionField(${i}, 'question', this.value)">${item.question || ""}</textarea>
+          </div>
+          <div class="question-grid">
+            <div class="field">
+              <label>Focus Area</label>
+              <input type="text" value="${item.focus_area || ""}" onchange="updateQuestionField(${i}, 'focus_area', this.value)" />
+            </div>
+            <div class="field">
+              <label>Response Type</label>
+              <select onchange="updateQuestionField(${i}, 'response_type', this.value)">
+                <option ${item.response_type==="Open Text"?"selected":""}>Open Text</option>
+                <option ${item.response_type==="Yes/No"?"selected":""}>Yes/No</option>
+                <option ${item.response_type==="Short Answer"?"selected":""}>Short Answer</option>
+                <option ${item.response_type==="Multiple Choice"?"selected":""}>Multiple Choice</option>
+              </select>
+            </div>
+            <div class="field">
+              <label>Weight</label>
+              <select onchange="updateQuestionField(${i}, 'weight', this.value)">
+                <option ${item.weight==="Low"?"selected":""}>Low</option>
+                <option ${item.weight==="Medium"?"selected":""}>Medium</option>
+                <option ${item.weight==="High"?"selected":""}>High</option>
+                <option ${item.weight==="Critical"?"selected":""}>Critical</option>
+              </select>
+            </div>
+            <div class="field">
+              <label>Category</label>
+              <select onchange="updateQuestionField(${i}, 'category', this.value)">
+                <option value="general" ${item.category==="general"?"selected":""}>general</option>
+                <option value="knockout" ${item.category==="knockout"?"selected":""}>knockout</option>
+                <option value="proof" ${item.category==="proof"?"selected":""}>proof</option>
+                <option value="simulation" ${item.category==="simulation"?"selected":""}>simulation</option>
+                <option value="setup" ${item.category==="setup"?"selected":""}>setup</option>
+                <option value="team_fit" ${item.category==="team_fit"?"selected":""}>team_fit</option>
+                <option value="business" ${item.category==="business"?"selected":""}>business</option>
+              </select>
+            </div>
+          </div>
+        </div>
+      `).join("");
+    }
+
+    window.updateQuestionField = (i,f,v) => {
+      if(!questionItems[i]) return;
+      questionItems[i][f] = v;
+      refreshPreview();
+    };
+
+    window.duplicateQuestion = i => {
+      const original = questionItems[i];
+      if(!original) return;
+      questionItems.splice(i+1,0,JSON.parse(JSON.stringify(original)));
+      renderQuestions();
+      refreshPreview();
+    };
+
+    window.removeQuestion = i => {
+      questionItems.splice(i,1);
+      renderQuestions();
+      refreshPreview();
+    };
+
+    function generateAiQuestions(){
+      const generated = [];
+      const nonNeg = normalizeLines(els.signalNonNegotiables.value);
+      const skills = normalizeLines(els.prioritySkills.value);
+      const reqs = normalizeLines(els.requirements.value);
+
+      nonNeg.slice(0,3).forEach(item => generated.push(createEmptyQuestion({
+        question:`Please confirm whether you meet this non-negotiable requirement: "${item}".`,
+        focus_area:"Non-Negotiable",
+        response_type:"Short Answer",
+        weight:"Critical",
+        category:"knockout",
+        knockout:true
+      })));
+
+      skills.slice(0,3).forEach(skill => generated.push(createEmptyQuestion({
+        question:`Tell us about a real situation where you used ${skill} in a relevant role. What did you do and what was the outcome?`,
+        focus_area:skill,
+        response_type:"Open Text",
+        weight:"High",
+        category:"proof"
+      })));
+
+      if(!generated.length){
+        reqs.slice(0,4).forEach((line,i) => generated.push(createEmptyQuestion({
+          question:`Tell us about your experience with: ${line}.`,
+          focus_area:line,
+          response_type:"Open Text",
+          weight:i<2?"Critical":"High",
+          category:"general"
+        })));
+      }
+
+      questionItems = generated.slice(0,8);
+      renderQuestions();
+      generateScreeningSummary();
+      refreshPreview();
+      showNotice("AI screening questions generated successfully.");
+    }
+
+    function generateScreeningSummary(){
+      const focus = [...new Set(questionItems.map(q => safeText(q.focus_area)).filter(Boolean))];
+      const knock = questionItems.filter(q => q.knockout).length;
+
+      const summary = [
+        "Screening Structure:",
+        `- Total Questions: ${questionItems.length}`,
+        `- Knockout Questions: ${knock}`,
+        "",
+        "Focus Areas:",
+        ...(focus.length ? focus.map(a => `- ${a}`) : ["- General role fit"]),
+        "",
+        "Recommendation:",
+        "Validate knockout items first, then look for proof of execution and communication quality."
+      ].join("\n");
+
+      els.screeningSummaryOutput.textContent = summary;
+      refreshPreview();
+      return summary;
+    }
+
+    function extractShiftFromText(text){
+      const raw = safeText(text);
+      if(!raw) return "";
+
+      const patterns = [
+        /work\s*setup\s*&\s*shift\s*:\s*([^\n\r]+)/i,
+        /shift\s*:\s*([^\n\r]+)/i
+      ];
+
+      for (const pattern of patterns){
+        const match = raw.match(pattern);
+        if(match && safeText(match[1])){
+          let value = safeText(match[1]);
+          if(value.includes("|")){
+            const parts = value.split("|").map(x => safeText(x)).filter(Boolean);
+            if(parts.length >= 2) return parts.slice(1).join(" | ");
+          }
+          return value;
+        }
+      }
+
+      return "";
+    }
+
+    function buildCompiledPreviewText(){
+      const salaryLine = formatSalaryBudgetLine({
+        salary_min: els.salaryMin.value,
+        salary_max: els.salaryMax.value,
+        salary_currency: els.salaryCurrency.value,
+        salary_period: els.salaryPeriod.value
+      });
+
+      const rawJD = safeText(els.jdRawText.value);
+      const derivedShift = extractShiftFromText(rawJD);
+
+      return [
+        `Client: ${safeText(els.clientName.value) || "Not set"}`,
+        `Job Title: ${safeText(els.jobTitle.value) || "Not set"}`,
+        `Role Family: ${safeText(els.roleFamily.value) || "Not set"}`,
+        `Seniority: ${safeText(els.seniority.value) || "Not set"}`,
+        `Location: ${safeText(els.location.value) || "Not set"}`,
+        `Work Setup: ${safeText(els.workSetup.value) || "Not set"}`,
+        derivedShift ? `Shift: ${derivedShift}` : "",
+        `Employment Type: ${safeText(els.employmentType.value) || "Not set"}`,
+        `Status: ${safeText(els.roleStatus.value) || "Open"}`,
+        salaryLine ? `Salary: ${salaryLine}` : "",
+        safeText(els.salaryNotes.value) ? `Salary Notes: ${safeText(els.salaryNotes.value)}` : "",
+        "",
+        "Role Overview",
+        safeText(els.jobDescription.value) || "Not set",
+        "",
+        "Requirements",
+        ...(normalizeLines(els.requirements.value).length ? normalizeLines(els.requirements.value).map(x => `- ${x}`) : ["- Not set"]),
+        "",
+        "Priority Skills",
+        ...(normalizeLines(els.prioritySkills.value).length ? normalizeLines(els.prioritySkills.value).map(x => `- ${x}`) : ["- Not set"]),
+        "",
+        "Nice-to-Have Skills",
+        ...(normalizeLines(els.niceToHaveSkills.value).length ? normalizeLines(els.niceToHaveSkills.value).map(x => `- ${x}`) : ["- Not set"]),
+        "",
+        "Signal Summary",
+        safeText(els.signalSummaryOutput.textContent) || "No summary generated yet.",
+        "",
+        "Screening Summary",
+        safeText(els.screeningSummaryOutput.textContent) || "No summary generated yet."
+      ].filter(Boolean).join("\n");
+    }
+
+    function refreshPreview(){
+      els.jdPreview.textContent = buildCompiledPreviewText();
+    }
+
+    async function parseJDFile(file){
+      const name = safeText(file.name).toLowerCase();
+
+      if(name.endsWith(".txt") || name.endsWith(".md")){
+        return await file.text();
+      }
+
+      if(name.endsWith(".docx")){
+        const arrayBuffer = await file.arrayBuffer();
+        const result = await window.mammoth.extractRawText({arrayBuffer});
+        return safeText(result.value);
+      }
+
+      if(name.endsWith(".pdf")){
+        const bytes = new Uint8Array(await file.arrayBuffer());
+        const pdf = await window.pdfjsLib.getDocument({data:bytes}).promise;
+        let text = "";
+        for(let pageNum = 1; pageNum <= pdf.numPages; pageNum++){
+          const page = await pdf.getPage(pageNum);
+          const content = await page.getTextContent();
+          text += content.items.map(item => item.str).join(" ") + "\n";
+        }
+        return safeText(text);
+      }
+
+      throw new Error("Unsupported JD file type.");
+    }
+
+    function applyParsedJDText(text){
+      const lines = normalizeLines(text);
+
+      if(!safeText(els.jobDescription.value)){
+        els.jobDescription.value = lines.slice(0,8).join("\n");
+      }
+
+      if(!safeText(els.requirements.value)){
+        const reqLines = lines
+          .filter(line => /require|qualif|skill|experience|must|proficient|knowledge/i.test(line))
+          .slice(0,12);
+
+        if(reqLines.length){
+          els.requirements.value = reqLines.join("\n");
+        }
+      }
+
+      if(!safeText(els.prioritySkills.value)){
+        const hits = [];
+        const pool = [
+          "qlik sense","sql","snowflake","excel","python","power bi","tableau","recruitment",
+          "sourcing","customer service","sales","crm","stakeholder management","communication","analytics","reporting"
+        ];
+
+        const lower = text.toLowerCase();
+        pool.forEach(skill => {
+          if(lower.includes(skill)) hits.push(skill);
+        });
+
+        if(hits.length){
+          els.prioritySkills.value = uniqueLines(hits).join("\n");
+        }
+      }
+
+      refreshPreview();
+    }
+
+    function clearForm(){
+      els.roleId.value = "";
+      els.clientId.value = "";
+      els.clientName.value = "";
+      els.existingClientSelect.value = "";
+      els.jobTitle.value = "";
+      els.roleFamily.value = "";
+      els.location.value = "";
+      els.workSetup.value = "";
+      els.employmentType.value = "";
+      els.seniority.value = "";
+      els.roleStatus.value = "Open";
+      els.salaryCurrency.value = "PHP";
+      els.salaryPeriod.value = "Monthly";
+      els.salaryMin.value = "";
+      els.salaryMax.value = "";
+      els.salaryNotes.value = "";
+      els.jdUpload.value = "";
+      els.jdRawText.value = "";
+      els.jobDescription.value = "";
+      els.requirements.value = "";
+      els.prioritySkills.value = "";
+      els.niceToHaveSkills.value = "";
+      els.signalNonNegotiables.value = "";
+      els.signalRedFlags.value = "";
+      els.signalMustHaveSkills.value = "";
+      els.signalSuccessSignals.value = "";
+      els.signalSetupCriticality.value = "";
+      els.signalEnvironmentNotes.value = "";
+      els.signalCommunicationWeight.value = "";
+      els.signalStakeholderWeight.value = "";
+      els.signalAutonomyLevel.value = "";
+      els.signalDecisionMaking.value = "";
+      els.signalBusinessPriorities.value = "";
+      els.signalSummaryOutput.textContent = "No signal summary generated yet.";
+      els.screeningSummaryOutput.textContent = "No summary generated yet.";
+      questionItems = [];
+      renderQuestions();
+      refreshPreview();
+      els.roleModalTitle.textContent = "Role Workspace";
+    }
+
+    function populateRoleForm(role){
+      clearForm();
+
+      els.roleId.value = role.id || "";
+      els.clientId.value = role.client_id || role.client_uuid || "";
+      els.clientName.value = role.client_name || "";
+      if(els.clientId.value) els.existingClientSelect.value = els.clientId.value;
+
+      els.jobTitle.value = role.title || "";
+      els.roleFamily.value = role.role_family || "";
+      els.location.value = role.location || "";
+      els.workSetup.value = role.work_setup || "";
+      els.employmentType.value = role.employment_type || "";
+      els.seniority.value = role.seniority_level || "";
+      els.roleStatus.value = role.status ? role.status.charAt(0).toUpperCase() + role.status.slice(1) : "Open";
+      els.salaryCurrency.value = role.salary_currency || "PHP";
+      els.salaryMin.value = role.salary_min ?? "";
+      els.salaryMax.value = role.salary_max ?? "";
+
+      els.jobDescription.value = role.job_description || "";
+      els.requirements.value = Array.isArray(role.required_skills) ? role.required_skills.join("\n") : "";
+      els.prioritySkills.value = role.priority_skills ? String(role.priority_skills).split(",").map(x => x.trim()).filter(Boolean).join("\n") : "";
+      els.niceToHaveSkills.value = Array.isArray(role.nice_to_have_skills) ? role.nice_to_have_skills.join("\n") : "";
+      els.signalBusinessPriorities.value = Array.isArray(role.client_priorities) ? role.client_priorities.join("\n") : "";
+      els.screeningSummaryOutput.textContent = role.screening_summary || "No summary generated yet.";
+
+      questionItems = Array.isArray(role.screening_config) ? role.screening_config : [];
+      renderQuestions();
+      refreshPreview();
+      els.roleModalTitle.textContent = "Edit Role";
+    }
+
+    async function resolveClientId(){
+      const existingId = safeText(els.clientId.value);
+      const clientName = safeText(els.clientName.value);
+
+      if(existingId) return existingId;
+      if(!clientName) throw new Error("Please select or enter a client.");
+
+      const matched = clientsCache.find(c => safeText(c.client_name).toLowerCase() === clientName.toLowerCase());
+      if(matched){
+        els.clientId.value = matched.id;
+        return matched.id;
+      }
+
+      const {data,error} = await supabaseClient
+        .from("clients")
+        .insert([{client_name:clientName}])
+        .select("id, client_name, active")
+        .single();
+
+      if(error) throw error;
+
+      await loadClients();
+      els.clientId.value = data.id;
+      els.existingClientSelect.value = data.id;
+      return data.id;
+    }
+
+    function buildRolePayload(clientId){
+      const clientName = safeText(els.clientName.value);
+      const title = safeText(els.jobTitle.value);
+      const statusLower = safeText(els.roleStatus.value).toLowerCase() || "open";
+      const screeningSummary =
+        safeText(els.screeningSummaryOutput.textContent) === "No summary generated yet."
+          ? ""
+          : safeText(els.screeningSummaryOutput.textContent);
+
+      const compiledJobDescription = buildCompiledPreviewText();
+
+      return {
+        title,
+        client_id: clientId,
+        client_uuid: clientId,
+        client_name: clientName,
+        location: safeText(els.location.value) || null,
+        employment_type: safeText(els.employmentType.value) || null,
+        work_setup: safeText(els.workSetup.value) || null,
+        job_description: compiledJobDescription || null,
+        slug: slugify(`${clientName}-${title}`) || null,
+        salary_currency: safeText(els.salaryCurrency.value) || "PHP",
+        salary_min: parseBudgetNumber(els.salaryMin.value),
+        salary_max: parseBudgetNumber(els.salaryMax.value),
+        role_family: safeText(els.roleFamily.value) || null,
+        seniority_level: safeText(els.seniority.value) || null,
+        required_skills: uniqueLines(normalizeLines(els.requirements.value)),
+        nice_to_have_skills: uniqueLines(normalizeLines(els.niceToHaveSkills.value)),
+        client_priorities: uniqueLines(normalizeLines(els.signalBusinessPriorities.value)),
+        priority_skills: uniqueLines(normalizeLines(els.prioritySkills.value)).join(", "),
+        screening_summary: screeningSummary || null,
+        screening_config: questionItems,
+        ai_screening_config: {
+          signal_summary: safeText(els.signalSummaryOutput.textContent),
+          compensation_notes: safeText(els.salaryNotes.value),
+          salary_period: safeText(els.salaryPeriod.value) || "Monthly",
+          jd_overview_only: safeText(els.jobDescription.value),
+          compiled_job_description: compiledJobDescription
+        },
+        status: statusLower,
+        is_on_hold: false,
+        min_experience_years: null,
+        updated_at: new Date().toISOString()
+      };
+    }
+
+    async function saveRole(){
+      try{
+        const clientId = await resolveClientId();
+        const payload = buildRolePayload(clientId);
+
+        if(!payload.title) throw new Error("Please enter a job title.");
+        if(!payload.client_id) throw new Error("Client is required.");
+
+        const roleId = safeText(els.roleId.value);
+
+        if(roleId){
+          const {error} = await supabaseClient.from("jobs").update(payload).eq("id", roleId);
+          if(error) throw error;
+          showNotice("Role updated successfully.");
+        } else {
+          const {error} = await supabaseClient
+            .from("jobs")
+            .insert([{...payload, created_at:new Date().toISOString()}]);
+          if(error) throw error;
+          showNotice("Role saved successfully.");
+        }
+
+        setModalOpen(false);
+        await loadClients();
+        await loadRoles();
+      } catch(error){
+        console.error("saveRole error", error);
+        showNotice(`Failed to save role: ${error.message || "Unknown error"}`, "error");
+      }
+    }
+
+    async function toggleHoldRole(roleId, shouldHold){
+      const {error} = await supabaseClient
+        .from("jobs")
+        .update({is_on_hold:shouldHold, updated_at:new Date().toISOString()})
+        .eq("id", roleId);
+
+      if(error){
+        showNotice(`Failed to update role: ${error.message}`,"error");
+        return;
+      }
+
+      await loadRoles();
+      showNotice(shouldHold ? "Role moved to on-hold." : "Role resumed.");
+    }
+
+    window.editRole = roleId => {
+      const role = rolesCache.find(r => r.id === roleId);
+      if(!role) return;
+      populateRoleForm(role);
+      setModalOpen(true);
+      switchTab("basics");
+    };
+
     window.toggleHoldRole = toggleHoldRole;
 
-    els.tabButtons.forEach(btn=>btn.addEventListener("click",()=>switchTab(btn.dataset.tab)));
-    els.newRoleBtn.addEventListener("click",()=>{ clearForm(); setModalOpen(true); switchTab("basics"); });
-    els.newRoleBtnHero.addEventListener("click",()=>{ clearForm(); setModalOpen(true); switchTab("basics"); });
-    els.closeRoleModalBtn.addEventListener("click",()=>setModalOpen(false));
+    els.tabButtons.forEach(btn => btn.addEventListener("click",() => switchTab(btn.dataset.tab)));
+    els.newRoleBtn.addEventListener("click",() => { clearForm(); setModalOpen(true); switchTab("basics"); });
+    els.newRoleBtnHero.addEventListener("click",() => { clearForm(); setModalOpen(true); switchTab("basics"); });
+    els.closeRoleModalBtn.addEventListener("click",() => setModalOpen(false));
     els.clearRoleBtn.addEventListener("click",clearForm);
-    els.refreshRolesBtn.addEventListener("click",async()=>{ await loadClients(); await loadRoles(); showNotice("Roles refreshed."); });
-    els.searchInput.addEventListener("input",renderRolesTable); els.holdFilter.addEventListener("change",renderRolesTable);
+
+    els.refreshRolesBtn.addEventListener("click", async() => {
+      await loadClients();
+      await loadRoles();
+      showNotice("Roles refreshed.");
+    });
+
+    els.searchInput.addEventListener("input",renderRolesTable);
+    els.holdFilter.addEventListener("change",renderRolesTable);
+
     els.buildSignalBtn.addEventListener("click",buildSignalSummary);
     els.generateAiQuestionsBtn.addEventListener("click",generateAiQuestions);
-    els.generateSummaryBtn.addEventListener("click",()=>{ generateScreeningSummary(); showNotice("Screening summary built."); });
-    els.addQuestionBtn.addEventListener("click",()=>{ questionItems.push(createEmptyQuestion()); renderQuestions(); refreshPreview(); });
-    els.saveRoleBtn.addEventListener("click",saveRole);
-    els.existingClientSelect.addEventListener("change",e=>{ const id=safeText(e.target.value); if(!id){ els.clientId.value=""; return; } setClientSelectionById(id); });
-    els.clientName.addEventListener("input",syncClientSelectionByName);
-    [els.clientName,els.jobTitle,els.roleFamily,els.location,els.workSetup,els.employmentType,els.seniority,els.roleStatus,els.salaryCurrency,els.salaryPeriod,els.salaryMin,els.salaryMax,els.salaryNotes,els.jobDescription,els.requirements,els.prioritySkills,els.niceToHaveSkills,els.signalNonNegotiables,els.signalRedFlags,els.signalMustHaveSkills,els.signalSuccessSignals,els.signalSetupCriticality,els.signalEnvironmentNotes,els.signalCommunicationWeight,els.signalStakeholderWeight,els.signalAutonomyLevel,els.signalDecisionMaking,els.signalBusinessPriorities].forEach(el=>{ el.addEventListener("input",refreshPreview); el.addEventListener("change",refreshPreview); });
-    els.clearJDBtn.addEventListener("click",()=>{ els.jdUpload.value=""; els.jdRawText.value=""; refreshPreview(); showNotice("JD input cleared."); });
-    els.parseJDBtn.addEventListener("click", async()=>{ try{ let text=safeText(els.jdRawText.value); if(!text && els.jdUpload.files && els.jdUpload.files[0]){ text=await parseJDFile(els.jdUpload.files[0]); els.jdRawText.value=text; } if(!text) throw new Error("Please paste or upload a JD first."); applyParsedJDText(text); showNotice("JD parsed successfully."); } catch(error){ console.error(error); showNotice(`Failed to parse JD: ${error.message || "Unknown error"}`,"error"); } });
+    els.generateSummaryBtn.addEventListener("click",() => {
+      generateScreeningSummary();
+      showNotice("Screening summary built.");
+    });
 
-    (async function init(){ renderQuestions(); refreshPreview(); await loadClients(); await loadRoles(); })();
+    els.addQuestionBtn.addEventListener("click",() => {
+      questionItems.push(createEmptyQuestion());
+      renderQuestions();
+      refreshPreview();
+    });
+
+    els.saveRoleBtn.addEventListener("click",saveRole);
+
+    els.existingClientSelect.addEventListener("change",e => {
+      const id = safeText(e.target.value);
+      if(!id){
+        els.clientId.value = "";
+        return;
+      }
+      setClientSelectionById(id);
+    });
+
+    els.clientName.addEventListener("input",syncClientSelectionByName);
+
+    [
+      els.clientName,els.jobTitle,els.roleFamily,els.location,els.workSetup,els.employmentType,els.seniority,els.roleStatus,
+      els.salaryCurrency,els.salaryPeriod,els.salaryMin,els.salaryMax,els.salaryNotes,els.jobDescription,els.requirements,
+      els.prioritySkills,els.niceToHaveSkills,els.signalNonNegotiables,els.signalRedFlags,els.signalMustHaveSkills,
+      els.signalSuccessSignals,els.signalSetupCriticality,els.signalEnvironmentNotes,els.signalCommunicationWeight,
+      els.signalStakeholderWeight,els.signalAutonomyLevel,els.signalDecisionMaking,els.signalBusinessPriorities
+    ].forEach(el => {
+      el.addEventListener("input",refreshPreview);
+      el.addEventListener("change",refreshPreview);
+    });
+
+    els.clearJDBtn.addEventListener("click",() => {
+      els.jdUpload.value = "";
+      els.jdRawText.value = "";
+      refreshPreview();
+      showNotice("JD input cleared.");
+    });
+
+    els.parseJDBtn.addEventListener("click", async() => {
+      try{
+        let text = safeText(els.jdRawText.value);
+
+        if(!text && els.jdUpload.files && els.jdUpload.files[0]){
+          text = await parseJDFile(els.jdUpload.files[0]);
+          els.jdRawText.value = text;
+        }
+
+        if(!text) throw new Error("Please paste or upload a JD first.");
+
+        applyParsedJDText(text);
+        showNotice("JD parsed successfully.");
+      } catch(error){
+        console.error(error);
+        showNotice(`Failed to parse JD: ${error.message || "Unknown error"}`,"error");
+      }
+    });
+
+    if (els.openHelpBtn) {
+      els.openHelpBtn.addEventListener("click", () => {
+        showNotice("What changed: Save now uses the compiled Preview content for jobs.job_description, so public job.html matches what you preview here.");
+      });
+    }
+
+    (async function init(){
+      renderQuestions();
+      refreshPreview();
+      await loadClients();
+      await loadRoles();
+    })();
   </script>
 </body>
 </html>
