@@ -24,6 +24,7 @@
       --white:#ffffff;
       --success:#166534;
       --danger:#b91c1c;
+      --warning:#b45309;
       --shadow:0 14px 40px rgba(30,58,138,.08),0 3px 10px rgba(15,23,42,.04);
       --radius-xl:24px;
       --radius-lg:18px;
@@ -56,7 +57,6 @@
       font-weight:700;
       white-space:pre-wrap;
     }
-
     .notice.show{display:block}
     .notice.success{background:#ecfdf5;color:var(--success);border:1px solid #bbf7d0}
     .notice.error{background:#fef2f2;color:var(--danger);border:1px solid #fecaca}
@@ -416,7 +416,7 @@
       align-items:flex-start;
       gap:14px;
       flex-wrap:wrap;
-      margin-bottom:10px;
+      margin-bottom:12px;
     }
 
     .application-role{
@@ -444,47 +444,29 @@
       white-space:nowrap;
     }
 
+    .status-submitted{ background:#dbeafe; color:#1d4ed8; }
     .status-failed-paper-screening,
     .status-withdrawn,
     .status-rejected,
-    .status-no-show-onboarding{
-      background:#fee2e2;
-      color:#b91c1c;
-    }
-
+    .status-no-show-onboarding{ background:#fee2e2; color:#b91c1c; }
     .status-endorsed,
     .status-assessment,
     .status-initial,
-    .status-final{
-      background:#fef3c7;
-      color:#b45309;
-    }
-
+    .status-final,
+    .status-for-interview,
+    .status-shortlisted,
+    .status-need-more-profiles{ background:#fef3c7; color:#b45309; }
     .status-hired,
-    .status-onboarded{
-      background:#dcfce7;
-      color:#166534;
-    }
-
-    .application-grid{
-      display:grid;
-      grid-template-columns:repeat(4, 1fr);
-      gap:10px;
-      margin-bottom:12px;
-    }
-
-    .application-box{
-      padding:10px 12px;
-      border-radius:14px;
-      background:var(--bg);
-      border:1px solid var(--line);
-    }
+    .status-onboarded,
+    .status-offered-jo,
+    .status-passed-application{ background:#dcfce7; color:#166534; }
+    .status-on-hold{ background:#ede9fe; color:#6d28d9; }
 
     .application-actions{
       display:flex;
       gap:10px;
       flex-wrap:wrap;
-      justify-content:flex-end;
+      justify-content:flex-start;
     }
 
     .empty{
@@ -524,9 +506,7 @@
       display:none;
     }
 
-    .chat-popup.open{
-      display:block;
-    }
+    .chat-popup.open{ display:block; }
 
     .chat-popup-head{
       padding:14px 16px;
@@ -630,7 +610,6 @@
       .hero-actions{ width:100%; }
       .hero-actions .btn{ width:100%; }
       .info-grid{ grid-template-columns:1fr; }
-      .application-grid{ grid-template-columns:1fr 1fr; }
       .chat-popup{
         right:14px;
         bottom:88px;
@@ -639,7 +618,6 @@
     }
 
     @media (max-width: 520px){
-      .application-grid{ grid-template-columns:1fr; }
       .avatar-edit-btn{
         min-width:78px;
         font-size:.74rem;
@@ -856,6 +834,12 @@
         return parts.slice(0, 2).map(p => p[0].toUpperCase()).join('');
       }
 
+      function resolveJobHref(app) {
+        if (app.job_slug) return `job.html?slug=${encodeURIComponent(app.job_slug)}`;
+        if (app.job_id) return `job.html?id=${encodeURIComponent(app.job_id)}`;
+        return 'applicants.html';
+      }
+
       function validateImageFile(file) {
         if (!file) return;
         const allowedTypes = ['image/jpeg', 'image/png', 'image/webp'];
@@ -868,22 +852,13 @@
         validateImageFile(file);
 
         const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
-        const safeFolder = (user.email || user.id || 'unknown')
-          .replace(/[^a-zA-Z0-9._-]/g, '_');
+        const safeFolder = (user.email || user.id || 'unknown').replace(/[^a-zA-Z0-9._-]/g, '_');
         const path = `profile-photos/${safeFolder}/${Date.now()}-${safeName}`;
 
-        const { error } = await supabaseClient
-          .storage
-          .from('resumes')
-          .upload(path, file, { upsert: false });
-
+        const { error } = await supabaseClient.storage.from('resumes').upload(path, file, { upsert: false });
         if (error) throw error;
 
-        const { data } = supabaseClient
-          .storage
-          .from('resumes')
-          .getPublicUrl(path);
-
+        const { data } = supabaseClient.storage.from('resumes').getPublicUrl(path);
         return data.publicUrl;
       }
 
@@ -896,17 +871,13 @@
           if (!file) return;
 
           try {
-            const {
-              data: { session }
-            } = await supabaseClient.auth.getSession();
-
+            const { data: { session } } = await supabaseClient.auth.getSession();
             if (!session?.user) {
               window.location.href = 'login.html';
               return;
             }
 
             const photoUrl = await uploadProfilePhoto(session.user, file);
-
             const { error } = await supabaseClient
               .from('applicant_profiles')
               .update({ profile_photo_url: photoUrl })
@@ -992,9 +963,7 @@
       }
 
       async function protectApplicantPage() {
-        const {
-          data: { session }
-        } = await supabaseClient.auth.getSession();
+        const { data: { session } } = await supabaseClient.auth.getSession();
 
         if (!session?.user) {
           window.location.href = 'login.html';
@@ -1118,7 +1087,12 @@
             recruiter_email,
             application_source,
             stage_note_label,
-            created_at
+            created_at,
+            jobs:job_id (
+              id,
+              slug,
+              title
+            )
           `)
           .eq('email', user.email)
           .order('created_at', { ascending: false });
@@ -1129,7 +1103,11 @@
           return [];
         }
 
-        applicationsCache = data || [];
+        applicationsCache = (data || []).map(app => ({
+          ...app,
+          job_slug: app.jobs?.slug || '',
+          display_job_title: app.job_title || app.jobs?.title || 'Role'
+        }));
 
         els.applicationsSummary.textContent = applicationsCache.length
           ? `${applicationsCache.length} application${applicationsCache.length > 1 ? 's' : ''}`
@@ -1142,7 +1120,7 @@
 
         els.applicationsList.innerHTML = applicationsCache.map(app => {
           const status = app.status || 'submitted';
-          const canWithdraw = ['submitted', 'assessment', 'initial', 'final', 'endorsed'].includes(
+          const canWithdraw = ['submitted', 'assessment', 'initial', 'final', 'endorsed', 'for interview', 'shortlisted', 'need more profiles', 'on hold'].includes(
             String(status).toLowerCase()
           );
 
@@ -1150,38 +1128,15 @@
             <div class="application-item">
               <div class="application-top">
                 <div>
-                  <div class="application-role">${escapeHtml(app.job_title || '-')}</div>
-                  <div class="application-meta">Applied ${escapeHtml(formatDate(app.created_at))}</div>
+                  <div class="application-role">${escapeHtml(app.display_job_title)}</div>
+                  <div class="application-meta">Application Date: ${escapeHtml(formatDate(app.created_at))}</div>
                 </div>
                 <span class="status-pill ${getStatusClass(status)}">${escapeHtml(status)}</span>
               </div>
 
-              <div class="application-grid">
-                <div class="application-box">
-                  <span class="label">Recruiter</span>
-                  <div class="value">${escapeHtml(app.recruiter_email || '-')}</div>
-                </div>
-                <div class="application-box">
-                  <span class="label">Source</span>
-                  <div class="value">${escapeHtml(app.application_source || '-')}</div>
-                </div>
-                <div class="application-box">
-                  <span class="label">Latest Note</span>
-                  <div class="value">${escapeHtml(app.stage_note_label || '-')}</div>
-                </div>
-                <div class="application-box">
-                  <span class="label">Role ID</span>
-                  <div class="value">${escapeHtml(app.job_id || '-')}</div>
-                </div>
-              </div>
-
               <div class="application-actions">
-                ${canWithdraw
-                  ? `<button class="btn btn-outline btn-small" onclick="window.withdrawApplication('${app.id}')">Withdraw</button>`
-                  : ''}
-                ${app.job_id
-                  ? `<a class="btn btn-outline btn-small" href="job.html?id=${encodeURIComponent(app.job_id)}">View Role</a>`
-                  : ''}
+                ${canWithdraw ? `<button class="btn btn-outline btn-small" onclick="window.withdrawApplication('${app.id}')">Withdraw</button>` : ''}
+                <a class="btn btn-outline btn-small" href="${resolveJobHref(app)}">View Role</a>
               </div>
             </div>
           `;
@@ -1205,7 +1160,8 @@
 
         const { data, error } = await supabaseClient
           .from('jobs')
-          .select('id, title, location, work_setup')
+          .select('id, title, slug, location, work_setup')
+          .eq('status', 'open')
           .limit(8);
 
         if (error) {
@@ -1227,7 +1183,7 @@
               <div class="role-item">
                 <div class="role-title">${escapeHtml(job.title || '-')}</div>
                 <div class="role-meta">${escapeHtml(job.location || '-')} • ${escapeHtml(job.work_setup || '-')}</div>
-                <a class="btn btn-outline btn-small" href="job.html?id=${encodeURIComponent(job.id)}">View Role</a>
+                <a class="btn btn-outline btn-small" href="${job.slug ? `job.html?slug=${encodeURIComponent(job.slug)}` : `job.html?id=${encodeURIComponent(job.id)}`}">View Role</a>
               </div>
             `).join('')}
           </div>
@@ -1329,10 +1285,7 @@
 
         showNotice('Application withdrawn successfully.', 'success');
 
-        const {
-          data: { session }
-        } = await supabaseClient.auth.getSession();
-
+        const { data: { session } } = await supabaseClient.auth.getSession();
         if (session?.user) {
           const apps = await loadApplications(session.user);
           renderNextSteps(currentProfile, apps);
@@ -1348,15 +1301,11 @@
       });
 
       els.sendMessageBtn.addEventListener('click', async () => {
-        const {
-          data: { session }
-        } = await supabaseClient.auth.getSession();
-
+        const { data: { session } } = await supabaseClient.auth.getSession();
         if (!session?.user) {
           window.location.href = 'login.html';
           return;
         }
-
         await sendMessage(session.user);
       });
 
@@ -1367,9 +1316,7 @@
         if (!els.chatPopup.classList.contains('open')) return;
         const clickedInsidePopup = els.chatPopup.contains(e.target);
         const clickedFab = els.chatFab.contains(e.target);
-        if (!clickedInsidePopup && !clickedFab) {
-          closeChat();
-        }
+        if (!clickedInsidePopup && !clickedFab) closeChat();
       });
 
       supabaseClient.auth.onAuthStateChange((event, session) => {
