@@ -564,11 +564,6 @@
                 <div class="score-label">Score Basis</div>
                 <div class="muted" id="scoreBasis">—</div>
               </div>
-              <div class="score-card">
-                <div class="score-label">Evidence Score</div>
-                <div class="score-big" id="evidenceScore">—</div>
-                <div class="muted" id="evidenceLabel">—</div>
-              </div>
             </div>
 
             <div class="section">
@@ -701,8 +696,6 @@
       screeningScore: document.getElementById('screeningScore'),
       screeningReason: document.getElementById('screeningReason'),
       scoreBasis: document.getElementById('scoreBasis'),
-      evidenceScore: document.getElementById('evidenceScore'),
-      evidenceLabel: document.getElementById('evidenceLabel'),
       screeningReviewMeta: document.getElementById('screeningReviewMeta'),
       screeningReviewSummary: document.getElementById('screeningReviewSummary'),
       screeningReviewStrengths: document.getElementById('screeningReviewStrengths'),
@@ -811,51 +804,6 @@
       if (score >= 60) return 'strong';
       if (score >= 40) return 'moderate';
       return 'weak';
-    }
-
-    function formatStatusLabel(status) {
-      const value = safeText(status).toLowerCase();
-      if (!value) return '—';
-      return value
-        .split(' ')
-        .map((word) => word ? word.charAt(0).toUpperCase() + word.slice(1) : '')
-        .join(' ');
-    }
-
-    function computeEvidenceScore(profile, app, job) {
-      let score = 0;
-      const missing = [];
-
-      if (safeText(profile?.full_name || app?.email)) score += 5; else missing.push('name');
-      if (safeText(profile?.email || app?.email)) score += 5; else missing.push('email');
-      if (safeText(profile?.phone)) score += 5; else missing.push('phone');
-      if (safeText(getLocation(profile))) score += 5; else missing.push('location');
-      if (safeText(profile?.headline || profile?.current_title)) score += 10; else missing.push('title');
-      if (safeText(formatExperience(profile)) !== '—') score += 10; else missing.push('experience');
-      if (safeText(profile?.highest_education || profile?.degree_course)) score += 5; else missing.push('education');
-
-      const hasResume = !!safeText(profile?.resume_path || profile?.resume_url || profile?.resume_file_name);
-      const resumeText = safeText(profile?.raw_resume_text || profile?.resume_text);
-      if (hasResume) score += 10; else missing.push('resume file');
-      if (resumeText) score += 15; else missing.push('resume text');
-      if (resumeText.split(/\s+/).filter(Boolean).length >= 80) score += 15;
-
-      const screening = parseScreeningPayload(app);
-      const hasUsableScreening = screening.some((item) => {
-        const combined = getScreeningTextParts(item).join(' ');
-        return normalizeWords(combined).length >= 8;
-      });
-      if (hasUsableScreening) score += 10;
-      else if (job?.screening_enabled) missing.push('usable screening');
-
-      if (safeText(app?.recruiter_email)) score += 5; else missing.push('recruiter');
-      const status = normalizeStatus(app?.status);
-      if (status && status !== 'submitted') score += 10;
-
-      score = Math.min(score, 100);
-      const band = score >= 70 ? 'High' : score >= 40 ? 'Medium' : 'Low';
-
-      return { score, band, missing };
     }
 
     function summarizeRoleFitLabel(roleFit) {
@@ -1090,54 +1038,85 @@
         safeText(profile?.raw_resume_text),
         safeText(profile?.resume_text),
         safeText(profile?.parsed_resume_json ? JSON.stringify(profile.parsed_resume_json) : ''),
-      ].join(' ');
+      ].join(' ').trim();
+
       const resumeWords = normalizeWords(resumeText);
       if (!hasResumeArtifact && resumeWords.length < 5) {
         return {
           hasResume: false,
           score: 0,
+          qualityScore: 0,
+          matchScore: 0,
           reasons: ['resume missing'],
           roleFit: { fit: 'weak', hitKeywords: [] },
         };
       }
 
       const reasons = [];
-      let score = 18;
-      if (hasResumeArtifact) reasons.push('resume file present');
+      let qualityScore = 0;
+      let matchScore = 0;
 
-      if (resumeWords.length >= 180) {
-        score += 18;
-        reasons.push('substantial resume text');
-      } else if (resumeWords.length >= 90) {
-        score += 12;
-        reasons.push('good resume text');
+      if (hasResumeArtifact) {
+        qualityScore += 18;
+        reasons.push('resume file present');
+      }
+
+      if (resumeWords.length >= 220) {
+        qualityScore += 28;
+        reasons.push('strong resume depth');
+      } else if (resumeWords.length >= 120) {
+        qualityScore += 22;
+        reasons.push('good resume depth');
+      } else if (resumeWords.length >= 60) {
+        qualityScore += 14;
+        reasons.push('basic resume depth');
       } else {
-        score += 6;
+        qualityScore += 6;
         reasons.push('limited resume text');
+      }
+
+      const hasEducationSignals = /(bachelor|college|university|degree|educational attainment|graduate)/i.test(resumeText);
+      const hasExperienceSignals = /(internship|intern|experience|worked|employment|project|responsibilities|skills|achievements)/i.test(resumeText);
+
+      if (hasEducationSignals) {
+        qualityScore += 8;
+        reasons.push('education captured in resume');
+      }
+      if (hasExperienceSignals) {
+        qualityScore += 10;
+        reasons.push('experience or internship evidence found');
+      }
+      if (profile?.parsed_resume_json && resumeWords.length >= 25) {
+        qualityScore += 6;
+        reasons.push('resume structured');
       }
 
       const roleFit = evaluateRoleFit(resumeText, job);
       if (roleFit.fit === 'strong') {
-        score += 48;
+        matchScore += 34;
         reasons.push('resume strongly aligns with role');
       } else if (roleFit.fit === 'moderate') {
-        score += 28;
-        reasons.push('some resume-role overlap');
+        matchScore += 20;
+        reasons.push('resume partly aligns with role');
       } else {
-        score += 2;
-        reasons.push('weak resume-role overlap');
-      }
-
-      if (profile?.parsed_resume_json && resumeWords.length >= 25) {
-        score += 6;
-        reasons.push('resume structured');
+        matchScore += 4;
+        reasons.push('resume weakly aligned to role');
       }
 
       if (roleFit.hitKeywords.length) {
         reasons.push(`matched role terms: ${roleFit.hitKeywords.slice(0, 5).join(', ')}`);
       }
 
-      return { hasResume: true, score: clamp(score, 0, 100), reasons, roleFit };
+      const score = clamp(Math.round((qualityScore * 0.6) + (matchScore * 0.4)), 0, 100);
+
+      return {
+        hasResume: true,
+        score,
+        qualityScore: clamp(Math.round(qualityScore), 0, 100),
+        matchScore: clamp(Math.round(matchScore), 0, 100),
+        reasons,
+        roleFit,
+      };
     }
 
     function scoreScreeningComponent(app, job) {
@@ -1601,14 +1580,12 @@
           const profile = profilesById.get(app.applicant_profile_id) || profiles.find((p) => safeText(p.email).toLowerCase() === safeText(app.email).toLowerCase()) || {};
           const job = jobsById.get(app.job_id) || jobs.find((j) => safeText(j.title) === safeText(app.job_title)) || {};
           const score = computeOverallScore(profile, app, job);
-          const evidence = computeEvidenceScore(profile, app, job);
           return {
             id: app.id,
             app,
             profile,
             job,
             score,
-            evidence,
             displayName: safeText(profile.full_name || profile.name || app.email || 'Unnamed candidate'),
             status: safeText(app.status || 'submitted'),
             recruiter: safeText(app.recruiter_email || 'Unassigned'),
@@ -1715,7 +1692,7 @@
               <div class="small">${escapeHtml(row.job?.work_setup || '')}</div>
             </td>
             <td>${escapeHtml(row.clientName)}</td>
-            <td><span class="pill ${tone}">${escapeHtml(formatStatusLabel(row.status || 'submitted'))}</span></td>
+            <td><span class="pill ${tone}">${escapeHtml(row.status || 'submitted')}</span></td>
             <td>${escapeHtml(row.recruiter)}</td>
             <td>${escapeHtml(formatDateTime(row.appliedAt))}</td>
             <td class="score-cell">\n              <span class="pill ${scoreTone}">${row.score.overall}%</span>\n            </td>
@@ -1754,12 +1731,12 @@
       els.profileScore.textContent = `${row.score.profilePart.score}%`;
       els.profileReason.textContent = row.score.profilePart.reasons.join(' • ') || 'No profile evidence';
       els.resumeScore.textContent = `${row.score.resumePart.score}%`;
-      els.resumeReason.textContent = row.score.resumePart.reasons.join(' • ') || 'No resume evidence';
+      els.resumeReason.textContent = row.score.resumePart.hasResume
+        ? `Quality ${row.score.resumePart.qualityScore || 0}% • Match ${row.score.resumePart.matchScore || 0}% • ${row.score.resumePart.reasons.join(' • ')}`
+        : (row.score.resumePart.reasons.join(' • ') || 'No resume evidence');
       els.screeningScore.textContent = row.score.screeningPart.score == null ? 'N/A' : `${row.score.screeningPart.score}%`;
       els.screeningReason.textContent = row.score.screeningPart.notes || row.score.screeningPart.reasons.join(' • ') || 'No screening evidence';
       els.scoreBasis.textContent = row.score.basis;
-      els.evidenceScore.textContent = `${row.evidence?.score ?? 0}%`;
-      els.evidenceLabel.textContent = `${row.evidence?.band || 'Low'} evidence confidence${row.evidence?.missing?.length ? ` • Missing: ${row.evidence.missing.slice(0, 3).join(', ')}` : ''}`;
 
       els.snapEmail.textContent = row.profile?.email || row.app?.email || '—';
       els.snapPhone.textContent = row.profile?.phone || '—';
