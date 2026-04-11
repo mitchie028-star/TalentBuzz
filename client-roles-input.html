@@ -159,7 +159,7 @@
           <div class="form-grid">
             <div class="field field-full"><label for="jdUpload">Upload JD File</label><input id="jdUpload" type="file" accept=".txt,.md,.docx,.pdf" /><div class="helper">Best results: text PDF, DOCX, TXT, or pasted JD text.</div></div>
             <div class="field field-full"><label for="jdRawText">Or Paste JD Text</label><textarea id="jdRawText" placeholder="Paste the JD here if you do not want to upload a file."></textarea></div>
-            <div class="field-full"><label for="jobDescription">Role Overview / Job Description</label><textarea id="jobDescription" placeholder="Write the role overview, impact, and day-to-day responsibilities."></textarea><div class="helper">This is the editable overview field only. The final saved job description comes from the full compiled Preview.</div></div>
+            <div class="field-full"><label for="jobDescription">Role Overview / Job Description</label><textarea id="jobDescription" placeholder="Write the role overview, impact, and day-to-day responsibilities."></textarea><div class="helper">This is the editable overview field only. The saved public job description is cleaned for candidates automatically, while the internal preview stays recruiter-facing.</div></div>
             <div class="field-full"><label for="requirements">Core Requirements</label><textarea id="requirements" placeholder="Add role requirements. Use one line per item or paste your existing notes."></textarea></div>
             <div class="field"><label for="prioritySkills">Priority Skills</label><textarea id="prioritySkills" placeholder="e.g. Qlik Sense, SQL, stakeholder communication"></textarea></div>
             <div class="field"><label for="niceToHaveSkills">Nice-to-Have Skills</label><textarea id="niceToHaveSkills" placeholder="e.g. Snowflake, ETL, enterprise analytics"></textarea></div>
@@ -189,7 +189,7 @@
         </div>
 
         <div class="tab-panel" data-panel="preview">
-          <div class="section-title"><div><h3>Role Preview</h3><p>Check the final structure before saving. This exact compiled preview is what gets stored into <strong>jobs.job_description</strong>.</p></div></div>
+          <div class="section-title"><div><h3>Role Preview</h3><p>Check the internal recruiter-facing preview before saving. A separate cleaned candidate-facing description is saved into <strong>jobs.job_description</strong>.</p></div></div>
           <div class="preview-box" id="jdPreview">No preview yet.</div>
         </div>
       </div>
@@ -1249,7 +1249,78 @@ function detectAnswerSignals(answer) {
       return "";
     }
 
-    function buildCompiledPreviewText(){
+    function normalizePlainBullets(lines = []){
+      return (lines || [])
+        .map(line => safeText(line).replace(/^[-•*]\s*/, ""))
+        .filter(Boolean);
+    }
+
+    function cleanForPublicText(value){
+      return safeText(value)
+        .replace(/\r/g, "")
+        .split("\n")
+        .map(line => line.trim())
+        .filter(Boolean)
+        .join("\n");
+    }
+
+    function buildPublicJobDescription(){
+      const salaryLine = formatSalaryBudgetLine({
+        salary_min: els.salaryMin.value,
+        salary_max: els.salaryMax.value,
+        salary_currency: els.salaryCurrency.value,
+        salary_period: els.salaryPeriod.value
+      });
+
+      const rawJD = safeText(els.jdRawText.value);
+      const derivedShift = extractShiftFromText(rawJD);
+
+      const overview = cleanForPublicText(els.jobDescription.value);
+      const requirements = normalizePlainBullets(normalizeLines(els.requirements.value));
+      const prioritySkills = normalizePlainBullets(normalizeLines(els.prioritySkills.value));
+      const niceToHave = normalizePlainBullets(normalizeLines(els.niceToHaveSkills.value));
+
+      const sections = [];
+
+      if (overview) {
+        sections.push("About the Role");
+        sections.push(overview);
+        sections.push("");
+      }
+
+      if (requirements.length) {
+        sections.push("Requirements");
+        requirements.forEach(item => sections.push(`- ${item}`));
+        sections.push("");
+      }
+
+      if (prioritySkills.length) {
+        sections.push("Priority Skills");
+        prioritySkills.forEach(item => sections.push(`- ${item}`));
+        sections.push("");
+      }
+
+      if (niceToHave.length) {
+        sections.push("Nice to Have");
+        niceToHave.forEach(item => sections.push(`- ${item}`));
+        sections.push("");
+      }
+
+      const setupBits = [];
+      if (safeText(els.workSetup.value)) setupBits.push(`Work Setup: ${safeText(els.workSetup.value)}`);
+      if (derivedShift) setupBits.push(`Shift: ${derivedShift}`);
+      if (salaryLine) setupBits.push(`Salary: ${salaryLine}`);
+
+      if (setupBits.length) {
+        sections.push("Work setup & shift");
+        setupBits.forEach(item => sections.push(item));
+        sections.push("");
+      }
+
+      return sections.join("\n").trim();
+    }
+
+    function buildInternalPreviewText(){
       const salaryLine = formatSalaryBudgetLine({
         salary_min: els.salaryMin.value,
         salary_max: els.salaryMax.value,
@@ -1296,8 +1367,12 @@ function detectAnswerSignals(answer) {
       ].filter(Boolean).join("\n");
     }
 
+    function buildCompiledPreviewText(){
+      return buildInternalPreviewText();
+    }
+
     function refreshPreview(){
-      els.jdPreview.textContent = buildCompiledPreviewText();
+      els.jdPreview.textContent = buildInternalPreviewText();
     }
 
     async function parseJDFile(file){
@@ -1492,7 +1567,8 @@ function detectAnswerSignals(answer) {
           ? ""
           : safeText(els.screeningSummaryOutput.textContent);
 
-      const compiledJobDescription = buildCompiledPreviewText();
+      const compiledJobDescription = buildInternalPreviewText();
+      const publicJobDescription = buildPublicJobDescription();
 
       return {
         title,
@@ -1503,10 +1579,8 @@ function detectAnswerSignals(answer) {
         employment_type: safeText(els.employmentType.value) || null,
         work_setup: safeText(els.workSetup.value) || null,
 
-        // Store the compiled preview here.
-        job_description: compiledJobDescription || null,
-
-        // Keep raw and editable pieces inside ai_screening_config to stay schema-safe.
+        // Save the cleaned candidate-facing description here.
+        job_description: publicJobDescription || null,
 
         slug: slugify(`${clientName}-${title}`) || null,
         salary_currency: safeText(els.salaryCurrency.value) || "PHP",
@@ -1528,6 +1602,7 @@ function detectAnswerSignals(answer) {
           salary_period: safeText(els.salaryPeriod.value) || "Monthly",
           jd_overview_only: safeText(els.jobDescription.value),
           compiled_job_description: compiledJobDescription,
+          public_job_description: publicJobDescription,
           jd_raw_text: safeText(els.jdRawText.value)
         },
         status: statusLower,
