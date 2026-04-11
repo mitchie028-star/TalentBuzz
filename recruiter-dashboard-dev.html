@@ -849,6 +849,13 @@
       const screeningFit = row.score?.screeningPart?.roleFit;
       const screening = row.score?.screeningPart;
       const resume = row.score?.resumePart;
+      const identity = row.identity;
+
+      if (identity?.risk === 'high') {
+        reasons.push('resume mismatch detected');
+      } else if (identity?.risk === 'medium') {
+        reasons.push('resume details need verification');
+      }
 
       reasons.push(summarizeRoleFitLabel(profileFit));
 
@@ -1377,6 +1384,7 @@
       const profilePart = scoreProfileComponent(profile, job);
       const resumePart = scoreResumeComponent(profile, app, job);
       const screeningPart = scoreScreeningComponent(app, job);
+      const identity = computeIdentityCheck(profile, app);
 
       let overall = 0;
       let mode = '';
@@ -1423,11 +1431,23 @@
       if (profilePart.roleFit?.fit === 'weak' && resumePart.roleFit?.fit === 'weak') overall -= 8;
       if (!resumePart.hasResume && !screeningPart.isValid) overall = Math.min(overall, 20);
 
+      // Identity integrity should materially affect scoring.
+      if (identity.risk === 'high') {
+        overall -= 20;
+        confidence = 'very low confidence';
+        basis += ' • Identity mismatch penalty 20';
+      } else if (identity.risk === 'medium') {
+        overall -= 10;
+        confidence = confidence === 'high confidence' ? 'medium confidence' : 'low confidence';
+        basis += ' • Identity mismatch penalty 10';
+      }
+
       return {
         overall: Math.round(clamp(overall, 0, 100)),
         profilePart,
         resumePart,
         screeningPart,
+        identity,
         mode,
         confidence,
         basis,
@@ -1761,7 +1781,7 @@
       els.profileReason.textContent = row.score.profilePart.reasons.join(' • ') || 'No profile evidence';
       els.resumeScore.textContent = `${row.score.resumePart.score}%`;
       els.resumeReason.textContent = row.score.resumePart.hasResume
-        ? `Quality ${row.score.resumePart.qualityScore || 0}% • Match ${row.score.resumePart.matchScore || 0}% • ${row.score.resumePart.reasons.join(' • ')}`
+        ? `Quality ${row.score.resumePart.qualityScore || 0}% • Match ${row.score.resumePart.matchScore || 0}% • ${row.score.resumePart.reasons.join(' • ')}${row.identity?.risk === 'high' ? ' • identity mismatch detected' : row.identity?.risk === 'medium' ? ' • identity needs verification' : ''}`
         : (row.score.resumePart.reasons.join(' • ') || 'No resume evidence');
       els.screeningScore.textContent = row.score.screeningPart.score == null ? 'N/A' : `${row.score.screeningPart.score}%`;
       els.screeningReason.textContent = row.score.screeningPart.notes || row.score.screeningPart.reasons.join(' • ') || 'No screening evidence';
