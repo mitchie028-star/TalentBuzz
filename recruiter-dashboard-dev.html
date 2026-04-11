@@ -585,6 +585,22 @@
             </div>
 
             <div class="section">
+              <h3>Screening Review</h3>
+              <div class="muted" id="screeningReviewMeta">Review is generated from screening responses already saved on the application.</div>
+              <div class="kv" style="margin-top:12px;">
+                <div class="kv-item full"><div class="kv-label">AI Summary</div><div class="kv-value" id="screeningReviewSummary">—</div></div>
+                <div class="kv-item"><div class="kv-label">Strengths</div><div class="kv-value" id="screeningReviewStrengths">—</div></div>
+                <div class="kv-item"><div class="kv-label">Risks</div><div class="kv-value" id="screeningReviewRisks">—</div></div>
+                <div class="kv-item full"><div class="kv-label">Follow-up Questions</div><div class="kv-value" id="screeningReviewFollowups">—</div></div>
+                <div class="kv-item full"><div class="kv-label">Recommended Recruiter Note</div><div class="kv-value" id="screeningReviewNotes">—</div></div>
+              </div>
+              <div class="section-actions">
+                <button class="btn btn-xs" id="generateScreeningReviewBtn" type="button">Generate Review</button>
+                <button class="btn btn-xs" id="insertScreeningReviewBtn" type="button">Insert into Notes</button>
+              </div>
+            </div>
+
+            <div class="section">
               <h3>Quick Update</h3>
               <div class="kv">
                 <div class="kv-item">
@@ -641,6 +657,7 @@
       filteredRows: [],
       selectedId: null,
       selectedResumeUrl: '',
+      selectedScreeningReview: null,
       loading: false,
     };
 
@@ -674,6 +691,14 @@
       screeningScore: document.getElementById('screeningScore'),
       screeningReason: document.getElementById('screeningReason'),
       scoreBasis: document.getElementById('scoreBasis'),
+      screeningReviewMeta: document.getElementById('screeningReviewMeta'),
+      screeningReviewSummary: document.getElementById('screeningReviewSummary'),
+      screeningReviewStrengths: document.getElementById('screeningReviewStrengths'),
+      screeningReviewRisks: document.getElementById('screeningReviewRisks'),
+      screeningReviewFollowups: document.getElementById('screeningReviewFollowups'),
+      screeningReviewNotes: document.getElementById('screeningReviewNotes'),
+      generateScreeningReviewBtn: document.getElementById('generateScreeningReviewBtn'),
+      insertScreeningReviewBtn: document.getElementById('insertScreeningReviewBtn'),
       snapEmail: document.getElementById('snapEmail'),
       snapPhone: document.getElementById('snapPhone'),
       snapLocation: document.getElementById('snapLocation'),
@@ -1007,6 +1032,125 @@
       };
     }
 
+
+    function buildScreeningEntries(app) {
+      return parseScreeningPayload(app).map((item, index) => {
+        if (typeof item === 'string') {
+          return { question: `Question ${index + 1}`, answer: item };
+        }
+        return {
+          question: safeText(item.question || item.prompt || `Question ${index + 1}`),
+          answer: safeText(item.answer || item.response || item.follow_up_answer || item.followUpAnswer || item.notes),
+        };
+      }).filter((entry) => entry.question || entry.answer);
+    }
+
+    function sentenceCase(text) {
+      const value = safeText(text);
+      return value ? value.charAt(0).toUpperCase() + value.slice(1) : '';
+    }
+
+    function buildScreeningReview(row) {
+      const entries = buildScreeningEntries(row.app);
+      const validEntries = entries.filter((entry) => safeText(entry.answer));
+      const score = row.score?.screeningPart;
+      const strengths = [];
+      const risks = [];
+      const followups = [];
+      const strongSignals = [];
+      const weakSignals = [];
+      const placeholders = new Set(['test','na','n/a','none','no','yes','ok','okay','sample','demo','nil','-','.','x']);
+      const profileTitle = safeText(row.profile?.current_title || row.profile?.headline);
+      const roleTitle = safeText(row.jobTitle);
+
+      validEntries.forEach((entry) => {
+        const answer = safeText(entry.answer);
+        const words = normalizeWords(answer);
+        const meaningful = words.filter((word) => !placeholders.has(word));
+        const question = safeText(entry.question) || 'screening prompt';
+
+        if (meaningful.length >= 18) {
+          strongSignals.push(`${question}: detailed answer`);
+        } else if (meaningful.length >= 8) {
+          strongSignals.push(`${question}: usable answer`);
+        } else {
+          weakSignals.push(`${question}: answer too thin`);
+          followups.push(`Ask the candidate to expand on: ${question}. What specific tools, workflow, volume, or outcomes can they describe?`);
+        }
+
+        const lower = answer.toLowerCase();
+        if (/(manage|led|supervis|trained|owned|implemented|improved|reduced|increased|handled)/.test(lower)) {
+          strengths.push(`Shows hands-on ownership in response to "${question}".`);
+        }
+        if (/(not sure|limited|basic|little|none|no experience|new to)/.test(lower)) {
+          risks.push(`Possible gap surfaced in "${question}".`);
+          followups.push(`Clarify the depth of experience behind "${question}" and ask for a concrete recent example.`);
+        }
+        if (/(medical|clinical|denials|appeals|coder|coding|drg|icd|cpt|utilization)/.test(lower) && /medical|clinical|denials|appeals|coder|coding|drg|icd|cpt|utilization/.test(roleTitle.toLowerCase())) {
+          strengths.push('Response shows domain language relevant to the role.');
+        }
+      });
+
+      if (profileTitle && roleTitle && profileTitle.toLowerCase().includes(roleTitle.split(' ')[0].toLowerCase())) {
+        strengths.push('Profile title suggests baseline relevance to the applied role.');
+      }
+
+      if (!validEntries.length) {
+        risks.push('No usable screening answers were found.');
+        followups.push('Ask the candidate to complete the screening properly before endorsement.');
+      }
+
+      if (!score?.isValid) {
+        risks.push('Screening responses were not strong enough to contribute materially to AI scoring.');
+      }
+
+      const uniqueStrengths = uniq(strengths);
+      const uniqueRisks = uniq(risks);
+      const uniqueFollowups = uniq(followups).slice(0, 5);
+
+      const summaryParts = [];
+      if (score?.isValid) {
+        summaryParts.push(`Screening review found ${validEntries.length} usable response${validEntries.length === 1 ? '' : 's'} with a ${score.quality || 'moderate'} quality signal.`);
+      } else {
+        summaryParts.push('Screening review found weak or incomplete screening evidence.');
+      }
+      if (strongSignals.length) summaryParts.push(`Best signals: ${strongSignals.slice(0, 2).join('; ')}.`);
+      if (weakSignals.length) summaryParts.push(`Main concerns: ${weakSignals.slice(0, 2).join('; ')}.`);
+
+      const noteBlock = [
+        'AI Screening Review',
+        `Summary: ${summaryParts.join(' ') || 'No screening summary available.'}`,
+        `Strengths: ${uniqueStrengths.length ? uniqueStrengths.join(' | ') : 'No clear strengths from screening yet.'}`,
+        `Risks: ${uniqueRisks.length ? uniqueRisks.join(' | ') : 'No major screening risks flagged.'}`,
+        `Follow-up Questions: ${uniqueFollowups.length ? uniqueFollowups.join(' | ') : 'No follow-up questions needed.'}`,
+      ].join('\n');
+
+      return {
+        summary: summaryParts.join(' ') || 'No screening summary available.',
+        strengths: uniqueStrengths,
+        risks: uniqueRisks,
+        followups: uniqueFollowups,
+        noteBlock,
+      };
+    }
+
+    function renderScreeningReview(review) {
+      els.screeningReviewSummary.textContent = review?.summary || '—';
+      els.screeningReviewStrengths.textContent = review?.strengths?.length ? review.strengths.join('\n• ').replace(/^/, '• ') : '—';
+      els.screeningReviewRisks.textContent = review?.risks?.length ? review.risks.join('\n• ').replace(/^/, '• ') : '—';
+      els.screeningReviewFollowups.textContent = review?.followups?.length ? review.followups.join('\n• ').replace(/^/, '• ') : '—';
+      els.screeningReviewNotes.textContent = review?.noteBlock || '—';
+      els.screeningReviewMeta.textContent = review ? 'Generated from the candidate\'s saved screening answers and scoring evidence.' : 'Review is generated from screening responses already saved on the application.';
+    }
+
+    function insertScreeningReviewIntoNotes() {
+      if (!state.selectedScreeningReview) return;
+      const current = safeText(els.editNotes.value);
+      const block = state.selectedScreeningReview.noteBlock;
+      els.editNotes.value = current ? `${current}\n\n${block}` : block;
+      showNotice('Screening review inserted into recruiter notes.', 'success');
+    }
+
     function computeOverallScore(profile, app, job) {
       const profilePart = scoreProfileComponent(profile);
       const resumePart = scoreResumeComponent(profile, app, job);
@@ -1217,7 +1361,7 @@
       els.applicationsTable.innerHTML = '<tr><td colspan="8" class="small">Loading candidates...</td></tr>';
       try {
         const [applications, profiles, jobs] = await Promise.all([
-          fetchAll('applications', `id,email,job_id,job_title,status,created_at,applicant_profile_id,recruiter_email,application_source,screening_score,screening_answers,screening_responses,screening_review,last_status_change_at,recruiter_notes,stage_note_label,stage_note_updated_at,resume_path,resume_url,resume_file_name,endorsement_status`),
+          fetchAll('applications', `id,email,job_id,job_title,status,created_at,applicant_profile_id,recruiter_email,application_source,screening_score,screening_answers,screening_responses,last_status_change_at,recruiter_notes,stage_note_label,stage_note_updated_at,resume_path,resume_url,resume_file_name,endorsement_status`),
           fetchAll('applicant_profiles', `id,full_name,email,phone,location,headline,current_title,resume_url,resume_path,resume_file_name,raw_resume_text,parsed_resume_json,years_of_experience,experience_years,years_experience,total_experience,experience,highest_education,degree_course,linkedin,portfolio_url,updated_at`),
           fetchAll('jobs', `id,title,client_name,job_description,keywords,industry,screening_enabled,status,work_setup,location,slug`),
         ]);
@@ -1408,6 +1552,8 @@
       els.editStatus.value = row.status || 'submitted';
       els.editNotes.value = row.app?.recruiter_notes || row.app?.stage_note_label || '';
       els.editResumeFile.value = '';
+      state.selectedScreeningReview = buildScreeningReview(row);
+      renderScreeningReview(state.selectedScreeningReview);
 
       els.resumeMeta.textContent = 'Resolving resume...';
       els.viewResumeBtn.disabled = true;
@@ -1427,6 +1573,8 @@
     function closeDrawer() {
       state.selectedId = null;
       state.selectedResumeUrl = '';
+      state.selectedScreeningReview = null;
+      renderScreeningReview(null);
       els.workspace.classList.remove('drawer-open');
       renderTable();
       updateDrawerNavMeta();
@@ -1531,6 +1679,14 @@
       els.prevBtn.addEventListener('click', () => openSelectedOffset(-1));
       els.nextBtn.addEventListener('click', () => openSelectedOffset(1));
       els.saveBtn.addEventListener('click', saveSelectedRow);
+      els.generateScreeningReviewBtn.addEventListener('click', () => {
+        const row = state.allRows.find((item) => item.id === state.selectedId);
+        if (!row) return;
+        state.selectedScreeningReview = buildScreeningReview(row);
+        renderScreeningReview(state.selectedScreeningReview);
+        showNotice('Screening review generated from saved responses.', 'success');
+      });
+      els.insertScreeningReviewBtn.addEventListener('click', insertScreeningReviewIntoNotes);
       els.viewResumeBtn.addEventListener('click', () => openResumeModal(state.selectedResumeUrl, 'Resume Viewer'));
       els.downloadResumeBtn.addEventListener('click', () => {
         if (!state.selectedResumeUrl) return showNotice('Resume file not found in storage.', 'error');
