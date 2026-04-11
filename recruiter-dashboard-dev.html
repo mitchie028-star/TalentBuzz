@@ -796,9 +796,45 @@
 
     function scoreTier(score) {
       if (!Number.isFinite(score)) return 'weak';
-      if (score >= 75) return 'strong';
-      if (score >= 45) return 'moderate';
+      if (score >= 60) return 'strong';
+      if (score >= 40) return 'moderate';
       return 'weak';
+    }
+
+    function summarizeRoleFitLabel(roleFit) {
+      if (!roleFit) return 'role fit unclear';
+      if (roleFit.fit === 'strong') return 'strong role match';
+      if (roleFit.fit === 'moderate') return 'partial role match';
+      return 'weak role match';
+    }
+
+    function buildVisibleScoreReasons(row) {
+      const reasons = [];
+      const profileFit = row.score?.profilePart?.roleFit;
+      const resumeFit = row.score?.resumePart?.roleFit;
+      const screeningFit = row.score?.screeningPart?.roleFit;
+      const screening = row.score?.screeningPart;
+      const resume = row.score?.resumePart;
+
+      reasons.push(summarizeRoleFitLabel(profileFit));
+
+      if (resume?.hasResume) {
+        if (resumeFit?.fit === 'strong') reasons.push('resume aligns well');
+        else if (resumeFit?.fit === 'moderate') reasons.push('resume partly aligns');
+        else reasons.push('resume weakly aligned');
+      } else {
+        reasons.push('resume missing');
+      }
+
+      if (screening?.hasScreening) {
+        if (screening?.isValid && screeningFit?.fit === 'strong') reasons.push('screening strongly matches role');
+        else if (screening?.isValid && screeningFit?.fit === 'moderate') reasons.push('screening partly matches role');
+        else reasons.push('screening weak or generic');
+      } else {
+        reasons.push('no screening');
+      }
+
+      return reasons.slice(0, 3);
     }
 
     function formatExperience(profile) {
@@ -1283,30 +1319,44 @@
       let basis = '';
 
       if (screeningPart.isValid && resumePart.hasResume) {
-        overall = profilePart.score * 0.20 + resumePart.score * 0.40 + screeningPart.score * 0.40;
+        overall = profilePart.score * 0.15 + resumePart.score * 0.45 + screeningPart.score * 0.40;
         mode = 'Profile + Resume + Screening';
         confidence = 'high confidence';
-        basis = 'Profile 20% • Resume 40% • Screening 40%';
+        basis = 'Profile 15% • Resume 45% • Screening 40%';
       } else if (!screeningPart.isValid && resumePart.hasResume) {
-        overall = profilePart.score * 0.30 + resumePart.score * 0.70;
+        overall = profilePart.score * 0.20 + resumePart.score * 0.80;
         mode = 'Profile + Resume';
         confidence = resumePart.score >= 55 ? 'medium confidence' : 'low confidence';
-        basis = 'Profile 30% • Resume 70%';
+        basis = 'Profile 20% • Resume 80%';
       } else if (screeningPart.isValid && !resumePart.hasResume) {
-        overall = profilePart.score * 0.35 + screeningPart.score * 0.65;
+        overall = profilePart.score * 0.20 + screeningPart.score * 0.80;
         mode = 'Profile + Screening';
-        confidence = 'medium confidence';
-        basis = 'Profile 35% • Screening 65%';
+        confidence = screeningPart.score >= 55 ? 'medium confidence' : 'low confidence';
+        basis = 'Profile 20% • Screening 80%';
       } else {
-        overall = Math.min(35, profilePart.score * 0.6);
+        overall = profilePart.score * 0.35;
         mode = 'Limited Evidence';
         confidence = 'low confidence';
         basis = 'No valid resume or screening evidence';
       }
 
-      if (!resumePart.hasResume && !screeningPart.isValid) {
-        overall = Math.min(overall, 35);
-      }
+      const strongSignals = [
+        profilePart.roleFit?.fit === 'strong',
+        resumePart.roleFit?.fit === 'strong',
+        screeningPart.roleFit?.fit === 'strong' && screeningPart.isValid
+      ].filter(Boolean).length;
+
+      const weakSignals = [
+        profilePart.roleFit?.fit === 'weak',
+        resumePart.roleFit?.fit === 'weak',
+        (!screeningPart.isValid || screeningPart.roleFit?.fit === 'weak')
+      ].filter(Boolean).length;
+
+      if (strongSignals >= 2) overall += 8;
+      if (strongSignals === 3) overall += 6;
+      if (weakSignals >= 2) overall -= 10;
+      if (profilePart.roleFit?.fit === 'weak' && resumePart.roleFit?.fit === 'weak') overall -= 8;
+      if (!resumePart.hasResume && !screeningPart.isValid) overall = Math.min(overall, 20);
 
       return {
         overall: Math.round(clamp(overall, 0, 100)),
@@ -1594,11 +1644,7 @@
       els.applicationsTable.innerHTML = state.filteredRows.map((row) => {
         const tone = getStatusTone(row.status);
         const scoreTone = scoreTier(row.score.overall) === 'strong' ? 'good' : scoreTier(row.score.overall) === 'moderate' ? 'warn' : 'bad';
-        const reasons = uniq([
-          row.score.resumePart.reasons[0],
-          row.score.screeningPart.reasons?.[0],
-          row.score.profilePart.reasons[0],
-        ]).filter(Boolean).join(' • ');
+        const reasons = buildVisibleScoreReasons(row).join(' • ');
         return `
           <tr data-id="${escapeHtml(row.id)}" class="${row.id === state.selectedId ? 'active' : ''}">
             <td>
@@ -1649,11 +1695,7 @@
       els.overallScore.textContent = `${row.score.overall}%`;
       els.scoringMode.textContent = row.score.mode;
       els.scoreConfidence.textContent = row.score.confidence;
-      els.overallReason.textContent = [
-        row.score.profilePart.reasons[0],
-        row.score.resumePart.reasons[0],
-        row.score.screeningPart.reasons?.[0],
-      ].filter(Boolean).join(' • ') || 'Limited evidence';
+      els.overallReason.textContent = buildVisibleScoreReasons(row).join(' • ') || 'Limited evidence';
       els.profileScore.textContent = `${row.score.profilePart.score}%`;
       els.profileReason.textContent = row.score.profilePart.reasons.join(' • ') || 'No profile evidence';
       els.resumeScore.textContent = `${row.score.resumePart.score}%`;
