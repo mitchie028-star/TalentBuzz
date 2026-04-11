@@ -2420,25 +2420,68 @@
         return "status-" + String(status || "submitted").toLowerCase().replace(/\s+/g, "-").replace(/[()]/g, "");
       }
 
+      
+      function safeText(value, fallback = "-") {
+        if (value === null || value === undefined) return fallback;
+        const text = String(value).trim();
+        return text === "" ? fallback : text;
+      }
+
+      function safeArray(value) {
+        if (Array.isArray(value)) return value;
+        if (!value) return [];
+        if (typeof value === "string") {
+          try {
+            const parsed = JSON.parse(value);
+            return Array.isArray(parsed) ? parsed : [];
+          } catch (_) {
+            return [];
+          }
+        }
+        return [];
+      }
+
+      function safeNumber(value, fallback = 0) {
+        const n = Number(value);
+        return Number.isFinite(n) ? n : fallback;
+      }
+
+      function normalizeText(value) {
+        return String(value ?? "").trim().toLowerCase();
+      }
+
+      function normalizeEmail(value) {
+        return String(value ?? "").trim().toLowerCase();
+      }
+
+      function escapeHtml(value) {
+        return String(value ?? "")
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;")
+          .replace(/'/g, "&#039;");
+      }
+
       function computeAiScore(app) {
         const profile = getProfileFromApplication(app);
         const job = app?.jobs || {};
 
         const screeningValue = app?.screening_score;
         const hasScreening = screeningValue !== null && screeningValue !== undefined && screeningValue !== "";
-        const profileAi = Number(profile?.ai_score || 0);
-        const profileFit = Number(app?.profile_fit_score || 0);
-        const recruiterScore = Number(app?.recruiter_score || 0);
-        const topTalentScore = Number(app?.top_talent_score || 0);
+        const profileAi = safeNumber(profile?.ai_score, 0);
+        const profileFit = safeNumber(app?.profile_fit_score, 0);
+        const recruiterScore = safeNumber(app?.recruiter_score, 0);
+        const topTalentScore = safeNumber(app?.top_talent_score, 0);
 
         let fallbackScore = 42;
         const reasons = [];
 
-        if (profile?.resume_url || profile?.resume_path) {
+        if (profile?.resume_url || profile?.resume_path || profile?.has_resume) {
           fallbackScore += 14;
           reasons.push("resume available");
         }
-        if (getExperienceDisplay(profile) !== "-") {
+        if (typeof getExperienceDisplay === "function" ? getExperienceDisplay(profile) !== "-" : !!(profile?.experience_summary || profile?.experience || profile?.total_experience)) {
           fallbackScore += 10;
           reasons.push("experience captured");
         }
@@ -2474,7 +2517,7 @@
         fallbackScore = clamp(Math.max(fallbackScore, profileAi, profileFit), 0, 100);
 
         if (hasScreening) {
-          const screeningScore = clamp(Number(screeningValue || 0), 0, 100);
+          const screeningScore = clamp(safeNumber(screeningValue, 0), 0, 100);
           const profileComponent = clamp(Math.max(fallbackScore, profileAi, profileFit), 0, 100);
           const hybridScore = clamp(Math.round((screeningScore * 0.7) + (profileComponent * 0.3)), 0, 100);
           const band = hybridScore >= 75 ? "strong" : hybridScore >= 55 ? "moderate" : "weak";
