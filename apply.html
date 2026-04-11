@@ -128,6 +128,34 @@
       color:var(--muted);
       font-size:.95rem;
     }
+
+    .steps{
+      display:grid;
+      gap:10px;
+      margin-top:18px;
+    }
+
+    .step{
+      padding:12px 14px;
+      border:1px solid var(--line);
+      border-radius:12px;
+      background:#f8fbff;
+      color:var(--text);
+      font-size:.94rem;
+    }
+
+    .job-pill{
+      display:inline-flex;
+      align-items:center;
+      gap:8px;
+      margin-bottom:14px;
+      padding:8px 12px;
+      border-radius:999px;
+      background:#eff6ff;
+      color:var(--blue);
+      font-weight:800;
+      font-size:.84rem;
+    }
   </style>
 </head>
 <body>
@@ -145,13 +173,21 @@
   <section class="section">
     <div class="container">
       <div class="card">
+        <div id="jobPill" class="job-pill" style="display:none;"></div>
         <h1 class="title">Processing Your Application</h1>
         <p class="subtitle">
-          Please wait while we validate your profile and submit your application.
+          Please wait while we validate your profile and route you to the correct next step.
         </p>
 
         <div id="statusBox" class="status"></div>
         <div id="helperText" class="muted">Checking your session...</div>
+
+        <div class="steps">
+          <div class="step">1. Validate session and profile</div>
+          <div class="step">2. Check duplicate applications</div>
+          <div class="step">3. Route to screening if required</div>
+          <div class="step">4. Submit application and send confirmation</div>
+        </div>
       </div>
     </div>
   </section>
@@ -170,6 +206,7 @@
 
     const statusBox = document.getElementById('statusBox');
     const helperText = document.getElementById('helperText');
+    const jobPill = document.getElementById('jobPill');
 
     function setStatus(message, type = 'success') {
       statusBox.className = `status ${type}`;
@@ -180,15 +217,25 @@
       helperText.textContent = message;
     }
 
-    function getResumeApplyParams() {
-      const parts = [];
+    function showJob(job) {
+      if (!job) return;
+      jobPill.style.display = 'inline-flex';
+      jobPill.textContent = job.title || 'Selected Role';
+    }
 
-      if (jobIdParam) parts.push(`job_id=${encodeURIComponent(jobIdParam)}`);
-      if (slugParam) parts.push(`slug=${encodeURIComponent(slugParam)}`);
-      if (sourceParam) parts.push(`source=${encodeURIComponent(sourceParam)}`);
-      if (alertIdParam) parts.push(`alert_id=${encodeURIComponent(alertIdParam)}`);
+    function buildQueryString(extra = {}) {
+      const next = new URLSearchParams();
 
-      return parts.join('&');
+      if (jobIdParam) next.set('job_id', jobIdParam);
+      if (slugParam) next.set('slug', slugParam);
+      if (sourceParam) next.set('source', sourceParam);
+      if (alertIdParam) next.set('alert_id', alertIdParam);
+
+      Object.entries(extra).forEach(([key, value]) => {
+        if (value !== undefined && value !== null && value !== '') next.set(key, value);
+      });
+
+      return next.toString();
     }
 
     function getApplicationSource() {
@@ -203,7 +250,6 @@
 
     async function updateConfirmationStatus(applicationId, value) {
       if (!applicationId) return;
-
       await supabaseClient
         .from('applications')
         .update({ confirmation_email_status: value })
@@ -239,12 +285,10 @@
     }
 
     async function requireSession() {
-      const {
-        data: { session }
-      } = await supabaseClient.auth.getSession();
+      const { data: { session } } = await supabaseClient.auth.getSession();
 
       if (!session?.user) {
-        const nextParams = getResumeApplyParams();
+        const nextParams = buildQueryString();
         window.location.href = `login.html?next=apply${nextParams ? `&${nextParams}` : ''}`;
         return null;
       }
@@ -266,7 +310,7 @@
     async function loadJobById(jobIdValue) {
       const { data, error } = await supabaseClient
         .from('jobs')
-        .select('id, title, slug')
+        .select('id, title, slug, screening_enabled, screening_fail_action, ai_screening_config, screening_summary, screening_config')
         .eq('id', jobIdValue)
         .single();
 
@@ -277,7 +321,7 @@
     async function loadJobBySlug(slugValue) {
       const { data, error } = await supabaseClient
         .from('jobs')
-        .select('id, title, slug')
+        .select('id, title, slug, screening_enabled, screening_fail_action, ai_screening_config, screening_summary, screening_config')
         .eq('slug', slugValue)
         .single();
 
@@ -286,27 +330,49 @@
     }
 
     async function resolveJob() {
-      if (jobIdParam) {
-        return await loadJobById(jobIdParam);
-      }
-
-      if (slugParam) {
-        return await loadJobBySlug(slugParam);
-      }
-
+      if (jobIdParam) return await loadJobById(jobIdParam);
+      if (slugParam) return await loadJobBySlug(slugParam);
       throw new Error('Missing job reference.');
     }
 
     async function findDuplicateApplication(email, jobIdValue) {
       const { data, error } = await supabaseClient
         .from('applications')
-        .select('id')
+        .select('id, status')
         .eq('email', email)
         .eq('job_id', jobIdValue)
         .limit(1);
 
       if (error) throw error;
       return Array.isArray(data) && data.length > 0 ? data[0] : null;
+    }
+
+    function hasScreeningConfigured(job) {
+      if (!job) return false;
+      if (job.screening_enabled === true) return true;
+
+      const configCandidates = [
+        job.ai_screening_config,
+        job.screening_summary,
+        job.screening_config
+      ];
+
+      return configCandidates.some(value => {
+        if (!value) return false;
+        if (Array.isArray(value)) return value.length > 0;
+        if (typeof value === 'object') return Object.keys(value).length > 0;
+        if (typeof value === 'string') return value.trim().length > 0;
+        return false;
+      });
+    }
+
+    function buildScreeningUrl(job) {
+      const query = buildQueryString({
+        job_id: job.id,
+        slug: job.slug || '',
+        from_apply: 1
+      });
+      return `screening.html?${query}`;
     }
 
     async function insertApplication({ email, applicantProfileId, jobIdValue, jobTitle, applicationSource }) {
@@ -339,7 +405,6 @@
               updated_at: new Date().toISOString()
             })
             .eq('id', alertIdParam);
-
           return;
         }
 
@@ -362,7 +427,6 @@
     async function processApplication() {
       try {
         let job;
-
         try {
           job = await resolveJob();
         } catch (err) {
@@ -371,21 +435,21 @@
           return;
         }
 
+        showJob(job);
+
         const user = await requireSession();
         if (!user) return;
 
         setHelper('Checking your profile...');
-
         const profile = await loadProfileByEmail(user.email);
 
         if (!profile) {
-          const nextParams = getResumeApplyParams();
+          const nextParams = buildQueryString();
           window.location.href = `create-profile.html?fromApply=1${nextParams ? `&${nextParams}` : ''}`;
           return;
         }
 
         setHelper('Checking for duplicate application...');
-
         const duplicate = await findDuplicateApplication(user.email, job.id);
 
         if (duplicate) {
@@ -396,8 +460,16 @@
           return;
         }
 
-        setHelper('Submitting your application...');
+        if (hasScreeningConfigured(job)) {
+          setHelper('Screening is required for this role. Redirecting you now...');
+          setStatus('This role requires screening before submission. Redirecting to screening questions...', 'success');
+          setTimeout(() => {
+            window.location.href = buildScreeningUrl(job);
+          }, 900);
+          return;
+        }
 
+        setHelper('Submitting your application...');
         const insertedApplication = await insertApplication({
           email: user.email,
           applicantProfileId: profile.id,
@@ -409,7 +481,6 @@
         await markRoleAlertApplied(job.id, profile.id);
 
         setHelper('Sending confirmation email...');
-
         const emailSent = await sendConfirmationEmail({
           applicationId: insertedApplication.id,
           candidateName: profile.full_name || user.email,
