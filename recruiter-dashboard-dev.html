@@ -666,25 +666,6 @@
             </div>
 
             <div class="section">
-              <h3>Learning Engine</h3>
-              <div class="muted" id="learningMeta">This section learns from recruiter feedback and hiring outcomes for similar roles when the feedback and outcomes tables are available.</div>
-              <div class="kv" style="margin-top:12px;">
-                <div class="kv-item">
-                  <div class="kv-label">Role Pattern Summary</div>
-                  <div class="kv-value" id="learningSummary">Learning engine not available yet.</div>
-                </div>
-                <div class="kv-item">
-                  <div class="kv-label">Historical Signal</div>
-                  <div class="kv-value" id="learningSignal">No learning signal yet.</div>
-                </div>
-                <div class="kv-item full">
-                  <div class="kv-label">Common Feedback Themes</div>
-                  <div class="kv-value" id="learningThemes">No historical feedback themes yet.</div>
-                </div>
-              </div>
-            </div>
-
-            <div class="section">
               <h3>Quick Update</h3>
               <div class="kv">
                 <div class="kv-item">
@@ -812,6 +793,15 @@
       screeningReviewNotes: document.getElementById('screeningReviewNotes'),
       generateScreeningReviewBtn: document.getElementById('generateScreeningReviewBtn'),
       insertScreeningReviewBtn: document.getElementById('insertScreeningReviewBtn'),
+      feedbackMeta: document.getElementById('feedbackMeta'),
+      feedbackDisposition: document.getElementById('feedbackDisposition'),
+      feedbackSummary: document.getElementById('feedbackSummary'),
+      positiveTagsList: document.getElementById('positiveTagsList'),
+      riskTagsList: document.getElementById('riskTagsList'),
+      learningMeta: document.getElementById('learningMeta'),
+      learningSummary: document.getElementById('learningSummary'),
+      learningSignal: document.getElementById('learningSignal'),
+      learningThemes: document.getElementById('learningThemes'),
       snapEmail: document.getElementById('snapEmail'),
       snapPhone: document.getElementById('snapPhone'),
       snapLocation: document.getElementById('snapLocation'),
@@ -1708,14 +1698,68 @@
       return { storagePath, signedUrl, fileName };
     }
 
-    async function fetchAll(table, select, orderColumn = 'created_at') {
-      const { data, error } = await supabaseClient
-        .from(table)
-        .select(select)
-        .order(orderColumn, { ascending: false })
-        .limit(CONFIG.PAGE_SIZE);
-      if (error) throw error;
-      return data || [];
+
+    function renderCheckboxList(container, items, group) {
+      if (!container) return;
+      container.innerHTML = items.map((item) => `
+        <label class="check-item">
+          <input type="checkbox" data-group="${escapeHtml(group)}" value="${escapeHtml(item)}" />
+          <span>${escapeHtml(item)}</span>
+        </label>
+      `).join('');
+    }
+
+    function getSelected(group) {
+      return [...document.querySelectorAll(`input[data-group="${group}"]:checked`)]
+        .map((el) => safeText(el.value))
+        .filter(Boolean);
+    }
+
+    function updateFeedbackPreview() {
+      if (!els.feedbackSummary) return;
+      const disposition = safeText(els.feedbackDisposition?.value);
+      const positives = getSelected('positive');
+      const risks = getSelected('risk');
+
+      const parts = [];
+      if (disposition) parts.push(`Disposition: ${sentenceCase(disposition)}`);
+      if (positives.length) parts.push(`Positive: ${positives.slice(0, 3).join(', ')}`);
+      if (risks.length) parts.push(`Risks: ${risks.slice(0, 3).join(', ')}`);
+
+      els.feedbackSummary.textContent = parts.length
+        ? parts.join(' • ')
+        : 'No structured feedback captured yet.';
+    }
+
+    function buildStructuredFeedbackBlock() {
+      const disposition = safeText(els.feedbackDisposition?.value);
+      const positives = getSelected('positive');
+      const risks = getSelected('risk');
+
+      if (!disposition && !positives.length && !risks.length) return '';
+
+      const lines = ['Structured Recruiter Feedback'];
+      if (disposition) lines.push(`Disposition: ${disposition}`);
+      if (positives.length) lines.push(`Positive Signals: ${positives.join(' | ')}`);
+      if (risks.length) lines.push(`Risk Signals: ${risks.join(' | ')}`);
+      return lines.join('\n');
+    }
+
+    function insertStructuredFeedbackIntoNotes() {
+      const block = buildStructuredFeedbackBlock();
+      if (!block) return;
+      const current = safeText(els.editNotes?.value);
+      if (!current.includes(block)) {
+        els.editNotes.value = current ? `${current}\n\n${block}` : block;
+      }
+    }
+
+    function clearFeedbackInputs() {
+      if (els.feedbackDisposition) els.feedbackDisposition.value = '';
+      document.querySelectorAll('input[data-group="positive"], input[data-group="risk"]').forEach((input) => {
+        input.checked = false;
+      });
+      updateFeedbackPreview();
     }
 
     async function fetchAllOptional(table, select, orderColumn = 'created_at') {
@@ -1759,9 +1803,15 @@
     }
 
     function buildLearningInsights(row) {
+      const jobId = String(row.job?.id || row.app?.job_id || '');
       const roleKey = normalizeStatus(row.jobTitle);
-      const relevantFeedback = state.feedbackRows.filter((item) => normalizeStatus(item.job_title || row.jobTitle) === roleKey || String(item.job_id || '') === String(row.job?.id || ''));
-      const relevantOutcomes = state.outcomeRows.filter((item) => normalizeStatus(item.job_title || row.jobTitle) === roleKey || String(item.job_id || '') === String(row.job?.id || ''));
+
+      const relevantFeedback = state.feedbackRows.filter((item) =>
+        String(item.job_id || '') === jobId || normalizeStatus(item.job_title || '') === roleKey
+      );
+      const relevantOutcomes = state.outcomeRows.filter((item) =>
+        String(item.job_id || '') === jobId || normalizeStatus(item.job_title || '') === roleKey
+      );
 
       const totalOutcomes = relevantOutcomes.length;
       const successCount = relevantOutcomes.filter((item) => !!item.is_success).length;
@@ -1772,35 +1822,41 @@
       const positiveThemes = tallyTerms(relevantFeedback.map((item) => item.positive_tags || []));
       const riskThemes = tallyTerms(relevantFeedback.map((item) => item.risk_tags || []));
 
-      const summary = totalOutcomes
-        ? `${successCount} success signal${successCount === 1 ? '' : 's'} from ${totalOutcomes} tracked outcome${totalOutcomes === 1 ? '' : 's'} for similar roles.`
-        : 'No historical outcomes recorded yet for this role.';
-
-      const signal = totalOutcomes
-        ? `Average role outcome score: ${averageOutcome}%`
-        : 'Learning will improve once feedback and outcomes are saved.';
-
-      const themes = [
-        positiveThemes.length ? `Common positives: ${positiveThemes.slice(0, 3).map(([term, count]) => `${term} (${count})`).join(', ')}` : '',
-        riskThemes.length ? `Common risks: ${riskThemes.slice(0, 3).map(([term, count]) => `${term} (${count})`).join(', ')}` : '',
-      ].filter(Boolean).join(' • ') || 'No historical feedback themes yet.';
-
       return {
-        summary,
-        signal,
-        themes,
-        totalOutcomes,
-        successCount,
+        summary: totalOutcomes
+          ? `${successCount} success signal${successCount === 1 ? '' : 's'} from ${totalOutcomes} tracked outcome${totalOutcomes === 1 ? '' : 's'} for similar roles.`
+          : 'No historical outcomes recorded yet for this role.',
+        signal: totalOutcomes
+          ? `Average role outcome score: ${averageOutcome}%`
+          : 'Learning will improve once feedback and outcomes are saved.',
+        themes: [
+          positiveThemes.length ? `Common positives: ${positiveThemes.slice(0, 3).map(([term, count]) => `${term} (${count})`).join(', ')}` : '',
+          riskThemes.length ? `Common risks: ${riskThemes.slice(0, 3).map(([term, count]) => `${term} (${count})`).join(', ')}` : '',
+        ].filter(Boolean).join(' • ') || 'No historical feedback themes yet.'
       };
+    }
+
+    function renderLearningInsights(row) {
+      const learning = row.learning || buildLearningInsights(row);
+      if (els.learningSummary) els.learningSummary.textContent = learning.summary;
+      if (els.learningSignal) els.learningSignal.textContent = learning.signal;
+      if (els.learningThemes) els.learningThemes.textContent = learning.themes;
+      if (els.learningMeta) {
+        els.learningMeta.textContent = state.learningEnabled
+          ? 'This section learns from recruiter feedback and hiring outcomes for similar roles when the feedback and outcomes tables are available.'
+          : 'Learning tables are not available yet. Run the SQL migration first, then this section will populate automatically.';
+      }
     }
 
     async function saveFeedbackRecord(row, selectedStatus, recruiterNotes) {
       const disposition = safeText(els.feedbackDisposition?.value);
-      const positiveTags = getSelectedFeedbackValues('positive');
-      const riskTags = getSelectedFeedbackValues('risk');
+      const positiveTags = getSelected('positive');
+      const riskTags = getSelected('risk');
       const shortNote = safeText(recruiterNotes).slice(0, 500);
 
-      if (!disposition && !positiveTags.length && !riskTags.length && !shortNote) return { saved: false, reason: 'no feedback' };
+      if (!disposition && !positiveTags.length && !riskTags.length && !shortNote) {
+        return { saved: false, reason: 'no feedback' };
+      }
 
       const payload = {
         application_id: row.id,
@@ -1862,14 +1918,14 @@
       }
     }
 
-    function renderLearningInsights(row) {
-      const learning = row.learning || buildLearningInsights(row);
-      els.learningSummary.textContent = learning.summary;
-      els.learningSignal.textContent = learning.signal;
-      els.learningThemes.textContent = learning.themes;
-      els.learningMeta.textContent = state.learningEnabled
-        ? 'Learning engine is reading structured recruiter feedback and hiring outcomes for similar roles.'
-        : 'Learning tables are not available yet. Use the SQL file first, then this section will populate automatically.';
+    async function fetchAll(table, select, orderColumn = 'created_at') {
+      const { data, error } = await supabaseClient
+        .from(table)
+        .select(select)
+        .order(orderColumn, { ascending: false })
+        .limit(CONFIG.PAGE_SIZE);
+      if (error) throw error;
+      return data || [];
     }
 
     async function loadDashboard() {
@@ -2269,6 +2325,20 @@
       const target = event.target;
       if (target && target.matches('input[data-feedback-group="positive"], input[data-feedback-group="risk"]')) {
         updateFeedbackSummary();
+      }
+    });
+
+
+    renderCheckboxList(els.positiveTagsList, POSITIVE_FEEDBACK_OPTIONS, 'positive');
+    renderCheckboxList(els.riskTagsList, RISK_FEEDBACK_OPTIONS, 'risk');
+
+    if (els.feedbackDisposition) {
+      els.feedbackDisposition.addEventListener('change', updateFeedbackPreview);
+    }
+    document.addEventListener('change', (event) => {
+      const target = event.target;
+      if (target && target.matches('input[data-group="positive"], input[data-group="risk"]')) {
+        updateFeedbackPreview();
       }
     });
 
