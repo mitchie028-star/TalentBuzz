@@ -852,44 +852,143 @@
       ].filter(Boolean);
     }
 
+
     function roleKeywordGroups(job) {
       const text = [
         safeText(job?.title),
         safeText(job?.job_description),
         safeText(job?.keywords),
         safeText(job?.industry),
+        safeText(job?.work_setup),
+        safeText(job?.location),
       ].join(' ').toLowerCase();
 
       const groups = [];
       const pushGroup = (name, keywords) => groups.push({ name, keywords });
 
-      if (/medical|coder|coding|denials|appeals|um|utilization|nurse|clinical|healthcare|drg|icd|cpt/.test(text)) {
-        pushGroup('medical', ['medical','clinical','nurse','denials','appeals','healthcare','drg','icd','cpt','utilization']);
+      if (/medical|coder|coding|denials|appeals|um|utilization|nurse|clinical|healthcare|drg|icd|cpt|medical necessity|payer/.test(text)) {
+        pushGroup('medical', ['medical','clinical','nurse','denials','appeals','healthcare','drg','icd','cpt','utilization','medical necessity','payer']);
       }
-      if (/engineer|developer|software|frontend|backend|full stack|data|devops|qa|product/.test(text)) {
-        pushGroup('tech', ['engineer','developer','software','frontend','backend','javascript','typescript','python','sql','aws','data']);
+      if (/engineer|developer|software|frontend|backend|full stack|data|devops|qa|product|react|node|java|python/.test(text)) {
+        pushGroup('tech', ['engineer','developer','software','frontend','backend','full stack','javascript','typescript','python','sql','aws','data','react','node','java']);
       }
-      if (/customer|support|bpo|call center|cx|sales|operations/.test(text)) {
-        pushGroup('ops', ['customer','support','bpo','call center','operations','sales','cx','voice','back office']);
+      if (/customer|support|bpo|call center|cx|sales|operations|voice|back office|collections/.test(text)) {
+        pushGroup('ops', ['customer','support','bpo','call center','operations','sales','cx','voice','back office','collections']);
+      }
+      if (/finance|accounting|payroll|bookkeeping|tax|audit|fp&a/.test(text)) {
+        pushGroup('finance', ['finance','accounting','payroll','bookkeeping','tax','audit','fp&a','financial']);
       }
       if (!groups.length) {
-        pushGroup('generic', normalizeWords(text).filter((w) => w.length >= 4).slice(0, 20));
+        pushGroup('generic', normalizeWords(text).filter((w) => w.length >= 4).slice(0, 24));
       }
       return groups;
     }
 
-    function scoreProfileComponent(profile) {
+    function getRoleReferenceText(job) {
+      return [
+        safeText(job?.title),
+        safeText(job?.job_description),
+        safeText(job?.keywords),
+        safeText(job?.industry),
+      ].join(' ');
+    }
+
+    function evaluateRoleFit(text, job) {
+      const sourceText = safeText(text);
+      const groups = roleKeywordGroups(job);
+      const lowerText = sourceText.toLowerCase();
+
+      let matchedGroups = 0;
+      let matchedKeywords = 0;
+      const hitKeywords = [];
+
+      groups.forEach((group) => {
+        let groupHits = 0;
+        group.keywords.forEach((keyword) => {
+          if (lowerText.includes(keyword.toLowerCase())) {
+            matchedKeywords += 1;
+            groupHits += 1;
+            hitKeywords.push(keyword);
+          }
+        });
+        if (groupHits > 0) matchedGroups += 1;
+      });
+
+      const exactTitleWords = normalizeWords(safeText(job?.title)).filter((word) => word.length >= 4);
+      const titleHits = exactTitleWords.filter((word) => lowerText.includes(word)).length;
+
+      let fit = 'weak';
+      if (matchedGroups >= 2 || matchedKeywords >= 5 || titleHits >= 3) fit = 'strong';
+      else if (matchedGroups >= 1 || matchedKeywords >= 2 || titleHits >= 1) fit = 'moderate';
+
+      return {
+        fit,
+        matchedGroups,
+        matchedKeywords,
+        titleHits,
+        hitKeywords: uniq(hitKeywords),
+      };
+    }
+
+    function scoreProfileComponent(profile, job) {
       const reasons = [];
       let score = 0;
-      if (safeText(profile?.full_name || profile?.name)) { score += 18; reasons.push('name captured'); }
-      if (safeText(profile?.email)) { score += 18; reasons.push('email available'); }
-      if (safeText(profile?.phone)) { score += 12; reasons.push('phone available'); }
-      if (safeText(getLocation(profile))) { score += 10; reasons.push('location present'); }
-      if (safeText(profile?.headline || profile?.current_title)) { score += 14; reasons.push('headline/title present'); }
-      if (safeText(formatExperience(profile)) !== '—') { score += 14; reasons.push('experience captured'); }
-      if (safeText(profile?.highest_education || profile?.degree_course)) { score += 8; reasons.push('education present'); }
-      if (safeText(profile?.linkedin || profile?.portfolio_url)) { score += 6; reasons.push('profile links present'); }
-      return { score: clamp(score, 0, 100), reasons };
+
+      if (safeText(profile?.full_name || profile?.name)) { score += 10; reasons.push('name captured'); }
+      if (safeText(profile?.email)) { score += 10; reasons.push('email available'); }
+      if (safeText(profile?.phone)) { score += 6; reasons.push('phone available'); }
+      if (safeText(getLocation(profile))) { score += 6; reasons.push('location present'); }
+
+      const profileEvidenceText = [
+        safeText(profile?.headline),
+        safeText(profile?.current_title),
+        safeText(profile?.experience_summary),
+        safeText(profile?.fit_summary),
+        safeText(profile?.target_role),
+        safeText(formatExperience(profile)),
+        safeText(profile?.skills),
+        safeText(profile?.extracted_skills),
+        safeText(profile?.suggested_roles),
+        safeText(profile?.top_match_role),
+        safeText(profile?.degree_course),
+        safeText(profile?.highest_education),
+      ].join(' ');
+
+      const roleFit = evaluateRoleFit(profileEvidenceText, job);
+
+      if (safeText(profile?.headline || profile?.current_title)) {
+        score += 10;
+        reasons.push('headline/title present');
+      }
+      if (safeText(formatExperience(profile)) !== '—') {
+        score += 10;
+        reasons.push('experience captured');
+      }
+      if (safeText(profile?.highest_education || profile?.degree_course)) {
+        score += 6;
+        reasons.push('education present');
+      }
+      if (safeText(profile?.linkedin || profile?.portfolio_url)) {
+        score += 4;
+        reasons.push('profile links present');
+      }
+
+      if (roleFit.fit === 'strong') {
+        score += 38;
+        reasons.push('strong role-relevant background');
+      } else if (roleFit.fit === 'moderate') {
+        score += 22;
+        reasons.push('some role-relevant background');
+      } else {
+        score += 4;
+        reasons.push('weak role relevance');
+      }
+
+      if (roleFit.hitKeywords.length) {
+        reasons.push(`matched role terms: ${roleFit.hitKeywords.slice(0, 4).join(', ')}`);
+      }
+
+      return { score: clamp(score, 0, 100), reasons, roleFit };
     }
 
     function scoreResumeComponent(profile, app, job) {
@@ -905,41 +1004,34 @@
           hasResume: false,
           score: 0,
           reasons: ['resume missing'],
+          roleFit: { fit: 'weak', hitKeywords: [] },
         };
       }
 
       const reasons = [];
-      let score = 28;
+      let score = 18;
       if (hasResumeArtifact) reasons.push('resume file present');
-      if (resumeWords.length >= 120) {
-        score += 24;
-        reasons.push('substantial resume text');
-      } else if (resumeWords.length >= 60) {
+
+      if (resumeWords.length >= 180) {
         score += 18;
+        reasons.push('substantial resume text');
+      } else if (resumeWords.length >= 90) {
+        score += 12;
         reasons.push('good resume text');
       } else {
-        score += 10;
+        score += 6;
         reasons.push('limited resume text');
       }
 
-      const groups = roleKeywordGroups(job);
-      let matchedGroups = 0;
-      let matchedKeywords = 0;
-      groups.forEach((group) => {
-        const hits = countKeywordMatches(resumeText, group.keywords);
-        if (hits > 0) {
-          matchedGroups += 1;
-          matchedKeywords += hits;
-        }
-      });
-
-      if (matchedGroups >= 2 || matchedKeywords >= 4) {
-        score += 34;
-        reasons.push('resume aligns with role');
-      } else if (matchedGroups >= 1 || matchedKeywords >= 2) {
-        score += 18;
+      const roleFit = evaluateRoleFit(resumeText, job);
+      if (roleFit.fit === 'strong') {
+        score += 48;
+        reasons.push('resume strongly aligns with role');
+      } else if (roleFit.fit === 'moderate') {
+        score += 28;
         reasons.push('some resume-role overlap');
       } else {
+        score += 2;
         reasons.push('weak resume-role overlap');
       }
 
@@ -948,7 +1040,11 @@
         reasons.push('resume structured');
       }
 
-      return { hasResume: true, score: clamp(score, 0, 100), reasons };
+      if (roleFit.hitKeywords.length) {
+        reasons.push(`matched role terms: ${roleFit.hitKeywords.slice(0, 5).join(', ')}`);
+      }
+
+      return { hasResume: true, score: clamp(score, 0, 100), reasons, roleFit };
     }
 
     function scoreScreeningComponent(app, job) {
@@ -965,6 +1061,7 @@
           quality: 'n/a',
           notes: 'This role has no screening questions, so overall AI score uses profile and resume only.',
           isValid: false,
+          roleFit: { fit: 'weak', hitKeywords: [] },
         };
       }
 
@@ -995,40 +1092,64 @@
             ? 'Screening answers look like placeholders, so screening does not contribute to the overall score.'
             : 'Screening exists, but the answer text is too weak or missing, so screening does not contribute.',
           isValid: false,
+          roleFit: { fit: 'weak', hitKeywords: [] },
         };
       }
 
-      let score = 26;
+      const roleFit = evaluateRoleFit(combinedText, job);
+      let score = 14;
       const reasons = ['usable screening answers'];
+
       if (meaningfulWords.length >= 50) {
-        score += 26;
+        score += 12;
         reasons.push('detailed answers');
       } else if (meaningfulWords.length >= 24) {
-        score += 18;
+        score += 8;
         reasons.push('solid answer depth');
       } else {
-        score += 8;
+        score += 4;
         reasons.push('basic answer depth');
       }
+
       if (uniqueWords.size >= 18) {
-        score += 16;
+        score += 8;
         reasons.push('answer variety');
       }
       if (uniqueLongWords.size >= 10) {
-        score += 12;
+        score += 8;
         reasons.push('specific language used');
       }
+
+      if (roleFit.fit === 'strong') {
+        score += 40;
+        reasons.push('screening answers strongly match role');
+      } else if (roleFit.fit === 'moderate') {
+        score += 22;
+        reasons.push('screening answers partly match role');
+      } else {
+        score += 2;
+        reasons.push('screening answers weakly match role');
+      }
+
       if (Number.isFinite(scoreValue) && scoreValue > 0) {
-        score += Math.min(20, scoreValue * 0.2);
+        score += Math.min(12, scoreValue * 0.12);
         reasons.push('stored review score supports answers');
       }
+
+      if (roleFit.hitKeywords.length) {
+        reasons.push(`matched role terms: ${roleFit.hitKeywords.slice(0, 5).join(', ')}`);
+      }
+
       return {
         hasScreening: true,
         score: clamp(Math.round(score), 0, 100),
         reasons,
         quality: score >= 75 ? 'strong' : score >= 45 ? 'moderate' : 'weak',
-        notes: 'Screening contributed because usable answer text exists.',
-        isValid: true,
+        notes: roleFit.fit === 'weak'
+          ? 'Screening answers exist, but they do not strongly match the applied role.'
+          : 'Screening contributed because usable answer text matched the applied role.',
+        isValid: roleFit.fit !== 'weak',
+        roleFit,
       };
     }
 
@@ -1152,7 +1273,7 @@
     }
 
     function computeOverallScore(profile, app, job) {
-      const profilePart = scoreProfileComponent(profile);
+      const profilePart = scoreProfileComponent(profile, job);
       const resumePart = scoreResumeComponent(profile, app, job);
       const screeningPart = scoreScreeningComponent(app, job);
 
