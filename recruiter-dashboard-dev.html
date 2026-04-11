@@ -790,6 +790,20 @@
       return safeText(value).toLowerCase();
     }
 
+    function getPlacementSignal(status) {
+      const value = normalizeStatus(status);
+      if (['hired', 'onboarded'].includes(value)) return { label: 'High placement signal', boost: 22 };
+      if (['offered jo'].includes(value)) return { label: 'Strong placement signal', boost: 18 };
+      if (['endorsed', 'for interview', 'shortlisted', 'assessment', 'initial', 'final'].includes(value)) {
+        return { label: 'Positive recruiter signal', boost: 12 };
+      }
+      if (['submitted', 'on hold', 'need more profiles'].includes(value)) return { label: 'No placement boost', boost: 0 };
+      if (['rejected', 'failed paper screening', 'withdrawn', 'no-show onboarding'].includes(value)) {
+        return { label: 'Negative outcome', boost: 0 };
+      }
+      return { label: 'No placement boost', boost: 0 };
+    }
+
     function getStatusTone(status) {
       const value = normalizeStatus(status);
       if (!value) return 'info';
@@ -1317,6 +1331,7 @@
       const profilePart = scoreProfileComponent(profile, job);
       const resumePart = scoreResumeComponent(profile, app, job);
       const screeningPart = scoreScreeningComponent(app, job);
+      const placementSignal = getPlacementSignal(app?.status);
 
       let overall = 0;
       let mode = '';
@@ -1363,11 +1378,37 @@
       if (profilePart.roleFit?.fit === 'weak' && resumePart.roleFit?.fit === 'weak') overall -= 8;
       if (!resumePart.hasResume && !screeningPart.isValid) overall = Math.min(overall, 20);
 
+      if (placementSignal.boost > 0) {
+        if (overall >= 45) {
+          overall += placementSignal.boost;
+        } else if (overall >= 20) {
+          overall += Math.round(placementSignal.boost * 0.75);
+        } else {
+          overall += Math.round(placementSignal.boost * 0.5);
+        }
+      }
+
+      const statusValue = normalizeStatus(app?.status);
+      if (['endorsed', 'for interview', 'shortlisted', 'assessment', 'initial', 'final'].includes(statusValue)) {
+        overall = Math.max(overall, 28);
+      }
+      if (['offered jo'].includes(statusValue)) {
+        overall = Math.max(overall, 40);
+      }
+      if (['hired', 'onboarded'].includes(statusValue)) {
+        overall = Math.max(overall, 45);
+      }
+
+      if (placementSignal.boost > 0) {
+        basis += ` • Placement boost ${placementSignal.boost}`;
+      }
+
       return {
         overall: Math.round(clamp(overall, 0, 100)),
         profilePart,
         resumePart,
         screeningPart,
+        placementSignal,
         mode,
         confidence,
         basis,
