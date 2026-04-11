@@ -2488,164 +2488,275 @@
         return normalizeText(text).split(/\s+/).filter(Boolean);
       }
 
-      function scoreProfileComponent(app, profile, job) {
-        let score = 0;
-        const reasons = [];
-        const experience = getExperienceDisplay(profile);
-        const headline = normalizeText(profile?.headline || profile?.current_title || "");
-        const location = normalizeText(profile?.location || "");
-        const jobText = normalizeText([job?.title, job?.role_family, job?.location, job?.city, job?.country].join(" "));
-
-        if (profile?.full_name) { score += 15; reasons.push("name captured"); }
-        if (profile?.email || app?.email) { score += 10; reasons.push("email available"); }
-        if (profile?.phone) { score += 8; reasons.push("phone available"); }
-        if (experience && experience !== "-") { score += 22; reasons.push("experience captured"); }
-        if (headline) {
-          score += 20;
-          reasons.push("headline/title available");
-          if (jobText && (headline.includes(normalizeText(job?.title || "")) || normalizeText(job?.title || "").includes(headline.split(" ")[0] || ""))) {
-            score += 8;
-            reasons.push("title overlaps role");
-          }
-        }
-        if (location) {
-          score += 12;
-          reasons.push("location available");
-          if (jobText && (jobText.includes(location) || location.includes(normalizeText(job?.city || "")) || location.includes(normalizeText(job?.country || "")))) {
-            score += 5;
-            reasons.push("location overlaps role");
-          }
-        }
-        return { score: clamp(score, 0, 100), reasons };
+      function extractYearsNumber(value) {
+        const match = String(value || "").match(/(\d+(?:\.\d+)?)/);
+        return match ? Number(match[1]) : null;
       }
 
-      function scoreResumeComponent(profile) {
-        let score = 0;
+      function getRoleKeywordGroups(job) {
+        const roleText = normalizeText([
+          job?.title,
+          job?.job_description,
+          job?.role_family,
+          job?.keywords,
+          job?.client_priorities ? JSON.stringify(job.client_priorities) : "",
+          job?.required_skills ? JSON.stringify(job.required_skills) : "",
+          job?.nice_to_have_skills ? JSON.stringify(job.nice_to_have_skills) : "",
+        ].join(" "));
+
+        const groups = [];
+        const add = (label, keywords) => {
+          const matched = keywords.filter((keyword) => roleText.includes(keyword));
+          if (matched.length) groups.push({ label, keywords: Array.from(new Set(matched)) });
+        };
+
+        add("clinical denials & appeals", ["denials", "appeals", "denial", "appeal", "utilization review", "um", "ur", "prior authorization", "clinical review"]);
+        add("nursing", ["nurse", "rn", "registered nurse", "clinical", "medical", "hospital", "patient care"]);
+        add("coding", ["coder", "coding", "icd", "cpt", "drg", "ipdrg", "medical coder"]);
+        add("revenue cycle", ["revenue cycle", "rcm", "claims", "billing", "accounts receivable", "ar"]);
+
+        const genericTitle = normalizeText(job?.title || "");
+        if (!groups.length && genericTitle) {
+          const words = genericTitle.split(/\s+/).filter((word) => word.length >= 4).slice(0, 6);
+          if (words.length) groups.push({ label: "role title", keywords: words });
+        }
+
+        return groups;
+      }
+
+      function countKeywordMatches(text, keywords) {
+        const hay = ` ${normalizeText(text)} `;
+        let count = 0;
+        keywords.forEach((keyword) => {
+          const needle = normalizeText(keyword);
+          if (needle && hay.includes(` ${needle} `)) count += 1;
+        });
+        return count;
+      }
+
+      function scoreProfileComponent(app, profile, job) {
         const reasons = [];
-        const rawResume = [
-          profile?.raw_resume_text,
-          typeof profile?.parsed_resume_json === "string" ? profile?.parsed_resume_json : JSON.stringify(profile?.parsed_resume_json || {}),
+        const profileText = [
+          profile?.headline,
+          profile?.current_title,
           profile?.experience_summary,
           profile?.experience,
           profile?.total_experience,
-          profile?.headline,
+          profile?.raw_resume_text,
+          profile?.linkedin,
+          profile?.skills,
+          profile?.skill_tags,
         ].filter(Boolean).join(" ");
-        const wordCount = normalizeWords(rawResume).length;
+        const groups = getRoleKeywordGroups(job);
+        const experience = getExperienceDisplay(profile);
+        const years = extractYearsNumber(experience) || extractYearsNumber(profile?.years_of_experience) || extractYearsNumber(profile?.experience_years);
+        const location = normalizeText(profile?.location || "");
+        const jobLocation = normalizeText([job?.location, job?.city, job?.state_region, job?.country].join(" "));
 
-        if (profile?.resume_url || profile?.resume_path) {
-          score += 55;
-          reasons.push("resume uploaded");
+        let score = 0;
+        let matchedGroups = 0;
+        let matchedKeywords = 0;
+
+        groups.forEach((group) => {
+          const hits = countKeywordMatches(profileText, group.keywords);
+          if (hits > 0) {
+            matchedGroups += 1;
+            matchedKeywords += hits;
+          }
+        });
+
+        if (matchedGroups >= 2 || matchedKeywords >= 4) {
+          score += 72;
+          reasons.push("strong role-relevant background");
+        } else if (matchedGroups >= 1 || matchedKeywords >= 2) {
+          score += 48;
+          reasons.push("some role-relevant background");
+        } else if (normalizeText(profileText).length >= 40) {
+          score += 16;
+          reasons.push("profile has background text but low role match");
+        } else {
+          reasons.push("little role-relevant profile evidence");
         }
-        if (wordCount >= 40) {
-          score += 30;
-          reasons.push("resume text parsed");
-        } else if (wordCount >= 12) {
-          score += 18;
-          reasons.push("some resume/profile text available");
-        } else if (wordCount > 0) {
+
+        if (years != null && years >= 5) {
+          score += 14;
+          reasons.push("experience level present");
+        } else if (years != null && years >= 2) {
           score += 8;
-          reasons.push("very limited resume text");
+          reasons.push("some experience present");
         }
-        if (profile?.parsed_resume_json) {
+
+        if (location && jobLocation && (jobLocation.includes(location) || location.includes(normalizeText(job?.city || "")) || location.includes(normalizeText(job?.country || "")))) {
+          score += 6;
+          reasons.push("location overlap");
+        }
+
+        score = clamp(score, 0, 100);
+        return { score, reasons, matchedGroups, matchedKeywords };
+      }
+
+      function scoreResumeComponent(profile, job) {
+        const reasons = [];
+        const directResumeMarkers = [profile?.resume_url, profile?.resume_path].filter((value) => String(value || "").trim());
+        const resumeText = [
+          profile?.raw_resume_text,
+          typeof profile?.parsed_resume_json === "string" ? profile?.parsed_resume_json : JSON.stringify(profile?.parsed_resume_json || {}),
+        ].filter(Boolean).join(" ");
+        const resumeWords = normalizeWords(resumeText);
+        const groups = getRoleKeywordGroups(job);
+
+        const hasRealResumeText = resumeWords.length >= 25;
+        const hasResumeArtifact = directResumeMarkers.length > 0;
+        const hasUsableResume = hasRealResumeText || (hasResumeArtifact && resumeWords.length >= 12);
+
+        if (!hasUsableResume) {
+          return {
+            score: 0,
+            reasons: [hasResumeArtifact ? "resume file flag only; no usable resume text" : "no usable resume"],
+            hasResume: false,
+          };
+        }
+
+        let score = 28;
+        if (hasResumeArtifact) reasons.push("resume file present");
+        if (resumeWords.length >= 120) {
+          score += 24;
+          reasons.push("substantial resume text");
+        } else if (resumeWords.length >= 60) {
+          score += 18;
+          reasons.push("good resume text");
+        } else {
           score += 10;
+          reasons.push("limited resume text");
+        }
+
+        let matchedGroups = 0;
+        let matchedKeywords = 0;
+        groups.forEach((group) => {
+          const hits = countKeywordMatches(resumeText, group.keywords);
+          if (hits > 0) {
+            matchedGroups += 1;
+            matchedKeywords += hits;
+          }
+        });
+
+        if (matchedGroups >= 2 || matchedKeywords >= 4) {
+          score += 34;
+          reasons.push("resume aligns with role");
+        } else if (matchedGroups >= 1 || matchedKeywords >= 2) {
+          score += 18;
+          reasons.push("some resume-role overlap");
+        } else {
+          reasons.push("weak resume-role overlap");
+        }
+
+        if (profile?.parsed_resume_json && resumeWords.length >= 25) {
+          score += 6;
           reasons.push("resume structured");
         }
-        return { score: clamp(score, 0, 100), reasons };
+
+        return { score: clamp(score, 0, 100), reasons, hasResume: true };
       }
 
       function scoreScreeningComponent(app, job) {
         const items = parseScreeningPayload(app);
         const screeningEnabled = !!job?.screening_enabled;
         const scoreValue = Number(app?.screening_score);
-        const validNumericScore = Number.isFinite(scoreValue) && scoreValue > 0;
+        const hasNumericScore = Number.isFinite(scoreValue) && scoreValue > 0;
 
-        if (!screeningEnabled && !items.length && !validNumericScore) {
+        if (!screeningEnabled && !items.length && !hasNumericScore) {
           return {
             hasScreening: false,
             score: null,
             reasons: ["no screening configured"],
             quality: "n/a",
             notes: "This role has no screening questions, so overall AI score uses profile and resume only.",
+            isValid: false,
           };
         }
 
-        let score = 0;
-        const reasons = [];
-        const answerTexts = items.flatMap(getScreeningTextParts).map((text) => String(text || "").trim()).filter(Boolean);
+        const answerTexts = items
+          .flatMap(getScreeningTextParts)
+          .map((text) => String(text || "").trim())
+          .filter(Boolean)
+          .filter((text) => !/[?]/.test(text) || normalizeWords(text).length > 2);
+
         const combinedText = answerTexts.join(" ");
         const words = normalizeWords(combinedText);
         const uniqueWords = new Set(words);
         const uniqueLongWords = new Set(words.filter((word) => word.length >= 4));
-        const trivialTokens = new Set(["test","na","n/a","none","no","yes","ok","okay","sample","demo"]);
+        const trivialTokens = new Set(["test","na","n/a","none","no","yes","ok","okay","sample","demo","nil","-",".","x"]);
         const meaningfulWords = words.filter((word) => !trivialTokens.has(word));
         const answerCount = answerTexts.length;
         const avgWords = answerCount ? (words.length / answerCount) : 0;
         const hasPlaceholderOnly = meaningfulWords.length === 0 && words.length > 0;
+        const hasUsableText = meaningfulWords.length >= 8 && answerCount > 0 && avgWords >= 3;
 
-        if (answerCount > 0) {
-          score += 15;
-          reasons.push("answers submitted");
+        if (!hasUsableText) {
+          return {
+            hasScreening: true,
+            score: 0,
+            reasons: [hasNumericScore ? "saved screening score ignored without usable answers" : "screening answers not substantive"],
+            quality: "weak",
+            notes: hasPlaceholderOnly
+              ? "Screening answers look like placeholders, so screening does not contribute to the overall score."
+              : "Screening exists, but the answer text is too weak or missing, so screening does not contribute.",
+            isValid: false,
+          };
         }
-        if (avgWords >= 12) {
-          score += 28;
+
+        let score = 20;
+        const reasons = ["usable screening answers"];
+
+        if (avgWords >= 14) {
+          score += 26;
           reasons.push("substantive answers");
-        } else if (avgWords >= 6) {
+        } else if (avgWords >= 8) {
           score += 18;
-          reasons.push("decent answer length");
-        } else if (avgWords >= 3) {
-          score += 8;
-          reasons.push("short answers");
+          reasons.push("decent answer depth");
+        } else {
+          score += 10;
+          reasons.push("short but usable answers");
         }
-        if (uniqueLongWords.size >= 12) {
+
+        if (uniqueLongWords.size >= 14) {
           score += 22;
           reasons.push("good answer variety");
-        } else if (uniqueLongWords.size >= 6) {
-          score += 12;
+        } else if (uniqueLongWords.size >= 8) {
+          score += 14;
           reasons.push("some answer variety");
         }
-        if (validNumericScore) {
-          score = Math.max(score, clamp(Math.round(scoreValue), 0, 100));
-          reasons.push("saved screening score");
-        }
-        if (hasPlaceholderOnly || (answerCount > 0 && avgWords < 2.2 && uniqueWords.size <= 2)) {
-          score = Math.min(score, 12);
-          reasons.push("placeholder / non-substantive answers detected");
-        }
-        if (!combinedText && validNumericScore) {
-          reasons.push("score present without answer text");
+
+        if (hasNumericScore) {
+          const blended = Math.round((score + clamp(Math.round(scoreValue), 0, 100)) / 2);
+          score = Math.min(Math.max(score, blended), 95);
+          reasons.push("blended with saved screening score");
         }
 
         score = clamp(score, 0, 100);
         const quality = score >= 75 ? "strong" : score >= 45 ? "moderate" : "weak";
-        const notes = hasPlaceholderOnly
-          ? "Screening answers look like placeholders, so screening contributes very little."
-          : answerCount
-            ? `${answerCount} screening answer${answerCount === 1 ? "" : "s"} detected.`
-            : "Screening is enabled but no usable answer text was found.";
+        const notes = `${answerCount} screening answer${answerCount === 1 ? "" : "s"} counted with substantive text.`;
 
-        return { hasScreening: true, score, reasons, quality, notes };
+        return { hasScreening: true, score, reasons, quality, notes, isValid: true };
       }
 
       function computeAiScore(app) {
         const profile = getProfileFromApplication(app);
         const job = app?.jobs || {};
         const profilePart = scoreProfileComponent(app, profile, job);
-        const resumePart = scoreResumeComponent(profile);
+        const resumePart = scoreResumeComponent(profile, job);
         const screeningPart = scoreScreeningComponent(app, job);
 
-        const profileWeight = 0.45;
-        const resumeWeight = 0.30;
-        const screeningWeight = screeningPart.hasScreening ? 0.25 : 0;
-        const totalWeight = profileWeight + resumeWeight + screeningWeight;
+        const components = [
+          { key: "profile", score: profilePart.score, weight: 0.60, active: true },
+          { key: "resume", score: resumePart.score, weight: 0.40, active: resumePart.hasResume },
+          { key: "screening", score: screeningPart.score || 0, weight: 0.30, active: !!screeningPart.isValid },
+        ];
 
-        let overall = 0;
-        if (totalWeight > 0) {
-          overall = (
-            (profilePart.score * profileWeight) +
-            (resumePart.score * resumeWeight) +
-            ((screeningPart.score || 0) * screeningWeight)
-          ) / totalWeight;
-        }
+        let activeComponents = components.filter((item) => item.active);
+        if (!activeComponents.length) activeComponents = [{ key: "profile", score: profilePart.score, weight: 1, active: true }];
+        const totalWeight = activeComponents.reduce((sum, item) => sum + item.weight, 0) || 1;
+        let overall = activeComponents.reduce((sum, item) => sum + (item.score * item.weight), 0) / totalWeight;
 
         const status = normalizeText(app?.status);
         const reasons = [];
@@ -2663,8 +2774,8 @@
 
         overall = clamp(Math.round(overall), 0, 100);
         const band = overall >= 75 ? "strong" : overall >= 55 ? "moderate" : "weak";
-        const summary = `P ${profilePart.score}% • R ${resumePart.score}% • S ${screeningPart.hasScreening ? `${screeningPart.score}%` : 'N/A'}`;
-        const mode = screeningPart.hasScreening ? "profile + resume + screening" : "profile + resume only";
+        const summary = `P ${profilePart.score}% • R ${resumePart.hasResume ? `${resumePart.score}%` : 'N/A'} • S ${screeningPart.isValid ? `${screeningPart.score}%` : 'N/A'}`;
+        const mode = screeningPart.isValid ? "profile + resume + screening" : (resumePart.hasResume ? "profile + resume only" : "profile only");
 
         return {
           score: overall,
@@ -2674,11 +2785,12 @@
           mode,
           profileScore: profilePart.score,
           profileReasons: profilePart.reasons,
-          resumeScore: resumePart.score,
+          resumeScore: resumePart.hasResume ? resumePart.score : null,
           resumeReasons: resumePart.reasons,
-          screeningScore: screeningPart.hasScreening ? screeningPart.score : null,
+          resumeHasData: !!resumePart.hasResume,
+          screeningScore: screeningPart.isValid ? screeningPart.score : null,
           screeningReasons: screeningPart.reasons,
-          screeningHasData: screeningPart.hasScreening,
+          screeningHasData: !!screeningPart.isValid,
           screeningNotes: screeningPart.notes,
         };
       }
@@ -3964,8 +4076,8 @@
         els.drawerOverallLabel.textContent = ai.reason || ai.mode || "Weighted from profile, resume, and screening.";
         if (els.drawerProfileScore) els.drawerProfileScore.textContent = `${ai.profileScore ?? 0}%`;
         if (els.drawerProfileLabel) els.drawerProfileLabel.textContent = (ai.profileReasons || []).slice(0, 2).join(" • ") || "Limited profile data.";
-        if (els.drawerResumeScore) els.drawerResumeScore.textContent = ai.resumeScore != null ? `${ai.resumeScore}%` : "N/A";
-        if (els.drawerResumeLabel) els.drawerResumeLabel.textContent = (ai.resumeReasons || []).slice(0, 2).join(" • ") || "No resume evidence yet.";
+        if (els.drawerResumeScore) els.drawerResumeScore.textContent = ai.resumeHasData && ai.resumeScore != null ? `${ai.resumeScore}%` : "N/A";
+        if (els.drawerResumeLabel) els.drawerResumeLabel.textContent = ai.resumeHasData ? ((ai.resumeReasons || []).slice(0, 2).join(" • ") || "Resume evidence reviewed.") : "Not counted without a usable resume.";
         if (els.drawerScreeningScore) els.drawerScreeningScore.textContent = ai.screeningHasData ? `${ai.screeningScore}%` : "N/A";
         if (els.drawerScreeningLabel) els.drawerScreeningLabel.textContent = ai.screeningHasData ? ((ai.screeningReasons || []).slice(0, 2).join(" • ") || "Screening answers reviewed.") : "Not counted for this role.";
         if (els.drawerScoringMode) els.drawerScoringMode.textContent = ai.mode || "profile + resume only";
