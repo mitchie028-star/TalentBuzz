@@ -2420,121 +2420,40 @@
         return "status-" + String(status || "submitted").toLowerCase().replace(/\s+/g, "-").replace(/[()]/g, "");
       }
 
-      
-      function safeText(value, fallback = "-") {
-        if (value === null || value === undefined) return fallback;
-        const text = String(value).trim();
-        return text === "" ? fallback : text;
-      }
-
-      function safeArray(value) {
-        if (Array.isArray(value)) return value;
-        if (!value) return [];
-        if (typeof value === "string") {
-          try {
-            const parsed = JSON.parse(value);
-            return Array.isArray(parsed) ? parsed : [];
-          } catch (_) {
-            return [];
-          }
-        }
-        return [];
-      }
-
-      function safeNumber(value, fallback = 0) {
-        const n = Number(value);
-        return Number.isFinite(n) ? n : fallback;
-      }
-
-      function normalizeText(value) {
-        return String(value ?? "").trim().toLowerCase();
-      }
-
-      function normalizeEmail(value) {
-        return String(value ?? "").trim().toLowerCase();
-      }
-
-      function escapeHtml(value) {
-        return String(value ?? "")
-          .replace(/&/g, "&amp;")
-          .replace(/</g, "&lt;")
-          .replace(/>/g, "&gt;")
-          .replace(/"/g, "&quot;")
-          .replace(/'/g, "&#039;");
-      }
-
       function computeAiScore(app) {
         const profile = getProfileFromApplication(app);
         const job = app?.jobs || {};
-
-        const screeningValue = app?.screening_score;
-        const hasScreening = screeningValue !== null && screeningValue !== undefined && screeningValue !== "";
-        const profileAi = safeNumber(profile?.ai_score, 0);
-        const profileFit = safeNumber(app?.profile_fit_score, 0);
-        const recruiterScore = safeNumber(app?.recruiter_score, 0);
-        const topTalentScore = safeNumber(app?.top_talent_score, 0);
-
-        let fallbackScore = 42;
+        let score = 42;
         const reasons = [];
 
-        if (profile?.resume_url || profile?.resume_path || profile?.has_resume) {
-          fallbackScore += 14;
+        if (profile?.resume_url || profile?.resume_path) {
+          score += 14;
           reasons.push("resume available");
         }
-        if (typeof getExperienceDisplay === "function" ? getExperienceDisplay(profile) !== "-" : !!(profile?.experience_summary || profile?.experience || profile?.total_experience)) {
-          fallbackScore += 10;
+        if (getExperienceDisplay(profile) !== "-") {
+          score += 10;
           reasons.push("experience captured");
         }
         if (profile?.location && (job?.location || job?.city || job?.country)) {
-          fallbackScore += 6;
+          score += 6;
           reasons.push("location data available");
         }
         if (Array.isArray(job?.required_skills) && job.required_skills.length) {
-          fallbackScore += 8;
+          score += 8;
           reasons.push("job skill map available");
         }
-        if (Array.isArray(profile?.extracted_skills) && profile.extracted_skills.length) {
-          fallbackScore += 6;
-          reasons.push("skills extracted");
-        }
-        if (["endorsed", "assessment", "initial", "final", "for interview", "shortlisted"].includes(normalizeText(app?.status))) {
-          fallbackScore += 10;
+        if (["endorsed", "assessment", "initial", "final"].includes(normalizeText(app?.status))) {
+          score += 10;
           reasons.push("advanced in pipeline");
         }
         if (["failed paper screening", "withdrawn", "rejected", "no-show (onboarding)"].includes(normalizeText(app?.status))) {
-          fallbackScore -= 28;
+          score -= 28;
           reasons.push("negative stage status");
         }
-        if (recruiterScore > 0) {
-          fallbackScore += Math.min(10, recruiterScore * 2);
-          reasons.push("recruiter signal");
-        }
-        if (topTalentScore > 0) {
-          fallbackScore += Math.min(8, Math.round(topTalentScore * 0.08));
-          reasons.push("top talent signal");
-        }
 
-        fallbackScore = clamp(Math.max(fallbackScore, profileAi, profileFit), 0, 100);
-
-        if (hasScreening) {
-          const screeningScore = clamp(safeNumber(screeningValue, 0), 0, 100);
-          const profileComponent = clamp(Math.max(fallbackScore, profileAi, profileFit), 0, 100);
-          const hybridScore = clamp(Math.round((screeningScore * 0.7) + (profileComponent * 0.3)), 0, 100);
-          const band = hybridScore >= 75 ? "strong" : hybridScore >= 55 ? "moderate" : "weak";
-          const screeningResult = safeText(app?.screening_result, "screening completed");
-          return {
-            score: hybridScore,
-            band,
-            reason: `screening ${screeningScore}% • profile ${profileComponent}% • ${screeningResult}`
-          };
-        }
-
-        const band = fallbackScore >= 75 ? "strong" : fallbackScore >= 55 ? "moderate" : "weak";
-        return {
-          score: fallbackScore,
-          band,
-          reason: reasons.slice(0, 3).join(" • ") || "baseline fit"
-        };
+        score = clamp(score, 0, 100);
+        const band = score >= 75 ? "strong" : score >= 55 ? "moderate" : "weak";
+        return { score, band, reason: reasons.slice(0, 3).join(" • ") || "baseline fit" };
       }
 
       function metricTone(value, warnThreshold, badThreshold) {
@@ -3325,133 +3244,71 @@
         }
       }
 
+      function chunkArray(items, size = 200) {
+        const safeSize = Math.max(1, Number(size) || 200);
+        const chunks = [];
+        for (let i = 0; i < items.length; i += safeSize) chunks.push(items.slice(i, i + safeSize));
+        return chunks;
+      }
+
+      async function fetchRowsByIds(tableName, ids, columnName = "id") {
+        const cleanIds = Array.from(new Set((ids || []).filter((value) => value !== null && value !== undefined && String(value).trim() !== "")));
+        if (!cleanIds.length) return [];
+
+        const rows = [];
+        for (const batch of chunkArray(cleanIds, 200)) {
+          const { data, error } = await supabaseClient
+            .from(tableName)
+            .select("*")
+            .in(columnName, batch);
+
+          if (error) throw error;
+          rows.push(...(Array.isArray(data) ? data : []));
+        }
+        return rows;
+      }
+
       async function loadApplications() {
         const { data, error } = await supabaseClient
           .from("applications")
-          .select(`
-            id,
-            email,
-            job_id,
-            job_title,
-            status,
-            recruiter_notes,
-            recruiter_email,
-            application_source,
-            confirmation_email_status,
-            rejection_email_status,
-            screening_result,
-            screening_score,
-            auto_disposition_reason,
-            created_at,
-            applicant_profile_id,
-            stage_note_code,
-            stage_note_label,
-            stage_note_updated_at,
-            endorsement_status,
-            endorsement_sent_at,
-            endorsement_sent_to,
-            endorsed_by,
-            client_feedback_status,
-            client_feedback_notes,
-            client_feedback_at,
-            last_status_change_at,
-            sla_status,
-            sla_due_at,
-            endorsement_notes,
-            screening_answers,
-            screening_responses,
-            screening_review_strengths,
-            screening_review_risks,
-            screening_review_summary,
-            screening_review_decision,
-            profile_fit_score,
-            recruiter_score,
-            top_talent_score,
-            is_top_talent,
-            talent_tag,
-            recruiter_top_talent_override,
-            applicant_profiles!applications_applicant_profile_id_fkey (
-              id,
-              full_name,
-              email,
-              phone,
-              location,
-              experience_summary,
-              resume_path,
-              created_at,
-              resume_url,
-              current_title,
-              years_experience,
-              skills,
-              years_of_experience,
-              experience_years,
-              total_experience,
-              cover_note,
-              expected_salary,
-              preferred_work_setup,
-              headline,
-              linkedin,
-              portfolio_url,
-              profile_photo_url,
-              experience,
-              profile_status,
-              target_role,
-              has_resume,
-              ai_score,
-              suggested_roles,
-              top_match_role,
-              extracted_skills,
-              resume_text,
-              linkedin_url,
-              current_employment_status,
-              notice_period,
-              expected_salary_currency,
-              shift_availability,
-              weekend_holiday_ok,
-              open_to_relocation,
-              english_level,
-              calls_experience,
-              no_resume,
-              profile_completion_score,
-              screening_status,
-              video_status,
-              recruiter_priority,
-              fit_summary,
-              last_scored_at,
-              updated_at
-            ),
-            jobs!applications_job_id_fkey (
-              id,
-              title,
-              location,
-              employment_type,
-              work_setup,
-              client_name,
-              client_id,
-              country,
-              city,
-              salary_min,
-              salary_max,
-              salary_currency,
-              role_family,
-              seniority_level,
-              required_skills,
-              nice_to_have_skills,
-              client_priorities,
-              is_on_hold,
-              target_titles,
-              target_locations,
-              min_experience_years
-            )
-          `)
+          .select("*")
           .order("created_at", { ascending: false });
 
         if (error) {
-          console.error("Applications query failed:", error);
+          console.error("Applications base query failed:", error);
           throw error;
         }
 
-        state.allApplications = Array.isArray(data) ? data : [];
+        const applications = Array.isArray(data) ? data : [];
+        const applicantProfileIds = applications.map((app) => app?.applicant_profile_id).filter(Boolean);
+        const jobIds = applications.map((app) => app?.job_id).filter(Boolean);
+
+        let profiles = [];
+        let jobs = [];
+
+        try {
+          profiles = await fetchRowsByIds("applicant_profiles", applicantProfileIds, "id");
+        } catch (profileErr) {
+          console.warn("Applicant profiles lookup failed:", profileErr?.message || profileErr);
+          profiles = [];
+        }
+
+        try {
+          jobs = await fetchRowsByIds("jobs", jobIds, "id");
+        } catch (jobErr) {
+          console.warn("Jobs lookup failed:", jobErr?.message || jobErr);
+          jobs = [];
+        }
+
+        const profileMap = new Map(profiles.map((row) => [String(row.id), row]));
+        const jobMap = new Map(jobs.map((row) => [String(row.id), row]));
+
+        state.allApplications = applications.map((app) => ({
+          ...app,
+          applicant_profiles: app?.applicant_profile_id ? (profileMap.get(String(app.applicant_profile_id)) || null) : null,
+          jobs: app?.job_id ? (jobMap.get(String(app.job_id)) || null) : null,
+        }));
+
         state.aiScoreMap.clear();
         state.allApplications.forEach((app) => state.aiScoreMap.set(String(app.id), computeAiScore(app)));
       }
@@ -4562,7 +4419,7 @@
           if (state.selectedApplicationId) await openCandidateDrawer(state.selectedApplicationId);
         } catch (err) {
           console.error(err);
-          showNotice((err?.message && err.message.includes("more than one relationship")) ? "Supabase still sees multiple applications → jobs relationships. This file now forces applications_job_id_fkey. If the error persists, verify that constraint still exists and the browser is loading the latest file." : (err.message || "Unable to load dashboard."), "error");
+          showNotice(err?.message || "Unable to load dashboard.", "error");
           els.applicationsTable.innerHTML = `<tr><td colspan="8" class="empty">${escapeHtml(err?.message || 'Unable to load dashboard.')}</td></tr>`;
         } finally {
           els.refreshBtn.disabled = false;
