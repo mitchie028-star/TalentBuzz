@@ -380,6 +380,33 @@
     }
     .section + .section { margin-top: 12px; }
     .section-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+    .feedback-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+      margin-top: 10px;
+    }
+    .check-list {
+      display: grid;
+      gap: 8px;
+      padding: 10px;
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      background: #f8fbff;
+      max-height: 180px;
+      overflow: auto;
+    }
+    .check-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      font-size: .86rem;
+      color: var(--text);
+    }
+    .check-item input {
+      margin-top: 2px;
+      width: auto;
+    }
 
     .modal {
       position: fixed;
@@ -606,6 +633,39 @@
             </div>
 
             <div class="section">
+              <h3>Recruiter Feedback</h3>
+              <div class="muted" id="feedbackMeta">Capture recruiter judgment in a structured way so the system can learn from outcomes later.</div>
+              <div class="kv" style="margin-top:12px;">
+                <div class="kv-item">
+                  <div class="kv-label">Disposition Reason</div>
+                  <div class="field">
+                    <select id="feedbackDisposition">
+                      <option value="">Select disposition</option>
+                      <option value="moved forward">Moved Forward</option>
+                      <option value="hold">Hold</option>
+                      <option value="rejected">Rejected</option>
+                      <option value="hired">Hired</option>
+                      <option value="better fit for another role">Better Fit For Another Role</option>
+                      <option value="needs more evidence">Needs More Evidence</option>
+                    </select>
+                  </div>
+                </div>
+                <div class="kv-item">
+                  <div class="kv-label">Feedback Preview</div>
+                  <div class="kv-value" id="feedbackSummary">No structured feedback captured yet.</div>
+                </div>
+                <div class="kv-item full">
+                  <div class="kv-label">Positive Signals</div>
+                  <div class="check-list" id="positiveTagsList"></div>
+                </div>
+                <div class="kv-item full">
+                  <div class="kv-label">Risk Signals</div>
+                  <div class="check-list" id="riskTagsList"></div>
+                </div>
+              </div>
+            </div>
+
+            <div class="section">
               <h3>Quick Update</h3>
               <div class="kv">
                 <div class="kv-item">
@@ -624,7 +684,7 @@
               <div class="section-actions">
                 <button class="btn btn-primary" id="saveBtn" type="button">Save Changes</button>
               </div>
-              <div class="muted" id="saveHint">If applications.recruiter_notes is unavailable, this file falls back to stage_note_label and stage_note_updated_at.</div>
+              <div class="muted" id="saveHint">Structured feedback is appended into recruiter notes for now. When your feedback table is ready, this same UI can save there directly.</div>
             </div>
           </div>
         </section>
@@ -655,6 +715,32 @@
     const STATUS_OPTIONS = [
       'submitted', 'for interview', 'shortlisted', 'endorsed', 'assessment', 'offered jo',
       'onboarded', 'hired', 'on hold', 'need more profiles', 'rejected', 'failed paper screening'
+    ];
+
+    const POSITIVE_FEEDBACK_OPTIONS = [
+      'Strong communication',
+      'Strong domain fit',
+      'Good culture fit',
+      'Client liked candidate',
+      'Strong tenure stability',
+      'Strong screening',
+      'Leadership potential',
+      'Good written communication',
+      'Coachability',
+      'Fast response time'
+    ];
+
+    const RISK_FEEDBACK_OPTIONS = [
+      'Lacks domain experience',
+      'Weak communication',
+      'Compensation mismatch',
+      'Location constraint',
+      'Shift mismatch',
+      'Poor screening response',
+      'Incomplete profile',
+      'No show / slow response',
+      'Overqualified',
+      'Not enough technical depth'
     ];
 
     const state = {
@@ -1798,6 +1884,7 @@
       els.editStatus.value = row.status || 'submitted';
       els.editNotes.value = row.app?.recruiter_notes || row.app?.stage_note_label || '';
       els.editResumeFile.value = '';
+      clearFeedbackInputs();
       state.selectedScreeningReview = buildScreeningReview(row);
       renderScreeningReview(state.selectedScreeningReview);
 
@@ -1848,6 +1935,7 @@
       if (!row) return;
       const profileId = row.profile?.id || row.app?.applicant_profile_id;
       const selectedStatus = safeText(els.editStatus.value) || 'submitted';
+      insertStructuredFeedbackIntoNotes();
       const recruiterNotes = safeText(els.editNotes.value);
       const resumeFile = els.editResumeFile.files?.[0] || null;
 
@@ -1979,6 +2067,20 @@
 
     bindEvents();
     if (initClient()) loadDashboard();
+
+    renderCheckboxList(els.positiveTagsList, POSITIVE_FEEDBACK_OPTIONS, 'positive');
+    renderCheckboxList(els.riskTagsList, RISK_FEEDBACK_OPTIONS, 'risk');
+
+    if (els.feedbackDisposition) {
+      els.feedbackDisposition.addEventListener('change', updateFeedbackSummary);
+    }
+    document.addEventListener('change', (event) => {
+      const target = event.target;
+      if (target && target.matches('input[data-feedback-group="positive"], input[data-feedback-group="risk"]')) {
+        updateFeedbackSummary();
+      }
+    });
+
   </script>
 </body>
 </html>
