@@ -3621,8 +3621,10 @@
         const applications = Array.isArray(data) ? data : [];
         const applicantProfileIds = applications.map((app) => app?.applicant_profile_id).filter(Boolean);
         const jobIds = applications.map((app) => app?.job_id).filter(Boolean);
+        const applicationEmails = Array.from(new Set(applications.map((app) => normalizeEmail(app?.email)).filter(Boolean)));
 
         let profiles = [];
+        let emailProfiles = [];
         let jobs = [];
 
         try {
@@ -3633,20 +3635,58 @@
         }
 
         try {
+          if (applicationEmails.length) {
+            const { data: profileRowsByEmail, error: profileEmailError } = await supabaseClient
+              .from("applicant_profiles")
+              .select("*")
+              .in("email", applicationEmails);
+            if (profileEmailError) throw profileEmailError;
+            emailProfiles = Array.isArray(profileRowsByEmail) ? profileRowsByEmail : [];
+          }
+        } catch (profileEmailErr) {
+          console.warn("Applicant profiles email lookup failed:", profileEmailErr?.message || profileEmailErr);
+          emailProfiles = [];
+        }
+
+        try {
           jobs = await fetchRowsByIds("jobs", jobIds, "id");
         } catch (jobErr) {
           console.warn("Jobs lookup failed:", jobErr?.message || jobErr);
           jobs = [];
         }
 
-        const profileMap = new Map(profiles.map((row) => [String(row.id), row]));
+        const mergedProfiles = [...profiles];
+        const seenProfileIds = new Set(mergedProfiles.map((row) => String(row.id)));
+        for (const row of emailProfiles) {
+          const key = String(row?.id || "");
+          if (key && !seenProfileIds.has(key)) {
+            mergedProfiles.push(row);
+            seenProfileIds.add(key);
+          }
+        }
+
+        const profileMap = new Map(mergedProfiles.map((row) => [String(row.id), row]));
+        const profileEmailMap = new Map();
+        mergedProfiles.forEach((row) => {
+          const emailKey = normalizeEmail(row?.email);
+          if (emailKey && !profileEmailMap.has(emailKey)) profileEmailMap.set(emailKey, row);
+        });
         const jobMap = new Map(jobs.map((row) => [String(row.id), row]));
 
-        state.allApplications = applications.map((app) => ({
-          ...app,
-          applicant_profiles: app?.applicant_profile_id ? (profileMap.get(String(app.applicant_profile_id)) || null) : null,
-          jobs: app?.job_id ? (jobMap.get(String(app.job_id)) || null) : null,
-        }));
+        state.allApplications = applications.map((app) => {
+          const profileById = app?.applicant_profile_id ? (profileMap.get(String(app.applicant_profile_id)) || null) : null;
+          const profileByEmail = profileEmailMap.get(normalizeEmail(app?.email)) || null;
+          const resolvedProfile = profileById || profileByEmail || null;
+          const resolvedJob = app?.job_id ? (jobMap.get(String(app.job_id)) || null) : null;
+          return {
+            ...app,
+            email: app?.email || resolvedProfile?.email || "",
+            applicant_profile_id: app?.applicant_profile_id || resolvedProfile?.id || null,
+            applicant_profiles: resolvedProfile,
+            job_title: app?.job_title || resolvedJob?.title || "",
+            jobs: resolvedJob,
+          };
+        });
 
         state.aiScoreMap.clear();
         state.allApplications.forEach((app) => state.aiScoreMap.set(String(app.id), computeAiScore(app)));
