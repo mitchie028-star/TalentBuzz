@@ -2285,8 +2285,39 @@
       }
 
       function getProfileFromApplication(app) {
-        if (Array.isArray(app?.applicant_profiles)) return app.applicant_profiles[0] || null;
-        return app?.applicant_profiles || null;
+        const attached = Array.isArray(app?.applicant_profiles) ? (app.applicant_profiles[0] || null) : (app?.applicant_profiles || null);
+        if (attached) return attached;
+
+        const profileId = String(app?.applicant_profile_id || '').trim();
+        const emailKey = normalizeEmail(app?.email || '');
+
+        const fromState = Array.isArray(state?.allProfiles) ? state.allProfiles.find((row) => {
+          if (!row) return false;
+          if (profileId && String(row.id || '') === profileId) return true;
+          if (emailKey && normalizeEmail(row.email || '') === emailKey) return true;
+          return false;
+        }) : null;
+        if (fromState) return fromState;
+
+        const fallback = {
+          id: app?.applicant_profile_id || null,
+          email: app?.email || '',
+          full_name: app?.full_name || app?.candidate_name || '',
+          phone: app?.phone || '',
+          location: app?.location || '',
+          current_title: app?.current_title || '',
+          experience_summary: app?.experience_summary || app?.experience || app?.total_experience || '',
+          resume_path: app?.resume_path || '',
+          resume_url: app?.resume_url || '',
+          has_resume: app?.has_resume || false,
+          no_resume: app?.no_resume || false,
+          resume_text: app?.resume_text || app?.raw_resume_text || '',
+        };
+
+        if (fallback.resume_path || fallback.resume_url || fallback.resume_text || fallback.full_name || fallback.email) {
+          return fallback;
+        }
+        return null;
       }
 
       function getRecruiterName(email) {
@@ -2403,24 +2434,55 @@
       }
 
       async function getResumeUrl(app) {
-        const profile = getProfileFromApplication(app);
-        if (!profile) return "";
+        const profile = getProfileFromApplication(app) || {};
 
-        const direct = String(profile.resume_url || "").trim();
-        const rawPath = String(profile.resume_path || "").trim();
-        const cleanedPath = cleanResumePath(rawPath || direct);
+        const candidates = [
+          String(profile.resume_url || '').trim(),
+          String(profile.resume_path || '').trim(),
+          String(app?.resume_url || '').trim(),
+          String(app?.resume_path || '').trim(),
+        ].filter(Boolean);
 
-        if (cleanedPath) {
-          try {
-            const { data, error } = await supabaseClient.storage.from(RESUME_BUCKET).createSignedUrl(cleanedPath, 3600);
-            if (!error && data?.signedUrl) return data.signedUrl;
-          } catch (err) {
-            console.warn("Signed URL generation failed:", err?.message || err);
+        for (const candidate of candidates) {
+          const cleanedPath = cleanResumePath(candidate);
+          if (cleanedPath) {
+            try {
+              const { data, error } = await supabaseClient.storage.from(RESUME_BUCKET).createSignedUrl(cleanedPath, 3600);
+              if (!error && data?.signedUrl) return data.signedUrl;
+            } catch (err) {
+              console.warn('Signed URL generation failed:', err?.message || err);
+            }
+          }
+
+          if (isDirectResumeUrl(candidate)) {
+            return candidate;
           }
         }
 
-        if (isDirectResumeUrl(direct)) return direct;
-        return "";
+        const emailKey = normalizeEmail(app?.email || profile?.email || '');
+        if (emailKey && Array.isArray(state?.allProfiles)) {
+          const emailProfile = state.allProfiles.find((row) => normalizeEmail(row?.email || '') === emailKey);
+          if (emailProfile && emailProfile !== profile) {
+            const retryCandidates = [
+              String(emailProfile.resume_url || '').trim(),
+              String(emailProfile.resume_path || '').trim(),
+            ].filter(Boolean);
+            for (const candidate of retryCandidates) {
+              const cleanedPath = cleanResumePath(candidate);
+              if (cleanedPath) {
+                try {
+                  const { data, error } = await supabaseClient.storage.from(RESUME_BUCKET).createSignedUrl(cleanedPath, 3600);
+                  if (!error && data?.signedUrl) return data.signedUrl;
+                } catch (err) {
+                  console.warn('Signed URL generation failed:', err?.message || err);
+                }
+              }
+              if (isDirectResumeUrl(candidate)) return candidate;
+            }
+          }
+        }
+
+        return '';
       }
 
       function computeSlaStatus(app) {
