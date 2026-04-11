@@ -494,6 +494,7 @@
 
     function createEmptyQuestion(overrides = {}){
       return {
+        id: overrides.id || (window.crypto?.randomUUID ? window.crypto.randomUUID() : `q_${Date.now()}_${Math.random().toString(36).slice(2,8)}`),
         question:"",
         focus_area:"",
         response_type:"Open Text",
@@ -559,6 +560,9 @@
                 <option value="knockout" ${item.category==="knockout"?"selected":""}>knockout</option>
                 <option value="proof" ${item.category==="proof"?"selected":""}>proof</option>
                 <option value="simulation" ${item.category==="simulation"?"selected":""}>simulation</option>
+                <option value="technical" ${item.category==="technical"?"selected":""}>technical</option>
+                <option value="leadership" ${item.category==="leadership"?"selected":""}>leadership</option>
+                <option value="red_flag" ${item.category==="red_flag"?"selected":""}>red_flag</option>
                 <option value="setup" ${item.category==="setup"?"selected":""}>setup</option>
                 <option value="team_fit" ${item.category==="team_fit"?"selected":""}>team_fit</option>
                 <option value="business" ${item.category==="business"?"selected":""}>business</option>
@@ -589,40 +593,209 @@
       refreshPreview();
     };
 
-    function generateAiQuestions(){
-      const generated = [];
-      const nonNeg = normalizeLines(els.signalNonNegotiables.value);
-      const skills = normalizeLines(els.prioritySkills.value);
-      const reqs = normalizeLines(els.requirements.value);
+    function parseWeightedSkills(lines = []){
+      return lines
+        .map(line => safeText(line))
+        .filter(Boolean)
+        .map(line => {
+          const parts = line.split(/[-—–:]/).map(x => safeText(x)).filter(Boolean);
+          const skill = parts[0] || line;
+          const meta = safeText(parts.slice(1).join(" ")).toLowerCase();
 
-      nonNeg.slice(0,3).forEach(item => generated.push(createEmptyQuestion({
-        question:`Please confirm whether you meet this non-negotiable requirement: "${item}".`,
-        focus_area:"Non-Negotiable",
-        response_type:"Short Answer",
-        weight:"Critical",
-        category:"knockout",
-        knockout:true
-      })));
+          let weight = "Medium";
+          if(meta.includes("critical")) weight = "Critical";
+          else if(meta.includes("high")) weight = "High";
+          else if(meta.includes("low")) weight = "Low";
 
-      skills.slice(0,3).forEach(skill => generated.push(createEmptyQuestion({
-        question:`Tell us about a real situation where you used ${skill} in a relevant role. What did you do and what was the outcome?`,
-        focus_area:skill,
-        response_type:"Open Text",
-        weight:"High",
-        category:"proof"
-      })));
+          return { skill, weight };
+        });
+    }
 
-      if(!generated.length){
-        reqs.slice(0,4).forEach((line,i) => generated.push(createEmptyQuestion({
-          question:`Tell us about your experience with: ${line}.`,
-          focus_area:line,
-          response_type:"Open Text",
-          weight:i<2?"Critical":"High",
-          category:"general"
-        })));
+    function inferRoleContext(){
+      const title = safeText(els.jobTitle.value).toLowerCase();
+      const family = safeText(els.roleFamily.value).toLowerCase();
+      const seniority = safeText(els.seniority.value).toLowerCase();
+      const signalSummary = safeText(els.signalSummaryOutput.textContent).toLowerCase();
+
+      const combined = [
+        safeText(els.jdRawText.value),
+        safeText(els.jobDescription.value),
+        safeText(els.requirements.value),
+        safeText(els.prioritySkills.value),
+        safeText(els.signalMustHaveSkills.value),
+        signalSummary
+      ].join("\n").toLowerCase();
+
+      const seniorKeywords = ["senior","lead","manager","director","executive"];
+      const technicalRole =
+        family.includes("technology") ||
+        family.includes("data") ||
+        title.includes("developer") ||
+        title.includes("engineer") ||
+        title.includes("architect") ||
+        title.includes("backend") ||
+        title.includes("software");
+
+      return {
+        isSeniorTech: technicalRole && seniorKeywords.includes(seniority),
+        isTechnicalRole: technicalRole,
+        hasCloud: /(aws|databricks|lambda|ecs|eks|api gateway|step functions|serverless|cloud-native|s3|rds|dynamodb)/i.test(combined),
+        hasMLOps: /(mlops|mlflow|model deployment|model monitoring|machine learning|data science|feature engineering)/i.test(combined),
+        hasDistributed: /(kafka|spark|delta lake|distributed|event-driven|microservices|streaming|queues|webhooks)/i.test(combined),
+        hasLeadership: /(mentor|mentoring|leadership|technical guidance|strategy|architectural decisions|cross-functional|ownership)/i.test(combined),
+        hasIntegration: /(integration|api|apis|event-driven|messaging|webhooks|queues|internal and external systems)/i.test(combined)
+      };
+    }
+
+    function buildScreeningBlueprint(){
+      const context = inferRoleContext();
+      const nonNeg = uniqueLines(normalizeLines(els.signalNonNegotiables.value));
+      const redFlags = uniqueLines(normalizeLines(els.signalRedFlags.value));
+      const successSignals = uniqueLines(normalizeLines(els.signalSuccessSignals.value));
+      const weightedSkills = parseWeightedSkills(normalizeLines(els.signalMustHaveSkills.value));
+      const fallbackSkills = uniqueLines(normalizeLines(els.prioritySkills.value)).map(skill => ({skill, weight:"High"}));
+      const skillPool = weightedSkills.length ? weightedSkills : fallbackSkills;
+
+      const blueprint = {
+        knockout: [],
+        proof: [],
+        technical: [],
+        simulation: [],
+        leadership: [],
+        red_flag: []
+      };
+
+      nonNeg.slice(0, context.isSeniorTech ? 2 : 3).forEach(item => {
+        blueprint.knockout.push(createEmptyQuestion({
+          question: context.isSeniorTech
+            ? `Briefly confirm this requirement with concrete evidence: "${item}". Include where you used it, in what environment, and at what scale.`
+            : `Please confirm whether you meet this non-negotiable requirement: "${item}".`,
+          focus_area: "Non-Negotiable",
+          response_type: context.isSeniorTech ? "Short Answer" : "Yes/No",
+          weight: "Critical",
+          category: "knockout",
+          knockout: true
+        }));
+      });
+
+      skillPool
+        .filter(item => ["Critical","High"].includes(item.weight))
+        .slice(0, context.isSeniorTech ? 3 : 2)
+        .forEach(item => {
+          blueprint.proof.push(createEmptyQuestion({
+            question: context.isSeniorTech
+              ? `Describe a production system where you used ${item.skill}. What problem were you solving, what did you personally build, and what were the technical trade-offs?`
+              : `Tell us about a real situation where you used ${item.skill} in a relevant role. What did you do and what was the outcome?`,
+            focus_area: item.skill,
+            response_type: "Open Text",
+            weight: item.weight,
+            category: "proof"
+          }));
+        });
+
+      if(context.isSeniorTech && (context.hasCloud || context.hasDistributed || context.hasIntegration)){
+        blueprint.technical.push(createEmptyQuestion({
+          question: "Walk me through an architecture you designed for a cloud-native or distributed application. Why did you choose that design, and how did you handle scalability, reliability, security, and observability?",
+          focus_area: "Architecture",
+          response_type: "Open Text",
+          weight: "Critical",
+          category: "technical"
+        }));
       }
 
-      questionItems = generated.slice(0,8);
+      if(context.isSeniorTech && context.hasMLOps){
+        blueprint.proof.push(createEmptyQuestion({
+          question: "Describe how you helped move a data science or machine learning workflow into production. What services, pipelines, and monitoring approach did you use?",
+          focus_area: "MLOps / Data Platform",
+          response_type: "Open Text",
+          weight: "High",
+          category: "proof"
+        }));
+      }
+
+      if(context.isSeniorTech && context.hasIntegration){
+        blueprint.technical.push(createEmptyQuestion({
+          question: "Describe a complex system integration you handled using APIs, events, queues, or webhooks. What were the main failure points, and how did you manage retries, latency, and resiliency?",
+          focus_area: "Integration / Reliability",
+          response_type: "Open Text",
+          weight: "High",
+          category: "technical"
+        }));
+      }
+
+      if(context.isSeniorTech){
+        blueprint.simulation.push(createEmptyQuestion({
+          question: "If you were asked to build a service that exposes ML predictions through APIs for internal applications, what architecture would you propose from ingestion to deployment to monitoring?",
+          focus_area: "System Design",
+          response_type: "Open Text",
+          weight: "Critical",
+          category: "simulation"
+        }));
+      }
+
+      if((context.isSeniorTech && context.hasLeadership) || safeText(els.signalAutonomyLevel.value) === "Highly Independent"){
+        blueprint.leadership.push(createEmptyQuestion({
+          question: "Tell us about a technical decision you made that affected multiple teams or systems. How did you align stakeholders, manage trade-offs, and drive the implementation?",
+          focus_area: "Leadership / Ownership",
+          response_type: "Open Text",
+          weight: "High",
+          category: "leadership"
+        }));
+      }
+
+      redFlags.slice(0, 1).forEach(flag => {
+        blueprint.red_flag.push(createEmptyQuestion({
+          question: context.isSeniorTech
+            ? `This role cannot succeed with the following gap: "${flag}". Share an example from your experience that proves this is not a weakness in your background.`
+            : `This role may not fit candidates with the following risk: "${flag}". Please address this directly.`,
+          focus_area: "Risk / Red Flag Validation",
+          response_type: "Open Text",
+          weight: "Medium",
+          category: "red_flag"
+        }));
+      });
+
+      successSignals.slice(0, 1).forEach(signal => {
+        blueprint.proof.push(createEmptyQuestion({
+          question: `One success signal for this role is: "${signal}". Share a concrete example that demonstrates this in your past work.`,
+          focus_area: "Success Signal",
+          response_type: "Open Text",
+          weight: "High",
+          category: "proof"
+        }));
+      });
+
+      const flattened = [
+        ...blueprint.knockout,
+        ...blueprint.proof,
+        ...blueprint.technical,
+        ...blueprint.simulation,
+        ...blueprint.leadership,
+        ...blueprint.red_flag
+      ];
+
+      if(!flattened.length){
+        const reqs = normalizeLines(els.requirements.value);
+        reqs.slice(0, 4).forEach((line, i) => {
+          flattened.push(createEmptyQuestion({
+            question: `Tell us about your experience with: ${line}.`,
+            focus_area: line,
+            response_type: "Open Text",
+            weight: i < 2 ? "Critical" : "High",
+            category: "general"
+          }));
+        });
+      }
+
+      if(context.isSeniorTech){
+        return flattened.slice(0, 10);
+      }
+
+      return flattened.slice(0, 8);
+    }
+
+    function generateAiQuestions(){
+      questionItems = buildScreeningBlueprint();
       renderQuestions();
       generateScreeningSummary();
       refreshPreview();
@@ -631,18 +804,29 @@
 
     function generateScreeningSummary(){
       const focus = [...new Set(questionItems.map(q => safeText(q.focus_area)).filter(Boolean))];
-      const knock = questionItems.filter(q => q.knockout).length;
+      const categoryCounts = questionItems.reduce((acc, item) => {
+        const key = safeText(item.category || "general") || "general";
+        acc[key] = (acc[key] || 0) + 1;
+        return acc;
+      }, {});
 
       const summary = [
         "Screening Structure:",
         `- Total Questions: ${questionItems.length}`,
-        `- Knockout Questions: ${knock}`,
+        `- Knockout Questions: ${categoryCounts.knockout || 0}`,
+        `- Proof Questions: ${categoryCounts.proof || 0}`,
+        `- Technical / Architecture Questions: ${categoryCounts.technical || 0}`,
+        `- Simulation Questions: ${categoryCounts.simulation || 0}`,
+        `- Leadership Questions: ${categoryCounts.leadership || 0}`,
+        `- Red-Flag Validation Questions: ${categoryCounts.red_flag || 0}`,
         "",
         "Focus Areas:",
         ...(focus.length ? focus.map(a => `- ${a}`) : ["- General role fit"]),
         "",
         "Recommendation:",
-        "Validate knockout items first, then look for proof of execution and communication quality."
+        inferRoleContext().isSeniorTech
+          ? "Use knockout questions only to filter hard misses. For shortlisted candidates, prioritize proof of execution, architecture depth, ML or data platform experience, system integration judgment, and ownership under real production constraints."
+          : "Validate knockout items first, then look for proof of execution and communication quality."
       ].join("\n");
 
       els.screeningSummaryOutput.textContent = summary;
@@ -765,7 +949,9 @@
       const hits = [];
       const pool = [
         "qlik sense","sql","snowflake","excel","python","power bi","tableau","recruitment",
-        "sourcing","customer service","sales","crm","stakeholder management","communication","analytics","reporting"
+        "sourcing","customer service","sales","crm","stakeholder management","communication","analytics","reporting",
+        "aws","databricks","python","java","scala","docker","kubernetes","spark","delta lake","kafka",
+        "api","microservices","serverless","mlops","mlflow","ci/cd","github actions","event-driven"
       ];
 
       const lower = text.toLowerCase();
@@ -849,10 +1035,27 @@
       els.prioritySkills.value = role.priority_skills ? String(role.priority_skills).split(",").map(x => x.trim()).filter(Boolean).join("\n") : "";
       els.niceToHaveSkills.value = Array.isArray(role.nice_to_have_skills) ? role.nice_to_have_skills.join("\n") : "";
       els.signalBusinessPriorities.value = Array.isArray(role.client_priorities) ? role.client_priorities.join("\n") : "";
+
+      const aiConfig = role.ai_screening_config || {};
+      const signalPayload = aiConfig.signal_payload || {};
+      els.signalNonNegotiables.value = Array.isArray(signalPayload.non_negotiables) ? signalPayload.non_negotiables.join("\n") : "";
+      els.signalRedFlags.value = Array.isArray(signalPayload.red_flags) ? signalPayload.red_flags.join("\n") : "";
+      els.signalMustHaveSkills.value = Array.isArray(signalPayload.must_have_skills) ? signalPayload.must_have_skills.join("\n") : "";
+      els.signalSuccessSignals.value = Array.isArray(signalPayload.success_signals) ? signalPayload.success_signals.join("\n") : "";
+      els.signalSetupCriticality.value = signalPayload.setup_criticality || "";
+      els.signalEnvironmentNotes.value = signalPayload.environment_notes || "";
+      els.signalCommunicationWeight.value = signalPayload.communication_weight || "";
+      els.signalStakeholderWeight.value = signalPayload.stakeholder_weight || "";
+      els.signalAutonomyLevel.value = signalPayload.autonomy_level || "";
+      els.signalDecisionMaking.value = signalPayload.decision_making || "";
+      if(!els.signalBusinessPriorities.value && Array.isArray(signalPayload.business_priorities)){
+        els.signalBusinessPriorities.value = signalPayload.business_priorities.join("\n");
+      }
+
       els.screeningSummaryOutput.textContent = role.screening_summary || "No summary generated yet.";
       els.signalSummaryOutput.textContent = role.ai_screening_config?.signal_summary || "No signal summary generated yet.";
 
-      questionItems = Array.isArray(role.screening_config) ? role.screening_config : [];
+      questionItems = Array.isArray(role.screening_config) ? role.screening_config.map(item => createEmptyQuestion(item)) : [];
       renderQuestions();
       refreshPreview();
       els.roleModalTitle.textContent = "Edit Role";
@@ -924,6 +1127,7 @@
         screening_config: questionItems,
         ai_screening_config: {
           signal_summary: safeText(els.signalSummaryOutput.textContent),
+          signal_payload: getSignalCalibrationPayload(),
           compensation_notes: safeText(els.salaryNotes.value),
           salary_period: safeText(els.salaryPeriod.value) || "Monthly",
           jd_overview_only: safeText(els.jobDescription.value),
@@ -1073,7 +1277,7 @@
 
     if (els.openHelpBtn) {
       els.openHelpBtn.addEventListener("click", () => {
-        showNotice("What changed: Edit mode no longer recycles the old compiled job_description into the editable overview field. Parse JD now overwrites the editable fields, and Save stores the compiled Preview into jobs.job_description while keeping raw JD text inside ai_screening_config.");
+        showNotice("What changed: Edit mode no longer recycles the old compiled job_description into the editable overview field. Parse JD now overwrites the editable fields, Save stores the compiled Preview into jobs.job_description, and the AI question engine now generates seniority-aware questions across knockout, proof, technical, simulation, leadership, and red-flag categories.");
       });
     }
 
