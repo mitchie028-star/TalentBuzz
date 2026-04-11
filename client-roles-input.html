@@ -182,9 +182,10 @@
         </div>
 
         <div class="tab-panel" data-panel="screening">
-          <div class="section-title"><div><h3>Screening Builder</h3><p>Generate recruiter-grade questions and refine them if needed.</p></div><div class="toolbar"><button class="signal-btn" type="button" id="generateAiQuestionsBtn">Generate AI Questions</button><button class="ghost-btn" type="button" id="addQuestionBtn">Add Question</button><button class="ghost-btn" type="button" id="generateSummaryBtn">Build Screening Summary</button></div></div>
+          <div class="section-title"><div><h3>Screening Builder</h3><p>Generate recruiter-grade questions, test answers, and review weighted scoring in one place.</p></div><div class="toolbar"><button class="signal-btn" type="button" id="generateAiQuestionsBtn">Generate AI Questions</button><button class="ghost-btn" type="button" id="addQuestionBtn">Add Question</button><button class="ghost-btn" type="button" id="generateSummaryBtn">Build Screening Summary</button><button class="signal-btn" type="button" id="scoreAnswersBtn">Evaluate Answers</button><button class="ghost-btn" type="button" id="clearAnswersBtn">Clear Answers</button></div></div>
           <div class="questions-wrap" id="questionsWrap"></div>
           <div class="summary-box"><h4>Screening Strategy Summary</h4><p id="screeningSummaryOutput">No summary generated yet.</p></div>
+          <div class="summary-box"><h4>Scoring Engine Summary</h4><p id="scoringSummaryOutput">No scoring evaluation yet.</p></div>
         </div>
 
         <div class="tab-panel" data-panel="preview">
@@ -211,7 +212,7 @@
       "jobDescription","requirements","prioritySkills","niceToHaveSkills","signalNonNegotiables","signalRedFlags","signalMustHaveSkills",
       "signalSuccessSignals","signalSetupCriticality","signalEnvironmentNotes","signalCommunicationWeight","signalStakeholderWeight",
       "signalAutonomyLevel","signalDecisionMaking","signalBusinessPriorities","signalSummaryOutput","buildSignalBtn","questionsWrap",
-      "screeningSummaryOutput","jdPreview","addQuestionBtn","generateAiQuestionsBtn","generateSummaryBtn","saveRoleBtn","rolesTableBody",
+      "screeningSummaryOutput","scoringSummaryOutput","jdPreview","addQuestionBtn","generateAiQuestionsBtn","generateSummaryBtn","scoreAnswersBtn","clearAnswersBtn","saveRoleBtn","rolesTableBody",
       "searchInput","holdFilter","statRoles","statActive","statHold","statQuestions","notice","openHelpBtn"
     ].forEach(id => els[id] = document.getElementById(id));
 
@@ -501,6 +502,8 @@
         weight:"Medium",
         category:"general",
         knockout:false,
+        candidate_answer:"",
+        evaluation:null,
         ...overrides
       };
     }
@@ -511,7 +514,13 @@
         return;
       }
 
-      els.questionsWrap.innerHTML = questionItems.map((item,i) => `
+      els.questionsWrap.innerHTML = questionItems.map((item,i) => {
+        const score = Number.isFinite(item?.evaluation?.score) ? item.evaluation.score : null;
+        const verdict = safeText(item?.evaluation?.verdict);
+        const knockoutFailed = !!item?.evaluation?.knockoutFailed;
+        const dims = item?.evaluation?.dimensions || {};
+
+        return `
         <div class="question-card">
           <div class="question-top">
             <div class="question-top-left">
@@ -520,6 +529,9 @@
               <span class="chip">${item.weight || "Medium"}</span>
               ${item.category ? `<span class="chip">${item.category}</span>` : ""}
               ${item.knockout ? '<span class="chip">Knockout</span>' : ""}
+              ${score !== null ? `<span class="chip">Score ${score}</span>` : ""}
+              ${verdict ? `<span class="chip">${verdict}</span>` : ""}
+              ${knockoutFailed ? '<span class="chip">Critical Miss</span>' : ""}
             </div>
             <div class="question-actions">
               <button class="small-btn" type="button" onclick="duplicateQuestion(${i})">Duplicate</button>
@@ -559,8 +571,8 @@
                 <option value="general" ${item.category==="general"?"selected":""}>general</option>
                 <option value="knockout" ${item.category==="knockout"?"selected":""}>knockout</option>
                 <option value="proof" ${item.category==="proof"?"selected":""}>proof</option>
-                <option value="simulation" ${item.category==="simulation"?"selected":""}>simulation</option>
                 <option value="technical" ${item.category==="technical"?"selected":""}>technical</option>
+                <option value="simulation" ${item.category==="simulation"?"selected":""}>simulation</option>
                 <option value="leadership" ${item.category==="leadership"?"selected":""}>leadership</option>
                 <option value="red_flag" ${item.category==="red_flag"?"selected":""}>red_flag</option>
                 <option value="setup" ${item.category==="setup"?"selected":""}>setup</option>
@@ -569,8 +581,23 @@
               </select>
             </div>
           </div>
+          <div class="field field-full" style="margin-top:12px;">
+            <label>Candidate Answer</label>
+            <textarea onchange="updateQuestionField(${i}, 'candidate_answer', this.value)" placeholder="Paste the candidate's answer here to run TalentBuzz scoring.">${item.candidate_answer || ""}</textarea>
+          </div>
+          ${score !== null ? `
+            <div class="field field-full" style="margin-top:12px;">
+              <label>Scoring Breakdown</label>
+              <div class="helper" style="color:#d7e7fb;white-space:pre-wrap;">Relevance: ${dims.relevance ?? 0}/5
+Proof: ${dims.proof ?? 0}/5
+Depth: ${dims.depth ?? 0}/5
+Outcome: ${dims.outcome ?? 0}/5
+Risk Penalty: ${dims.riskPenalty ?? 0}/5
+Overall Question Score: ${score}
+Verdict: ${verdict || "Not scored"}${knockoutFailed ? "\nKnockout Status: Failed critical requirement" : ""}</div>
+            </div>` : ""}
         </div>
-      `).join("");
+      `}).join("");
     }
 
     window.updateQuestionField = (i,f,v) => {
@@ -834,6 +861,160 @@
       return summary;
     }
 
+    function getWeightMultiplier(weight) {
+      const key = safeText(weight).toLowerCase();
+      if (key === "critical") return 1.35;
+      if (key === "high") return 1.15;
+      if (key === "low") return 0.8;
+      return 1.0;
+    }
+
+    function getCategoryProfile(category) {
+      const key = safeText(category).toLowerCase();
+      const base = { relevanceWeight: 1, proofWeight: 1, depthWeight: 1, outcomeWeight: 1, riskWeight: 1 };
+      if (key === "knockout") return {...base, relevanceWeight: 1.2, proofWeight: 1.3, riskWeight: 1.4};
+      if (key === "proof") return {...base, proofWeight: 1.35, outcomeWeight: 1.2};
+      if (key === "technical") return {...base, depthWeight: 1.4, proofWeight: 1.2};
+      if (key === "simulation") return {...base, depthWeight: 1.25, relevanceWeight: 1.15};
+      if (key === "leadership") return {...base, proofWeight: 1.15, outcomeWeight: 1.25};
+      if (key === "red_flag") return {...base, riskWeight: 1.5};
+      return base;
+    }
+
+    function normalizeAnswerText(answer) {
+      return String(answer || "").trim();
+    }
+
+    function detectAnswerSignals(answer) {
+      const text = normalizeAnswerText(answer);
+      const lower = text.toLowerCase();
+      const lengthScore = text.length > 700 ? 5 : text.length > 450 ? 4 : text.length > 250 ? 3 : text.length > 120 ? 2 : text.length > 40 ? 1 : 0;
+      const hasOwnership = /\b(i built|i designed|i led|i implemented|i created|i deployed|i architected|i migrated|i optimized|i integrated)\b/i.test(lower);
+      const hasScale = /\b(users|requests|records|transactions|millions|thousands|latency|uptime|throughput|scale|high volume|production)\b/i.test(lower);
+      const hasTools = /\b(aws|databricks|python|java|scala|spark|kafka|docker|kubernetes|api gateway|lambda|ecs|eks|mlflow|delta lake|github actions|ci\/cd|microservices|api|serverless)\b/i.test(lower);
+      const hasOutcome = /\b(improved|reduced|increased|decreased|delivered|launched|stabilized|automated|cut|saved)\b/i.test(lower);
+      const hasMetrics = /\b\d+%|\b\d+\b.*\b(ms|seconds|minutes|hours|days|users|records|services|pipelines)\b/i.test(lower);
+      const vagueSignals = ["helped with", "familiar with", "exposed to", "have knowledge of", "worked on various", "involved in"].filter(x => lower.includes(x)).length;
+      const weakAnswer = text.length < 60 || /^(yes|no|n\/a|na|none)$/i.test(text);
+      return { text, lower, lengthScore, hasOwnership, hasScale, hasTools, hasOutcome, hasMetrics, vagueSignals, weakAnswer };
+    }
+
+    function scoreDimensionRelevance(question, answerSignals) {
+      if (!answerSignals.text) return 0;
+      if (answerSignals.weakAnswer) return 1;
+      return Math.min(5, Math.max(2, answerSignals.lengthScore));
+    }
+
+    function scoreDimensionProof(question, answerSignals) {
+      let score = 0;
+      if (answerSignals.hasOwnership) score += 3;
+      if (answerSignals.hasTools) score += 1;
+      if (answerSignals.hasScale) score += 1;
+      return Math.min(5, score);
+    }
+
+    function scoreDimensionDepth(question, answerSignals) {
+      let score = 0;
+      if (answerSignals.lengthScore >= 2) score += 1;
+      if (answerSignals.lengthScore >= 3) score += 1;
+      if (answerSignals.hasTools) score += 1;
+      if (answerSignals.hasScale) score += 1;
+      if (answerSignals.hasMetrics) score += 1;
+      return Math.min(5, score);
+    }
+
+    function scoreDimensionOutcome(question, answerSignals) {
+      let score = 0;
+      if (answerSignals.hasOutcome) score += 3;
+      if (answerSignals.hasMetrics) score += 2;
+      return Math.min(5, score);
+    }
+
+    function scoreDimensionRisk(question, answerSignals) {
+      let penalty = 0;
+      if (answerSignals.weakAnswer) penalty += 2;
+      if (answerSignals.vagueSignals >= 2) penalty += 2;
+      else if (answerSignals.vagueSignals === 1) penalty += 1;
+      if (!answerSignals.hasOwnership && answerSignals.lengthScore >= 2) penalty += 1;
+      return Math.min(5, penalty);
+    }
+
+    function evaluateSingleAnswer(question, answer) {
+      const profile = getCategoryProfile(question.category);
+      const signals = detectAnswerSignals(answer);
+      const relevance = scoreDimensionRelevance(question, signals);
+      const proof = scoreDimensionProof(question, signals);
+      const depth = scoreDimensionDepth(question, signals);
+      const outcome = scoreDimensionOutcome(question, signals);
+      const riskPenalty = scoreDimensionRisk(question, signals);
+      const weightedRaw = (relevance * profile.relevanceWeight) + (proof * profile.proofWeight) + (depth * profile.depthWeight) + (outcome * profile.outcomeWeight) - (riskPenalty * profile.riskWeight);
+      const maxRaw = (5 * profile.relevanceWeight) + (5 * profile.proofWeight) + (5 * profile.depthWeight) + (5 * profile.outcomeWeight);
+      const normalized = Math.max(0, Math.min(100, (weightedRaw / maxRaw) * 100));
+      const finalScore = Math.round(normalized * getWeightMultiplier(question.weight));
+      const knockoutFailed = (!!question.knockout || safeText(question.category).toLowerCase() === "knockout") && (finalScore < 45 || signals.weakAnswer);
+      let verdict = "Weak";
+      if (finalScore >= 85) verdict = "Strong";
+      else if (finalScore >= 70) verdict = "Good";
+      else if (finalScore >= 55) verdict = "Borderline";
+      return { score: Math.max(0, Math.min(100, finalScore)), verdict, knockoutFailed, dimensions: { relevance, proof, depth, outcome, riskPenalty }, signals };
+    }
+
+    function evaluateScreeningAnswers(questions = []) {
+      const scoredItems = questions.map(question => ({ ...question, evaluation: evaluateSingleAnswer(question, question.candidate_answer || "") }));
+      const overallScore = scoredItems.length ? Math.round(scoredItems.reduce((sum, item) => sum + (item?.evaluation?.score || 0), 0) / scoredItems.length) : 0;
+      const knockoutFailures = scoredItems.filter(item => item?.evaluation?.knockoutFailed).length;
+      let decision = "Weak Fit";
+      if (knockoutFailures) decision = "Screen Out";
+      else if (overallScore >= 85) decision = "Strong Endorse";
+      else if (overallScore >= 75) decision = "Endorse";
+      else if (overallScore >= 60) decision = "Recruiter Review";
+      else if (overallScore < 40) decision = "Screen Out";
+      const strengths = [];
+      const risks = [];
+      scoredItems.forEach(item => {
+        if ((item?.evaluation?.score || 0) >= 80) strengths.push(`${item.focus_area || "General"}: strong evidence of relevant execution`);
+        if ((item?.evaluation?.score || 0) < 55) risks.push(`${item.focus_area || "General"}: weak or insufficient proof`);
+        if (item?.evaluation?.knockoutFailed) risks.push(`${item.focus_area || "Knockout"}: failed a critical requirement`);
+      });
+      return { overall_score: overallScore, decision, knockout_failures: knockoutFailures, strengths: [...new Set(strengths)].slice(0, 5), risks: [...new Set(risks)].slice(0, 5), scored_items: scoredItems };
+    }
+
+    function buildScoringEvaluationSummary(result) {
+      return [
+        `Overall Screening Score: ${result.overall_score}`,
+        `Decision: ${result.decision}`,
+        `Knockout Failures: ${result.knockout_failures}`,
+        "",
+        "Strengths:",
+        ...(result.strengths.length ? result.strengths.map(x => `- ${x}`) : ["- No clear strengths identified"]),
+        "",
+        "Risks:",
+        ...(result.risks.length ? result.risks.map(x => `- ${x}`) : ["- No major risks identified"])
+      ].join("\n");
+    }
+
+    function evaluateAnswersAndRender() {
+      if(!questionItems.length){
+        showNotice("Generate or add questions first before scoring answers.", "error");
+        return;
+      }
+      const result = evaluateScreeningAnswers(questionItems);
+      questionItems = result.scored_items;
+      els.scoringSummaryOutput.textContent = buildScoringEvaluationSummary(result);
+      renderQuestions();
+      refreshPreview();
+      showNotice("Scoring engine completed answer evaluation.");
+      return result;
+    }
+
+    function clearCandidateAnswers() {
+      questionItems = questionItems.map(item => ({ ...item, candidate_answer: "", evaluation: null }));
+      els.scoringSummaryOutput.textContent = "No scoring evaluation yet.";
+      renderQuestions();
+      refreshPreview();
+      showNotice("Candidate answers cleared.");
+    }
+
     function extractShiftFromText(text){
       const raw = safeText(text);
       if(!raw) return "";
@@ -898,7 +1079,10 @@
         safeText(els.signalSummaryOutput.textContent) || "No summary generated yet.",
         "",
         "Screening Summary",
-        safeText(els.screeningSummaryOutput.textContent) || "No summary generated yet."
+        safeText(els.screeningSummaryOutput.textContent) || "No summary generated yet.",
+        "",
+        "Scoring Summary",
+        safeText(els.scoringSummaryOutput.textContent) || "No scoring evaluation yet."
       ].filter(Boolean).join("\n");
     }
 
@@ -1000,6 +1184,7 @@
       els.signalBusinessPriorities.value = "";
       els.signalSummaryOutput.textContent = "No signal summary generated yet.";
       els.screeningSummaryOutput.textContent = "No summary generated yet.";
+      els.scoringSummaryOutput.textContent = "No scoring evaluation yet.";
       questionItems = [];
       renderQuestions();
       refreshPreview();
@@ -1128,6 +1313,7 @@
         ai_screening_config: {
           signal_summary: safeText(els.signalSummaryOutput.textContent),
           signal_payload: getSignalCalibrationPayload(),
+          scoring_summary: safeText(els.scoringSummaryOutput.textContent),
           compensation_notes: safeText(els.salaryNotes.value),
           salary_period: safeText(els.salaryPeriod.value) || "Monthly",
           jd_overview_only: safeText(els.jobDescription.value),
@@ -1218,6 +1404,9 @@
       generateScreeningSummary();
       showNotice("Screening summary built.");
     });
+
+    els.scoreAnswersBtn.addEventListener("click", evaluateAnswersAndRender);
+    els.clearAnswersBtn.addEventListener("click", clearCandidateAnswers);
 
     els.addQuestionBtn.addEventListener("click",() => {
       questionItems.push(createEmptyQuestion());
