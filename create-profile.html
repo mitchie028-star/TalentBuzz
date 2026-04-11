@@ -534,6 +534,26 @@
       margin-top: 10px;
     }
 
+    .route-card {
+      margin-bottom: 18px;
+      border: 1px solid #dbeafe;
+      background: linear-gradient(180deg,#ffffff 0%,#f8fbff 100%);
+      border-radius: 16px;
+      padding: 14px 16px;
+    }
+
+    .route-card strong {
+      color: var(--blue);
+      display:block;
+      margin-bottom:6px;
+    }
+
+    .route-card span {
+      color: var(--muted);
+      font-size: 0.9rem;
+      line-height: 1.55;
+    }
+
     .btn {
       min-height: 48px;
       padding: 0 18px;
@@ -632,11 +652,16 @@
       <div class="eyebrow">TalentBuzz Profile</div>
       <h1>Create your profile</h1>
       <p class="subtitle">
-        Start with sign-in, then complete your TalentBuzz profile in a cleaner flow with less friction.
+        Start with sign-in, then complete your TalentBuzz profile so we can continue your application.
       </p>
     </div>
 
     <div class="card">
+      <div id="routeCard" class="route-card hidden">
+        <strong>Application in progress</strong>
+        <span id="routeCardText"></span>
+      </div>
+
       <div id="authModeBanner" class="auth-mode-banner hidden"></div>
 
       <div class="progress-wrap">
@@ -863,8 +888,8 @@
 
           <div class="mini-card">
             <h3>What happens next</h3>
-            <p>
-              After saving, the profile can be surfaced to recruiters and matched against current openings.
+            <p id="nextStepText">
+              After saving, your profile will be ready inside TalentBuzz.
             </p>
           </div>
         </section>
@@ -893,9 +918,12 @@
   const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
   const params = new URLSearchParams(window.location.search);
-  const job = params.get('job');
-  const fromApply = params.get('fromApply');
-  const redirect = params.get('redirect');
+  const jobId = params.get('job_id') || params.get('job') || '';
+  const slug = params.get('slug') || '';
+  const source = params.get('source') || '';
+  const alertId = params.get('alert_id') || '';
+  const fromApply = params.get('fromApply') || '';
+  const redirect = params.get('redirect') || '';
 
   const form = document.getElementById('profileForm');
   const message = document.getElementById('message');
@@ -923,6 +951,9 @@
   const skillsRow = document.getElementById('skillsRow');
   const suggestedRolesRow = document.getElementById('suggestedRolesRow');
   const matchedJobsList = document.getElementById('matchedJobsList');
+  const routeCard = document.getElementById('routeCard');
+  const routeCardText = document.getElementById('routeCardText');
+  const nextStepText = document.getElementById('nextStepText');
 
   const steps = Array.from(document.querySelectorAll('.step'));
 
@@ -994,18 +1025,6 @@
     resendMagicLinkBtn.disabled = isSaving;
   }
 
-  function getFullName(user) {
-    const m = user?.user_metadata || {};
-    return (
-      m.full_name ||
-      m.name ||
-      `${m.given_name || ''} ${m.family_name || ''}`.trim() ||
-      m.user_name ||
-      m.preferred_username ||
-      (user?.email ? user.email.split('@')[0] : '')
-    );
-  }
-
   function getInitials(name) {
     const parts = String(name || '').trim().split(/\s+/).filter(Boolean);
     if (!parts.length) return 'TB';
@@ -1063,6 +1082,64 @@
     authModeBanner.classList.toggle('hidden', !isVisible);
   }
 
+  function hasApplicationRoute() {
+    return fromApply === '1' && !!(jobId || slug);
+  }
+
+  function buildSharedRouteParams() {
+    const qp = new URLSearchParams();
+    if (jobId) qp.set('job_id', jobId);
+    if (slug) qp.set('slug', slug);
+    if (source) qp.set('source', source);
+    if (alertId) qp.set('alert_id', alertId);
+    return qp;
+  }
+
+  function buildCreateProfileQueryForEmail(email) {
+    const qp = buildSharedRouteParams();
+    if (email) qp.set('email', email);
+    if (fromApply) qp.set('fromApply', fromApply);
+    if (redirect) qp.set('redirect', redirect);
+    return qp.toString();
+  }
+
+  function buildLoginUrl(email) {
+    const loginParams = new URLSearchParams();
+    loginParams.set('next', 'create-profile');
+    if (email) loginParams.set('email', email);
+    if (jobId) loginParams.set('job_id', jobId);
+    if (slug) loginParams.set('slug', slug);
+    if (source) loginParams.set('source', source);
+    if (alertId) loginParams.set('alert_id', alertId);
+    if (fromApply) loginParams.set('fromApply', fromApply);
+    if (redirect) loginParams.set('redirect', redirect);
+    return `login.html?${loginParams.toString()}`;
+  }
+
+  function redirectAfterSave() {
+    if (hasApplicationRoute()) {
+      const qp = buildSharedRouteParams();
+      window.location.href = `apply.html?${qp.toString()}`;
+      return;
+    }
+    if (redirect) {
+      window.location.href = redirect;
+      return;
+    }
+    window.location.href = 'dashboard.html';
+  }
+
+  function updateRouteUI() {
+    if (hasApplicationRoute()) {
+      routeCard.classList.remove('hidden');
+      routeCardText.textContent = 'After you save your profile, we will continue your application, open screening for this role, and then send you to your dashboard.';
+      nextStepText.textContent = 'After saving, TalentBuzz will continue your role application and open the role-specific screening questions.';
+    } else {
+      routeCard.classList.add('hidden');
+      nextStepText.textContent = 'After saving, your profile will be ready inside TalentBuzz.';
+    }
+  }
+
   function updateProgressConfig() {
     const labels = {
       1: { title: 'Step 1 of 3 · Sign In', meta: 'Choose a method', width: '33.33%' },
@@ -1082,7 +1159,9 @@
       passwordWrap.classList.remove('show');
       emailMethodSelected = false;
       setAuthModeBanner(
-        'You are signed in. Your email has been detected and your profile can now be completed.',
+        hasApplicationRoute()
+          ? 'You are signed in. Complete your profile, then we will continue your application automatically.'
+          : 'You are signed in. Your email has been detected and your profile can now be completed.',
         true
       );
       return;
@@ -1090,7 +1169,9 @@
 
     emailInput.readOnly = false;
     setAuthModeBanner(
-      'Choose email, Google, LinkedIn, or GitHub first. After that, complete your TalentBuzz profile.',
+      hasApplicationRoute()
+        ? 'Sign in first, then complete your profile so we can continue your application for this role.'
+        : 'Choose email, Google, LinkedIn, or GitHub first. After that, complete your TalentBuzz profile.',
       true
     );
   }
@@ -1206,7 +1287,7 @@
     const attemptTs = enforceCooldown(lastMagicLinkAttempt, AUTH_EMAIL_COOLDOWN, 'email');
     lastMagicLinkAttempt = attemptTs;
 
-    const emailRedirectTo = `${window.location.origin}/create-profile.html?email=${encodeURIComponent(email)}${job ? `&job=${encodeURIComponent(job)}` : ''}${fromApply ? `&fromApply=${encodeURIComponent(fromApply)}` : ''}${redirect ? `&redirect=${encodeURIComponent(redirect)}` : ''}`;
+    const emailRedirectTo = `${window.location.origin}/create-profile.html?${buildCreateProfileQueryForEmail(email)}`;
 
     const { error } = await supabaseClient.auth.signInWithOtp({
       email,
@@ -1228,7 +1309,7 @@
   }
 
   function getOAuthRedirectUrl() {
-    return `${window.location.origin}/create-profile.html${window.location.search}`;
+    return `${window.location.origin}/create-profile.html?${buildCreateProfileQueryForEmail(getEmailInput().value.trim().toLowerCase())}`;
   }
 
   async function signInWithProvider(provider) {
@@ -1245,28 +1326,6 @@
     });
 
     if (error) throw error;
-  }
-
-  function getLoginUrl(email) {
-    const loginParams = new URLSearchParams();
-    loginParams.set('next', 'create-profile');
-    if (email) loginParams.set('email', email);
-    if (job) loginParams.set('job', job);
-    if (fromApply) loginParams.set('fromApply', fromApply);
-    if (redirect) loginParams.set('redirect', redirect);
-    return `login.html?${loginParams.toString()}`;
-  }
-
-  function redirectAfterSave() {
-    if (fromApply === '1' && job) {
-      window.location.href = `apply.html?job=${encodeURIComponent(job)}`;
-      return;
-    }
-    if (redirect) {
-      window.location.href = redirect;
-      return;
-    }
-    window.location.href = 'dashboard.html';
   }
 
   async function ensureProfileStorageUpload(file, folderPrefix) {
@@ -1679,6 +1738,7 @@
 
   async function bootstrapPage() {
     clearMessage();
+    updateRouteUI();
     await fetchOpenJobs();
 
     const emailFromUrl = (params.get('email') || '').trim();
@@ -1929,7 +1989,7 @@
         const signupAttemptTs = enforceCooldown(lastSignupAttempt, AUTH_EMAIL_COOLDOWN, 'email');
         lastSignupAttempt = signupAttemptTs;
 
-        const emailRedirectTo = `${window.location.origin}/create-profile.html?email=${encodeURIComponent(email)}${job ? `&job=${encodeURIComponent(job)}` : ''}${fromApply ? `&fromApply=${encodeURIComponent(fromApply)}` : ''}${redirect ? `&redirect=${encodeURIComponent(redirect)}` : ''}`;
+        const emailRedirectTo = `${window.location.origin}/create-profile.html?${buildCreateProfileQueryForEmail(email)}`;
 
         const { data: signUpData, error: signUpError } = await supabaseClient.auth.signUp({
           email,
@@ -2013,7 +2073,12 @@
       const savedProfile = await upsertProfileWithFallback(payload, email, existingProfile);
       existingProfile = savedProfile || payload;
 
-      showMessage('Profile saved successfully.', 'success');
+      showMessage(
+        hasApplicationRoute()
+          ? 'Profile saved successfully. Continuing your application...'
+          : 'Profile saved successfully.',
+        'success'
+      );
 
       setTimeout(() => {
         redirectAfterSave();
