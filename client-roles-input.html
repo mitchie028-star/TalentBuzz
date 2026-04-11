@@ -620,7 +620,8 @@ Verdict: ${verdict || "Not scored"}${knockoutFailed ? "\nKnockout Status: Failed
       refreshPreview();
     };
 
-    function parseWeightedSkills(lines = []){
+    
+function parseWeightedSkills(lines = []){
       return lines
         .map(line => safeText(line))
         .filter(Boolean)
@@ -638,187 +639,381 @@ Verdict: ${verdict || "Not scored"}${knockoutFailed ? "\nKnockout Status: Failed
         });
     }
 
-    function inferRoleContext(){
-      const title = safeText(els.jobTitle.value).toLowerCase();
-      const family = safeText(els.roleFamily.value).toLowerCase();
-      const seniority = safeText(els.seniority.value).toLowerCase();
-      const signalSummary = safeText(els.signalSummaryOutput.textContent).toLowerCase();
-
-      const combined = [
-        safeText(els.jdRawText.value),
-        safeText(els.jobDescription.value),
-        safeText(els.requirements.value),
-        safeText(els.prioritySkills.value),
-        safeText(els.signalMustHaveSkills.value),
-        signalSummary
-      ].join("\n").toLowerCase();
-
-      const seniorKeywords = ["senior","lead","manager","director","executive"];
-      const technicalRole =
-        family.includes("technology") ||
-        family.includes("data") ||
-        title.includes("developer") ||
-        title.includes("engineer") ||
-        title.includes("architect") ||
-        title.includes("backend") ||
-        title.includes("software");
-
-      return {
-        isSeniorTech: technicalRole && seniorKeywords.includes(seniority),
-        isTechnicalRole: technicalRole,
-        hasCloud: /(aws|databricks|lambda|ecs|eks|api gateway|step functions|serverless|cloud-native|s3|rds|dynamodb)/i.test(combined),
-        hasMLOps: /(mlops|mlflow|model deployment|model monitoring|machine learning|data science|feature engineering)/i.test(combined),
-        hasDistributed: /(kafka|spark|delta lake|distributed|event-driven|microservices|streaming|queues|webhooks)/i.test(combined),
-        hasLeadership: /(mentor|mentoring|leadership|technical guidance|strategy|architectural decisions|cross-functional|ownership)/i.test(combined),
-        hasIntegration: /(integration|api|apis|event-driven|messaging|webhooks|queues|internal and external systems)/i.test(combined)
-      };
+    function countPatternMatches(text, patterns = []){
+      return patterns.reduce((count, pattern) => count + (pattern.test(text) ? 1 : 0), 0);
     }
 
-    function buildScreeningBlueprint(){
-      const context = inferRoleContext();
+    function deriveRoleModel(){
+      const title = safeText(els.jobTitle.value);
+      const titleLower = title.toLowerCase();
+      const family = safeText(els.roleFamily.value);
+      const familyLower = family.toLowerCase();
+      const seniority = safeText(els.seniority.value);
+      const seniorityLower = seniority.toLowerCase();
+
       const nonNeg = uniqueLines(normalizeLines(els.signalNonNegotiables.value));
       const redFlags = uniqueLines(normalizeLines(els.signalRedFlags.value));
       const successSignals = uniqueLines(normalizeLines(els.signalSuccessSignals.value));
       const weightedSkills = parseWeightedSkills(normalizeLines(els.signalMustHaveSkills.value));
-      const fallbackSkills = uniqueLines(normalizeLines(els.prioritySkills.value)).map(skill => ({skill, weight:"High"}));
-      const skillPool = weightedSkills.length ? weightedSkills : fallbackSkills;
+      const prioritySkills = uniqueLines(normalizeLines(els.prioritySkills.value)).map(skill => ({ skill, weight: "High" }));
+      const requirements = uniqueLines(normalizeLines(els.requirements.value));
+      const businessPriorities = uniqueLines(normalizeLines(els.signalBusinessPriorities.value));
 
-      const blueprint = {
-        knockout: [],
-        proof: [],
-        technical: [],
-        simulation: [],
-        leadership: [],
-        red_flag: []
-      };
+      const combined = [
+        title,
+        family,
+        seniority,
+        safeText(els.jdRawText.value),
+        safeText(els.jobDescription.value),
+        safeText(els.requirements.value),
+        safeText(els.prioritySkills.value),
+        safeText(els.niceToHaveSkills.value),
+        safeText(els.signalMustHaveSkills.value),
+        safeText(els.signalSuccessSignals.value),
+        safeText(els.signalRedFlags.value),
+        safeText(els.signalDecisionMaking.value),
+        safeText(els.signalEnvironmentNotes.value),
+        safeText(els.signalSummaryOutput.textContent)
+      ].join("\n").toLowerCase();
 
-      nonNeg.slice(0, context.isSeniorTech ? 2 : 3).forEach(item => {
-        blueprint.knockout.push(createEmptyQuestion({
-          question: context.isSeniorTech
-            ? `Briefly confirm this requirement with concrete evidence: "${item}". Include where you used it, in what environment, and at what scale.`
-            : `Please confirm whether you meet this non-negotiable requirement: "${item}".`,
-          focus_area: "Non-Negotiable",
-          response_type: context.isSeniorTech ? "Short Answer" : "Yes/No",
-          weight: "Critical",
-          category: "knockout",
-          knockout: true
-        }));
-      });
-
-      skillPool
-        .filter(item => ["Critical","High"].includes(item.weight))
-        .slice(0, context.isSeniorTech ? 3 : 2)
-        .forEach(item => {
-          blueprint.proof.push(createEmptyQuestion({
-            question: context.isSeniorTech
-              ? `Describe a production system where you used ${item.skill}. What problem were you solving, what did you personally build, and what were the technical trade-offs?`
-              : `Tell us about a real situation where you used ${item.skill} in a relevant role. What did you do and what was the outcome?`,
-            focus_area: item.skill,
-            response_type: "Open Text",
-            weight: item.weight,
-            category: "proof"
-          }));
-        });
-
-      if(context.isSeniorTech && (context.hasCloud || context.hasDistributed || context.hasIntegration)){
-        blueprint.technical.push(createEmptyQuestion({
-          question: "Walk me through an architecture you designed for a cloud-native or distributed application. Why did you choose that design, and how did you handle scalability, reliability, security, and observability?",
-          focus_area: "Architecture",
-          response_type: "Open Text",
-          weight: "Critical",
-          category: "technical"
-        }));
-      }
-
-      if(context.isSeniorTech && context.hasMLOps){
-        blueprint.proof.push(createEmptyQuestion({
-          question: "Describe how you helped move a data science or machine learning workflow into production. What services, pipelines, and monitoring approach did you use?",
-          focus_area: "MLOps / Data Platform",
-          response_type: "Open Text",
-          weight: "High",
-          category: "proof"
-        }));
-      }
-
-      if(context.isSeniorTech && context.hasIntegration){
-        blueprint.technical.push(createEmptyQuestion({
-          question: "Describe a complex system integration you handled using APIs, events, queues, or webhooks. What were the main failure points, and how did you manage retries, latency, and resiliency?",
-          focus_area: "Integration / Reliability",
-          response_type: "Open Text",
-          weight: "High",
-          category: "technical"
-        }));
-      }
-
-      if(context.isSeniorTech){
-        blueprint.simulation.push(createEmptyQuestion({
-          question: "If you were asked to build a service that exposes ML predictions through APIs for internal applications, what architecture would you propose from ingestion to deployment to monitoring?",
-          focus_area: "System Design",
-          response_type: "Open Text",
-          weight: "Critical",
-          category: "simulation"
-        }));
-      }
-
-      if((context.isSeniorTech && context.hasLeadership) || safeText(els.signalAutonomyLevel.value) === "Highly Independent"){
-        blueprint.leadership.push(createEmptyQuestion({
-          question: "Tell us about a technical decision you made that affected multiple teams or systems. How did you align stakeholders, manage trade-offs, and drive the implementation?",
-          focus_area: "Leadership / Ownership",
-          response_type: "Open Text",
-          weight: "High",
-          category: "leadership"
-        }));
-      }
-
-      redFlags.slice(0, 1).forEach(flag => {
-        blueprint.red_flag.push(createEmptyQuestion({
-          question: context.isSeniorTech
-            ? `This role cannot succeed with the following gap: "${flag}". Share an example from your experience that proves this is not a weakness in your background.`
-            : `This role may not fit candidates with the following risk: "${flag}". Please address this directly.`,
-          focus_area: "Risk / Red Flag Validation",
-          response_type: "Open Text",
-          weight: "Medium",
-          category: "red_flag"
-        }));
-      });
-
-      successSignals.slice(0, 1).forEach(signal => {
-        blueprint.proof.push(createEmptyQuestion({
-          question: `One success signal for this role is: "${signal}". Share a concrete example that demonstrates this in your past work.`,
-          focus_area: "Success Signal",
-          response_type: "Open Text",
-          weight: "High",
-          category: "proof"
-        }));
-      });
-
-      const flattened = [
-        ...blueprint.knockout,
-        ...blueprint.proof,
-        ...blueprint.technical,
-        ...blueprint.simulation,
-        ...blueprint.leadership,
-        ...blueprint.red_flag
+      const technicalPatterns = [
+        /\bdeveloper\b/i, /\bengineer\b/i, /\barchitect\b/i, /\bautomation\b/i, /\bqa\b/i, /\btester\b/i,
+        /\bapi\b/i, /\baws\b/i, /\bdatabricks\b/i, /\bpython\b/i, /\bjava\b/i, /\bscala\b/i, /\bsql\b/i,
+        /\bintegration\b/i, /\bsystems?\b/i, /\bdevops\b/i, /\bcloud\b/i, /\bmicroservices?\b/i, /\berp\b/i,
+        /\bpos\b/i, /\bdynamics\b/i, /\bmlops\b/i, /\bdata\b/i, /\bplatform\b/i
       ];
 
-      if(!flattened.length){
-        const reqs = normalizeLines(els.requirements.value);
-        reqs.slice(0, 4).forEach((line, i) => {
-          flattened.push(createEmptyQuestion({
-            question: `Tell us about your experience with: ${line}.`,
-            focus_area: line,
-            response_type: "Open Text",
-            weight: i < 2 ? "Critical" : "High",
-            category: "general"
-          }));
+      const customerPatterns = [
+        /\bcustomer\b/i, /\bclient\b/i, /\bcall center\b/i, /\bbpo\b/i, /\bvoice\b/i, /\bchat\b/i,
+        /\bde-escalation\b/i, /\bcsat\b/i, /\bsales\b/i, /\bretention\b/i, /\bservice\b/i
+      ];
+
+      const opsPatterns = [
+        /\boperations?\b/i, /\bworkflow\b/i, /\bprocess\b/i, /\bsop\b/i, /\blogistics?\b/i,
+        /\bsupervisor\b/i, /\bcoordination\b/i, /\bscheduling\b/i
+      ];
+
+      const financePatterns = [
+        /\bfinance\b/i, /\baccounting\b/i, /\breconciliation\b/i, /\bcollections?\b/i, /\baud(it|itor)\b/i,
+        /\bbookkeeping\b/i, /\bbudget\b/i, /\btax\b/i, /\bcompliance\b/i
+      ];
+
+      const healthcarePatterns = [
+        /\bhealthcare\b/i, /\bmedical\b/i, /\bcoder\b/i, /\bnurse\b/i, /\bclinical\b/i,
+        /\bdrg\b/i, /\bdenials?\b/i, /\bappeals?\b/i, /\bpatient\b/i
+      ];
+
+      const riskPatterns = [
+        /\bcompliance\b/i, /\baccuracy\b/i, /\bquality\b/i, /\berror\b/i, /\bincident\b/i,
+        /\bcritical\b/i, /\bsecure\b/i, /\bsafety\b/i, /\breliability\b/i, /\bgovernance\b/i
+      ];
+
+      const stakeholderPatterns = [
+        /\bstakeholder\b/i, /\bcross-functional\b/i, /\bcollaborat/i, /\bmentor/i, /\blead/i,
+        /\balign/i, /\bcommunicat/i, /\bpresent/i, /\bclient-facing\b/i
+      ];
+
+      const scenarioPatterns = [
+        /\bdecide\b/i, /\bdecision\b/i, /\btrade-off\b/i, /\bpriorit/i, /\bjudg/i,
+        /\bproblem-solving\b/i, /\bambigu/i, /\bescalat/i, /\bincident\b/i, /\broot cause\b/i
+      ];
+
+      const technicalScore = countPatternMatches(combined, technicalPatterns) + (familyLower.includes("technology") || familyLower.includes("data") ? 2 : 0);
+      const customerScore = countPatternMatches(combined, customerPatterns) + (familyLower.includes("customer") || familyLower.includes("sales") ? 2 : 0);
+      const operationsScore = countPatternMatches(combined, opsPatterns) + (familyLower.includes("operations") ? 2 : 0);
+      const financeScore = countPatternMatches(combined, financePatterns) + (familyLower.includes("finance") ? 2 : 0);
+      const healthcareScore = countPatternMatches(combined, healthcarePatterns) + (familyLower.includes("healthcare") ? 2 : 0);
+
+      const domainScores = [
+        { name: "technical", score: technicalScore },
+        { name: "customer", score: customerScore },
+        { name: "operations", score: operationsScore },
+        { name: "finance", score: financeScore },
+        { name: "healthcare", score: healthcareScore }
+      ].sort((a, b) => b.score - a.score);
+
+      const primaryDomain = domainScores[0]?.score > 0 ? domainScores[0].name : "general";
+      const seniorityRank = ({ "entry-level":1, "associate":2, "mid-level":3, "senior":4, "lead":5, "manager":5, "director":6, "executive":7 })[seniorityLower] || 3;
+
+      const autonomyValue = safeText(els.signalAutonomyLevel.value).toLowerCase();
+      const communicationWeight = safeText(els.signalCommunicationWeight.value).toLowerCase();
+      const stakeholderWeight = safeText(els.signalStakeholderWeight.value).toLowerCase();
+      const setupCriticality = safeText(els.signalSetupCriticality.value).toLowerCase();
+
+      const complexityScore =
+        (technicalScore >= 4 ? 2 : technicalScore >= 2 ? 1 : 0) +
+        (requirements.length >= 8 ? 2 : requirements.length >= 4 ? 1 : 0) +
+        (weightedSkills.filter(x => ["Critical","High"].includes(x.weight)).length >= 4 ? 2 : weightedSkills.length >= 2 ? 1 : 0) +
+        (seniorityRank >= 5 ? 2 : seniorityRank >= 4 ? 1 : 0) +
+        (scenarioPatterns.some(p => p.test(combined)) ? 1 : 0);
+
+      const stakeholderIntensity =
+        (stakeholderWeight === "critical" ? 3 : stakeholderWeight === "high" ? 2 : stakeholderWeight === "moderate" ? 1 : 0) +
+        (communicationWeight === "critical" ? 2 : communicationWeight === "high" ? 1 : 0) +
+        countPatternMatches(combined, stakeholderPatterns);
+
+      const riskLevel =
+        countPatternMatches(combined, riskPatterns) +
+        (nonNeg.length >= 3 ? 1 : 0) +
+        (setupCriticality === "critical" ? 1 : 0) +
+        (redFlags.length ? 1 : 0);
+
+      const ambiguityLevel =
+        (autonomyValue === "highly independent" ? 2 : autonomyValue === "needs moderate guidance" ? 1 : 0) +
+        (safeText(els.signalDecisionMaking.value) ? 1 : 0) +
+        countPatternMatches(combined, scenarioPatterns);
+
+      const skillPool = weightedSkills.length ? weightedSkills : prioritySkills;
+
+      return {
+        title,
+        family,
+        seniority,
+        primaryDomain,
+        technicalDepth: technicalScore,
+        customerDepth: customerScore,
+        operationsDepth: operationsScore,
+        financeDepth: financeScore,
+        healthcareDepth: healthcareScore,
+        seniorityRank,
+        complexityScore,
+        stakeholderIntensity,
+        riskLevel,
+        ambiguityLevel,
+        setupCriticality,
+        autonomyValue,
+        communicationWeight,
+        stakeholderWeight,
+        nonNeg,
+        redFlags,
+        successSignals,
+        weightedSkills,
+        prioritySkills,
+        skillPool,
+        requirements,
+        businessPriorities,
+        combined
+      };
+    }
+
+    function buildAdaptiveQuestionPlan(roleModel){
+      const questionCountTarget =
+        roleModel.complexityScore >= 6 ? 9 :
+        roleModel.complexityScore >= 4 ? 8 :
+        roleModel.complexityScore >= 2 ? 7 : 6;
+
+      const plan = [];
+
+      const knockoutCount =
+        roleModel.nonNeg.length
+          ? Math.min(roleModel.nonNeg.length, roleModel.riskLevel >= 4 ? 3 : 2)
+          : 0;
+
+      for(let i = 0; i < knockoutCount; i += 1){
+        plan.push({ category: "knockout", source: roleModel.nonNeg[i], weight: "Critical" });
+      }
+
+      const executionCount =
+        roleModel.skillPool.length >= 4 ? 3 :
+        roleModel.skillPool.length >= 2 ? 2 : 1;
+
+      for(let i = 0; i < executionCount; i += 1){
+        const skill = roleModel.skillPool[i];
+        if(skill){
+          plan.push({ category: "proof", source: skill.skill, weight: skill.weight || "High" });
+        }
+      }
+
+      plan.push({
+        category: "simulation",
+        source: roleModel.primaryDomain,
+        weight: roleModel.complexityScore >= 4 ? "High" : "Medium"
+      });
+
+      if(roleModel.complexityScore >= 3 || roleModel.technicalDepth >= 2 || roleModel.operationsDepth >= 2 || roleModel.financeDepth >= 2){
+        plan.push({
+          category: "technical",
+          source: roleModel.primaryDomain,
+          weight: roleModel.complexityScore >= 5 ? "Critical" : "High"
         });
       }
 
-      if(context.isSeniorTech){
-        return flattened.slice(0, 10);
+      if(roleModel.stakeholderIntensity >= 2 || roleModel.seniorityRank >= 4){
+        plan.push({
+          category: "leadership",
+          source: roleModel.primaryDomain,
+          weight: roleModel.seniorityRank >= 5 ? "High" : "Medium"
+        });
       }
 
-      return flattened.slice(0, 8);
+      if(roleModel.redFlags.length){
+        plan.push({ category: "red_flag", source: roleModel.redFlags[0], weight: "Medium" });
+      } else if(roleModel.riskLevel >= 3){
+        plan.push({ category: "red_flag", source: roleModel.primaryDomain, weight: "Medium" });
+      }
+
+      if(roleModel.successSignals.length){
+        plan.push({ category: "proof", source: roleModel.successSignals[0], weight: "High", subtype: "success_signal" });
+      }
+
+      if(roleModel.businessPriorities.length && plan.length < questionCountTarget){
+        plan.push({ category: "business", source: roleModel.businessPriorities[0], weight: "High" });
+      }
+
+      if(roleModel.setupCriticality && roleModel.setupCriticality !== "low" && plan.length < questionCountTarget){
+        plan.push({ category: "setup", source: roleModel.setupCriticality, weight: roleModel.setupCriticality === "critical" ? "High" : "Medium" });
+      }
+
+      if(plan.length < questionCountTarget){
+        const fallbackRequirements = roleModel.requirements.slice(0, questionCountTarget - plan.length);
+        fallbackRequirements.forEach((req, index) => {
+          plan.push({
+            category: index === 0 ? "proof" : "general",
+            source: req,
+            weight: index === 0 ? "High" : "Medium"
+          });
+        });
+      }
+
+      const uniquePlan = [];
+      const seen = new Set();
+      plan.forEach(item => {
+        const key = `${item.category}::${safeText(item.source).toLowerCase()}`;
+        if(!seen.has(key) && uniquePlan.length < questionCountTarget){
+          seen.add(key);
+          uniquePlan.push(item);
+        }
+      });
+
+      return uniquePlan;
+    }
+
+    function buildQuestionFromPlanItem(item, roleModel){
+      const source = safeText(item.source);
+      const domain = roleModel.primaryDomain;
+      const title = roleModel.title || "this role";
+
+      if(item.category === "knockout"){
+        return createEmptyQuestion({
+          question: `Briefly confirm this requirement with concrete evidence: "${source}". Include where you applied it, in what environment, and how recently.`,
+          focus_area: "Eligibility / Must-Have",
+          response_type: "Short Answer",
+          weight: item.weight || "Critical",
+          category: "knockout",
+          knockout: true
+        });
+      }
+
+      if(item.category === "proof" && item.subtype === "success_signal"){
+        return createEmptyQuestion({
+          question: `One strong success signal for ${title} is: "${source}". Share a specific example that proves this in your past work, including what you owned and what happened as a result.`,
+          focus_area: "Success Signal",
+          response_type: "Open Text",
+          weight: item.weight || "High",
+          category: "proof"
+        });
+      }
+
+      if(item.category === "proof"){
+        return createEmptyQuestion({
+          question: `Tell us about a real example where you used ${source} in a relevant role. What was the situation, what did you personally do, what decisions did you make, and what was the outcome?`,
+          focus_area: source || "Execution",
+          response_type: "Open Text",
+          weight: item.weight || "High",
+          category: "proof"
+        });
+      }
+
+      if(item.category === "technical"){
+        const prompts = {
+          technical: `Walk us through a complex system, workflow, or solution you designed, improved, tested, or supported that is most relevant to ${title}. What made it complex, what trade-offs did you deal with, and how did you ensure quality, reliability, or scale?`,
+          customer: `Describe a high-pressure customer or service workflow you improved or stabilized. How did you diagnose the issue, decide what to prioritize, and measure success?`,
+          operations: `Describe a process, workflow, or operational environment you improved. What was broken, what changes did you introduce, and how did you reduce errors, delays, or risk?`,
+          finance: `Describe a financial or control-heavy process you handled or improved. What checks mattered most, where were the risks, and how did you make the process more accurate or reliable?`,
+          healthcare: `Describe a healthcare or compliance-sensitive workflow you handled or improved. What standards or risks shaped your decisions, and how did you ensure accuracy and quality?`,
+          general: `Describe a complex responsibility from a role similar to ${title}. What made it difficult, how did you approach it, and what result did you achieve?`
+        };
+        return createEmptyQuestion({
+          question: prompts[domain] || prompts.general,
+          focus_area: "Role-Critical Execution",
+          response_type: "Open Text",
+          weight: item.weight || "High",
+          category: "technical"
+        });
+      }
+
+      if(item.category === "simulation"){
+        const prompts = {
+          technical: `Imagine you are starting in ${title} and a critical system, workflow, or release is at risk. How would you assess the situation, prioritize what to check first, involve the right people, and decide on next steps?`,
+          customer: `Imagine you inherit a customer-facing workflow with rising escalations and missed targets. How would you identify the main issue, decide what to fix first, and balance customer experience with business needs?`,
+          operations: `Imagine a core workflow in ${title} starts missing targets or producing inconsistent results. How would you diagnose the root cause, prioritize actions, and stabilize performance?`,
+          finance: `Imagine you discover a discrepancy or control risk in a finance-related workflow. How would you investigate, contain the risk, and decide what should happen next?`,
+          healthcare: `Imagine you identify a quality, coding, or compliance risk in a healthcare-related process. How would you validate the issue, reduce risk, and decide what action to take?`,
+          general: `Imagine you start in ${title} and inherit a process that is underperforming. How would you assess the situation, prioritize action, and decide what to change first?`
+        };
+        return createEmptyQuestion({
+          question: prompts[domain] || prompts.general,
+          focus_area: "Judgment / Scenario",
+          response_type: "Open Text",
+          weight: item.weight || "High",
+          category: "simulation"
+        });
+      }
+
+      if(item.category === "leadership"){
+        return createEmptyQuestion({
+          question: `Tell us about a decision, escalation, or improvement you led that affected other people, teams, or stakeholders. How did you align everyone, handle trade-offs, and move the work forward?`,
+          focus_area: "Collaboration / Ownership",
+          response_type: "Open Text",
+          weight: item.weight || "High",
+          category: "leadership"
+        });
+      }
+
+      if(item.category === "red_flag"){
+        const riskText = source || `a common failure risk in ${title}`;
+        return createEmptyQuestion({
+          question: `This role may be risky for candidates with the following gap or weakness: "${riskText}". Please address this directly with a concrete example that shows why this would not be a problem for you.`,
+          focus_area: "Risk / Red Flag Validation",
+          response_type: "Open Text",
+          weight: item.weight || "Medium",
+          category: "red_flag"
+        });
+      }
+
+      if(item.category === "business"){
+        return createEmptyQuestion({
+          question: `One business priority for ${title} is: "${source}". How have you supported a similar priority before, and what did you personally do to help achieve it?`,
+          focus_area: "Business Context",
+          response_type: "Open Text",
+          weight: item.weight || "High",
+          category: "business"
+        });
+      }
+
+      if(item.category === "setup"){
+        return createEmptyQuestion({
+          question: `This role has a work setup or environment requirement marked as "${source}". What have you done in similar work environments, and what helps you stay effective in that setup?`,
+          focus_area: "Work Setup / Environment",
+          response_type: "Open Text",
+          weight: item.weight || "Medium",
+          category: "setup"
+        });
+      }
+
+      return createEmptyQuestion({
+        question: `Tell us about your experience with: ${source || title}.`,
+        focus_area: source || "General Role Fit",
+        response_type: "Open Text",
+        weight: item.weight || "Medium",
+        category: "general"
+      });
+    }
+
+    function buildScreeningBlueprint(){
+      const roleModel = deriveRoleModel();
+      const plan = buildAdaptiveQuestionPlan(roleModel);
+      return plan.map(item => buildQuestionFromPlanItem(item, roleModel));
     }
 
     function generateAiQuestions(){
@@ -836,30 +1031,40 @@ Verdict: ${verdict || "Not scored"}${knockoutFailed ? "\nKnockout Status: Failed
         acc[key] = (acc[key] || 0) + 1;
         return acc;
       }, {});
+      const roleModel = deriveRoleModel();
+
+      const recommendationParts = [
+        categoryCounts.knockout ? "Use knockout questions only to filter hard misses." : "",
+        "Prioritize proof of execution over generic self-description.",
+        categoryCounts.simulation ? "Use scenario answers to assess judgment, prioritization, and trade-offs." : "",
+        roleModel.stakeholderIntensity >= 2 ? "Pay attention to collaboration quality and stakeholder handling." : "",
+        roleModel.riskLevel >= 3 ? "Validate risk areas directly before endorsement." : ""
+      ].filter(Boolean);
 
       const summary = [
         "Screening Structure:",
         `- Total Questions: ${questionItems.length}`,
         `- Knockout Questions: ${categoryCounts.knockout || 0}`,
         `- Proof Questions: ${categoryCounts.proof || 0}`,
-        `- Technical / Architecture Questions: ${categoryCounts.technical || 0}`,
+        `- Technical / Role-Critical Questions: ${categoryCounts.technical || 0}`,
         `- Simulation Questions: ${categoryCounts.simulation || 0}`,
         `- Leadership Questions: ${categoryCounts.leadership || 0}`,
         `- Red-Flag Validation Questions: ${categoryCounts.red_flag || 0}`,
+        `- Business Context Questions: ${categoryCounts.business || 0}`,
+        `- Work Setup Questions: ${categoryCounts.setup || 0}`,
         "",
         "Focus Areas:",
         ...(focus.length ? focus.map(a => `- ${a}`) : ["- General role fit"]),
         "",
         "Recommendation:",
-        inferRoleContext().isSeniorTech
-          ? "Use knockout questions only to filter hard misses. For shortlisted candidates, prioritize proof of execution, architecture depth, ML or data platform experience, system integration judgment, and ownership under real production constraints."
-          : "Validate knockout items first, then look for proof of execution and communication quality."
+        recommendationParts.join(" ")
       ].join("\n");
 
       els.screeningSummaryOutput.textContent = summary;
       refreshPreview();
       return summary;
     }
+
 
     function getWeightMultiplier(weight) {
       const key = safeText(weight).toLowerCase();
@@ -885,30 +1090,34 @@ Verdict: ${verdict || "Not scored"}${knockoutFailed ? "\nKnockout Status: Failed
       return String(answer || "").trim();
     }
 
-    function detectAnswerSignals(answer) {
+    
+function detectAnswerSignals(answer) {
       const text = normalizeAnswerText(answer);
       const lower = text.toLowerCase();
       const lengthScore = text.length > 700 ? 5 : text.length > 450 ? 4 : text.length > 250 ? 3 : text.length > 120 ? 2 : text.length > 40 ? 1 : 0;
-      const hasOwnership = /\b(i built|i designed|i led|i implemented|i created|i deployed|i architected|i migrated|i optimized|i integrated)\b/i.test(lower);
-      const hasScale = /\b(users|requests|records|transactions|millions|thousands|latency|uptime|throughput|scale|high volume|production)\b/i.test(lower);
-      const hasTools = /\b(aws|databricks|python|java|scala|spark|kafka|docker|kubernetes|api gateway|lambda|ecs|eks|mlflow|delta lake|github actions|ci\/cd|microservices|api|serverless)\b/i.test(lower);
-      const hasOutcome = /\b(improved|reduced|increased|decreased|delivered|launched|stabilized|automated|cut|saved)\b/i.test(lower);
-      const hasMetrics = /\b\d+%|\b\d+\b.*\b(ms|seconds|minutes|hours|days|users|records|services|pipelines)\b/i.test(lower);
+      const hasOwnership = /\b(i built|i designed|i led|i implemented|i created|i deployed|i architected|i migrated|i optimized|i integrated|i handled|i owned|i managed|i improved|i launched|i resolved|i tested|i supported|i delivered|i coordinated)\b/i.test(lower);
+      const hasScale = /\b(users|customers|clients|patients|transactions|records|tickets|orders|calls|stores|sites|teams|millions|thousands|latency|uptime|throughput|volume|production|high volume)\b/i.test(lower);
+      const hasContext = /\b(system|workflow|process|campaign|project|release|framework|platform|environment|account|portfolio|queue|audit|store|branch|operation|program)\b/i.test(lower);
+      const hasOutcome = /\b(improved|reduced|increased|decreased|delivered|launched|stabilized|automated|cut|saved|resolved|closed|raised|grew|hit|exceeded|passed|prevented)\b/i.test(lower);
+      const hasMetrics = /\b\d+%|\b\d+\b.*\b(ms|seconds|minutes|hours|days|users|customers|clients|records|tickets|orders|stores|sites|pipelines|cases|calls)\b/i.test(lower);
+      const hasDecisionLanguage = /\b(decided|prioritized|trade-off|judgment|root cause|escalated|diagnosed|validated|recommended|aligned)\b/i.test(lower);
       const vagueSignals = ["helped with", "familiar with", "exposed to", "have knowledge of", "worked on various", "involved in"].filter(x => lower.includes(x)).length;
       const weakAnswer = text.length < 60 || /^(yes|no|n\/a|na|none)$/i.test(text);
-      return { text, lower, lengthScore, hasOwnership, hasScale, hasTools, hasOutcome, hasMetrics, vagueSignals, weakAnswer };
+      return { text, lower, lengthScore, hasOwnership, hasScale, hasContext, hasOutcome, hasMetrics, hasDecisionLanguage, vagueSignals, weakAnswer };
     }
 
     function scoreDimensionRelevance(question, answerSignals) {
       if (!answerSignals.text) return 0;
       if (answerSignals.weakAnswer) return 1;
-      return Math.min(5, Math.max(2, answerSignals.lengthScore));
+      let base = Math.min(5, Math.max(2, answerSignals.lengthScore));
+      if (answerSignals.hasContext) base += 1;
+      return Math.min(5, base);
     }
 
     function scoreDimensionProof(question, answerSignals) {
       let score = 0;
       if (answerSignals.hasOwnership) score += 3;
-      if (answerSignals.hasTools) score += 1;
+      if (answerSignals.hasContext) score += 1;
       if (answerSignals.hasScale) score += 1;
       return Math.min(5, score);
     }
@@ -917,9 +1126,9 @@ Verdict: ${verdict || "Not scored"}${knockoutFailed ? "\nKnockout Status: Failed
       let score = 0;
       if (answerSignals.lengthScore >= 2) score += 1;
       if (answerSignals.lengthScore >= 3) score += 1;
-      if (answerSignals.hasTools) score += 1;
+      if (answerSignals.hasContext) score += 1;
       if (answerSignals.hasScale) score += 1;
-      if (answerSignals.hasMetrics) score += 1;
+      if (answerSignals.hasDecisionLanguage || answerSignals.hasMetrics) score += 1;
       return Math.min(5, score);
     }
 
@@ -938,6 +1147,7 @@ Verdict: ${verdict || "Not scored"}${knockoutFailed ? "\nKnockout Status: Failed
       if (!answerSignals.hasOwnership && answerSignals.lengthScore >= 2) penalty += 1;
       return Math.min(5, penalty);
     }
+
 
     function evaluateSingleAnswer(question, answer) {
       const profile = getCategoryProfile(question.category);
