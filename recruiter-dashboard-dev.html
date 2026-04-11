@@ -888,6 +888,15 @@
       return safeText(value).toLowerCase();
     }
 
+    function formatStatusLabel(status) {
+      const value = safeText(status).toLowerCase();
+      if (!value) return '—';
+      return value
+        .split(' ')
+        .map((word) => word ? word.charAt(0).toUpperCase() + word.slice(1) : '')
+        .join(' ');
+    }
+
     function getStatusTone(status) {
       const value = normalizeStatus(status);
       if (!value) return 'info';
@@ -1478,6 +1487,90 @@
       showNotice('Screening review inserted into recruiter notes.', 'success');
     }
 
+
+    function getRoleFeedbackStats(job, jobTitle) {
+      const jobId = String(job?.id || '');
+      const roleKey = normalizeStatus(jobTitle || job?.title || '');
+
+      const relevantFeedback = (state.feedbackRows || []).filter((item) =>
+        String(item.job_id || '') === jobId || normalizeStatus(item.job_title || '') === roleKey
+      );
+      const relevantOutcomes = (state.outcomeRows || []).filter((item) =>
+        String(item.job_id || '') === jobId || normalizeStatus(item.job_title || '') === roleKey
+      );
+
+      const positiveCounts = tallyTerms(relevantFeedback.map((item) => item.positive_tags || []));
+      const riskCounts = tallyTerms(relevantFeedback.map((item) => item.risk_tags || []));
+      const avgSuccessfulOverall = (() => {
+        const successful = relevantOutcomes.filter((item) => !!item.is_success && Number.isFinite(Number(item.ai_overall_score)));
+        if (!successful.length) return null;
+        return Math.round(successful.reduce((sum, item) => sum + Number(item.ai_overall_score || 0), 0) / successful.length);
+      })();
+
+      return {
+        feedbackCount: relevantFeedback.length,
+        outcomeCount: relevantOutcomes.length,
+        positiveCounts,
+        riskCounts,
+        avgSuccessfulOverall,
+      };
+    }
+
+    function applyAdaptiveFeedbackAdjustment(baseOverall, rowContext) {
+      const stats = getRoleFeedbackStats(rowContext.job, rowContext.jobTitle);
+      let adjusted = baseOverall;
+      const notes = [];
+
+      if (!stats.feedbackCount && !stats.outcomeCount) {
+        return { overall: adjusted, notes, stats };
+      }
+
+      const profileText = [
+        safeText(rowContext.profile?.headline),
+        safeText(rowContext.profile?.current_title),
+        safeText(rowContext.profile?.experience),
+        safeText(rowContext.profile?.experience_summary),
+        safeText(rowContext.profile?.skills),
+        safeText(rowContext.profile?.extracted_skills),
+        safeText(rowContext.profile?.raw_resume_text),
+        safeText(rowContext.profile?.resume_text),
+      ].join(' ').toLowerCase();
+
+      const positiveTop = stats.positiveCounts.slice(0, 5).map(([term]) => term.toLowerCase());
+      const riskTop = stats.riskCounts.slice(0, 5).map(([term]) => term.toLowerCase());
+
+      const positiveHits = positiveTop.filter((term) => term && profileText.includes(term)).length;
+      const riskHits = riskTop.filter((term) => term && profileText.includes(term)).length;
+
+      if (positiveHits > 0) {
+        const boost = Math.min(12, positiveHits * 4);
+        adjusted += boost;
+        notes.push(`feedback-aligned strengths +${boost}`);
+      }
+
+      if (riskHits > 0) {
+        const penalty = Math.min(12, riskHits * 4);
+        adjusted -= penalty;
+        notes.push(`historical risk overlap -${penalty}`);
+      }
+
+      if (stats.avgSuccessfulOverall != null) {
+        if (baseOverall >= stats.avgSuccessfulOverall - 10) {
+          adjusted += 4;
+          notes.push('near historical successful range +4');
+        } else if (baseOverall < stats.avgSuccessfulOverall - 30) {
+          adjusted -= 4;
+          notes.push('below historical successful range -4');
+        }
+      }
+
+      return {
+        overall: adjusted,
+        notes,
+        stats,
+      };
+    }
+
     function computeOverallScore(profile, app, job) {
       const profilePart = scoreProfileComponent(profile, job);
       const resumePart = scoreResumeComponent(profile, app, job);
@@ -1529,7 +1622,6 @@
       if (profilePart.roleFit?.fit === 'weak' && resumePart.roleFit?.fit === 'weak') overall -= 8;
       if (!resumePart.hasResume && !screeningPart.isValid) overall = Math.min(overall, 20);
 
-      // Identity integrity should materially affect scoring.
       if (identity.risk === 'high') {
         overall -= 20;
         confidence = 'very low confidence';
@@ -1540,12 +1632,22 @@
         basis += ' • Identity mismatch penalty 10';
       }
 
+      const adaptive = applyAdaptiveFeedbackAdjustment(overall, { profile, app, job, jobTitle: safeText(job?.title || app?.job_title || '') });
+      overall = adaptive.overall;
+      if (adaptive.notes.length) {
+        basis += ` • Feedback adaptation: ${adaptive.notes.join(', ')}`;
+      }
+      if (adaptive.stats.feedbackCount || adaptive.stats.outcomeCount) {
+        confidence = confidence === 'very low confidence' ? confidence : 'adaptive confidence';
+      }
+
       return {
         overall: Math.round(clamp(overall, 0, 100)),
         profilePart,
         resumePart,
         screeningPart,
         identity,
+        adaptive,
         mode,
         confidence,
         basis,
@@ -1722,7 +1824,7 @@
       const risks = getSelected('risk');
 
       const parts = [];
-      if (disposition) parts.push(`Disposition: ${sentenceCase(disposition)}`);
+      if (disposition) parts.push(`Disposition: ${formatStatusLabel(disposition)}`);
       if (positives.length) parts.push(`Positive: ${positives.slice(0, 3).join(', ')}`);
       if (risks.length) parts.push(`Risks: ${risks.slice(0, 3).join(', ')}`);
 
@@ -1839,11 +1941,14 @@
     function renderLearningInsights(row) {
       const learning = row.learning || buildLearningInsights(row);
       if (els.learningSummary) els.learningSummary.textContent = learning.summary;
-      if (els.learningSignal) els.learningSignal.textContent = learning.signal;
+      if (els.learningSignal) {
+        const adaptiveNote = row.adaptive?.notes?.length ? ` • Adaptive scoring active` : '';
+        els.learningSignal.textContent = `${learning.signal}${adaptiveNote}`;
+      }
       if (els.learningThemes) els.learningThemes.textContent = learning.themes;
       if (els.learningMeta) {
         els.learningMeta.textContent = state.learningEnabled
-          ? 'This section learns from recruiter feedback and hiring outcomes for similar roles when the feedback and outcomes tables are available.'
+          ? 'This section learns from recruiter feedback and hiring outcomes for similar roles and now adapts AI scoring when historical signals are available.'
           : 'Learning tables are not available yet. Run the SQL migration first, then this section will populate automatically.';
       }
     }
@@ -2066,7 +2171,7 @@
               <div class="small">${escapeHtml(row.job?.work_setup || '')}</div>
             </td>
             <td>${escapeHtml(row.clientName)}</td>
-            <td><span class="pill ${tone}">${escapeHtml(row.status || 'submitted')}</span></td>
+            <td><span class="pill ${tone}">${escapeHtml(formatStatusLabel(row.status || 'submitted'))}</span></td>
             <td>${escapeHtml(row.recruiter)}</td>
             <td>${escapeHtml(formatDateTime(row.appliedAt))}</td>
             <td class="score-cell">\n              <span class="pill ${scoreTone}">${row.score.overall}%</span>\n            </td>
