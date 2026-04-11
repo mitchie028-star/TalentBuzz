@@ -174,19 +174,19 @@
     <div class="container">
       <div class="card">
         <div id="jobPill" class="job-pill" style="display:none;"></div>
-        <h1 class="title">Processing Your Application</h1>
+        <h1 class="title">Preparing Your Application</h1>
         <p class="subtitle">
-          Please wait while we validate your profile and route you to the correct next step.
+          We’re checking your account and routing you to the right next step for this role.
         </p>
 
         <div id="statusBox" class="status"></div>
-        <div id="helperText" class="muted">Checking your session...</div>
+        <div id="helperText" class="muted">Loading role details...</div>
 
         <div class="steps">
-          <div class="step">1. Validate session and profile</div>
-          <div class="step">2. Check duplicate applications</div>
-          <div class="step">3. Route to screening if required</div>
-          <div class="step">4. Submit application and send confirmation</div>
+          <div class="step">1. Identify the selected role</div>
+          <div class="step">2. Check whether you are logged in</div>
+          <div class="step">3. Check whether your applicant profile exists</div>
+          <div class="step">4. Send you to screening, then to your dashboard</div>
         </div>
       </div>
     </div>
@@ -198,9 +198,8 @@
     const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
     const params = new URLSearchParams(window.location.search);
-
     const jobIdParam = params.get('job_id') || params.get('job') || params.get('id');
-    const slugParam = params.get('slug');
+    const slugParam = params.get('slug') || '';
     const sourceParam = params.get('source') || '';
     const alertIdParam = params.get('alert_id') || '';
 
@@ -223,94 +222,39 @@
       jobPill.textContent = job.title || 'Selected Role';
     }
 
-    function buildQueryString(extra = {}) {
+    function buildRouteParams(job) {
       const next = new URLSearchParams();
+      if (job?.id) next.set('job_id', job.id);
+      else if (jobIdParam) next.set('job_id', jobIdParam);
 
-      if (jobIdParam) next.set('job_id', jobIdParam);
-      if (slugParam) next.set('slug', slugParam);
+      const finalSlug = job?.slug || slugParam;
+      if (finalSlug) next.set('slug', finalSlug);
+
       if (sourceParam) next.set('source', sourceParam);
       if (alertIdParam) next.set('alert_id', alertIdParam);
-
-      Object.entries(extra).forEach(([key, value]) => {
-        if (value !== undefined && value !== null && value !== '') next.set(key, value);
-      });
 
       return next.toString();
     }
 
-    function getApplicationSource() {
-      const source = String(sourceParam || '').trim().toLowerCase();
-
-      if (source === 'email_alert') return 'email_alert';
-      if (source === 'role_alert') return 'email_alert';
-      if (source === 'careers') return 'career_page';
-      if (source === 'career_page') return 'career_page';
-      return slugParam || jobIdParam ? 'career_page' : 'unknown';
+    function buildLoginRedirect(job) {
+      const routeParams = buildRouteParams(job);
+      return `login.html?next=apply${routeParams ? `&${routeParams}` : ''}`;
     }
 
-    async function updateConfirmationStatus(applicationId, value) {
-      if (!applicationId) return;
-      await supabaseClient
-        .from('applications')
-        .update({ confirmation_email_status: value })
-        .eq('id', applicationId);
+    function buildCreateProfileRedirect(job) {
+      const routeParams = buildRouteParams(job);
+      return `create-profile.html?fromApply=1${routeParams ? `&${routeParams}` : ''}`;
     }
 
-    async function sendConfirmationEmail({ applicationId, candidateName, candidateEmail, jobTitle }) {
-      try {
-        await updateConfirmationStatus(applicationId, 'sending');
-
-        const { data, error } = await supabaseClient.functions.invoke(
-          'send-application-confirmation',
-          {
-            body: {
-              candidate_name: candidateName,
-              candidate_email: candidateEmail,
-              job_title: jobTitle
-            }
-          }
-        );
-
-        if (error || !data?.success) {
-          await updateConfirmationStatus(applicationId, 'failed');
-          return false;
-        }
-
-        await updateConfirmationStatus(applicationId, 'sent');
-        return true;
-      } catch (err) {
-        await updateConfirmationStatus(applicationId, 'failed');
-        return false;
-      }
-    }
-
-    async function requireSession() {
-      const { data: { session } } = await supabaseClient.auth.getSession();
-
-      if (!session?.user) {
-        const nextParams = buildQueryString();
-        window.location.href = `login.html?next=apply${nextParams ? `&${nextParams}` : ''}`;
-        return null;
-      }
-
-      return session.user;
-    }
-
-    async function loadProfileByEmail(email) {
-      const { data, error } = await supabaseClient
-        .from('applicant_profiles')
-        .select('*')
-        .eq('email', email)
-        .maybeSingle();
-
-      if (error) throw error;
-      return data || null;
+    function buildScreeningRedirect(job) {
+      const routeParams = buildRouteParams(job);
+      return `screening.html?${routeParams}`;
     }
 
     async function loadJobById(jobIdValue) {
       const { data, error } = await supabaseClient
         .from('jobs')
-        .select('id, title, slug, screening_enabled, screening_fail_action, ai_screening_config, screening_summary, screening_config')
+        .select('id, title, slug, screening_config')
         .eq('id', jobIdValue)
         .single();
 
@@ -321,7 +265,7 @@
     async function loadJobBySlug(slugValue) {
       const { data, error } = await supabaseClient
         .from('jobs')
-        .select('id, title, slug, screening_enabled, screening_fail_action, ai_screening_config, screening_summary, screening_config')
+        .select('id, title, slug, screening_config')
         .eq('slug', slugValue)
         .single();
 
@@ -333,6 +277,22 @@
       if (jobIdParam) return await loadJobById(jobIdParam);
       if (slugParam) return await loadJobBySlug(slugParam);
       throw new Error('Missing job reference.');
+    }
+
+    async function getSessionUser() {
+      const { data: { session } } = await supabaseClient.auth.getSession();
+      return session?.user || null;
+    }
+
+    async function loadProfileByEmail(email) {
+      const { data, error } = await supabaseClient
+        .from('applicant_profiles')
+        .select('id, email, full_name')
+        .eq('email', email)
+        .maybeSingle();
+
+      if (error) throw error;
+      return data || null;
     }
 
     async function findDuplicateApplication(email, jobIdValue) {
@@ -347,162 +307,53 @@
       return Array.isArray(data) && data.length > 0 ? data[0] : null;
     }
 
-    function hasScreeningConfigured(job) {
-      if (!job) return false;
-      if (job.screening_enabled === true) return true;
-
-      const configCandidates = [
-        job.ai_screening_config,
-        job.screening_summary,
-        job.screening_config
-      ];
-
-      return configCandidates.some(value => {
-        if (!value) return false;
-        if (Array.isArray(value)) return value.length > 0;
-        if (typeof value === 'object') return Object.keys(value).length > 0;
-        if (typeof value === 'string') return value.trim().length > 0;
-        return false;
-      });
-    }
-
-    function buildScreeningUrl(job) {
-      const query = buildQueryString({
-        job_id: job.id,
-        slug: job.slug || '',
-        from_apply: 1
-      });
-      return `screening.html?${query}`;
-    }
-
-    async function insertApplication({ email, applicantProfileId, jobIdValue, jobTitle, applicationSource }) {
-      const { data, error } = await supabaseClient
-        .from('applications')
-        .insert([{
-          email,
-          applicant_profile_id: applicantProfileId,
-          job_id: jobIdValue,
-          job_title: jobTitle || '',
-          status: 'submitted',
-          application_source: applicationSource,
-          confirmation_email_status: 'pending',
-          created_at: new Date().toISOString()
-        }])
-        .select()
-        .single();
-
-      if (error) throw error;
-      return data;
-    }
-
-    async function markRoleAlertApplied(jobIdValue, applicantProfileId) {
-      try {
-        if (alertIdParam) {
-          await supabaseClient
-            .from('job_role_alerts')
-            .update({
-              applied_at: new Date().toISOString(),
-              updated_at: new Date().toISOString()
-            })
-            .eq('id', alertIdParam);
-          return;
-        }
-
-        if (getApplicationSource() !== 'email_alert') return;
-
-        await supabaseClient
-          .from('job_role_alerts')
-          .update({
-            applied_at: new Date().toISOString(),
-            updated_at: new Date().toISOString()
-          })
-          .eq('job_id', jobIdValue)
-          .eq('applicant_profile_id', applicantProfileId)
-          .in('send_status', ['sent', 'pending']);
-      } catch (err) {
-        console.warn('[ROLE_ALERT_APPLIED_UPDATE_FAILED]', err);
-      }
-    }
-
     async function processApplication() {
       try {
-        let job;
-        try {
-          job = await resolveJob();
-        } catch (err) {
-          setStatus('Invalid or missing job reference.', 'error');
-          setHelper('Please return to the job page and try again.');
+        setHelper('Loading role details...');
+        const job = await resolveJob();
+        showJob(job);
+
+        setHelper('Checking your account...');
+        const user = await getSessionUser();
+
+        if (!user) {
+          setStatus('Please sign in first so we can continue your application.', 'success');
+          setHelper('Redirecting you to login...');
+          window.location.href = buildLoginRedirect(job);
           return;
         }
 
-        showJob(job);
-
-        const user = await requireSession();
-        if (!user) return;
-
-        setHelper('Checking your profile...');
+        setHelper('Checking your applicant profile...');
         const profile = await loadProfileByEmail(user.email);
 
         if (!profile) {
-          const nextParams = buildQueryString();
-          window.location.href = `create-profile.html?fromApply=1${nextParams ? `&${nextParams}` : ''}`;
+          setStatus('Please create your applicant profile first, then we’ll continue to screening.', 'success');
+          setHelper('Redirecting you to create profile...');
+          window.location.href = buildCreateProfileRedirect(job);
           return;
         }
 
-        setHelper('Checking for duplicate application...');
+        setHelper('Checking for an existing application...');
         const duplicate = await findDuplicateApplication(user.email, job.id);
 
         if (duplicate) {
           setStatus('You already submitted an application for this role. Redirecting to your dashboard...', 'error');
+          setHelper('Opening your dashboard...');
           setTimeout(() => {
             window.location.href = 'dashboard.html?duplicate=1';
-          }, 1200);
-          return;
-        }
-
-        if (hasScreeningConfigured(job)) {
-          setHelper('Screening is required for this role. Redirecting you now...');
-          setStatus('This role requires screening before submission. Redirecting to screening questions...', 'success');
-          setTimeout(() => {
-            window.location.href = buildScreeningUrl(job);
           }, 900);
           return;
         }
 
-        setHelper('Submitting your application...');
-        const insertedApplication = await insertApplication({
-          email: user.email,
-          applicantProfileId: profile.id,
-          jobIdValue: job.id,
-          jobTitle: job.title,
-          applicationSource: getApplicationSource()
-        });
-
-        await markRoleAlertApplied(job.id, profile.id);
-
-        setHelper('Sending confirmation email...');
-        const emailSent = await sendConfirmationEmail({
-          applicationId: insertedApplication.id,
-          candidateName: profile.full_name || user.email,
-          candidateEmail: user.email,
-          jobTitle: job.title || ''
-        });
-
-        if (emailSent) {
-          setStatus('Application submitted successfully. A confirmation email has been sent. Redirecting to your dashboard...', 'success');
-          setTimeout(() => {
-            window.location.href = 'dashboard.html?applied=1&email=sent';
-          }, 1400);
-        } else {
-          setStatus('Application submitted successfully. We could not send the confirmation email right now. Redirecting to your dashboard...', 'success');
-          setTimeout(() => {
-            window.location.href = 'dashboard.html?applied=1&email=failed';
-          }, 1400);
-        }
+        setStatus('Profile confirmed. Redirecting you to screening questions...', 'success');
+        setHelper('Opening screening...');
+        setTimeout(() => {
+          window.location.href = buildScreeningRedirect(job);
+        }, 700);
       } catch (error) {
         console.error('[APPLY_PROCESS_ERROR]', error);
-        setStatus(error?.message || 'Something went wrong while submitting your application.', 'error');
-        setHelper('Please try again or contact TalentBuzz support.');
+        setStatus(error?.message || 'Something went wrong while preparing your application.', 'error');
+        setHelper('Please go back to the role page and try again.');
       }
     }
 
