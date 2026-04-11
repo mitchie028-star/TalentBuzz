@@ -82,17 +82,17 @@ const jobPage=document.getElementById('jobPage');
 function escapeHtml(value){return String(value??'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'","&#039;")}
 function firstFilled(obj,keys){for(const key of keys){const value=obj?.[key];if(value===null||value===undefined)continue;if(typeof value==='string'&&value.trim())return value.trim();if(Array.isArray(value)&&value.length)return value;if(typeof value==='number')return String(value)}return ''}
 function uniquePreserve(values){const seen=new Set();const result=[];for(const raw of values||[]){const value=String(raw||'').trim();if(!value)continue;const key=value.toLowerCase();if(seen.has(key))continue;seen.add(key);result.push(value)}return result}
-function stripTrailingSetup(location,workSetup){const loc=String(location||'').trim();const setup=String(workSetup||'').trim();if(!loc||!setup)return loc;const pattern=new RegExp(`\s*\(?${setup.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')}\)?\s*$`,'i');return loc.replace(pattern,'').trim()||loc}
+function stripTrailingSetup(location,workSetup){const loc=String(location||'').trim();const setup=String(workSetup||'').trim();if(!loc||!setup)return loc;const escaped=setup.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');const pattern=new RegExp(`\\s*\\(?${escaped}\\)?\\s*$`,'i');return loc.replace(pattern,'').trim()||loc}
 function formatSalary(job){const currency=String(job.salary_currency||'').trim();const min=job.salary_min!=null?Number(job.salary_min):null;const max=job.salary_max!=null?Number(job.salary_max):null;const symbols={PHP:'₱',USD:'$',SGD:'S$',HKD:'HK$',EUR:'€',GBP:'£',AUD:'A$',CAD:'C$',JPY:'¥'};const symbol=symbols[currency]||currency||'';const fmt=n=>Number.isFinite(n)?n.toLocaleString():'';if(min!==null&&max!==null)return escapeHtml(`${symbol}${fmt(min)} - ${symbol}${fmt(max)}`);if(min!==null)return escapeHtml(`${symbol}${fmt(min)}`);if(max!==null)return escapeHtml(`Up to ${symbol}${fmt(max)}`);return 'Not specified'}
 function buildApplyLink(job){return `apply.html?id=${encodeURIComponent(job.id)}`}
-function extractShiftFromDescription(desc){const text=String(desc||'');for(const pattern of [/work\s*setup\s*&\s*shift\s*:\s*([^\n\r]+)/i,/shift\s*:\s*([^\n\r]+)/i]){const match=text.match(pattern);if(match&&match[1]){let value=match[1].trim();if(value.includes('|')){const parts=value.split('|').map(x=>x.trim()).filter(Boolean);if(parts.length>=2)return parts.slice(1).join(' | ')}return value}}return ''}
-function extractWorkSetupFromDescription(desc){const text=String(desc||'');const match=text.match(/work\s*setup\s*&\s*shift\s*:\s*([^\n\r]+)/i);if(!match||!match[1])return '';const value=match[1].trim();if(value.includes('|')){const parts=value.split('|').map(x=>x.trim()).filter(Boolean);return parts.length?parts[0]:''}return value}
-function titleCase(text){return String(text||'').toLowerCase().replace(/\b\w/g,c=>c.toUpperCase())}
-function cleanLine(line){return String(line||'').replace(/\u2022/g,'•').replace(/\s+/g,' ').trim()}
+function extractShiftFromDescription(desc){const text=String(desc||'');for(const pattern of [/work\\s*setup\\s*&\\s*shift\\s*:\\s*([^\\n\\r]+)/i,/shift\\s*:\\s*([^\\n\\r]+)/i]){const match=text.match(pattern);if(match&&match[1]){let value=match[1].trim();if(value.includes('|')){const parts=value.split('|').map(x=>x.trim()).filter(Boolean);if(parts.length>=2)return parts.slice(1).join(' | ')}return value}}return ''}
+function extractWorkSetupFromDescription(desc){const text=String(desc||'');const match=text.match(/work\\s*setup\\s*&\\s*shift\\s*:\\s*([^\\n\\r]+)/i);if(!match||!match[1])return '';const value=match[1].trim();if(value.includes('|')){const parts=value.split('|').map(x=>x.trim()).filter(Boolean);return parts.length?parts[0]:''}return value}
+function titleCase(text){return String(text||'').toLowerCase().replace(/\\b\\w/g,c=>c.toUpperCase())}
+function cleanLine(line){return String(line||'').replace(/\\u2022/g,'•').replace(/\\s+/g,' ').trim()}
 function isInternalHeading(line){const t=cleanLine(line).toLowerCase();return ['client','job title','role family','seniority','location','work setup','employment type','status','salary','salary notes','signal summary','screening summary','talentbuzz signal intelligence','role snapshot','slug','screening structure','focus areas','recommendation'].includes(t)}
 function isPublicHeading(line){const t=cleanLine(line).toLowerCase();return ['role overview','overview','about the role','requirements','qualifications','required qualifications','preferred qualifications','key responsibilities','responsibilities','what you will do','what we are looking for','nice-to-have skills','nice to have skills','benefits','why join','work setup & shift'].includes(t)}
-function splitBulletishLines(text){return String(text||'').split('\n').map(cleanLine).filter(Boolean)}
-function looksLikeBullet(line){return /^[•\-]/.test(line)||/^(must|at least|minimum|required|strong|experience|knowledge|ability|familiarity|certification|proven)\b/i.test(line)}
+function splitBulletishLines(text){return String(text||'').split('\\n').map(cleanLine).filter(Boolean)}
+function looksLikeBullet(line){return /^[•\\-]/.test(line)||/^(must|at least|minimum|required|strong|experience|knowledge|ability|familiarity|certification|proven)\\b/i.test(line)}
 function dropInternalLines(lines){return (lines||[]).filter(line=>{const t=cleanLine(line).toLowerCase();if(!t)return false;if(isInternalHeading(t))return false;if(/^(screening structure|focus areas|recommendation):?$/i.test(t))return false;if(/^total questions:/i.test(t))return false;if(/^knockout questions:/i.test(t))return false;if(/^proof questions:/i.test(t))return false;if(/^technical/i.test(t))return false;if(/^simulation questions:/i.test(t))return false;if(/^leadership questions:/i.test(t))return false;if(/^red-flag validation questions:/i.test(t))return false;return true})}
 function buildCandidateSections(job){
   const mainDescription=firstFilled(job,['job_description','job_description_full','full_job_description','description','jd_preview','job_description_preview']);
@@ -120,25 +120,25 @@ function buildCandidateSections(job){
     for(const block of parsed){
       const title=block.title; const lines=block.lines.filter(Boolean); if(!lines.length)continue;
       const bullets=lines.filter(looksLikeBullet); const mostlyBullets=bullets.length>=Math.max(2,Math.ceil(lines.length*.45));
-      if(!title && !sections.some(s=>s.title==='About the Role')){add('About the Role','paragraph',lines.slice(0,Math.min(lines.length,3)).join('\n\n'));continue;}
+      if(!title && !sections.some(s=>s.title==='About the Role')){add('About the Role','paragraph',lines.slice(0,Math.min(lines.length,3)).join('\\n\\n'));continue;}
       if(!title && mostlyBullets && !sections.some(s=>s.title==='Requirements')){add('Requirements','bullets',lines);continue;}
-      if(title && !sections.some(s=>s.title.toLowerCase()===title.toLowerCase())){add(title,mostlyBullets?'bullets':'paragraph',mostlyBullets?lines:lines.join('\n\n'))}
+      if(title && !sections.some(s=>s.title.toLowerCase()===title.toLowerCase())){add(title,mostlyBullets?'bullets':'paragraph',mostlyBullets?lines:lines.join('\\n\\n'))}
     }
   }
   return sections.length?sections:[{title:'About the Role',type:'paragraph',content:'Full job details will be shared during the application process.'}]
 }
 function renderSection(section){
   if(section.type==='bullets'){
-    const items=uniquePreserve(section.content||[]).map(line=>cleanLine(line).replace(/^[•\-]\s*/,''));
+    const items=uniquePreserve(section.content||[]).map(line=>cleanLine(line).replace(/^[•\\-]\\s*/,''));
     if(!items.length)return '';
     return `<section class="job-section"><h3>${escapeHtml(section.title)}</h3><ul>${items.map(line=>`<li>${escapeHtml(line)}</li>`).join('')}</ul></section>`;
   }
   const content=String(section.content||'').trim(); if(!content)return '';
-  const paragraphs=content.split(/\n{2,}/).map(p=>cleanLine(p)).filter(Boolean);
+  const paragraphs=content.split(/\\n{2,}/).map(p=>cleanLine(p)).filter(Boolean);
   return `<section class="job-section"><h3>${escapeHtml(section.title)}</h3>${paragraphs.map(p=>`<p>${escapeHtml(p)}</p>`).join('')}</section>`;
 }
 function buildDescriptionHtml(job){return buildCandidateSections(job).map(renderSection).join('')}
-function slugify(value){return String(value||'').toLowerCase().trim().normalize('NFKD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'').replace(/-{2,}/g,'-')}
+function slugify(value){return String(value||'').toLowerCase().trim().normalize('NFKD').replace(/[\\u0300-\\u036f]/g,'').replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'').replace(/-{2,}/g,'-')}
 async function generateUniqueSlug(title,excludeId=null){const baseSlug=slugify(title)||'job';let nextSlug=baseSlug;let counter=1;while(true){let query=supabaseClient.from('jobs').select('id',{count:'exact',head:false}).eq('slug',nextSlug);if(excludeId)query=query.neq('id',excludeId);const {data,error}=await query;if(error)throw error;if(!data||data.length===0)return nextSlug;counter+=1;nextSlug=`${baseSlug}-${counter}`}}
 async function createJobWithUniqueSlug(payload){const safePayload={...(payload||{})};safePayload.slug=await generateUniqueSlug(safePayload.slug||safePayload.title||'job');const {data,error}=await supabaseClient.from('jobs').insert(safePayload).select().single();if(error)throw error;return data}
 async function updateJobWithUniqueSlug(jobIdValue,payload,regenerateSlug=false){const safePayload={...(payload||{})};if(regenerateSlug)safePayload.slug=await generateUniqueSlug(safePayload.slug||safePayload.title||'job',jobIdValue);const {data,error}=await supabaseClient.from('jobs').update(safePayload).eq('id',jobIdValue).select().single();if(error)throw error;return data}
