@@ -666,6 +666,25 @@
             </div>
 
             <div class="section">
+              <h3>Learning Engine</h3>
+              <div class="muted" id="learningMeta">This section learns from recruiter feedback and hiring outcomes for similar roles when the feedback and outcomes tables are available.</div>
+              <div class="kv" style="margin-top:12px;">
+                <div class="kv-item">
+                  <div class="kv-label">Role Pattern Summary</div>
+                  <div class="kv-value" id="learningSummary">Learning engine not available yet.</div>
+                </div>
+                <div class="kv-item">
+                  <div class="kv-label">Historical Signal</div>
+                  <div class="kv-value" id="learningSignal">No learning signal yet.</div>
+                </div>
+                <div class="kv-item full">
+                  <div class="kv-label">Common Feedback Themes</div>
+                  <div class="kv-value" id="learningThemes">No historical feedback themes yet.</div>
+                </div>
+              </div>
+            </div>
+
+            <div class="section">
               <h3>Quick Update</h3>
               <div class="kv">
                 <div class="kv-item">
@@ -749,6 +768,9 @@
       selectedId: null,
       selectedResumeUrl: '',
       selectedScreeningReview: null,
+      feedbackRows: [],
+      outcomeRows: [],
+      learningEnabled: false,
       loading: false,
     };
 
@@ -1696,26 +1718,185 @@
       return data || [];
     }
 
+    async function fetchAllOptional(table, select, orderColumn = 'created_at') {
+      try {
+        const { data, error } = await supabaseClient
+          .from(table)
+          .select(select)
+          .order(orderColumn, { ascending: false })
+          .limit(CONFIG.PAGE_SIZE);
+        if (error) {
+          const message = String(error.message || '');
+          if (/does not exist|schema cache|permission denied|not found|relation/i.test(message)) return [];
+          throw error;
+        }
+        return data || [];
+      } catch (error) {
+        const message = String(error?.message || error || '');
+        if (/does not exist|schema cache|permission denied|not found|relation/i.test(message)) return [];
+        throw error;
+      }
+    }
+
+    function computeOutcomeScore(status) {
+      const value = normalizeStatus(status);
+      if (['hired', 'onboarded'].includes(value)) return { score: 100, isSuccess: true };
+      if (['offered jo'].includes(value)) return { score: 85, isSuccess: false };
+      if (['endorsed', 'for interview', 'shortlisted', 'assessment', 'initial', 'final'].includes(value)) return { score: 65, isSuccess: false };
+      if (['submitted', 'on hold', 'need more profiles'].includes(value)) return { score: 30, isSuccess: false };
+      if (['rejected', 'failed paper screening', 'withdrawn', 'no-show onboarding'].includes(value)) return { score: 0, isSuccess: false };
+      return { score: 20, isSuccess: false };
+    }
+
+    function tallyTerms(values) {
+      const counts = new Map();
+      (values || []).flat().filter(Boolean).forEach((item) => {
+        const key = safeText(item);
+        if (!key) return;
+        counts.set(key, (counts.get(key) || 0) + 1);
+      });
+      return [...counts.entries()].sort((a, b) => b[1] - a[1]);
+    }
+
+    function buildLearningInsights(row) {
+      const roleKey = normalizeStatus(row.jobTitle);
+      const relevantFeedback = state.feedbackRows.filter((item) => normalizeStatus(item.job_title || row.jobTitle) === roleKey || String(item.job_id || '') === String(row.job?.id || ''));
+      const relevantOutcomes = state.outcomeRows.filter((item) => normalizeStatus(item.job_title || row.jobTitle) === roleKey || String(item.job_id || '') === String(row.job?.id || ''));
+
+      const totalOutcomes = relevantOutcomes.length;
+      const successCount = relevantOutcomes.filter((item) => !!item.is_success).length;
+      const averageOutcome = totalOutcomes
+        ? Math.round(relevantOutcomes.reduce((sum, item) => sum + Number(item.outcome_score || 0), 0) / totalOutcomes)
+        : null;
+
+      const positiveThemes = tallyTerms(relevantFeedback.map((item) => item.positive_tags || []));
+      const riskThemes = tallyTerms(relevantFeedback.map((item) => item.risk_tags || []));
+
+      const summary = totalOutcomes
+        ? `${successCount} success signal${successCount === 1 ? '' : 's'} from ${totalOutcomes} tracked outcome${totalOutcomes === 1 ? '' : 's'} for similar roles.`
+        : 'No historical outcomes recorded yet for this role.';
+
+      const signal = totalOutcomes
+        ? `Average role outcome score: ${averageOutcome}%`
+        : 'Learning will improve once feedback and outcomes are saved.';
+
+      const themes = [
+        positiveThemes.length ? `Common positives: ${positiveThemes.slice(0, 3).map(([term, count]) => `${term} (${count})`).join(', ')}` : '',
+        riskThemes.length ? `Common risks: ${riskThemes.slice(0, 3).map(([term, count]) => `${term} (${count})`).join(', ')}` : '',
+      ].filter(Boolean).join(' • ') || 'No historical feedback themes yet.';
+
+      return {
+        summary,
+        signal,
+        themes,
+        totalOutcomes,
+        successCount,
+      };
+    }
+
+    async function saveFeedbackRecord(row, selectedStatus, recruiterNotes) {
+      const disposition = safeText(els.feedbackDisposition?.value);
+      const positiveTags = getSelectedFeedbackValues('positive');
+      const riskTags = getSelectedFeedbackValues('risk');
+      const shortNote = safeText(recruiterNotes).slice(0, 500);
+
+      if (!disposition && !positiveTags.length && !riskTags.length && !shortNote) return { saved: false, reason: 'no feedback' };
+
+      const payload = {
+        application_id: row.id,
+        applicant_profile_id: row.profile?.id || row.app?.applicant_profile_id || null,
+        job_id: row.job?.id || row.app?.job_id || null,
+        recruiter_email: row.recruiter === 'Unassigned' ? null : row.recruiter,
+        status_at_feedback: selectedStatus,
+        disposition_reason: disposition || null,
+        positive_tags: positiveTags.length ? positiveTags : null,
+        risk_tags: riskTags.length ? riskTags : null,
+        short_note: shortNote || null,
+        job_title: row.jobTitle || null,
+      };
+
+      try {
+        const { error } = await supabaseClient.from('application_feedback').insert(payload);
+        if (error) {
+          const message = String(error.message || '');
+          if (/does not exist|schema cache|permission denied|not found|relation/i.test(message)) return { saved: false, reason: 'table unavailable' };
+          throw error;
+        }
+        return { saved: true };
+      } catch (error) {
+        const message = String(error?.message || error || '');
+        if (/does not exist|schema cache|permission denied|not found|relation/i.test(message)) return { saved: false, reason: 'table unavailable' };
+        throw error;
+      }
+    }
+
+    async function saveOutcomeRecord(row, selectedStatus) {
+      const outcome = computeOutcomeScore(selectedStatus);
+      const payload = {
+        application_id: row.id,
+        job_id: row.job?.id || row.app?.job_id || null,
+        applicant_profile_id: row.profile?.id || row.app?.applicant_profile_id || null,
+        stage: selectedStatus,
+        outcome_score: outcome.score,
+        ai_profile_score: row.score?.profilePart?.score ?? null,
+        ai_resume_score: row.score?.resumePart?.score ?? null,
+        ai_screening_score: row.score?.screeningPart?.score ?? null,
+        ai_overall_score: row.score?.overall ?? null,
+        is_success: outcome.isSuccess,
+        role_family: row.job?.industry || null,
+        job_title: row.jobTitle || null,
+      };
+
+      try {
+        const { error } = await supabaseClient.from('hiring_outcomes').insert(payload);
+        if (error) {
+          const message = String(error.message || '');
+          if (/does not exist|schema cache|permission denied|not found|relation/i.test(message)) return { saved: false, reason: 'table unavailable' };
+          throw error;
+        }
+        return { saved: true };
+      } catch (error) {
+        const message = String(error?.message || error || '');
+        if (/does not exist|schema cache|permission denied|not found|relation/i.test(message)) return { saved: false, reason: 'table unavailable' };
+        throw error;
+      }
+    }
+
+    function renderLearningInsights(row) {
+      const learning = row.learning || buildLearningInsights(row);
+      els.learningSummary.textContent = learning.summary;
+      els.learningSignal.textContent = learning.signal;
+      els.learningThemes.textContent = learning.themes;
+      els.learningMeta.textContent = state.learningEnabled
+        ? 'Learning engine is reading structured recruiter feedback and hiring outcomes for similar roles.'
+        : 'Learning tables are not available yet. Use the SQL file first, then this section will populate automatically.';
+    }
+
     async function loadDashboard() {
       if (!supabaseClient) return;
       state.loading = true;
       hideNotice();
       els.applicationsTable.innerHTML = '<tr><td colspan="8" class="small">Loading candidates...</td></tr>';
       try {
-        const [applications, profiles, jobs] = await Promise.all([
+        const [applications, profiles, jobs, feedbackRows, outcomeRows] = await Promise.all([
           fetchAll('applications', `id,email,job_id,job_title,status,created_at,applicant_profile_id,recruiter_email,application_source,screening_score,screening_answers,screening_responses,last_status_change_at,recruiter_notes,stage_note_label,stage_note_updated_at,endorsement_status`),
           fetchAll('applicant_profiles', `id,full_name,email,phone,location,headline,current_title,resume_url,resume_path,resume_file_name,raw_resume_text,parsed_resume_json,years_of_experience,experience_years,years_experience,total_experience,experience,highest_education,degree_course,linkedin,portfolio_url,updated_at`),
           fetchAll('jobs', `id,title,client_name,job_description,keywords,industry,screening_enabled,status,work_setup,location,slug`),
+          fetchAllOptional('application_feedback', `id,application_id,applicant_profile_id,job_id,recruiter_email,status_at_feedback,disposition_reason,positive_tags,risk_tags,short_note,job_title,created_at`),
+          fetchAllOptional('hiring_outcomes', `id,application_id,job_id,applicant_profile_id,stage,outcome_score,ai_profile_score,ai_resume_score,ai_screening_score,ai_overall_score,is_success,role_family,job_title,created_at`),
         ]);
 
         const profilesById = new Map(profiles.map((item) => [item.id, item]));
         const jobsById = new Map(jobs.map((item) => [item.id, item]));
+        state.feedbackRows = feedbackRows || [];
+        state.outcomeRows = outcomeRows || [];
+        state.learningEnabled = !!(state.feedbackRows.length || state.outcomeRows.length);
 
         state.allRows = applications.map((app) => {
           const profile = profilesById.get(app.applicant_profile_id) || profiles.find((p) => safeText(p.email).toLowerCase() === safeText(app.email).toLowerCase()) || {};
           const job = jobsById.get(app.job_id) || jobs.find((j) => safeText(j.title) === safeText(app.job_title)) || {};
           const score = computeOverallScore(profile, app, job);
-          return {
+          const row = {
             id: app.id,
             app,
             profile,
@@ -1729,6 +1910,8 @@
             clientName: safeText(job.client_name || '—'),
             jobTitle: safeText(job.title || app.job_title || '—'),
           };
+          row.learning = buildLearningInsights(row);
+          return row;
         });
 
         populateFilters();
@@ -1977,7 +2160,15 @@
         }
         if (applicationError) throw applicationError;
 
-        showNotice(`Candidate updated.${uploadedResume ? ' Resume uploaded successfully.' : ''}`, 'success');
+        const feedbackResult = await saveFeedbackRecord(row, selectedStatus, recruiterNotes);
+        const outcomeResult = await saveOutcomeRecord(row, selectedStatus);
+
+        const saveNotes = [];
+        if (uploadedResume) saveNotes.push('Resume uploaded successfully');
+        if (feedbackResult.saved) saveNotes.push('feedback saved');
+        if (outcomeResult.saved) saveNotes.push('learning outcome logged');
+
+        showNotice(`Candidate updated${saveNotes.length ? `. ${saveNotes.join(' • ')}.` : '.'}`, 'success');
         await loadDashboard();
         await openDrawer(row.id);
       } catch (error) {
