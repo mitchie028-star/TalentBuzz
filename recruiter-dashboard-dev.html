@@ -2023,20 +2023,62 @@
       };
     }
 
-    function renderLearningInsights(row) {
-      const learning = row.learning || buildLearningInsights(row);
-      if (els.learningSummary) els.learningSummary.textContent = learning.summary;
-      if (els.learningSignal) {
-        const adaptiveNote = row.score?.adaptive?.notes?.length ? ' • Adaptive scoring active' : '';
-        els.learningSignal.textContent = `${learning.signal}${adaptiveNote}`;
-      }
-      if (els.learningThemes) els.learningThemes.textContent = learning.themes;
-      if (els.learningMeta) {
-        els.learningMeta.textContent = state.learningEnabled
-          ? 'This section learns from recruiter feedback and hiring outcomes across similar roles, not just exact title matches.'
-          : 'Learning tables are not available yet. Run the SQL migration first, then this section will populate automatically.';
-      }
+function renderLearningInsights(row) {
+  const learning = row.learning || buildLearningInsights(row);
+  const stats = learning?.stats || {};
+
+  const hasSuccessData = stats.successCount > 0;
+  const hasAnyData = (stats.feedbackCount > 0 || stats.outcomeCount > 0);
+
+  // --- SUMMARY ---
+  if (els.learningSummary) {
+    if (!hasAnyData) {
+      els.learningSummary.textContent =
+        'No learning data available yet. Start capturing recruiter feedback to activate insights.';
+    } else if (!hasSuccessData) {
+      els.learningSummary.textContent =
+        `No successful outcomes logged yet for similar roles. Learning is still building from early recruiter feedback.`;
+    } else {
+      els.learningSummary.textContent = learning.summary;
     }
+  }
+
+  // --- SIGNAL ---
+  if (els.learningSignal) {
+    let signalText = '';
+
+    if (!hasAnyData) {
+      signalText = 'Learning signal unavailable — no feedback or outcomes recorded yet.';
+    } else if (!hasSuccessData) {
+      signalText = 'Historical outcome trend is limited due to low data volume.';
+    } else {
+      signalText = learning.signal;
+    }
+
+    const adaptiveNote = row.score?.adaptive?.notes?.length
+      ? ' • Adaptive scoring active'
+      : '';
+
+    els.learningSignal.textContent = `${signalText}${adaptiveNote}`;
+  }
+
+  // --- THEMES ---
+  if (els.learningThemes) {
+    if (!hasAnyData) {
+      els.learningThemes.textContent =
+        'No feedback themes available yet. Capture recruiter feedback to build patterns.';
+    } else {
+      els.learningThemes.textContent = learning.themes || 'No strong patterns detected yet.';
+    }
+  }
+
+  // --- META ---
+  if (els.learningMeta) {
+    els.learningMeta.textContent = state.learningEnabled
+      ? 'This section learns from recruiter feedback and hiring outcomes across similar roles and continuously adapts AI scoring.'
+      : 'Learning tables are not available yet. Run the SQL migration first, then this section will populate automatically.';
+  }
+}
 
     async function saveFeedbackRecord(row, selectedStatus, recruiterNotes) {
       const disposition = safeText(els.feedbackDisposition?.value);
