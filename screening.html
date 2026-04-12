@@ -29,6 +29,11 @@
     .option-list{display:grid;gap:10px}.option{display:flex;align-items:flex-start;gap:10px;padding:12px 14px;border:1px solid var(--line);border-radius:14px;background:#fff;cursor:pointer}.option input{margin-top:2px;flex-shrink:0}
     .sticky{position:sticky;top:92px}.quick-list{display:grid;gap:10px}.quick-item{padding:12px 14px;background:#f8fbff;border:1px solid var(--line);border-radius:14px;color:var(--text);font-size:.92rem;line-height:1.55}
     .actions{display:flex;gap:12px;flex-wrap:wrap;margin-top:18px}.btn{display:inline-flex;align-items:center;justify-content:center;padding:12px 16px;border-radius:12px;border:1px solid transparent;text-decoration:none;font-weight:800;font-size:.94rem;cursor:pointer;font-family:inherit;transition:.2s ease;background:#fff}.btn:hover{ transform:translateY(-1px); }.btn-primary{background:linear-gradient(135deg,var(--blue),var(--blue-light));color:#fff}.btn-outline{color:var(--blue);border-color:var(--line);background:#fff}.btn[disabled]{opacity:.6;cursor:not-allowed;transform:none}
+    .voice-card{margin-bottom:16px;padding:18px;border-radius:18px;border:1px solid #bfdbfe;background:#eff6ff}
+    .voice-card h3{margin:0 0 8px;color:#1d4ed8;font-size:1rem}
+    .voice-card p{margin:0 0 10px;color:#1e3a8a;line-height:1.6}
+    .voice-meta{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px}
+    .voice-help{font-size:.9rem;color:#1e3a8a;line-height:1.6}
     .empty{color:var(--muted);padding:8px 0}
     @media (max-width: 960px){.layout{grid-template-columns:1fr}.sticky{position:static}.hero-grid{grid-template-columns:repeat(2, minmax(0,1fr))}}
     @media (max-width: 640px){.container{width:min(var(--max), calc(100% - 24px));}.hero-inner{padding:20px}.hero-grid{grid-template-columns:1fr}.actions .btn{width:100%}}
@@ -80,7 +85,7 @@
               <div class="progress"><div id="progressFill" class="progress-fill"></div></div>
             </div>
 
-            <div id="questionList" class="question-list"><div class="empty">Loading screening questions...</div></div>
+            <div id="voiceScreeningBlock"></div><div id="questionList" class="question-list"><div class="empty">Loading screening questions...</div></div>
 
             <div class="actions">
               <a id="backToRoleBtn" class="btn btn-outline" href="applicants.html">Back to Role</a>
@@ -132,6 +137,7 @@
       statRequired: document.getElementById('statRequired'),
       statProgress: document.getElementById('statProgress'),
       progressFill: document.getElementById('progressFill'),
+      voiceScreeningBlock: document.getElementById('voiceScreeningBlock'),
       questionList: document.getElementById('questionList'),
       screeningForm: document.getElementById('screeningForm'),
       submitBtn: document.getElementById('submitBtn'),
@@ -142,6 +148,7 @@
     let currentProfile = null;
     let currentJob = null;
     let screeningQuestions = [];
+    let voiceScreeningConfig = null;
 
     function escapeHtml(value){
       return String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
@@ -204,13 +211,13 @@
     }
 
     async function loadJobById(jobIdValue){
-      const { data, error } = await supabaseClient.from('jobs').select('id, title, slug, client_name, location, work_setup, screening_fail_action, screening_config').eq('id', jobIdValue).single();
+      const { data, error } = await supabaseClient.from('jobs').select('id, title, slug, client_name, location, work_setup, screening_fail_action, screening_config, ai_screening_config').eq('id', jobIdValue).single();
       if (error) throw error;
       return data;
     }
 
     async function loadJobBySlug(slugValue){
-      const { data, error } = await supabaseClient.from('jobs').select('id, title, slug, client_name, location, work_setup, screening_fail_action, screening_config').eq('slug', slugValue).single();
+      const { data, error } = await supabaseClient.from('jobs').select('id, title, slug, client_name, location, work_setup, screening_fail_action, screening_config, ai_screening_config').eq('slug', slugValue).single();
       if (error) throw error;
       return data;
     }
@@ -309,6 +316,42 @@
         return { score, verdict: score === 100 ? "Qualified" : "Failed", knockoutFailed: !!question.knockout && score < 100, dimensions: { relevance: score ? 5 : 0, proof: score ? 5 : 0, depth: 1, outcome: score ? 5 : 0, riskPenalty: score ? 0 : 5 } };
       }
       return scoreOpenText(question, answer);
+    }
+
+    function getVoiceScreeningConfig(job){
+      const config = job?.ai_screening_config || {};
+      const requirement = safeText(config.language_requirement || "None");
+      const mode = safeText(config.voice_screening_mode || "auto").toLowerCase() || "auto";
+      const enabled = config.enable_voice_screening === true || mode === "yes" || (mode === "auto" && requirement !== "None")
+      return {
+        requirement,
+        mode,
+        enabled: config.enable_voice_screening === true || mode === "yes" || (mode === "auto" && requirement !== "None")
+      };
+    }
+
+    function renderVoiceScreeningBlock(job){
+      voiceScreeningConfig = getVoiceScreeningConfig(job);
+      if(!voiceScreeningConfig.enabled){
+        els.voiceScreeningBlock.innerHTML = '';
+        return;
+      }
+
+      const cefr = voiceScreeningConfig.requirement || 'B1';
+      els.voiceScreeningBlock.innerHTML = `
+        <div class="voice-card">
+          <div class="voice-meta">
+            <span class="pill required">Voice Screening Enabled</span>
+            <span class="pill high">Language Requirement: ${escapeHtml(cefr)}</span>
+            <span class="pill">Mode: ${escapeHtml((voiceScreeningConfig.mode || 'auto').toUpperCase())}</span>
+          </div>
+          <h3>English Communication Screening</h3>
+          <p>This role requires spoken communication screening. In the next update, you will be asked to record a short introduction. For now, please answer the written questions as usual.</p>
+          <div class="voice-help">
+            Planned prompt:<br>
+            Record a 60–90 second English introduction covering your relevant experience, the type of customers or accounts you handled, and one real work situation you managed.
+          </div>
+        </div>`;
     }
 
     function buildQuestionInput(question, index){
@@ -619,9 +662,12 @@
 
         currentJob = await resolveJob();
         setBackToRole(currentJob);
+        renderVoiceScreeningBlock(currentJob);
 
         els.heroTitle.textContent = currentJob.title || 'Role Screening';
-        els.heroCopy.textContent = `Complete the adaptive screening questions for ${currentJob.title || 'this role'} before your application is submitted.`;
+        els.heroCopy.textContent = voiceScreeningConfig?.enabled
+          ? `Complete the adaptive screening questions for ${currentJob.title || 'this role'}. This role also has communication screening enabled based on its saved language requirement.`
+          : `Complete the adaptive screening questions for ${currentJob.title || 'this role'} before your application is submitted.`;
         els.statRole.textContent = currentJob.title || '-';
 
         const duplicate = await findDuplicateApplication(currentUser.email, currentJob.id);
