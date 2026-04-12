@@ -2024,26 +2024,29 @@
     }
 
 function renderLearningInsights(row) {
-  const learning = row.learning || buildLearningInsights(row);
+  const learning = row?.learning || buildLearningInsights(row);
   const stats = learning?.stats || {};
 
-  const hasSuccessData = stats.successCount > 0;
-  const hasAnyData = (stats.feedbackCount > 0 || stats.outcomeCount > 0);
+  const successCount = Number(stats.successCount || 0);
+  const feedbackCount = Number(stats.feedbackCount || 0);
+  const outcomeCount = Number(stats.outcomeCount || 0);
 
-  // --- SUMMARY ---
+  const hasSuccessData = successCount > 0;
+  const hasAnyData = feedbackCount > 0 || outcomeCount > 0;
+
   if (els.learningSummary) {
     if (!hasAnyData) {
       els.learningSummary.textContent =
         'No learning data available yet. Start capturing recruiter feedback to activate insights.';
     } else if (!hasSuccessData) {
       els.learningSummary.textContent =
-        `No successful outcomes logged yet for similar roles. Learning is still building from early recruiter feedback.`;
+        'No successful outcomes logged yet for similar roles. Learning is still building from early recruiter feedback.';
     } else {
-      els.learningSummary.textContent = learning.summary;
+      els.learningSummary.textContent =
+        learning?.summary || 'Learning summary unavailable.';
     }
   }
 
-  // --- SIGNAL ---
   if (els.learningSignal) {
     let signalText = '';
 
@@ -2052,56 +2055,53 @@ function renderLearningInsights(row) {
     } else if (!hasSuccessData) {
       signalText = 'Historical outcome trend is limited due to low data volume.';
     } else {
-      signalText = learning.signal;
+      signalText = learning?.signal || 'Learning signal available.';
     }
 
-    const adaptiveNote = row.score?.adaptive?.notes?.length
+    const adaptiveNote = row?.score?.adaptive?.notes?.length
       ? ' • Adaptive scoring active'
       : '';
 
     els.learningSignal.textContent = `${signalText}${adaptiveNote}`;
   }
 
-  // --- THEMES ---
   if (els.learningThemes) {
     if (!hasAnyData) {
       els.learningThemes.textContent =
         'No feedback themes available yet. Capture recruiter feedback to build patterns.';
     } else {
-      els.learningThemes.textContent = learning.themes || 'No strong patterns detected yet.';
+      els.learningThemes.textContent =
+        learning?.themes || 'No strong patterns detected yet.';
     }
   }
 
-  // --- META ---
   if (els.learningMeta) {
-  if (!state.learningEnabled) {
-    els.learningMeta.textContent =
-      'Learning tables are not available yet. Run the SQL migration first, then this section will populate automatically.';
-  } else {
-    const outcomeCount = stats.outcomeCount || 0;
-
-    let label = '';
-    let tone = '';
-
-    if (outcomeCount >= 20) {
-      label = 'High confidence learning';
-      tone = 'good';
-    } else if (outcomeCount >= 8) {
-      label = 'Moderate learning signal';
-      tone = 'warn';
+    if (!state.learningEnabled) {
+      els.learningMeta.textContent =
+        'Learning tables are not available yet. Run the SQL migration first, then this section will populate automatically.';
     } else {
-      label = 'Low learning signal';
-      tone = 'info';
-    }
+      let label = '';
+      let tone = '';
 
-    // 👇 THIS is where your <span> goes
-    els.learningMeta.innerHTML = `
-      This section learns from recruiter feedback and hiring outcomes across similar roles and continuously adapts AI scoring.
-      <br/>
-      <span class="pill ${tone}" style="margin-top:6px;">
-        ${label}
-      </span>
-    `;
+      if (outcomeCount >= 20) {
+        label = 'High confidence learning';
+        tone = 'good';
+      } else if (outcomeCount >= 8) {
+        label = 'Moderate learning signal';
+        tone = 'warn';
+      } else {
+        label = 'Low learning signal';
+        tone = 'info';
+      }
+
+      els.learningMeta.innerHTML = `
+        This section learns from recruiter feedback and hiring outcomes across similar roles and continuously adapts AI scoring.
+        <br>
+        <span class="pill ${tone}" style="margin-top:6px; display:inline-flex;">
+          ${label}
+        </span>
+      `;
+    }
   }
 }
 
