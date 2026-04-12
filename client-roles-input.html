@@ -10,7 +10,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-  <style> 
+  <style>
     :root{
       --bg:#081225;--panel:rgba(15,23,42,.82);--line:rgba(148,163,184,.18);--soft-line:rgba(148,163,184,.10);
       --text:#e5eefc;--muted:#94a3b8;--blue:#2563eb;--blue-2:#1d4ed8;--green:#10b981;--amber:#f59e0b;--red:#ef4444;
@@ -1111,33 +1111,49 @@ ${questionCount} question(s) saved to jobs.screening_config for screening.html`;
       const statusLower = safeText(els.roleStatus.value).toLowerCase() || "open";
       const summary = safeText(els.screeningSummaryOutput.textContent);
 
+      const requiredSkillsList = uniqueLines(normalizeLines(els.signalMustHaveSkills.value));
+      const niceToHaveList = uniqueLines(normalizeLines(els.niceToHaveSkills.value));
+      const clientPrioritiesList = uniqueLines(normalizeLines(els.signalBusinessPriorities.value));
+      const targetTitles = uniqueLines(normalizeLines(els.prioritySkills.value));
+      const targetLocations = uniqueLines(normalizeLines(els.location.value));
+
       return {
         title,
         client_id: clientId,
+        client_uuid: clientId,
         client_name: clientName,
         location: safeText(els.location.value),
-        work_setup: safeText(els.workSetup.value),
         employment_type: safeText(els.employmentType.value),
-        role_family: safeText(els.roleFamily.value),
-        seniority_level: safeText(els.seniority.value),
+        work_setup: safeText(els.workSetup.value),
         status: statusLower,
         slug: slugify(`${clientName}-${title}`),
-        salary_currency: safeText(els.salaryCurrency.value) || "PHP",
-        salary_period: safeText(els.salaryPeriod.value) || "Monthly",
         salary_min: parseBudgetNumber(els.salaryMin.value),
         salary_max: parseBudgetNumber(els.salaryMax.value),
-        salary_notes: safeText(els.salaryNotes.value),
+        salary_currency: safeText(els.salaryCurrency.value) || "PHP",
+        role_family: safeText(els.roleFamily.value),
+        seniority_level: safeText(els.seniority.value),
+        screening_enabled: questionItems.length > 0,
+        screening_fail_action: "auto_screen_out",
+        is_on_hold: false,
         job_description: publicJobDescription,
- 
-        screening_config: questionItems,
+        priority_skills: safeText(els.prioritySkills.value),
+        required_skills: requiredSkillsList,
+        nice_to_have_skills: niceToHaveList,
+        client_priorities: clientPrioritiesList,
         screening_summary: summary,
-        signal_intelligence: {
+        screening_config: questionItems,
+        target_titles: targetTitles.length ? targetTitles : null,
+        target_locations: targetLocations.length ? targetLocations : null,
+        min_experience_years: parseBudgetNumber(""),
+        ai_screening_config: {
           signal_summary: safeText(els.signalSummaryOutput.textContent),
           calibration: getSignalCalibrationPayload(),
           role_overview: safeText(els.jobDescription.value),
-          jd_raw_text: safeText(els.jdRawText.value)
+          jd_raw_text: safeText(els.jdRawText.value),
+          salary_period: safeText(els.salaryPeriod.value) || "Monthly",
+          salary_notes: safeText(els.salaryNotes.value),
+          compiled_job_description: compiledJobDescription
         },
-        is_on_hold: false,
         updated_at: new Date().toISOString()
       };
     }
@@ -1171,7 +1187,7 @@ ${questionCount} question(s) saved to jobs.screening_config for screening.html`;
     function populateRoleForm(role){
       els.roleId.value = role.id || "";
       els.roleModalTitle.textContent = "Edit Role";
-      els.clientId.value = role.client_id || "";
+      els.clientId.value = role.client_id || role.client_uuid || "";
       els.clientName.value = role.client_name || "";
       els.jobTitle.value = role.title || "";
       els.roleFamily.value = role.role_family || "";
@@ -1181,32 +1197,40 @@ ${questionCount} question(s) saved to jobs.screening_config for screening.html`;
       els.seniority.value = role.seniority_level || "";
       els.roleStatus.value = safeText(role.status).charAt(0).toUpperCase() + safeText(role.status).slice(1) || "Open";
       els.salaryCurrency.value = role.salary_currency || "PHP";
-      els.salaryPeriod.value = role.salary_period || "Monthly";
+      els.salaryPeriod.value = role.ai_screening_config?.salary_period || "Monthly";
       els.salaryMin.value = role.salary_min ?? "";
       els.salaryMax.value = role.salary_max ?? "";
-      els.salaryNotes.value = role.salary_notes || "";
+      els.salaryNotes.value = role.ai_screening_config?.salary_notes || "";
 
-      const signal = role.signal_intelligence || {};
-      const calibration = signal.calibration || {};
+      const screeningCfg = role.ai_screening_config || {};
+      const calibration = screeningCfg.calibration || {};
 
-      els.jdRawText.value = signal.jd_raw_text || "";
-      els.jobDescription.value = signal.role_overview || role.compiled_job_description || role.job_description || "";
+      els.jdRawText.value = screeningCfg.jd_raw_text || "";
+      els.jobDescription.value = screeningCfg.role_overview || screeningCfg.compiled_job_description || role.job_description || "";
       els.requirements.value = "";
-      els.prioritySkills.value = "";
-      els.niceToHaveSkills.value = "";
+      els.prioritySkills.value = role.priority_skills || "";
+      els.niceToHaveSkills.value = normalizeArray(role.nice_to_have_skills).join("
+");
 
-      els.signalNonNegotiables.value = normalizeArray(calibration.non_negotiables).join("\n");
-      els.signalRedFlags.value = normalizeArray(calibration.red_flags).join("\n");
-      els.signalMustHaveSkills.value = normalizeArray(calibration.must_have_skills).join("\n");
-      els.signalSuccessSignals.value = normalizeArray(calibration.success_signals).join("\n");
+      els.signalNonNegotiables.value = normalizeArray(calibration.non_negotiables).join("
+");
+      els.signalRedFlags.value = normalizeArray(calibration.red_flags).join("
+");
+      els.signalMustHaveSkills.value = normalizeArray(calibration.must_have_skills).join("
+") || normalizeArray(role.required_skills).join("
+");
+      els.signalSuccessSignals.value = normalizeArray(calibration.success_signals).join("
+");
       els.signalSetupCriticality.value = calibration.setup_criticality || "";
       els.signalEnvironmentNotes.value = calibration.environment_notes || "";
       els.signalCommunicationWeight.value = calibration.communication_weight || "";
       els.signalStakeholderWeight.value = calibration.stakeholder_weight || "";
       els.signalAutonomyLevel.value = calibration.autonomy_level || "";
       els.signalDecisionMaking.value = calibration.decision_making || "";
-      els.signalBusinessPriorities.value = normalizeArray(calibration.business_priorities).join("\n");
-      els.signalSummaryOutput.textContent = signal.signal_summary || "No signal summary generated yet.";
+      els.signalBusinessPriorities.value = normalizeArray(calibration.business_priorities).join("
+") || normalizeArray(role.client_priorities).join("
+");
+      els.signalSummaryOutput.textContent = screeningCfg.signal_summary || "No signal summary generated yet.";
 
       let config = role.screening_config;
       if(typeof config === "string"){ try { config = JSON.parse(config); } catch { config = []; } }
