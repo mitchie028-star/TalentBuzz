@@ -703,7 +703,7 @@
               <div class="section-actions">
                 <button class="btn btn-primary" id="saveBtn" type="button">Save Changes</button>
               </div>
-              <div class="muted" id="saveHint">Structured feedback is appended into recruiter notes for now. When your feedback table is ready, this same UI can save there directly.</div>
+              <div class="muted" id="saveHint">Structured feedback is synced into recruiter notes for now and also saved to the learning tables when available.</div>
             </div>
           </div>
         </section>
@@ -905,6 +905,15 @@
 
     function normalizeStatus(value) {
       return safeText(value).toLowerCase();
+    }
+
+    function formatStatusLabel(status) {
+      const value = safeText(status).toLowerCase();
+      if (!value) return '—';
+      return value
+        .split(' ')
+        .map((word) => word ? word.charAt(0).toUpperCase() + word.slice(1) : '')
+        .join(' ');
     }
 
     function getStatusTone(status) {
@@ -1497,6 +1506,151 @@
       showNotice('Screening review inserted into recruiter notes.', 'success');
     }
 
+
+    function normalizeRole(text) {
+      return safeText(text)
+        .toLowerCase()
+        .replace(/[^a-z0-9\s]/g, ' ')
+        .replace(/\b(ip|op|jr|sr|ii|iii|iv)\b/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+    }
+
+    function roleTokens(text) {
+      const stop = new Set(['and','or','the','for','with','specialist','specialists','associate','associates','officer','officers','role','campaign']);
+      return normalizeRole(text)
+        .split(' ')
+        .map((token) => token.trim())
+        .filter((token) => token && token.length >= 3 && !stop.has(token));
+    }
+
+    function roleFamilyKey(job, title) {
+      const text = [
+        safeText(title),
+        safeText(job?.title),
+        safeText(job?.industry),
+        safeText(job?.job_description),
+        safeText(job?.keywords),
+      ].join(' ').toLowerCase();
+
+      if (/medical|clinical|nurse|appeals|denials|coder|coding|drg|icd|cpt|utilization|healthcare/.test(text)) return 'healthcare';
+      if (/customer|crm|support|bpo|call center|cx|retail|collections|sales|voice|back office/.test(text)) return 'customer_ops';
+      if (/engineer|developer|software|data|devops|qa|product|react|node|python|java/.test(text)) return 'technology';
+      if (/finance|accounting|bookkeeping|payroll|tax|audit|fp&a/.test(text)) return 'finance';
+      if (/hr|human resources|recruit|talent acquisition|people/.test(text)) return 'people';
+      return normalizeRole(safeText(job?.industry || title || 'general')) || 'general';
+    }
+
+    function isRoleMatchLoose(a, b) {
+      const na = normalizeRole(a);
+      const nb = normalizeRole(b);
+      if (!na || !nb) return false;
+      if (na === nb) return true;
+      if (na.includes(nb) || nb.includes(na)) return true;
+
+      const ta = new Set(roleTokens(na));
+      const tb = new Set(roleTokens(nb));
+      if (!ta.size || !tb.size) return false;
+      let overlap = 0;
+      ta.forEach((token) => { if (tb.has(token)) overlap += 1; });
+      return overlap >= Math.min(2, Math.min(ta.size, tb.size));
+    }
+
+    function getCrossRoleLearningStats(job, jobTitle) {
+      const jobId = String(job?.id || '');
+      const currentTitle = safeText(jobTitle || job?.title || '');
+      const currentFamily = roleFamilyKey(job, currentTitle);
+
+      const relevantFeedback = (state.feedbackRows || []).filter((item) => {
+        const sameJob = String(item.job_id || '') === jobId;
+        const similarTitle = isRoleMatchLoose(item.job_title || '', currentTitle);
+        const sameFamily = roleFamilyKey({ industry: item.role_family || '' }, item.job_title || '') === currentFamily;
+        return sameJob || similarTitle || sameFamily;
+      });
+
+      const relevantOutcomes = (state.outcomeRows || []).filter((item) => {
+        const sameJob = String(item.job_id || '') === jobId;
+        const similarTitle = isRoleMatchLoose(item.job_title || '', currentTitle);
+        const sameFamily = roleFamilyKey({ industry: item.role_family || '' }, item.job_title || '') === currentFamily;
+        return sameJob || similarTitle || sameFamily;
+      });
+
+      const positiveCounts = tallyTerms(relevantFeedback.map((item) => item.positive_tags || []));
+      const riskCounts = tallyTerms(relevantFeedback.map((item) => item.risk_tags || []));
+      const successful = relevantOutcomes.filter((item) => !!item.is_success);
+      const avgSuccessfulOverall = successful.length
+        ? Math.round(successful.reduce((sum, item) => sum + Number(item.ai_overall_score || 0), 0) / successful.length)
+        : null;
+
+      return {
+        familyKey: currentFamily,
+        feedbackCount: relevantFeedback.length,
+        outcomeCount: relevantOutcomes.length,
+        successCount: successful.length,
+        positiveCounts,
+        riskCounts,
+        avgSuccessfulOverall,
+        relevantFeedback,
+        relevantOutcomes,
+      };
+    }
+
+    function applyAdaptiveFeedbackAdjustment(baseOverall, rowContext) {
+      const stats = getCrossRoleLearningStats(rowContext.job, rowContext.jobTitle);
+      let adjusted = baseOverall;
+      const notes = [];
+
+      if (!stats.feedbackCount && !stats.outcomeCount) {
+        return { overall: adjusted, notes, stats };
+      }
+
+      const evidenceText = [
+        safeText(rowContext.profile?.headline),
+        safeText(rowContext.profile?.current_title),
+        safeText(rowContext.profile?.experience),
+        safeText(rowContext.profile?.experience_summary),
+        safeText(rowContext.profile?.skills),
+        safeText(rowContext.profile?.extracted_skills),
+        safeText(rowContext.profile?.raw_resume_text),
+        safeText(rowContext.profile?.resume_text),
+        safeText(rowContext.jobTitle),
+      ].join(' ').toLowerCase();
+
+      const positiveTop = stats.positiveCounts.slice(0, 5).map(([term]) => safeText(term).toLowerCase());
+      const riskTop = stats.riskCounts.slice(0, 5).map(([term]) => safeText(term).toLowerCase());
+
+      const positiveHits = positiveTop.filter((term) => term && evidenceText.includes(term)).length;
+      const riskHits = riskTop.filter((term) => term && evidenceText.includes(term)).length;
+
+      if (positiveHits > 0) {
+        const boost = Math.min(12, positiveHits * 4);
+        adjusted += boost;
+        notes.push(`feedback-aligned strengths +${boost}`);
+      }
+
+      if (riskHits > 0) {
+        const penalty = Math.min(12, riskHits * 4);
+        adjusted -= penalty;
+        notes.push(`historical risk overlap -${penalty}`);
+      }
+
+      if (stats.avgSuccessfulOverall != null) {
+        if (baseOverall >= stats.avgSuccessfulOverall - 10) {
+          adjusted += 4;
+          notes.push('near successful range +4');
+        } else if (baseOverall < stats.avgSuccessfulOverall - 30) {
+          adjusted -= 4;
+          notes.push('below successful range -4');
+        }
+      }
+
+      return {
+        overall: adjusted,
+        notes,
+        stats,
+      };
+    }
+
     function computeOverallScore(profile, app, job) {
       const profilePart = scoreProfileComponent(profile, job);
       const resumePart = scoreResumeComponent(profile, app, job);
@@ -1548,7 +1702,6 @@
       if (profilePart.roleFit?.fit === 'weak' && resumePart.roleFit?.fit === 'weak') overall -= 8;
       if (!resumePart.hasResume && !screeningPart.isValid) overall = Math.min(overall, 20);
 
-      // Identity integrity should materially affect scoring.
       if (identity.risk === 'high') {
         overall -= 20;
         confidence = 'very low confidence';
@@ -1559,12 +1712,30 @@
         basis += ' • Identity mismatch penalty 10';
       }
 
+      const adaptive = applyAdaptiveFeedbackAdjustment(overall, {
+        profile,
+        app,
+        job,
+        jobTitle: safeText(job?.title || app?.job_title || '')
+      });
+      overall = adaptive.overall;
+
+      if (adaptive.notes.length) {
+        basis += ` • Cross-role adaptation: ${adaptive.notes.join(', ')}`;
+      }
+      if (adaptive.stats.feedbackCount || adaptive.stats.outcomeCount) {
+        confidence = confidence === 'very low confidence' ? confidence : 'adaptive confidence';
+      }
+
+      overall = Math.max(5, overall);
+
       return {
         overall: Math.round(clamp(overall, 0, 100)),
         profilePart,
         resumePart,
         screeningPart,
         identity,
+        adaptive,
         mode,
         confidence,
         basis,
@@ -1741,7 +1912,7 @@
       const risks = getSelected('risk');
 
       const parts = [];
-      if (disposition) parts.push(`Disposition: ${sentenceCase(disposition)}`);
+      if (disposition) parts.push(`Disposition: ${formatStatusLabel(disposition)}`);
       if (positives.length) parts.push(`Positive: ${positives.slice(0, 3).join(', ')}`);
       if (risks.length) parts.push(`Risks: ${risks.slice(0, 3).join(', ')}`);
 
@@ -1768,9 +1939,8 @@
       const block = buildStructuredFeedbackBlock();
       if (!block) return;
       const current = safeText(els.editNotes?.value);
-      if (!current.includes(block)) {
-        els.editNotes.value = current ? `${current}\n\n${block}` : block;
-      }
+      const cleaned = current.replace(/\n*Structured Recruiter Feedback[\s\S]*$/m, '').trim();
+      els.editNotes.value = cleaned ? `${cleaned}\n\n${block}` : block;
     }
 
     function clearFeedbackInputs() {
@@ -1822,47 +1992,39 @@
     }
 
     function buildLearningInsights(row) {
-      const jobId = String(row.job?.id || row.app?.job_id || '');
-      const roleKey = normalizeStatus(row.jobTitle);
-
-      const relevantFeedback = state.feedbackRows.filter((item) =>
-        String(item.job_id || '') === jobId || normalizeStatus(item.job_title || '') === roleKey
-      );
-      const relevantOutcomes = state.outcomeRows.filter((item) =>
-        String(item.job_id || '') === jobId || normalizeStatus(item.job_title || '') === roleKey
-      );
-
-      const totalOutcomes = relevantOutcomes.length;
-      const successCount = relevantOutcomes.filter((item) => !!item.is_success).length;
-      const averageOutcome = totalOutcomes
-        ? Math.round(relevantOutcomes.reduce((sum, item) => sum + Number(item.outcome_score || 0), 0) / totalOutcomes)
+      const stats = getCrossRoleLearningStats(row.job, row.jobTitle);
+      const positiveThemes = stats.positiveCounts;
+      const riskThemes = stats.riskCounts;
+      const averageOutcome = stats.outcomeCount
+        ? Math.round(stats.relevantOutcomes.reduce((sum, item) => sum + Number(item.outcome_score || 0), 0) / stats.outcomeCount)
         : null;
 
-      const positiveThemes = tallyTerms(relevantFeedback.map((item) => item.positive_tags || []));
-      const riskThemes = tallyTerms(relevantFeedback.map((item) => item.risk_tags || []));
-
       return {
-        summary: totalOutcomes
-          ? `${successCount} success signal${successCount === 1 ? '' : 's'} from ${totalOutcomes} tracked outcome${totalOutcomes === 1 ? '' : 's'} for similar roles.`
-          : 'No historical outcomes recorded yet for this role.',
-        signal: totalOutcomes
-          ? `Average role outcome score: ${averageOutcome}%`
+        summary: stats.outcomeCount
+          ? `${stats.successCount} success signal${stats.successCount === 1 ? '' : 's'} from ${stats.outcomeCount} tracked outcome${stats.outcomeCount === 1 ? '' : 's'} across similar ${stats.familyKey.replace('_', ' ')} roles.`
+          : `No historical outcomes recorded yet across similar ${stats.familyKey.replace('_', ' ')} roles.`,
+        signal: stats.outcomeCount
+          ? `Average cross-role outcome score: ${averageOutcome}%`
           : 'Learning will improve once feedback and outcomes are saved.',
         themes: [
           positiveThemes.length ? `Common positives: ${positiveThemes.slice(0, 3).map(([term, count]) => `${term} (${count})`).join(', ')}` : '',
           riskThemes.length ? `Common risks: ${riskThemes.slice(0, 3).map(([term, count]) => `${term} (${count})`).join(', ')}` : '',
-        ].filter(Boolean).join(' • ') || 'No historical feedback themes yet.'
+        ].filter(Boolean).join(' • ') || 'No historical feedback themes yet.',
+        stats,
       };
     }
 
     function renderLearningInsights(row) {
       const learning = row.learning || buildLearningInsights(row);
       if (els.learningSummary) els.learningSummary.textContent = learning.summary;
-      if (els.learningSignal) els.learningSignal.textContent = learning.signal;
+      if (els.learningSignal) {
+        const adaptiveNote = row.score?.adaptive?.notes?.length ? ' • Adaptive scoring active' : '';
+        els.learningSignal.textContent = `${learning.signal}${adaptiveNote}`;
+      }
       if (els.learningThemes) els.learningThemes.textContent = learning.themes;
       if (els.learningMeta) {
         els.learningMeta.textContent = state.learningEnabled
-          ? 'This section learns from recruiter feedback and hiring outcomes for similar roles and now adapts AI scoring when historical signals are available.'
+          ? 'This section learns from recruiter feedback and hiring outcomes across similar roles, not just exact title matches.'
           : 'Learning tables are not available yet. Run the SQL migration first, then this section will populate automatically.';
       }
     }
@@ -2083,7 +2245,7 @@
               <div class="small">${escapeHtml(row.job?.work_setup || '')}</div>
             </td>
             <td>${escapeHtml(row.clientName)}</td>
-            <td><span class="pill ${tone}">${escapeHtml(row.status || 'submitted')}</span></td>
+            <td><span class="pill ${tone}">${escapeHtml(formatStatusLabel(row.status || 'submitted'))}</span></td>
             <td>${escapeHtml(row.recruiter)}</td>
             <td>${escapeHtml(formatDateTime(row.appliedAt))}</td>
             <td class="score-cell">\n              <span class="pill ${scoreTone}">${row.score.overall}%</span>\n            </td>
