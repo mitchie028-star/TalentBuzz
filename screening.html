@@ -709,36 +709,36 @@
     }
 
     async function saveScreeningArtifacts(applicationId, applicantProfileId, answers, review){
-      const reviewPayload = {
-        application_id: applicationId,
-        applicant_profile_id: applicantProfileId,
-        overall_score: review.score,
-        decision: review.screeningResult,
-        strengths: null,
-        risks: review.knockoutFailed ? 'Knockout requirement not met.' : null,
-        summary: `Adaptive screening submitted with score ${review.score}.${voiceScreeningConfig?.enabled ? ' Voice screening file attached.' : ''}`, 
-        created_at: new Date().toISOString()
+      const screeningResponsesPayload = {
+        submitted_at: new Date().toISOString(),
+        voice_screening: voiceScreeningConfig?.enabled ? {
+          enabled: true,
+          language_requirement: voiceScreeningConfig.requirement || 'None',
+          mode: voiceScreeningConfig.mode || 'auto',
+          answer: answers.find(item => item.question_id === 'voice_screening_intro') || null
+        } : {
+          enabled: false
+        },
+        answers
       };
 
-      const answerRows = answers.map(item => ({
-        application_id: applicationId,
-        question_id: item.question_id,
-        question: item.question,
-        focus_area: item.focus_area,
-        response_type: item.response_type,
-        weight: item.weight,
-        category: item.category,
-        answer_text: item.answer,
-        answer_json: item,
-        created_at: new Date().toISOString()
-      }));
+      const updatePayload = {
+        screening_answers: answers,
+        screening_responses: screeningResponsesPayload,
+        screening_review_strengths: null,
+        screening_review_risks: review.knockoutFailed ? 'Knockout requirement not met.' : null,
+        screening_review_summary: `Adaptive screening submitted with score ${review.score}.${voiceScreeningConfig?.enabled ? ' Voice screening file attached.' : ''}`,
+        screening_review_decision: review.screeningResult,
+        screening_result: review.screeningResult,
+        screening_score: review.score
+      };
 
-      const answerInsert = supabaseClient.from('application_screening_answers').insert(answerRows);
-      const reviewInsert = supabaseClient.from('application_screening_reviews').insert([reviewPayload]);
+      const { error } = await supabaseClient
+        .from('applications')
+        .update(updatePayload)
+        .eq('id', applicationId);
 
-      const [answersRes, reviewRes] = await Promise.all([answerInsert, reviewInsert]);
-      if (answersRes.error) throw answersRes.error;
-      if (reviewRes.error) throw reviewRes.error;
+      if (error) throw error;
     }
 
     async function markRoleAlertApplied(jobId, applicantProfileId){
