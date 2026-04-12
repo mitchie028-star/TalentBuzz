@@ -703,7 +703,7 @@
               <div class="section-actions">
                 <button class="btn btn-primary" id="saveBtn" type="button">Save Changes</button>
               </div>
-              <div class="muted" id="saveHint">Structured feedback is synced into recruiter notes for now and also saved to the learning tables when available.</div>
+              <div class="muted" id="saveHint">Structured feedback is appended into recruiter notes for now. When your feedback table is ready, this same UI can save there directly.</div>
             </div>
           </div>
         </section>
@@ -1535,9 +1535,9 @@
 
       if (/medical|clinical|nurse|appeals|denials|coder|coding|drg|icd|cpt|utilization|healthcare/.test(text)) return 'healthcare';
       if (/customer|crm|support|bpo|call center|cx|retail|collections|sales|voice|back office/.test(text)) return 'customer_ops';
-      if (/engineer|developer|software|data|devops|qa|product|react|node|python|java/.test(text)) return 'technology';
-      if (/finance|accounting|bookkeeping|payroll|tax|audit|fp&a/.test(text)) return 'finance';
-      if (/hr|human resources|recruit|talent acquisition|people/.test(text)) return 'people';
+      if (/engineer|developer|software|data|devops|qa|product|react|node|python|java|architect/.test(text)) return 'technology';
+      if (/finance|accounting|bookkeeping|payroll|tax|audit|fp&a|collection/.test(text)) return 'finance';
+      if (/hr|human resources|recruit|talent acquisition|people|trainer/.test(text)) return 'people';
       return normalizeRole(safeText(job?.industry || title || 'general')) || 'general';
     }
 
@@ -1623,32 +1623,28 @@
       const riskHits = riskTop.filter((term) => term && evidenceText.includes(term)).length;
 
       if (positiveHits > 0) {
-        const boost = Math.min(12, positiveHits * 4);
+        const boost = Math.min(14, positiveHits * 4);
         adjusted += boost;
         notes.push(`feedback-aligned strengths +${boost}`);
       }
 
       if (riskHits > 0) {
-        const penalty = Math.min(12, riskHits * 4);
+        const penalty = Math.min(14, riskHits * 4);
         adjusted -= penalty;
         notes.push(`historical risk overlap -${penalty}`);
       }
 
       if (stats.avgSuccessfulOverall != null) {
         if (baseOverall >= stats.avgSuccessfulOverall - 10) {
-          adjusted += 4;
-          notes.push('near successful range +4');
+          adjusted += 6;
+          notes.push('near successful range +6');
         } else if (baseOverall < stats.avgSuccessfulOverall - 30) {
-          adjusted -= 4;
-          notes.push('below successful range -4');
+          adjusted -= 6;
+          notes.push('below successful range -6');
         }
       }
 
-      return {
-        overall: adjusted,
-        notes,
-        stats,
-      };
+      return { overall: adjusted, notes, stats };
     }
 
     function computeOverallScore(profile, app, job) {
@@ -1663,25 +1659,25 @@
       let basis = '';
 
       if (screeningPart.isValid && resumePart.hasResume) {
-        overall = profilePart.score * 0.15 + resumePart.score * 0.45 + screeningPart.score * 0.40;
+        overall = profilePart.score * 0.18 + resumePart.score * 0.40 + screeningPart.score * 0.42;
         mode = 'Profile + Resume + Screening';
         confidence = 'high confidence';
-        basis = 'Profile 15% • Resume 45% • Screening 40%';
+        basis = 'Profile 18% • Resume 40% • Screening 42%';
       } else if (!screeningPart.isValid && resumePart.hasResume) {
-        overall = profilePart.score * 0.20 + resumePart.score * 0.80;
+        overall = profilePart.score * 0.25 + resumePart.score * 0.75;
         mode = 'Profile + Resume';
         confidence = resumePart.score >= 55 ? 'medium confidence' : 'low confidence';
-        basis = 'Profile 20% • Resume 80%';
+        basis = 'Profile 25% • Resume 75%';
       } else if (screeningPart.isValid && !resumePart.hasResume) {
-        overall = profilePart.score * 0.20 + screeningPart.score * 0.80;
+        overall = profilePart.score * 0.25 + screeningPart.score * 0.75;
         mode = 'Profile + Screening';
         confidence = screeningPart.score >= 55 ? 'medium confidence' : 'low confidence';
-        basis = 'Profile 20% • Screening 80%';
+        basis = 'Profile 25% • Screening 75%';
       } else {
-        overall = profilePart.score * 0.35;
+        overall = profilePart.score * 0.45;
         mode = 'Limited Evidence';
         confidence = 'low confidence';
-        basis = 'No valid resume or screening evidence';
+        basis = 'Limited evidence • profile-led score';
       }
 
       const strongSignals = [
@@ -1690,17 +1686,25 @@
         screeningPart.roleFit?.fit === 'strong' && screeningPart.isValid
       ].filter(Boolean).length;
 
+      const moderateSignals = [
+        profilePart.roleFit?.fit === 'moderate',
+        resumePart.roleFit?.fit === 'moderate',
+        screeningPart.roleFit?.fit === 'moderate' && screeningPart.isValid
+      ].filter(Boolean).length;
+
       const weakSignals = [
         profilePart.roleFit?.fit === 'weak',
         resumePart.roleFit?.fit === 'weak',
         (!screeningPart.isValid || screeningPart.roleFit?.fit === 'weak')
       ].filter(Boolean).length;
 
-      if (strongSignals >= 2) overall += 8;
-      if (strongSignals === 3) overall += 6;
-      if (weakSignals >= 2) overall -= 10;
-      if (profilePart.roleFit?.fit === 'weak' && resumePart.roleFit?.fit === 'weak') overall -= 8;
-      if (!resumePart.hasResume && !screeningPart.isValid) overall = Math.min(overall, 20);
+      if (strongSignals >= 2) overall += 12;
+      else if (strongSignals === 1 && moderateSignals >= 1) overall += 6;
+
+      if (moderateSignals >= 2) overall += 4;
+      if (weakSignals >= 2) overall -= 8;
+      if (profilePart.roleFit?.fit === 'weak' && resumePart.roleFit?.fit === 'weak') overall -= 6;
+      if (!resumePart.hasResume && !screeningPart.isValid) overall = Math.min(overall, 28);
 
       if (identity.risk === 'high') {
         overall -= 20;
@@ -1727,7 +1731,14 @@
         confidence = confidence === 'very low confidence' ? confidence : 'adaptive confidence';
       }
 
-      overall = Math.max(5, overall);
+      const progressed = normalizeStatus(app?.status);
+      if (['endorsed', 'for interview', 'shortlisted', 'assessment', 'initial'].includes(progressed)) overall = Math.max(overall, 18);
+      if (['offered jo'].includes(progressed)) overall = Math.max(overall, 28);
+      if (['onboarded', 'hired'].includes(progressed)) overall = Math.max(overall, 35);
+
+      if (overall < 8) overall = 8;
+      else if (overall < 20) overall = Math.round(overall * 1.35);
+      else if (overall < 40) overall = Math.round(overall * 1.18);
 
       return {
         overall: Math.round(clamp(overall, 0, 100)),
@@ -1912,7 +1923,7 @@
       const risks = getSelected('risk');
 
       const parts = [];
-      if (disposition) parts.push(`Disposition: ${formatStatusLabel(disposition)}`);
+      if (disposition) parts.push(`Disposition: ${sentenceCase(disposition)}`);
       if (positives.length) parts.push(`Positive: ${positives.slice(0, 3).join(', ')}`);
       if (risks.length) parts.push(`Risks: ${risks.slice(0, 3).join(', ')}`);
 
@@ -1993,8 +2004,6 @@
 
     function buildLearningInsights(row) {
       const stats = getCrossRoleLearningStats(row.job, row.jobTitle);
-      const positiveThemes = stats.positiveCounts;
-      const riskThemes = stats.riskCounts;
       const averageOutcome = stats.outcomeCount
         ? Math.round(stats.relevantOutcomes.reduce((sum, item) => sum + Number(item.outcome_score || 0), 0) / stats.outcomeCount)
         : null;
@@ -2002,14 +2011,14 @@
       return {
         summary: stats.outcomeCount
           ? `${stats.successCount} success signal${stats.successCount === 1 ? '' : 's'} from ${stats.outcomeCount} tracked outcome${stats.outcomeCount === 1 ? '' : 's'} across similar ${stats.familyKey.replace('_', ' ')} roles.`
-          : `No historical outcomes recorded yet across similar ${stats.familyKey.replace('_', ' ')} roles.`,
+          : `No saved similar-role outcomes yet for ${stats.familyKey.replace('_', ' ')} roles.`,
         signal: stats.outcomeCount
           ? `Average cross-role outcome score: ${averageOutcome}%`
-          : 'Learning will improve once feedback and outcomes are saved.',
+          : 'Learning will activate as more recruiter feedback and outcomes are saved.',
         themes: [
-          positiveThemes.length ? `Common positives: ${positiveThemes.slice(0, 3).map(([term, count]) => `${term} (${count})`).join(', ')}` : '',
-          riskThemes.length ? `Common risks: ${riskThemes.slice(0, 3).map(([term, count]) => `${term} (${count})`).join(', ')}` : '',
-        ].filter(Boolean).join(' • ') || 'No historical feedback themes yet.',
+          stats.positiveCounts.length ? `Common positives: ${stats.positiveCounts.slice(0, 3).map(([term, count]) => `${term} (${count})`).join(', ')}` : '',
+          stats.riskCounts.length ? `Common risks: ${stats.riskCounts.slice(0, 3).map(([term, count]) => `${term} (${count})`).join(', ')}` : '',
+        ].filter(Boolean).join(' • ') || 'No repeated feedback themes yet for similar roles.',
         stats,
       };
     }
