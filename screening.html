@@ -34,6 +34,13 @@
     .voice-card p{margin:0 0 10px;color:#1e3a8a;line-height:1.6}
     .voice-meta{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px}
     .voice-help{font-size:.9rem;color:#1e3a8a;line-height:1.6}
+    .voice-actions{display:flex;gap:10px;flex-wrap:wrap;margin:12px 0}
+    .voice-status{font-size:.9rem;color:#1e3a8a;margin:8px 0 0}
+    .voice-preview{margin-top:12px;padding:12px;border:1px solid #bfdbfe;border-radius:14px;background:#fff}
+    .voice-preview audio,.voice-preview video{width:100%;max-height:240px;border-radius:12px}
+    .voice-upload{margin-top:12px}
+    .voice-upload input{width:100%}
+    .voice-mini{font-size:.84rem;color:#475569;margin-top:8px;line-height:1.55}
     .empty{color:var(--muted);padding:8px 0}
     @media (max-width: 960px){.layout{grid-template-columns:1fr}.sticky{position:static}.hero-grid{grid-template-columns:repeat(2, minmax(0,1fr))}}
     @media (max-width: 640px){.container{width:min(var(--max), calc(100% - 24px));}.hero-inner{padding:20px}.hero-grid{grid-template-columns:1fr}.actions .btn{width:100%}}
@@ -149,6 +156,12 @@
     let currentJob = null;
     let screeningQuestions = [];
     let voiceScreeningConfig = null;
+    let voiceRecordingBlob = null;
+    let voiceRecordingObjectUrl = '';
+    let voiceUploadFile = null;
+    let mediaRecorder = null;
+    let mediaStream = null;
+    let mediaChunks = [];
 
     function escapeHtml(value){
       return String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
@@ -346,12 +359,175 @@
             <span class="pill">Mode: ${escapeHtml((voiceScreeningConfig.mode || 'auto').toUpperCase())}</span>
           </div>
           <h3>English Communication Screening</h3>
-          <p>This role requires spoken communication screening. In the next update, you will be asked to record a short introduction. For now, please answer the written questions as usual.</p>
+          <p>This role requires a short spoken communication sample. Please record or upload a 60–90 second introduction in English before submitting your screening.</p>
           <div class="voice-help">
-            Planned prompt:<br>
+            Prompt:<br>
             Record a 60–90 second English introduction covering your relevant experience, the type of customers or accounts you handled, and one real work situation you managed.
           </div>
+          <div class="voice-actions">
+            <button type="button" class="btn btn-outline" id="startVoiceRecordingBtn">Start Recording</button>
+            <button type="button" class="btn btn-outline" id="stopVoiceRecordingBtn">Stop Recording</button>
+            <button type="button" class="btn btn-outline" id="clearVoiceRecordingBtn">Clear</button>
+          </div>
+          <div class="voice-upload">
+            <label class="voice-mini" for="voiceUploadInput">Or upload audio/video</label>
+            <input id="voiceUploadInput" class="input" type="file" accept="${preferredVoiceAccept()}" />
+          </div>
+          <div id="voiceStatus" class="voice-status">No recording selected yet.</div>
+          <div id="voicePreview" class="voice-preview"><div class="voice-mini">No recording uploaded yet.</div></div>
         </div>`;
+
+      const startBtn = document.getElementById('startVoiceRecordingBtn');
+      const stopBtn = document.getElementById('stopVoiceRecordingBtn');
+      const clearBtn = document.getElementById('clearVoiceRecordingBtn');
+      const uploadInput = document.getElementById('voiceUploadInput');
+
+      if (startBtn) startBtn.addEventListener('click', startVoiceRecording);
+      if (stopBtn) stopBtn.addEventListener('click', stopVoiceRecording);
+      if (clearBtn) clearBtn.addEventListener('click', () => {
+        stopMediaTracks();
+        resetVoiceState();
+      });
+      if (uploadInput) {
+        uploadInput.addEventListener('change', event => {
+          const file = event.target.files?.[0] || null;
+          if (!file) {
+            resetVoiceState(false);
+            return;
+          }
+          stopMediaTracks();
+          voiceUploadFile = file;
+          voiceRecordingBlob = null;
+          renderVoicePreview(file);
+          setVoiceStatus('Upload ready. Review the preview below before submitting.');
+        });
+      }
+    }
+
+
+    function preferredVoiceAccept(){
+      return 'audio/*,video/*';
+    }
+
+    function resetVoiceState(revoke = true){
+      voiceRecordingBlob = null;
+      voiceUploadFile = null;
+      mediaChunks = [];
+      if (revoke && voiceRecordingObjectUrl) {
+        URL.revokeObjectURL(voiceRecordingObjectUrl);
+      }
+      voiceRecordingObjectUrl = '';
+      const fileInput = document.getElementById('voiceUploadInput');
+      const preview = document.getElementById('voicePreview');
+      const status = document.getElementById('voiceStatus');
+      if (fileInput) fileInput.value = '';
+      if (preview) preview.innerHTML = '<div class="voice-mini">No recording uploaded yet.</div>';
+      if (status) status.textContent = 'No recording selected yet.';
+    }
+
+    function stopMediaTracks(){
+      if (mediaStream) {
+        mediaStream.getTracks().forEach(track => track.stop());
+      }
+      mediaStream = null;
+      mediaRecorder = null;
+    }
+
+    function setVoiceStatus(message){
+      const status = document.getElementById('voiceStatus');
+      if (status) status.textContent = message;
+    }
+
+    function renderVoicePreview(fileOrBlob){
+      const preview = document.getElementById('voicePreview');
+      if (!preview || !fileOrBlob) return;
+      if (voiceRecordingObjectUrl) {
+        URL.revokeObjectURL(voiceRecordingObjectUrl);
+      }
+      voiceRecordingObjectUrl = URL.createObjectURL(fileOrBlob);
+      const type = safeText(fileOrBlob.type).toLowerCase();
+      const isVideo = type.startsWith('video/');
+      const tag = isVideo
+        ? `<video controls playsinline src="${voiceRecordingObjectUrl}"></video>`
+        : `<audio controls src="${voiceRecordingObjectUrl}"></audio>`;
+      const meta = `<div class="voice-mini">Selected file: ${escapeHtml(fileOrBlob.name || 'recording.webm')} • ${escapeHtml(type || 'audio/webm')} • ${(fileOrBlob.size / 1024 / 1024).toFixed(2)} MB</div>`;
+      preview.innerHTML = `${tag}${meta}`;
+    }
+
+    async function startVoiceRecording(){
+      try {
+        if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
+          setVoiceStatus('Live recording is not supported in this browser. Please upload an audio or video file instead.');
+          return;
+        }
+        stopMediaTracks();
+        mediaChunks = [];
+        mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+        mediaRecorder = new MediaRecorder(mediaStream);
+        mediaRecorder.ondataavailable = event => {
+          if (event.data && event.data.size > 0) mediaChunks.push(event.data);
+        };
+        mediaRecorder.onstop = () => {
+          const mimeType = mediaRecorder?.mimeType || 'audio/webm';
+          voiceRecordingBlob = new Blob(mediaChunks, { type: mimeType });
+          voiceUploadFile = new File([voiceRecordingBlob], `voice-screening-${Date.now()}.webm`, { type: mimeType });
+          renderVoicePreview(voiceUploadFile);
+          setVoiceStatus('Recording captured. Review the preview below or upload a different file.');
+          stopMediaTracks();
+        };
+        mediaRecorder.start();
+        setVoiceStatus('Recording in progress... Click Stop Recording when you are done.');
+      } catch (error) {
+        console.error('[VOICE_RECORD_START_ERROR]', error);
+        setVoiceStatus('Could not access your microphone. Please allow microphone access or upload a file instead.');
+      }
+    }
+
+    function stopVoiceRecording(){
+      if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+        mediaRecorder.stop();
+      } else {
+        setVoiceStatus('No active recording in progress.');
+      }
+    }
+
+    function validateVoiceRecording(){
+      if (!voiceScreeningConfig?.enabled) return null;
+      if (!voiceUploadFile && !voiceRecordingBlob) {
+        return 'Please record or upload your communication screening file.';
+      }
+      return null;
+    }
+
+    async function uploadVoiceScreeningFile({ applicantProfileId, jobId }){
+      const file = voiceUploadFile || (voiceRecordingBlob ? new File([voiceRecordingBlob], `voice-screening-${Date.now()}.webm`, { type: voiceRecordingBlob.type || 'audio/webm' }) : null);
+      if (!file) return null;
+
+      const candidateEmailSafe = safeText(currentUser?.email || 'candidate').replace(/[^a-z0-9._-]+/gi, '-').toLowerCase();
+      const ext = (file.name.split('.').pop() || (file.type.startsWith('video/') ? 'webm' : 'webm')).toLowerCase();
+      const filename = `${Date.now()}-${Math.random().toString(36).slice(2,8)}.${ext}`;
+      const filePath = `${candidateEmailSafe}/${jobId}/${filename}`;
+      const bucketCandidates = ['voice-screenings', 'screening-recordings', 'resumes'];
+
+      let lastError = null;
+      for (const bucket of bucketCandidates) {
+        const { error } = await supabaseClient.storage.from(bucket).upload(filePath, file, { upsert: false, contentType: file.type || undefined });
+        if (!error) {
+          const { data: publicData } = supabaseClient.storage.from(bucket).getPublicUrl(filePath);
+          return {
+            bucket,
+            path: filePath,
+            public_url: publicData?.publicUrl || null,
+            file_name: file.name || filename,
+            mime_type: file.type || '',
+            size_bytes: file.size || 0,
+            language_requirement: voiceScreeningConfig?.requirement || 'None',
+            voice_screening_mode: voiceScreeningConfig?.mode || 'auto'
+          };
+        }
+        lastError = error;
+      }
+      throw lastError || new Error('Unable to upload communication screening file.');
     }
 
     function buildQuestionInput(question, index){
@@ -438,6 +614,9 @@
 
     function validateAnswers(){
       const errors = [];
+      const voiceError = validateVoiceRecording();
+      if (voiceError) errors.push(voiceError);
+
       screeningQuestions.forEach((question, index) => {
         const id = `answer_${index}`;
         let value = '';
@@ -451,8 +630,8 @@
       return errors;
     }
 
-    function buildAnswersPayload(){
-      return screeningQuestions.map((question, index) => {
+    function buildAnswersPayload(voiceUpload = null){
+      const baseAnswers = screeningQuestions.map((question, index) => {
         const id = `answer_${index}`;
         let answer = '';
         if(question.response_type === 'yes_no'){
@@ -473,6 +652,28 @@
           evaluation
         };
       });
+
+      if (voiceScreeningConfig?.enabled) {
+        baseAnswers.unshift({
+          question_id: 'voice_screening_intro',
+          question: 'Voice Screening: English introduction',
+          focus_area: 'English Communication Screening',
+          response_type: 'audio/video',
+          weight: 'Critical',
+          category: 'communication',
+          knockout: false,
+          answer: voiceUpload?.public_url || voiceUpload?.path || '[voice file uploaded]',
+          evaluation: { score: 0, verdict: 'Pending Review', knockoutFailed: false },
+          voice_screening: {
+            required: true,
+            language_requirement: voiceScreeningConfig.requirement || 'None',
+            mode: voiceScreeningConfig.mode || 'auto',
+            upload: voiceUpload || null
+          }
+        });
+      }
+
+      return baseAnswers;
     }
 
     function evaluateOverall(answers){
@@ -515,7 +716,7 @@
         decision: review.screeningResult,
         strengths: null,
         risks: review.knockoutFailed ? 'Knockout requirement not met.' : null,
-        summary: `Adaptive screening submitted with score ${review.score}.`,
+        summary: `Adaptive screening submitted with score ${review.score}.${voiceScreeningConfig?.enabled ? ' Voice screening file attached.' : ''}`, 
         created_at: new Date().toISOString()
       };
 
@@ -600,8 +801,12 @@
           return;
         }
 
-        const answers = buildAnswersPayload();
-        const review = evaluateOverall(answers);
+        const voiceUpload = voiceScreeningConfig?.enabled
+          ? await uploadVoiceScreeningFile({ applicantProfileId: currentProfile.id, jobId: currentJob.id })
+          : null;
+
+        const answers = buildAnswersPayload(voiceUpload);
+        const review = evaluateOverall(answers.filter(item => item.question_id !== 'voice_screening_intro'));
 
         const application = await insertApplicationWithScreening({
           email: currentUser.email,
@@ -663,6 +868,7 @@
         currentJob = await resolveJob();
         setBackToRole(currentJob);
         renderVoiceScreeningBlock(currentJob);
+        resetVoiceState(false);
 
         els.heroTitle.textContent = currentJob.title || 'Role Screening';
         els.heroCopy.textContent = voiceScreeningConfig?.enabled
@@ -705,6 +911,8 @@
       }
     }
 
+
+    window.addEventListener('beforeunload', () => { stopMediaTracks(); if (voiceRecordingObjectUrl) URL.revokeObjectURL(voiceRecordingObjectUrl); });
     els.screeningForm.addEventListener('submit', handleSubmit);
     document.addEventListener('DOMContentLoaded', init);
   </script>
