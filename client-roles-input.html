@@ -162,6 +162,9 @@
             <div class="field"><label for="salaryMin">Salary Budget Min</label><input id="salaryMin" type="number" min="0" step="0.01" placeholder="e.g. 30000" /></div>
             <div class="field"><label for="salaryMax">Salary Budget Max</label><input id="salaryMax" type="number" min="0" step="0.01" placeholder="e.g. 50000" /></div>
             <div class="field-full"><label for="salaryNotes">Salary Notes</label><textarea id="salaryNotes" placeholder="e.g. Open to strong candidates, plus incentives, negotiable based on experience"></textarea></div>
+            <div class="field"><label for="languageRequirement">Language Proficiency Requirement</label><select id="languageRequirement"><option value="None">None</option><option value="B1">B1</option><option value="B2">B2</option><option value="C1">C1</option></select><div class="helper">Use this only when the role explicitly requires spoken language proficiency.</div></div>
+            <div class="field"><label for="voiceScreeningMode">Require Voice Screening</label><select id="voiceScreeningMode"><option value="auto">Auto</option><option value="yes">Yes</option><option value="no">No</option></select><div class="helper">Auto enables voice screening when a language requirement is set above None.</div></div>
+            <div class="field-full"><div class="helper">Step 1 only: this saves the role-level trigger into <strong>ai_screening_config</strong>. The applicant-side recording block will be added in the next step.</div></div>
           </div>
         </div>
 
@@ -222,7 +225,7 @@
     [
       "roleModal","roleModalTitle","closeRoleModalBtn","newRoleBtn","newRoleBtnHero","refreshRolesBtn","clearRoleBtn","roleId","clientId",
       "clientName","clientSuggestions","existingClientSelect","jobTitle","roleFamily","location","workSetup","employmentType","seniority",
-      "roleStatus","salaryCurrency","salaryPeriod","salaryMin","salaryMax","salaryNotes","jdUpload","jdRawText","parseJDBtn","clearJDBtn",
+      "roleStatus","salaryCurrency","salaryPeriod","salaryMin","salaryMax","salaryNotes","languageRequirement","voiceScreeningMode","jdUpload","jdRawText","parseJDBtn","clearJDBtn",
       "jobDescription","requirements","prioritySkills","niceToHaveSkills","signalNonNegotiables","signalRedFlags","signalMustHaveSkills",
       "signalSuccessSignals","signalSetupCriticality","signalEnvironmentNotes","signalCommunicationWeight","signalStakeholderWeight",
       "signalAutonomyLevel","signalDecisionMaking","signalBusinessPriorities","signalSummaryOutput","buildSignalBtn","questionsWrap",
@@ -1041,6 +1044,10 @@ Use knockout questions only to filter hard misses. Prioritize proof of execution
       const location = safeText(els.location.value) || "No location";
       const workSetup = safeText(els.workSetup.value) || "No setup";
       const questionCount = questionItems.length;
+      const languageRequirement = safeText(els.languageRequirement.value) || "None";
+      const voiceScreeningMode = safeText(els.voiceScreeningMode.value) || "auto";
+      const voiceScreeningEnabled = getEffectiveVoiceScreeningMode() ? "Enabled" : "Disabled";
+
       els.jdPreview.textContent =
 `${title}
 ${client} • ${location} • ${workSetup}
@@ -1049,6 +1056,11 @@ ${buildCompiledJobDescription() || "No role description yet."}
 
 Signal Summary:
 ${safeText(els.signalSummaryOutput.textContent) || "No signal summary yet."}
+
+Voice Screening Trigger:
+Language Requirement: ${languageRequirement}
+Voice Screening Mode: ${voiceScreeningMode}
+Effective Voice Screening: ${voiceScreeningEnabled}
 
 Screening:
 ${questionCount} question(s) saved to jobs.screening_config for screening.html`;
@@ -1086,6 +1098,14 @@ ${questionCount} question(s) saved to jobs.screening_config for screening.html`;
         els.requirements.value = bullets.join("\n");
       }
       refreshPreview();
+    }
+
+    function getEffectiveVoiceScreeningMode(){
+      const languageRequirement = safeText(els.languageRequirement.value) || "None";
+      const voiceMode = safeText(els.voiceScreeningMode.value).toLowerCase() || "auto";
+      if (voiceMode === "yes") return true;
+      if (voiceMode === "no") return false;
+      return languageRequirement !== "None";
     }
 
     async function resolveClientId(){
@@ -1152,7 +1172,10 @@ ${questionCount} question(s) saved to jobs.screening_config for screening.html`;
           jd_raw_text: safeText(els.jdRawText.value),
           salary_period: safeText(els.salaryPeriod.value) || "Monthly",
           salary_notes: safeText(els.salaryNotes.value),
-          compiled_job_description: compiledJobDescription
+          compiled_job_description: compiledJobDescription,
+          language_requirement: safeText(els.languageRequirement.value) || "None",
+          voice_screening_mode: safeText(els.voiceScreeningMode.value) || "auto",
+          enable_voice_screening: getEffectiveVoiceScreeningMode()
         },
         updated_at: new Date().toISOString()
       };
@@ -1201,6 +1224,8 @@ ${questionCount} question(s) saved to jobs.screening_config for screening.html`;
       els.salaryMin.value = role.salary_min ?? "";
       els.salaryMax.value = role.salary_max ?? "";
       els.salaryNotes.value = role.ai_screening_config?.salary_notes || "";
+      els.languageRequirement.value = role.ai_screening_config?.language_requirement || "None";
+      els.voiceScreeningMode.value = role.ai_screening_config?.voice_screening_mode || "auto";
 
       const screeningCfg = role.ai_screening_config || {};
       const calibration = screeningCfg.calibration || {};
@@ -1245,6 +1270,8 @@ ${questionCount} question(s) saved to jobs.screening_config for screening.html`;
       els.roleStatus.value = "Open";
       els.salaryCurrency.value = "PHP";
       els.salaryPeriod.value = "Monthly";
+      els.languageRequirement.value = "None";
+      els.voiceScreeningMode.value = "auto";
       els.existingClientSelect.value = "";
       els.signalSummaryOutput.textContent = "No signal summary generated yet.";
       els.screeningSummaryOutput.textContent = "No summary generated yet.";
@@ -1296,7 +1323,7 @@ ${questionCount} question(s) saved to jobs.screening_config for screening.html`;
 
     [
       els.clientName,els.jobTitle,els.roleFamily,els.location,els.workSetup,els.employmentType,els.seniority,els.roleStatus,
-      els.salaryCurrency,els.salaryPeriod,els.salaryMin,els.salaryMax,els.salaryNotes,els.jobDescription,els.requirements,
+      els.salaryCurrency,els.salaryPeriod,els.salaryMin,els.salaryMax,els.salaryNotes,els.languageRequirement,els.voiceScreeningMode,els.jobDescription,els.requirements,
       els.prioritySkills,els.niceToHaveSkills,els.signalNonNegotiables,els.signalRedFlags,els.signalMustHaveSkills,
       els.signalSuccessSignals,els.signalSetupCriticality,els.signalEnvironmentNotes,els.signalCommunicationWeight,
       els.signalStakeholderWeight,els.signalAutonomyLevel,els.signalDecisionMaking,els.signalBusinessPriorities,els.jdRawText
@@ -1318,7 +1345,7 @@ ${questionCount} question(s) saved to jobs.screening_config for screening.html`;
 
     if (els.openHelpBtn) {
       els.openHelpBtn.addEventListener("click", () => {
-        showNotice("What changed: AI questions now adapt to TalentBuzz Signal, save directly into jobs.screening_config, and show in screening.html using the same saved config.");
+        showNotice("What changed: AI questions now adapt to TalentBuzz Signal, save into jobs.screening_config, and Step 1 voice-screening triggers are now saved into ai_screening_config.");
       });
     }
 
