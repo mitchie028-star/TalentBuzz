@@ -153,7 +153,7 @@
           <img src="logo.png" alt="TalentBuzz" class="brand-logo" />
           <div>
             <h1>BuzzPool Unified</h1>
-            <p class="subtitle">One workspace for Talent, Sourcing, Outreach, and Pipeline. This page merges <strong>applicant_profiles</strong>, <strong>prospects</strong>, <strong>buzzpool_invites</strong>, and <strong>applications</strong> into one recruiter view.</p>
+            <p class="subtitle">One workspace for Talent, Sourcing, Outreach, and Pipeline. This page merges <strong>applicant_profiles</strong>, <strong>prospects</strong>, <strong>candidate_profile_invites</strong>, and <strong>applications</strong> into one recruiter view.</p>
           </div>
         </div>
       </div>
@@ -1018,10 +1018,15 @@
       }
 
       function openOutreachComposer(seed = {}){
+        const seededEmail = seed.email || seed.invite_email || '';
         if (els.outreachFullName) els.outreachFullName.value = seed.full_name || seed.display_name || '';
-        if (els.outreachEmail) els.outreachEmail.value = seed.email || seed.invite_email || '';
-        if (els.outreachInviteLink) els.outreachInviteLink.value = seed.invite_link || (seed.email || seed.invite_email ? getDefaultInviteLink(seed.email || seed.invite_email) : '');
-        showOutreachResult('Review the recipient details, then send the tracked invite.', 'info');
+        if (els.outreachEmail) els.outreachEmail.value = seededEmail;
+        if (els.outreachInviteLink) els.outreachInviteLink.value = seed.invite_link || (seededEmail ? getDefaultInviteLink(seededEmail) : '');
+        if (seededEmail) {
+          showOutreachResult('Review the recipient details, then send the tracked invite.', 'info');
+        } else {
+          showOutreachResult('This record does not have an email yet. Add an email first before sending outreach.', 'error');
+        }
         openModal(els.outreachComposerModal);
       }
 
@@ -1823,6 +1828,72 @@
           els.menuLogoutBtn.addEventListener('click', async () => {
             await supabase.auth.signOut();
             window.location.href = 'recruiter-login.html';
+          });
+        }
+
+
+        if (els.menuComposeOutreachBtn) {
+          els.menuComposeOutreachBtn.addEventListener('click', () => openOutreachComposer());
+        }
+
+        if (els.closeOutreachComposerBtn) {
+          els.closeOutreachComposerBtn.addEventListener('click', () => closeModal(els.outreachComposerModal));
+        }
+
+        if (els.outreachComposerModal) {
+          els.outreachComposerModal.addEventListener('click', (e) => {
+            if (e.target === els.outreachComposerModal) closeModal(els.outreachComposerModal);
+          });
+          const outreachModalInner = els.outreachComposerModal.querySelector('.modal');
+          if (outreachModalInner) outreachModalInner.addEventListener('click', (e) => e.stopPropagation());
+        }
+
+        if (els.previewOutreachLinkBtn) {
+          els.previewOutreachLinkBtn.addEventListener('click', () => {
+            const email = (els.outreachEmail?.value || '').trim().toLowerCase();
+            if (!email) {
+              showOutreachResult('Enter the recipient email first so TalentBuzz can generate the invite link.', 'error');
+              return;
+            }
+            const generated = getDefaultInviteLink(email);
+            if (els.outreachInviteLink) els.outreachInviteLink.value = generated;
+            showOutreachResult('Default invite link generated.', 'success');
+          });
+        }
+
+        if (els.sendOutreachBtn) {
+          els.sendOutreachBtn.addEventListener('click', async () => {
+            try {
+              const fullName = (els.outreachFullName?.value || '').trim();
+              const email = (els.outreachEmail?.value || '').trim().toLowerCase();
+              let inviteLink = (els.outreachInviteLink?.value || '').trim();
+
+              if (!email) throw new Error('Recipient email is required.');
+              if (!inviteLink) inviteLink = getDefaultInviteLink(email);
+
+              showOutreachResult('Sending tracked BuzzPool invite...', 'info');
+
+              const result = await sendBuzzpoolInvite({
+                full_name: fullName,
+                email,
+                invite_link: inviteLink
+              });
+
+              showOutreachResult(`Invite sent to ${result.sent_to || email}. Tracking record ${result.invite_tracking?.action || 'saved'}.`, 'success');
+
+              await loadAllData();
+              updateDashboard();
+              state.activeTab = 'outreach';
+              document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+              document.querySelector('.tab[data-tab="outreach"]')?.classList.add('active');
+              renderActiveView();
+              closeModal(els.outreachComposerModal);
+              showNotice('Tracked BuzzPool invite sent.', 'success');
+            } catch (error) {
+              console.error('[OUTREACH_SEND_ERROR]', error);
+              showOutreachResult(error?.message || 'Failed to send outreach invite.', 'error');
+              showNotice(error?.message || 'Failed to send outreach invite.', 'error');
+            }
           });
         }
 
