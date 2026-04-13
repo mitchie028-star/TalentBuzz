@@ -283,7 +283,7 @@
       <div class="modal-header">
         <div>
           <h2 class="modal-title">Upload LinkedIn PDF</h2>
-          <p class="modal-subtitle">Parse a LinkedIn profile PDF, preview extracted details, auto-score the prospect, then save to BuzzPool sourcing.</p>
+          <p class="modal-subtitle">Parse a LinkedIn profile PDF with LinkedIn-specific section detection, preview extracted details, auto-score the prospect, then save to BuzzPool sourcing.</p>
         </div>
         <button id="closeLinkedInPdfModalBtn" class="icon-btn" type="button">&times;</button>
       </div>
@@ -450,102 +450,248 @@
         if (pdfjs.GlobalWorkerOptions) {
           pdfjs.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.8.69/pdf.worker.min.mjs';
         }
+
         const buffer = await file.arrayBuffer();
         const pdf = await pdfjs.getDocument({ data: buffer }).promise;
-        let text = '';
+        const pageTexts = [];
+
         for (let i = 1; i <= pdf.numPages; i++) {
           const page = await pdf.getPage(i);
           const content = await page.getTextContent();
-          text += content.items.map(item => item.str).join(' ') + '\n';
+          const rows = [];
+
+          for (const item of content.items) {
+            const y = Math.round(item.transform?.[5] || 0);
+            let row = rows.find(r => Math.abs(r.y - y) <= 2);
+            if (!row) {
+              row = { y, parts: [] };
+              rows.push(row);
+            }
+            row.parts.push({
+              x: item.transform?.[4] || 0,
+              text: String(item.str || '').trim()
+            });
+          }
+
+          rows.sort((a, b) => b.y - a.y);
+          const lines = rows.map(row =>
+            row.parts
+              .sort((a, b) => a.x - b.x)
+              .map(part => part.text)
+              .filter(Boolean)
+              .join(' ')
+              .replace(/\s+/g, ' ')
+              .trim()
+          ).filter(Boolean);
+
+          pageTexts.push(lines.join('\n'));
         }
-        return text.trim();
+
+        return pageTexts.join('\n\n').trim();
+      }
+
+      function normalizePdfText(text=''){
+        return String(text || '')
+          .replace(/\r/g, '\n')
+          .replace(/\u00a0/g, ' ')
+          .replace(/-\s+([A-Za-z])/g, '-$1')
+          .replace(/([A-Za-z])\s+-\s+([A-Za-z])/g, '$1-$2')
+          .replace(/[ \t]+/g, ' ')
+          .replace(/\n{3,}/g, '\n\n')
+          .trim();
+      }
+
+      function flattenPdfText(text=''){
+        return normalizePdfText(text)
+          .replace(/Page\s+\d+\s+of\s+\d+/gi, ' ')
+          .replace(/\s+/g, ' ')
+          .trim();
+      }
+
+      function getPdfLines(text=''){
+        return normalizePdfText(text)
+          .split(/\n+/)
+          .map(line => line.trim())
+          .filter(Boolean);
+      }
+
+      function repairLinkedInUrl(value=''){
+        let text = String(value || '')
+          .replace(/\(LinkedIn\)/ig, '')
+          .replace(/\s+/g, '')
+          .replace(/linkedin\.com\/in\/([A-Za-z0-9]+)-([A-Za-z0-9]+)/ig, 'linkedin.com/in/$1-$2')
+          .trim();
+
+        if (!text) return '';
+        if (!/^https?:\/\//i.test(text)) {
+          if (/^www\./i.test(text) || /linkedin\.com/i.test(text)) text = 'https://' + text;
+        }
+        return text.replace(/[^\w\-./:%?=&]/g, '');
+      }
+
+      function extractSection(fullText, startLabel, endLabels=[]){
+        const source = flattenPdfText(fullText);
+        const startRegex = new RegExp(`${startLabel}\\s+`, 'i');
+        const startMatch = source.match(startRegex);
+        if (!startMatch) return '';
+        const startIndex = startMatch.index + startMatch[0].length;
+        const tail = source.slice(startIndex);
+
+        let endIndex = tail.length;
+        for (const label of endLabels) {
+          const regex = new RegExp(`\\s${label}\\s+`, 'i');
+          const match = tail.match(regex);
+          if (match && match.index < endIndex) endIndex = match.index;
+        }
+        return tail.slice(0, endIndex).trim();
       }
 
       function detectLinkedInUrl(text=''){
-        const match = text.match(/(?:https?:\/\/)?(?:www\.)?linkedin\.com\/in\/[A-Za-z0-9\-_%]+/i);
-        if (!match) return '';
-        let clean = match[0];
-        if (!/^https?:\/\//i.test(clean)) clean = 'https://' + clean;
-        return clean.replace(/\s+/g,'').replace(/\)+$/,'');
+        const flat = flattenPdfText(text);
+        const contactBlock = extractSection(flat, 'Contact', ['Top Skills', 'Summary', 'Experience']);
+        const combined = `${contactBlock} ${flat}`;
+        const match = combined.match(/(?:https?:\/\/)?(?:www\.)?linkedin\.com\/in\/[A-Za-z0-9\-_%\s]+/i);
+        return match ? repairLinkedInUrl(match[0]) : '';
       }
 
       function detectEmail(text=''){
-        return text.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i)?.[0] || '';
+        return flattenPdfText(text).match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i)?.[0] || '';
+      }
+
+      function looksLikeName(line=''){
+        const clean = String(line || '').trim();
+        if (!clean || clean.length > 70) return false;
+        if (/summary|experience|education|top skills|certifications|contact|open to work|linkedin|page \d/i.test(clean)) return false;
+        if (/[@\d]/.test(clean)) return false;
+        const words = clean.split(/\s+/).filter(Boolean);
+        if (words.length < 2 || words.length > 5) return false;
+        return words.every(word => /^[A-Za-z.'\-]+$/.test(word));
       }
 
       function detectName(text=''){
-        const lines = String(text).split(/\n+/).map(s => s.trim()).filter(Boolean);
-        for (const line of lines.slice(0, 10)) {
-          if (/linkedin|kontakin|contact|summary|buod|experience|karanasan|education|edukasyon|top skills|mga nangungunang/i.test(line)) continue;
-          if (line.split(/\s+/).length >= 2 && line.length <= 70 && !/@/.test(line)) return line;
-        }
-        return '';
-      }
+        const flat = flattenPdfText(text);
+        const beforeSummary = flat.split(/\bSummary\b/i)[0] || flat;
+        const openMatch = beforeSummary.match(/([A-Z][A-Za-z.'\-]+(?:\s+[A-Z][A-Za-z.'\-]+){1,4})\s+Open to work/i);
+        if (openMatch) return openMatch[1].trim();
 
-      function detectTitle(text=''){
-        const lines = String(text).split(/\n+/).map(s => s.trim()).filter(Boolean);
-        for (const line of lines) {
-          if (/customer service|representative|manager|associate|specialist|analyst|engineer|officer|support|sales|recruiter|advisor|executive|nurse|coder/i.test(line) && !/experience|karanasan|education|edukasyon/i.test(line)) {
-            return line;
-          }
-        }
-        return '';
-      }
+        const locationMatch = beforeSummary.match(/([A-Z][A-Za-z.'\-]+(?:\s+[A-Z][A-Za-z.'\-]+){1,4})\s+[A-Za-z ,'-]+Philippines/i);
+        if (locationMatch) return locationMatch[1].trim();
 
-      function detectCompany(text=''){
-        const lines = String(text).split(/\n+/).map(s => s.trim()).filter(Boolean);
-        const idx = lines.findIndex(line => /experience|karanasan/i.test(line));
-        if (idx >= 0 && lines[idx + 1]) return lines[idx + 1];
+        const lines = getPdfLines(text);
+        for (const line of lines.slice(0, 20)) {
+          if (looksLikeName(line)) return line.trim();
+        }
         return '';
       }
 
       function detectLocation(text=''){
-        const lines = String(text).split(/\n+/).map(s => s.trim()).filter(Boolean);
-        const loc = lines.find(line => /philippines|metro manila|national capital region|cebu|davao|makati|taguig|quezon city|manila|pasig|ncr/i.test(line));
-        return loc || '';
+        const flat = flattenPdfText(text);
+        const match = flat.match(/Open to work\s+([^\.]*?Philippines)/i);
+        if (match) return match[1].trim();
+
+        const match2 = flat.match(/([A-Za-z][A-Za-z ,'-]*?Philippines)/i);
+        return match2 ? match2[1].trim() : '';
       }
 
       function detectSkills(text=''){
-        const out = [];
-        const lines = String(text).split(/\n+/).map(s => s.trim()).filter(Boolean);
-        const skillIndex = lines.findIndex(line => /skills|kakayahan/i.test(line));
-        if (skillIndex >= 0) {
-          for (let i = skillIndex + 1; i < Math.min(lines.length, skillIndex + 8); i++) {
-            const line = lines[i];
-            if (/summary|buod|experience|karanasan|education|edukasyon|page /i.test(line)) break;
-            if (line) out.push(line);
-          }
+        const section = extractSection(text, 'Top Skills', ['Summary', 'Experience', 'Education']);
+        if (!section) return [];
+        const raw = section.split(/\s{2,}|\n+/).map(s => s.trim()).filter(Boolean);
+
+        const stopWords = /open to work|summary|experience|education|contact|linkedin|philippines/i;
+        const name = detectName(text).toLowerCase();
+        const filtered = [];
+        for (const item of raw) {
+          if (stopWords.test(item)) continue;
+          if (name && item.toLowerCase() === name) continue;
+          if (item.length > 40) continue;
+          filtered.push(item);
         }
-        return mergeUnique(out).slice(0,10);
+        return mergeUnique(filtered).slice(0, 8);
+      }
+
+      function detectSummary(text=''){
+        const section = extractSection(text, 'Summary', ['Experience', 'Education', 'Licenses & Certifications', 'Certifications']);
+        return section
+          .replace(/^Open to work\s*/i, '')
+          .replace(/\s+/g, ' ')
+          .trim();
+      }
+
+      function detectExperienceSection(text=''){
+        return extractSection(text, 'Experience', ['Education', 'Licenses & Certifications', 'Certifications', 'Top Skills']);
+      }
+
+      function detectCurrentRoleAndCompany(text=''){
+        const exp = detectExperienceSection(text);
+        if (!exp) return { company: '', role: '' };
+
+        const firstChunk = exp.split(/\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)[a-z]*\s+\d{4}\b/i)[0].trim();
+        const cleaned = firstChunk.replace(/\s+/g, ' ').trim();
+
+        const roleMatch = cleaned.match(/([A-Z][A-Za-z0-9&/.,'()\-]+(?:\s+[A-Z][A-Za-z0-9&/.,'()\-]+){0,5}\b(?:Coder|Analyst|Representative|Advisor|Assistant|Manager|Specialist|Engineer|Officer|Lead|Executive|Support|Reviewer|Associate|Developer|Assistant|Clerk|Consultant|Coordinator|Virtual Assistant))$/i);
+        if (roleMatch) {
+          const role = roleMatch[1].trim();
+          const company = cleaned.slice(0, cleaned.length - role.length).trim();
+          return { company, role };
+        }
+
+        const tokens = cleaned.split(/\s{2,}|\n+/).map(s => s.trim()).filter(Boolean);
+        if (tokens.length >= 2) {
+          return { company: tokens[0], role: tokens[1] };
+        }
+
+        return { company: cleaned, role: '' };
       }
 
       function detectExperienceYears(text=''){
-        const yearsMatch = String(text).match(/(\d+(?:\.\d+)?)\+?\s*(?:years|yrs)/i);
-        if (yearsMatch) return Number(yearsMatch[1]);
+        const exp = detectExperienceSection(text);
+        if (!exp) return 0;
+
+        const ranges = [...exp.matchAll(/(19|20)\d{2}\s*-\s*(Present|(19|20)\d{2})/gi)];
+        if (ranges.length) {
+          const starts = ranges.map(m => Number((m[0].match(/(19|20)\d{2}/) || [])[0] || 0)).filter(Boolean);
+          const ends = ranges.map(m => /Present/i.test(m[0]) ? new Date().getFullYear() : Number(((m[0].match(/-\s*((19|20)\d{2})/i) || [])[1]) || 0)).filter(Boolean);
+          if (starts.length && ends.length) {
+            return Math.max(0, Math.min(25, Math.max(...ends) - Math.min(...starts)));
+          }
+        }
+
+        const durations = [...exp.matchAll(/(\d+)\s+year(?:s)?(?:\s+(\d+)\s+month(?:s)?)?/gi)];
+        if (durations.length) {
+          let total = 0;
+          durations.forEach(m => {
+            total += Number(m[1] || 0);
+            total += Number(m[2] || 0) / 12;
+          });
+          return Math.round(total * 10) / 10;
+        }
         return 0;
       }
 
       function buildProspectSummary(parsed){
+        if (parsed.summary_text) return parsed.summary_text;
         const parts = [];
         if (parsed.current_title) parts.push(parsed.current_title);
         if (parsed.current_company) parts.push(`at ${parsed.current_company}`);
         let summary = parts.join(' ');
         if (parsed.location) summary += `${summary ? '. ' : ''}Based in ${parsed.location}.`;
         if (parsed.skills?.length) summary += `${summary ? ' ' : ''}Core skills include ${parsed.skills.slice(0,5).join(', ')}.`;
-        if (parsed.experience_years) summary += ` Approx. ${parsed.experience_years} years of experience signal detected.`;
+        if (parsed.experience_years) summary += ` Approx. ${parsed.experience_years} years of experience detected.`;
         return summary || 'LinkedIn PDF uploaded and parsed for sourcing.';
       }
 
       function computeProspectAiScore(parsed){
         let score = 0;
         if (parsed.full_name) score += 12;
-        if (parsed.current_title) score += 18;
-        if (parsed.current_company) score += 10;
+        if (parsed.current_title) score += 20;
+        if (parsed.current_company) score += 12;
         if (parsed.location) score += 8;
-        if (parsed.email) score += 8;
+        if (parsed.email) score += 6;
         if (parsed.linkedin_url) score += 12;
-        if (parsed.skills?.length) score += Math.min(parsed.skills.length * 5, 25);
-        if (parsed.experience_years) score += Math.min(parsed.experience_years * 4, 15);
+        if (parsed.skills?.length) score += Math.min(parsed.skills.length * 4, 24);
+        if (parsed.experience_years) score += Math.min(parsed.experience_years * 3, 18);
+        if (parsed.summary_text) score += 8;
         return Math.min(100, Math.round(score));
       }
 
@@ -563,15 +709,17 @@
       }
 
       function extractLinkedInPdfProfile(text=''){
+        const roleCompany = detectCurrentRoleAndCompany(text);
         const parsed = {
           full_name: detectName(text),
-          current_title: detectTitle(text),
-          current_company: detectCompany(text),
+          current_title: roleCompany.role || '',
+          current_company: roleCompany.company || '',
           location: detectLocation(text),
           email: detectEmail(text),
           linkedin_url: detectLinkedInUrl(text),
           experience_years: detectExperienceYears(text),
-          skills: detectSkills(text)
+          skills: detectSkills(text),
+          summary_text: detectSummary(text)
         };
         parsed.experience_summary = buildProspectSummary(parsed);
         parsed.ai_score = computeProspectAiScore(parsed);
