@@ -652,7 +652,7 @@
       <div class="eyebrow">TalentBuzz Profile</div>
       <h1>Create your profile</h1>
       <p class="subtitle">
-        Start with sign-in, then complete your TalentBuzz profile so we can continue your application.
+        Create a reusable TalentBuzz profile for the talent pool, or complete it now so we can continue your application for a selected role.
       </p>
     </div>
 
@@ -1068,6 +1068,26 @@
     return String(name || 'unknown').replace(/[^a-zA-Z0-9._-]/g, '_');
   }
 
+  function computeProfileCompletion(payload) {
+    const checks = [
+      !!payload.full_name,
+      !!payload.email,
+      !!payload.phone,
+      !!payload.location,
+      !!payload.target_role,
+      !!payload.preferred_work_setup,
+      !!payload.expected_salary,
+      !!payload.linkedin,
+      !!payload.portfolio_url,
+      !!payload.experience_summary,
+      !!payload.resume_path,
+      !!payload.profile_photo_url
+    ];
+    const complete = checks.filter(Boolean).length;
+    return Math.max(20, Math.min(100, Math.round((complete / checks.length) * 100)));
+  }
+
+
   function getEmailInput() { return document.getElementById('email'); }
   function getFullNameInput() { return document.getElementById('full_name'); }
   function getTargetRoleInput() { return document.getElementById('target_role'); }
@@ -1126,7 +1146,7 @@
       window.location.href = redirect;
       return;
     }
-    window.location.href = 'dashboard.html';
+    window.location.href = 'applicants.html?profile_saved=1';
   }
 
   function updateRouteUI() {
@@ -1136,7 +1156,7 @@
       nextStepText.textContent = 'After saving, TalentBuzz will continue your role application and open the role-specific screening questions.';
     } else {
       routeCard.classList.add('hidden');
-      nextStepText.textContent = 'After saving, your profile will be ready inside TalentBuzz.';
+      nextStepText.textContent = 'After saving, your profile will be stored in applicant_profiles and can be used for the TalentBuzz talent pool even if you do not apply yet.';
     }
   }
 
@@ -1413,7 +1433,10 @@
 
     const optionalColumns = [
       'target_role', 'has_resume', 'ai_score', 'extracted_skills',
-      'suggested_roles', 'top_match_role', 'resume_text', 'matched_open_roles'
+      'suggested_roles', 'top_match_role', 'resume_text', 'matched_open_roles',
+      'profile_status', 'profile_completion_percent', 'profile_started_at',
+      'profile_completed_at', 'headline', 'preferred_work_setup',
+      'experience_summary', 'portfolio_url'
     ];
 
     if (existingProfileRow) {
@@ -1870,7 +1893,7 @@
 
   goToLoginBtn.addEventListener('click', () => {
     const email = getEmailInput().value.trim().toLowerCase();
-    window.location.href = getLoginUrl(email);
+    window.location.href = buildLoginUrl(email);
   });
 
   googleLoginBtn.addEventListener('click', async () => {
@@ -2001,7 +2024,7 @@
           const signUpMessage = String(signUpError.message || '').toLowerCase();
 
           if (isAlreadyRegisteredMessage(signUpMessage)) {
-            window.location.href = getLoginUrl(email);
+            window.location.href = buildLoginUrl(email);
             return;
           }
 
@@ -2021,7 +2044,7 @@
             'info'
           );
           setTimeout(() => {
-            window.location.href = getLoginUrl(email);
+            window.location.href = buildLoginUrl(email);
           }, 2200);
           return;
         }
@@ -2045,7 +2068,7 @@
         profile_photo_url = await uploadProfilePhoto(profilePhotoFile);
       }
 
-      const payload = {
+      const basePayload = {
         full_name,
         email,
         phone,
@@ -2070,13 +2093,23 @@
         updated_at: new Date().toISOString()
       };
 
+      const completionPercent = computeProfileCompletion(basePayload);
+
+      const payload = {
+        ...basePayload,
+        profile_status: completionPercent >= 80 ? 'completed' : 'in_progress',
+        profile_completion_percent: completionPercent,
+        profile_started_at: existingProfile?.profile_started_at || new Date().toISOString(),
+        profile_completed_at: completionPercent >= 80 ? new Date().toISOString() : null
+      };
+
       const savedProfile = await upsertProfileWithFallback(payload, email, existingProfile);
       existingProfile = savedProfile || payload;
 
       showMessage(
         hasApplicationRoute()
           ? 'Profile saved successfully. Continuing your application...'
-          : 'Profile saved successfully.',
+          : 'Profile saved successfully. Your record is now stored in applicant_profiles for the TalentBuzz talent pool.',
         'success'
       );
 
