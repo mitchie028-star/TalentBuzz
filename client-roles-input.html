@@ -1347,7 +1347,7 @@
   return "a real work situation";
 }
 
-    function buildAdaptiveQuestionPlan(roleModel) {
+  function buildAdaptiveQuestionPlan(roleModel) {
   const intent = deriveQuestionIntent(roleModel);
   const pool = [];
   const used = new Set();
@@ -1356,10 +1356,187 @@
     const key = [item.category || "general", safeText(item.focus || ""), safeText(item.source || "")]
       .join("::")
       .toLowerCase();
+
     if (used.has(key)) return;
     used.add(key);
     pool.push(item);
   };
+
+  const targetCount =
+    intent.roleArchetype === "sales_voice" ? 8 :
+    roleModel.complexityScore >= 5 ? 8 :
+    roleModel.complexityScore >= 3 ? 7 : 6;
+
+  const nonNeg = roleModel.nonNeg || [];
+  const weightedSkills = roleModel.weightedSkills?.length
+    ? roleModel.weightedSkills
+    : (roleModel.prioritySkills || []);
+  const successSignals = roleModel.successSignals || [];
+  const redFlags = roleModel.redFlags || [];
+  const requirements = roleModel.requirements || [];
+  const businessPriorities = roleModel.businessPriorities || [];
+
+  let knockoutCount = 0;
+
+  nonNeg.forEach((signal) => {
+    const cleaned = safeText(signal);
+    if (!cleaned) return;
+
+    const type = classifySignalLine(cleaned);
+
+    if (type === "setup") {
+      pushPool({
+        category: "setup",
+        focus: "setup",
+        source: cleaned,
+        weight: "Critical",
+        response_type: "Yes/No"
+      });
+      return;
+    }
+
+    if (knockoutCount < 2 && isStrongKnockoutSignal(cleaned, type)) {
+      pushPool({
+        category: "knockout",
+        focus: type || "eligibility",
+        source: cleaned,
+        weight: "Critical",
+        response_type: "Short Answer"
+      });
+      knockoutCount += 1;
+      return;
+    }
+
+    pushPool({
+      category: "proof",
+      focus: type || "must_have",
+      source: cleaned,
+      weight: "Critical"
+    });
+  });
+
+  weightedSkills.forEach((skillObj, index) => {
+    const skill = safeText(skillObj.skill || skillObj);
+    if (!skill) return;
+
+    pushPool({
+      category: shouldUseTechnicalCategory(skill, roleModel, index) ? "technical" : "proof",
+      focus: classifySignalLine(skill) || "execution",
+      source: skill,
+      weight: skillObj.weight || "High"
+    });
+  });
+
+  successSignals.slice(0, 2).forEach((signal) => {
+    const cleaned = safeText(signal);
+    if (!cleaned) return;
+
+    pushPool({
+      category: "success_signal",
+      focus: classifySignalLine(cleaned),
+      source: cleaned,
+      weight: "High"
+    });
+  });
+
+  if (redFlags.length) {
+    const redFlag = safeText(redFlags[0]);
+    if (redFlag) {
+      pushPool({
+        category: "red_flag",
+        focus: classifySignalLine(redFlag),
+        source: redFlag,
+        weight: "Medium"
+      });
+    }
+  }
+
+  const simulationObject = detectBestSimulationObject(roleModel);
+  if (simulationObject) {
+    pushPool({
+      category: "simulation",
+      focus: roleModel.primaryDomain,
+      source: simulationObject,
+      weight: roleModel.complexityScore >= 4 ? "High" : "Medium"
+    });
+  }
+
+  if (businessPriorities.length) {
+    const priority = safeText(businessPriorities[0]);
+    if (priority) {
+      pushPool({
+        category: "business",
+        focus: "business_priority",
+        source: priority,
+        weight: "High"
+      });
+    }
+  }
+
+  requirements.slice(0, 2).forEach((req) => {
+    const cleaned = safeText(req);
+    if (!cleaned) return;
+
+    pushPool({
+      category: "general",
+      focus: "requirement",
+      source: cleaned,
+      weight: "Medium"
+    });
+  });
+
+  const pick = (category) => pool.filter(item => item.category === category);
+
+  const ordered = [
+    ...pick("knockout").slice(0, 2),
+    ...pick("proof").slice(0, 4),
+    ...pick("technical").slice(0, 2),
+    ...pick("success_signal").slice(0, 1),
+    ...pick("simulation").slice(0, 1),
+    ...pick("red_flag").slice(0, 1),
+    ...pick("business").slice(0, 1),
+    ...pick("setup").slice(0, 1),
+    ...pick("general").slice(0, 2)
+  ];
+
+  const final = [];
+  const finalSeen = new Set();
+
+  ordered.forEach((item) => {
+    const key = [item.category || "general", safeText(item.focus || ""), safeText(item.source || "")]
+      .join("::")
+      .toLowerCase();
+
+    if (finalSeen.has(key)) return;
+    finalSeen.add(key);
+    final.push(item);
+  });
+
+  // Force minimum structure if missing
+  const ensureCategory = (category, fallbackSource) => {
+    if (!final.some(q => q.category === category)) {
+      final.push({
+        category,
+        focus: category,
+        source: fallbackSource,
+        weight: "Medium"
+      });
+    }
+  };
+
+  ensureCategory("knockout", "relevant experience or eligibility");
+  ensureCategory("proof", "real execution of a core task");
+  ensureCategory("technical", "core system or tool usage");
+  ensureCategory("simulation", detectBestSimulationObject(roleModel));
+
+  return final.slice(0, targetCount);
+}
+
+// Ensure core structure exists
+ensureCategory("knockout", "relevant experience or eligibility");
+ensureCategory("proof", "real execution of a core task");
+ensureCategory("technical", "core system or tool usage");
+ensureCategory("simulation", detectBestSimulationObject(roleModel));
 
   const targetCount =
     intent.roleArchetype === "sales_voice" ? 8 :
