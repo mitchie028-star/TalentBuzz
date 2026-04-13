@@ -723,36 +723,60 @@
 
     function buildAdaptiveQuestionPlan(roleModel){
       const intent = deriveQuestionIntent(roleModel);
-      const plan = [];
+      const pool = [];
       const used = new Set();
-      const pushPlan = item => {
+      const pushPool = item => {
         const key = [item.category || 'general', safeText(item.focus || ''), safeText(item.source || '')].join('::').toLowerCase();
         if(used.has(key)) return;
         used.add(key);
-        plan.push(item);
+        pool.push(item);
       };
 
       const targetCount = intent.roleArchetype === 'sales_voice' ? 8 : roleModel.complexityScore >= 5 ? 8 : roleModel.complexityScore >= 3 ? 7 : 6;
 
-      (roleModel.nonNeg || []).forEach(signal => {
+      const nonNeg = roleModel.nonNeg || [];
+      nonNeg.forEach((signal, index) => {
         const type = classifySignalLine(signal);
-        if(type === 'setup') pushPlan({category:'knockout',focus:'setup',source:signal,weight:'Critical',response_type:'Yes/No'});
-        else pushPlan({category:'knockout',focus:type,source:signal,weight:'Critical',response_type:'Short Answer'});
+        const asKnockout = index < 2 || type === 'setup';
+        if(type === 'setup') pushPool({category:'knockout',focus:'setup',source:signal,weight:'Critical',response_type:'Yes/No'});
+        else if(asKnockout) pushPool({category:'knockout',focus:type,source:signal,weight:'Critical',response_type:'Short Answer'});
+        else pushPool({category:'proof',focus:type,source:signal,weight:'Critical'});
       });
 
       (roleModel.weightedSkills || roleModel.prioritySkills || []).forEach(skillObj => {
         const skill = safeText(skillObj.skill);
-        if(skill) pushPlan({category:'proof',focus:classifySignalLine(skill),source:skill,weight:skillObj.weight || 'High'});
+        if(skill) pushPool({category:'proof',focus:classifySignalLine(skill),source:skill,weight:skillObj.weight || 'High'});
       });
 
-      (roleModel.successSignals || []).slice(0,2).forEach(signal => pushPlan({category:'success_signal',focus:classifySignalLine(signal),source:signal,weight:'High'}));
-      if ((roleModel.redFlags || []).length) pushPlan({category:'red_flag',focus:classifySignalLine(roleModel.redFlags[0]),source:roleModel.redFlags[0],weight:'Medium'});
-      pushPlan({category:'simulation',focus:roleModel.primaryDomain,source:roleModel.title || 'role simulation',weight:roleModel.complexityScore >= 4 ? 'High' : 'Medium'});
-      if (intent.focusSetup) pushPlan({category:'setup',focus:'setup',source:roleModel.setupCriticality || 'required setup',weight:'High'});
-      if ((roleModel.businessPriorities || []).length) pushPlan({category:'business',focus:'business_priority',source:roleModel.businessPriorities[0],weight:'High'});
-      (roleModel.requirements || []).slice(0,2).forEach(req => pushPlan({category:'general',focus:'requirement',source:req,weight:'Medium'}));
+      (roleModel.successSignals || []).slice(0,2).forEach(signal => pushPool({category:'success_signal',focus:classifySignalLine(signal),source:signal,weight:'High'}));
+      if ((roleModel.redFlags || []).length) pushPool({category:'red_flag',focus:classifySignalLine(roleModel.redFlags[0]),source:roleModel.redFlags[0],weight:'Medium'});
+      pushPool({category:'simulation',focus:roleModel.primaryDomain,source:roleModel.title || 'role simulation',weight:roleModel.complexityScore >= 4 ? 'High' : 'Medium'});
+      if (intent.focusSetup) pushPool({category:'setup',focus:'setup',source:roleModel.setupCriticality || 'required setup',weight:'High'});
+      if ((roleModel.businessPriorities || []).length) pushPool({category:'business',focus:'business_priority',source:roleModel.businessPriorities[0],weight:'High'});
+      (roleModel.requirements || []).slice(0,2).forEach(req => pushPool({category:'general',focus:'requirement',source:req,weight:'Medium'}));
 
-      return plan.slice(0, targetCount);
+      const pick = category => pool.filter(item => item.category === category);
+      const ordered = [
+        ...pick('knockout').slice(0,2),
+        ...pick('proof').slice(0,4),
+        ...pick('success_signal').slice(0,1),
+        ...pick('simulation').slice(0,1),
+        ...pick('red_flag').slice(0,1),
+        ...pick('business').slice(0,1),
+        ...pick('setup').slice(0,1),
+        ...pick('general').slice(0,2)
+      ];
+
+      const final = [];
+      const finalSeen = new Set();
+      ordered.forEach(item => {
+        const key = [item.category || 'general', safeText(item.focus || ''), safeText(item.source || '')].join('::').toLowerCase();
+        if(finalSeen.has(key)) return;
+        finalSeen.add(key);
+        final.push(item);
+      });
+
+      return final.slice(0, targetCount);
     }
 
     function buildQuestionFromPlanItem(item, roleModel){
@@ -761,16 +785,17 @@
       const tool = detectToolFromSkill(source || focus);
       const trigger = detectTrigger(roleModel, focus);
       const constraint = detectConstraint(roleModel, focus);
+      const envNotes = safeText(els.signalEnvironmentNotes.value);
 
       if(item.category === 'knockout'){
         if(item.focus === 'setup'){
           return createEmptyQuestion({
-            question: `Are you willing and able to work in the required setup for this role${safeText(els.signalEnvironmentNotes.value) ? ` (${safeText(els.signalEnvironmentNotes.value)})` : ''}?`,
+            question: `Are you willing and able to work in the required setup for this role${envNotes ? ` (${envNotes})` : ''}?`,
             focus_area: 'Work Setup / Availability', response_type: 'Yes/No', weight: item.weight || 'Critical', category: 'knockout', knockout: true
           });
         }
         return createEmptyQuestion({
-          question: `Briefly confirm this must-have requirement with recent evidence: "${source}". Include where you applied it, how recently, and in what environment.`,
+          question: `Walk us through the most recent time you had to prove ${source} in a real role${tool ? ` using ${tool}` : ''}. What company or environment was it in, what exactly did you handle, and what result shows you can do this at the level this role needs?`,
           focus_area: source || 'Eligibility / Must-Have', response_type: item.response_type || 'Short Answer', weight: item.weight || 'Critical', category: 'knockout', knockout: true
         });
       }
@@ -841,7 +866,7 @@
 
     function isGenericQuestion(q){
       const text = safeText(q).toLowerCase();
-      return /tell us about your experience|describe your experience|do you have experience/.test(text) || text.length < 80;
+      return /tell us about your experience|describe your experience|do you have experience|briefly confirm this must-have|briefly confirm this requirement/.test(text) || text.length < 80;
     }
 
     function evaluateQuestionQuality(item) {
