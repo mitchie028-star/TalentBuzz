@@ -6,6 +6,7 @@
   <title>BuzzPool Unified | TalentBuzz</title>
   <meta name="description" content="Unified Talent, Sourcing, Outreach, and Pipeline workspace for TalentBuzz." />
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.8.69/pdf.min.mjs" type="module"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
@@ -119,6 +120,19 @@
     .kv .k{font-size:.74rem;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;font-weight:800;margin-bottom:4px}
     .kv .v{font-size:.92rem;font-weight:700;word-break:break-word}
     audio{width:100%}
+    
+    .modal-backdrop{position:fixed;inset:0;background:rgba(15,23,42,.5);display:none;align-items:center;justify-content:center;padding:18px;z-index:130}
+    .modal-backdrop.show{display:flex}
+    .modal{width:min(920px,100%);max-height:92vh;overflow:auto;background:#fff;border-radius:22px;border:1px solid var(--border);box-shadow:0 30px 70px rgba(15,23,42,.24);padding:22px}
+    .modal-header{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;margin-bottom:16px}
+    .modal-title{margin:0;color:var(--primary);font-size:1.3rem}
+    .modal-subtitle{margin:4px 0 0;color:var(--muted);font-size:.92rem}
+    .help-box{padding:16px;border:2px dashed #bfdbfe;background:#f8fbff;border-radius:18px;margin-bottom:16px;text-align:center}
+    .form-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+    .full-span{grid-column:1/-1}
+    .form-actions{display:flex;justify-content:flex-end;gap:10px;flex-wrap:wrap;margin-top:14px}
+    .result-box{margin-top:12px;padding:12px;border-radius:14px;background:#f8fbff;border:1px solid var(--border);font-size:.88rem;color:var(--muted)}
+
     .hidden{display:none !important}
     @media (max-width:1320px){.tracker-grid,.funnel-grid,.control-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
     @media (max-width:760px){.container{padding:16px 12px 28px}.topbar{grid-template-columns:1fr}.top-right{justify-self:stretch;justify-content:space-between}.brand-logo{width:48px;height:48px}.topbar h1{font-size:1.72rem}.tracker-grid,.funnel-grid,.control-grid,.kv-grid{grid-template-columns:1fr}}
@@ -143,6 +157,7 @@
           <div id="actionMenu" class="action-menu">
             <a href="recruiter-dashboard.html" class="menu-item">Back to BuzzHire</a>
             <a href="client-role-input.html" class="menu-item">Manage Roles</a>
+            <button id="menuUploadLinkedInPdfBtn" class="menu-item" type="button">Upload LinkedIn PDF</button>
             <button id="menuRefreshBtn" class="menu-item" type="button">Refresh</button>
             <button id="menuLogoutBtn" class="menu-item danger" type="button">Logout</button>
           </div>
@@ -285,7 +300,7 @@
       const $ = (id) => document.getElementById(id);
       const els = {
         notice:$('notice'), helloRecruiter:$('helloRecruiter'), menuToggleBtn:$('menuToggleBtn'), actionMenu:$('actionMenu'),
-        menuRefreshBtn:$('menuRefreshBtn'), menuLogoutBtn:$('menuLogoutBtn'),
+        menuUploadLinkedInPdfBtn:$('menuUploadLinkedInPdfBtn'), menuRefreshBtn:$('menuRefreshBtn'), menuLogoutBtn:$('menuLogoutBtn'),
         fProspects:$('fProspects'), fInvites:$('fInvites'), fProfiles:$('fProfiles'), fApplications:$('fApplications'), fVoice:$('fVoice'),
         mInvites:$('mInvites'), mProfiles:$('mProfiles'), mApplications:$('mApplications'), mVoice:$('mVoice'),
         barProspects:$('barProspects'), barInvites:$('barInvites'), barProfiles:$('barProfiles'), barApplications:$('barApplications'), barVoice:$('barVoice'),
@@ -298,7 +313,14 @@
         tableHeadRow:$('tableHeadRow'), tableBody:$('tableBody'),
         panelOverlay:$('panelOverlay'), sidePanel:$('sidePanel'), closePanelBtn:$('closePanelBtn'),
         panelName:$('panelName'), panelSubtitle:$('panelSubtitle'), panelBadges:$('panelBadges'), panelActions:$('panelActions'),
-        panelSummary:$('panelSummary'), panelKv:$('panelKv'), panelActivity:$('panelActivity'), panelVoice:$('panelVoice')
+        panelSummary:$('panelSummary'), panelKv:$('panelKv'), panelActivity:$('panelActivity'), panelVoice:$('panelVoice'),
+        linkedinPdfModal:$('linkedinPdfModal'), closeLinkedInPdfModalBtn:$('closeLinkedInPdfModalBtn'),
+        linkedinPdfInput:$('linkedinPdfInput'), linkedinPdfRawText:$('linkedinPdfRawText'),
+        prospectFullName:$('prospectFullName'), prospectTitle:$('prospectTitle'), prospectCompany:$('prospectCompany'),
+        prospectLocation:$('prospectLocation'), prospectEmail:$('prospectEmail'), prospectLinkedIn:$('prospectLinkedIn'),
+        prospectExperience:$('prospectExperience'), prospectAiScore:$('prospectAiScore'), prospectSkills:$('prospectSkills'),
+        prospectSummary:$('prospectSummary'), linkedinPdfResult:$('linkedinPdfResult'),
+        parseLinkedInPdfBtn:$('parseLinkedInPdfBtn'), saveLinkedInProspectBtn:$('saveLinkedInProspectBtn')
       };
 
       const normalizeText = (v) => String(v || '').trim().toLowerCase();
@@ -339,6 +361,197 @@
         if (['failed','rejected','declined'].includes(key)) return 'stage-failed';
         if (['new','new_lead'].includes(key)) return 'stage-new';
         return 'status-unknown';
+      }
+
+
+      function showPdfResult(message, type='info'){
+        els.linkedinPdfResult.style.display = 'block';
+        els.linkedinPdfResult.textContent = message;
+        els.linkedinPdfResult.style.color = type === 'error' ? 'var(--danger)' : type === 'success' ? 'var(--success)' : 'var(--muted)';
+      }
+
+      function openModal(modal){ if(modal) modal.classList.add('show'); }
+      function closeModal(modal){ if(modal) modal.classList.remove('show'); }
+
+      function getPdfJsLib(){
+        return window['pdfjsLib'] || window['pdfjs-dist/build/pdf'];
+      }
+
+      async function readPdfText(file){
+        const pdfjs = getPdfJsLib();
+        if (!pdfjs) throw new Error('PDF parser library not loaded.');
+        if (pdfjs.GlobalWorkerOptions) {
+          pdfjs.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.8.69/pdf.worker.min.mjs';
+        }
+        const buffer = await file.arrayBuffer();
+        const pdf = await pdfjs.getDocument({ data: buffer }).promise;
+        let text = '';
+        for (let i = 1; i <= pdf.numPages; i++) {
+          const page = await pdf.getPage(i);
+          const content = await page.getTextContent();
+          text += content.items.map(item => item.str).join(' ') + '\n';
+        }
+        return text.trim();
+      }
+
+      function detectLinkedInUrl(text=''){
+        const match = text.match(/(?:https?:\/\/)?(?:www\.)?linkedin\.com\/in\/[A-Za-z0-9\-_%]+/i);
+        if (!match) return '';
+        let clean = match[0];
+        if (!/^https?:\/\//i.test(clean)) clean = 'https://' + clean;
+        return clean.replace(/\s+/g,'').replace(/\)+$/,'');
+      }
+
+      function detectEmail(text=''){
+        return text.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i)?.[0] || '';
+      }
+
+      function detectName(text=''){
+        const lines = String(text).split(/\n+/).map(s => s.trim()).filter(Boolean);
+        for (const line of lines.slice(0, 8)) {
+          if (/linkedin|kontakin|contact|summary|buod|experience|karanasan|education|edukasyon/i.test(line)) continue;
+          if (line.split(/\s+/).length >= 2 && line.length <= 60 && !/@/.test(line)) return line;
+        }
+        return '';
+      }
+
+      function detectTitle(text=''){
+        const lines = String(text).split(/\n+/).map(s => s.trim()).filter(Boolean);
+        for (const line of lines) {
+          if (/customer service|representative|manager|associate|specialist|analyst|engineer|officer|support|sales|recruiter|advisor|executive/i.test(line) && !/experience|karanasan|education|edukasyon/i.test(line)) {
+            return line;
+          }
+        }
+        return '';
+      }
+
+      function detectCompany(text=''){
+        const lines = String(text).split(/\n+/).map(s => s.trim()).filter(Boolean);
+        const idx = lines.findIndex(line => /experience|karanasan/i.test(line));
+        if (idx >= 0 && lines[idx+1]) return lines[idx+1];
+        return '';
+      }
+
+      function detectLocation(text=''){
+        const lines = String(text).split(/\n+/).map(s => s.trim()).filter(Boolean);
+        const loc = lines.find(line => /philippines|metro manila|national capital region|cebu|davao|makati|taguig|quezon city|manila/i.test(line));
+        return loc || '';
+      }
+
+      function detectSkills(text=''){
+        const out = [];
+        const lines = String(text).split(/\n+/).map(s => s.trim()).filter(Boolean);
+        const skillIndex = lines.findIndex(line => /skills|kakayahan/i.test(line));
+        if (skillIndex >= 0) {
+          for (let i = skillIndex + 1; i < Math.min(lines.length, skillIndex + 6); i++) {
+            const line = lines[i];
+            if (/summary|buod|experience|karanasan|education|edukasyon/i.test(line)) break;
+            if (line) out.push(line);
+          }
+        }
+        return mergeUnique(out).slice(0,10);
+      }
+
+      function detectExperienceYears(text=''){
+        const yearsMatch = String(text).match(/(\d+(?:\.\d+)?)\+?\s*(?:years|yrs)/i);
+        if (yearsMatch) return Number(yearsMatch[1]);
+        return 0;
+      }
+
+      function buildProspectSummary(parsed){
+        const parts = [];
+        if (parsed.current_title) parts.push(`${parsed.current_title}`);
+        if (parsed.current_company) parts.push(`at ${parsed.current_company}`);
+        let summary = parts.join(' ');
+        if (parsed.location) summary += `${summary ? '. ' : ''}Based in ${parsed.location}.`;
+        if (parsed.skills?.length) summary += `${summary ? ' ' : ''}Core skills include ${parsed.skills.slice(0,5).join(', ')}.`;
+        if (parsed.experience_years) summary += ` Approx. ${parsed.experience_years} years of experience signal detected.`;
+        return summary || 'LinkedIn PDF uploaded and parsed for sourcing.';
+      }
+
+      function computeProspectAiScore(parsed){
+        let score = 0;
+        if (parsed.full_name) score += 12;
+        if (parsed.current_title) score += 18;
+        if (parsed.current_company) score += 10;
+        if (parsed.location) score += 8;
+        if (parsed.email) score += 8;
+        if (parsed.linkedin_url) score += 12;
+        if (parsed.skills?.length) score += Math.min(parsed.skills.length * 5, 25);
+        if (parsed.experience_years) score += Math.min(parsed.experience_years * 4, 15);
+        return Math.min(100, Math.round(score));
+      }
+
+      function populateProspectForm(parsed){
+        els.prospectFullName.value = parsed.full_name || '';
+        els.prospectTitle.value = parsed.current_title || '';
+        els.prospectCompany.value = parsed.current_company || '';
+        els.prospectLocation.value = parsed.location || '';
+        els.prospectEmail.value = parsed.email || '';
+        els.prospectLinkedIn.value = parsed.linkedin_url || '';
+        els.prospectExperience.value = parsed.experience_years || '';
+        els.prospectSkills.value = (parsed.skills || []).join(', ');
+        els.prospectSummary.value = parsed.experience_summary || '';
+        els.prospectAiScore.value = parsed.ai_score || '';
+      }
+
+      function extractLinkedInPdfProfile(text=''){
+        const parsed = {
+          full_name: detectName(text),
+          current_title: detectTitle(text),
+          current_company: detectCompany(text),
+          location: detectLocation(text),
+          email: detectEmail(text),
+          linkedin_url: detectLinkedInUrl(text),
+          experience_years: detectExperienceYears(text),
+          skills: detectSkills(text)
+        };
+        parsed.experience_summary = buildProspectSummary(parsed);
+        parsed.ai_score = computeProspectAiScore(parsed);
+        return parsed;
+      }
+
+      async function saveProspectWithFallback(payload){
+        const attempts = [
+          {
+            full_name: payload.full_name,
+            current_title: payload.current_title,
+            current_company: payload.current_company,
+            location: payload.location,
+            personal_email: payload.personal_email,
+            linkedin_url: payload.linkedin_url,
+            total_experience: payload.total_experience,
+            experience_summary: payload.experience_summary,
+            skills: payload.skills,
+            source: payload.source,
+            ai_score: payload.ai_score
+          },
+          {
+            full_name: payload.full_name,
+            current_title: payload.current_title,
+            current_company: payload.current_company,
+            location: payload.location,
+            personal_email: payload.personal_email,
+            linkedin_url: payload.linkedin_url,
+            experience_summary: payload.experience_summary,
+            skills: payload.skills
+          },
+          {
+            full_name: payload.full_name,
+            current_title: payload.current_title,
+            location: payload.location,
+            personal_email: payload.personal_email,
+            linkedin_url: payload.linkedin_url
+          }
+        ];
+
+        let lastError = null;
+        for (const body of attempts) {
+          const { data, error } = await supabase.from('prospects').insert([body]).select('*').single();
+          if (!error) return data;
+          lastError = error;
+        }
+        throw lastError || new Error('Unable to save prospect.');
       }
 
       async function fetchAllRows(buildQuery, pageSize = 500) {
@@ -911,6 +1124,64 @@
           e.stopPropagation();
           els.actionMenu.classList.toggle('show');
         });
+        els.menuUploadLinkedInPdfBtn.addEventListener('click', () => {
+          openModal(els.linkedinPdfModal);
+          showPdfResult('Upload a LinkedIn PDF, then click Parse PDF.', 'info');
+        });
+
+        els.closeLinkedInPdfModalBtn.addEventListener('click', () => closeModal(els.linkedinPdfModal));
+        els.linkedinPdfModal.addEventListener('click', (e) => { if (e.target === els.linkedinPdfModal) closeModal(els.linkedinPdfModal); });
+
+        els.parseLinkedInPdfBtn.addEventListener('click', async () => {
+          try {
+            const file = els.linkedinPdfInput.files?.[0];
+            if (!file) throw new Error('Please choose a LinkedIn PDF file first.');
+            showPdfResult('Parsing PDF...', 'info');
+            const rawText = await readPdfText(file);
+            els.linkedinPdfRawText.value = rawText;
+            const parsed = extractLinkedInPdfProfile(rawText);
+            populateProspectForm(parsed);
+            showPdfResult(`Parsed successfully. Suggested AI score: ${parsed.ai_score}. Review the fields, then save the prospect.`, 'success');
+          } catch (error) {
+            console.error('[LINKEDIN_PDF_PARSE_ERROR]', error);
+            showPdfResult(error.message || 'Failed to parse PDF.', 'error');
+          }
+        });
+
+        els.saveLinkedInProspectBtn.addEventListener('click', async () => {
+          try {
+            const payload = {
+              full_name: els.prospectFullName.value.trim(),
+              current_title: els.prospectTitle.value.trim(),
+              current_company: els.prospectCompany.value.trim(),
+              location: els.prospectLocation.value.trim(),
+              personal_email: els.prospectEmail.value.trim(),
+              linkedin_url: els.prospectLinkedIn.value.trim(),
+              total_experience: els.prospectExperience.value ? `${els.prospectExperience.value} years` : '',
+              experience_summary: els.prospectSummary.value.trim(),
+              skills: els.prospectSkills.value.split(',').map(s => s.trim()).filter(Boolean),
+              source: 'linkedin_pdf_upload',
+              ai_score: Number(els.prospectAiScore.value || 0)
+            };
+            if (!payload.full_name && !payload.personal_email && !payload.linkedin_url) {
+              throw new Error('At least one strong identifier is required: name, email, or LinkedIn URL.');
+            }
+            const saved = await saveProspectWithFallback(payload);
+            showPdfResult(`Prospect saved: ${saved.full_name || payload.full_name || 'New lead'}. Refreshing sourcing data...`, 'success');
+            await loadAllData();
+            updateDashboard();
+            state.activeTab = 'sourcing';
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            document.querySelector('.tab[data-tab="sourcing"]')?.classList.add('active');
+            renderActiveView();
+            closeModal(els.linkedinPdfModal);
+            showNotice('LinkedIn PDF prospect added to BuzzPool sourcing.', 'success');
+          } catch (error) {
+            console.error('[LINKEDIN_PDF_SAVE_ERROR]', error);
+            showPdfResult(error.message || 'Failed to save prospect.', 'error');
+          }
+        });
+
         els.menuRefreshBtn.addEventListener('click', async () => {
           await loadAllData();
           updateDashboard();
@@ -954,6 +1225,7 @@
         });
         els.actionMenu.addEventListener('click', (e) => e.stopPropagation());
         els.sidePanel.addEventListener('click', (e) => e.stopPropagation());
+        els.linkedinPdfModal.querySelector('.modal').addEventListener('click', (e) => e.stopPropagation());
       }
 
       try {
