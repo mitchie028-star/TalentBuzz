@@ -1245,209 +1245,283 @@
       return strongObjects.some(x => q.includes(x));
     }
 
-    function getRealWorkObject(source, roleModel, category){
-      const src = safeText(source);
-      const lower = src.toLowerCase();
+    function getRealWorkObject(source, roleModel, category) {
+  const src = safeText(source);
+  const lower = src.toLowerCase();
+  const roleTitle = safeText(roleModel?.title).toLowerCase();
 
-      if (category === "setup") return "required work setup";
-      if (hasRealWorkObject(src)) return src;
+  if (category === "setup") return "required work setup";
 
-      if (roleModel.primaryDomain === "technical"){
-        if (/automation|framework|test|qa/.test(lower)) return "an automated test framework";
-        if (/api|integration/.test(lower)) return "an API integration";
-        if (/retail|pos|erp/.test(lower)) return "a POS or ERP workflow";
-        return "a failing automated test or release-critical defect";
-      }
+  // Reject job-title-as-object.
+  if (src && lower !== roleTitle && hasRealWorkObject(src)) {
+    return src;
+  }
 
-      if (roleModel.primaryDomain === "customer"){
-        if (/voice|call/.test(lower)) return "a customer call";
-        if (/gds|pnr|booking/.test(lower)) return "a booking or PNR update";
-        return "a customer issue or escalation";
-      }
+  if (roleModel.primaryDomain === "technical") {
+    if (/pos|retail|checkout/.test(lower)) return "a retail checkout or POS workflow";
+    if (/erp|business central|dynamics/.test(lower)) return "an ERP workflow or system integration";
+    if (/automation framework|framework/.test(lower)) return "an automation framework";
+    if (/api|integration|webhook/.test(lower)) return "an API integration or service connection";
+    if (/ui|frontend|regression|test|qa|automation/.test(lower)) return "a failed automated test or regression issue";
+    if (/release|defect|bug/.test(lower)) return "a release-blocking defect";
+    return "a failed automated test, regression issue, or release-critical defect";
+  }
 
-      if (roleModel.primaryDomain === "healthcare"){
-        if (/appeal|denial/.test(lower)) return "a denial or appeal case";
-        return "a clinical documentation or case review workflow";
-      }
+  if (roleModel.primaryDomain === "customer") {
+    if (/gds|amadeus|sabre/.test(lower)) return "a GDS booking or rebooking flow";
+    if (/pnr|reservation|booking/.test(lower)) return "a booking or PNR update";
+    if (/voice|call|inbound|outbound/.test(lower)) return "a customer call";
+    if (/crm|ticket/.test(lower)) return "a CRM or ticket-handling workflow";
+    if (/sales|upsell|retention|objection/.test(lower)) return "a customer objection or conversion conversation";
+    return "a customer issue, escalation, or service recovery case";
+  }
 
-      if (roleModel.primaryDomain === "finance"){
-        return "a reconciliation, reporting, or finance control task";
-      }
+  if (roleModel.primaryDomain === "healthcare") {
+    if (/denial|appeal/.test(lower)) return "a denial or appeal case";
+    if (/drg|coding|coder/.test(lower)) return "a coding review or DRG case";
+    if (/clinical|documentation/.test(lower)) return "a clinical documentation review";
+    return "a denial, appeal, or clinical case workflow";
+  }
 
-      if (roleModel.primaryDomain === "operations"){
-        return "an operations workflow or process breakdown";
-      }
+  if (roleModel.primaryDomain === "finance") {
+    if (/reconciliation/.test(lower)) return "a reconciliation task";
+    if (/audit|compliance|control/.test(lower)) return "a control or audit exception";
+    if (/report|reporting/.test(lower)) return "a reporting variance or finance report issue";
+    return "a reconciliation, reporting, or finance control task";
+  }
 
-      return src || roleModel.title || "a real work task";
+  if (roleModel.primaryDomain === "operations") {
+    if (/logistics|warehouse|inventory/.test(lower)) return "an inventory or logistics workflow";
+    if (/process|workflow|queue|backlog/.test(lower)) return "a process breakdown or backlog issue";
+    return "an operations workflow or process breakdown";
+  }
+
+  return "a real work task";
+}
+
+   function detectBestSimulationObject(roleModel) {
+  const weightedSkills = (roleModel.weightedSkills || []).map(x => safeText(x.skill));
+  const prioritySkills = (roleModel.prioritySkills || []).map(x => safeText(x.skill));
+  const requirements = (roleModel.requirements || []).map(x => safeText(x));
+  const nonNeg = (roleModel.nonNeg || []).map(x => safeText(x));
+
+  const candidates = [
+    ...weightedSkills,
+    ...prioritySkills,
+    ...requirements,
+    ...nonNeg
+  ].filter(Boolean);
+
+  // Prefer the first role-real candidate, but avoid vague / title-like entries.
+  const best = candidates.find(x => {
+    const lower = x.toLowerCase();
+    if (!hasRealWorkObject(x)) return false;
+    if (lower === safeText(roleModel.title).toLowerCase()) return false;
+    if (/quality engineer|developer|engineer|specialist|associate|manager|supervisor|architect/.test(lower)) return false;
+    return true;
+  });
+
+  if (best) return best;
+
+  // Never fall back to the role title directly.
+  if (roleModel.primaryDomain === "technical") {
+    return "a failed automated test, release-critical defect, or POS / ERP workflow issue";
+  }
+
+  if (roleModel.primaryDomain === "customer") {
+    return "a customer escalation, queue spike, or booking issue";
+  }
+
+  if (roleModel.primaryDomain === "healthcare") {
+    return "a denial, appeal, or clinical documentation issue";
+  }
+
+  if (roleModel.primaryDomain === "finance") {
+    return "a reconciliation issue, reporting variance, or control exception";
+  }
+
+  if (roleModel.primaryDomain === "operations") {
+    return "a workflow breakdown, backlog spike, or SLA risk";
+  }
+
+  return "a real work situation";
+}
+
+    function buildAdaptiveQuestionPlan(roleModel) {
+  const intent = deriveQuestionIntent(roleModel);
+  const pool = [];
+  const used = new Set();
+
+  const pushPool = (item) => {
+    const key = [item.category || "general", safeText(item.focus || ""), safeText(item.source || "")]
+      .join("::")
+      .toLowerCase();
+    if (used.has(key)) return;
+    used.add(key);
+    pool.push(item);
+  };
+
+  const targetCount =
+    intent.roleArchetype === "sales_voice" ? 8 :
+    roleModel.complexityScore >= 5 ? 8 :
+    roleModel.complexityScore >= 3 ? 7 : 6;
+
+  const nonNeg = roleModel.nonNeg || [];
+  const weightedSkills = roleModel.weightedSkills?.length
+    ? roleModel.weightedSkills
+    : (roleModel.prioritySkills || []);
+  const successSignals = roleModel.successSignals || [];
+  const redFlags = roleModel.redFlags || [];
+  const requirements = roleModel.requirements || [];
+  const businessPriorities = roleModel.businessPriorities || [];
+
+  let knockoutCount = 0;
+
+  // Non-negotiables
+  nonNeg.forEach((signal) => {
+    const cleaned = safeText(signal);
+    if (!cleaned) return;
+
+    const type = classifySignalLine(cleaned);
+
+    if (type === "setup") {
+      pushPool({
+        category: "setup",
+        focus: "setup",
+        source: cleaned,
+        weight: "Critical",
+        response_type: "Yes/No"
+      });
+      return;
     }
 
-    function detectBestSimulationObject(roleModel){
-      const candidates = [
-        ...(roleModel.weightedSkills || []).map(x => x.skill),
-        ...(roleModel.prioritySkills || []).map(x => x.skill),
-        ...(roleModel.requirements || []),
-        ...(roleModel.nonNeg || [])
-      ].map(x => safeText(x)).filter(Boolean);
-
-      const best = candidates.find(x => hasRealWorkObject(x));
-      if (best) return best;
-
-      return getRealWorkObject(roleModel.title, roleModel, "simulation");
+    if (knockoutCount < 2 && isStrongKnockoutSignal(cleaned, type)) {
+      pushPool({
+        category: "knockout",
+        focus: type || "eligibility",
+        source: cleaned,
+        weight: "Critical",
+        response_type: "Short Answer"
+      });
+      knockoutCount += 1;
+      return;
     }
 
-    function buildAdaptiveQuestionPlan(roleModel){
-      const intent = deriveQuestionIntent(roleModel);
-      const pool = [];
-      const used = new Set();
+    // Do not require hasRealWorkObject here — let getRealWorkObject transform it later.
+    pushPool({
+      category: "proof",
+      focus: type || "must_have",
+      source: cleaned,
+      weight: "Critical"
+    });
+  });
 
-      const pushPool = (item) => {
-        const key = [item.category || "general", safeText(item.focus || ""), safeText(item.source || "")]
-          .join("::")
-          .toLowerCase();
-        if (used.has(key)) return;
-        used.add(key);
-        pool.push(item);
-      };
+  // Weighted skills
+  weightedSkills.forEach((skillObj, index) => {
+    const skill = safeText(skillObj.skill || skillObj);
+    if (!skill) return;
 
-      const targetCount =
-        intent.roleArchetype === "sales_voice" ? 8 :
-        roleModel.complexityScore >= 5 ? 8 :
-        roleModel.complexityScore >= 3 ? 7 : 6;
+    pushPool({
+      category: shouldUseTechnicalCategory(skill, roleModel, index) ? "technical" : "proof",
+      focus: classifySignalLine(skill) || "execution",
+      source: skill,
+      weight: skillObj.weight || "High"
+    });
+  });
 
-      const nonNeg = roleModel.nonNeg || [];
-      const weightedSkills = roleModel.weightedSkills?.length ? roleModel.weightedSkills : roleModel.prioritySkills || [];
-      const successSignals = roleModel.successSignals || [];
-      const redFlags = roleModel.redFlags || [];
-      const requirements = roleModel.requirements || [];
-      const businessPriorities = roleModel.businessPriorities || [];
+  // Success signals
+  successSignals.slice(0, 2).forEach((signal) => {
+    const cleaned = safeText(signal);
+    if (!cleaned) return;
 
-      let knockoutCount = 0;
+    pushPool({
+      category: "success_signal",
+      focus: classifySignalLine(cleaned),
+      source: cleaned,
+      weight: "High"
+    });
+  });
 
-      nonNeg.forEach((signal) => {
-        const type = classifySignalLine(signal);
-
-        if (type === "setup"){
-          pushPool({
-            category:"setup",
-            focus:"setup",
-            source:signal,
-            weight:"Critical",
-            response_type:"Yes/No"
-          });
-          return;
-        }
-
-        if (knockoutCount < 2 && isStrongKnockoutSignal(signal, type)){
-          pushPool({
-            category:"knockout",
-            focus:type || "eligibility",
-            source:signal,
-            weight:"Critical",
-            response_type:"Short Answer"
-          });
-          knockoutCount += 1;
-          return;
-        }
-
-        pushPool({
-          category:"proof",
-          focus:type || "must_have",
-          source:signal,
-          weight:"Critical"
-        });
+  // Red flags
+  if (redFlags.length) {
+    const redFlag = safeText(redFlags[0]);
+    if (redFlag) {
+      pushPool({
+        category: "red_flag",
+        focus: classifySignalLine(redFlag),
+        source: redFlag,
+        weight: "Medium"
       });
-
-      weightedSkills.forEach((skillObj, index) => {
-        const skill = safeText(skillObj.skill);
-        if (!skill) return;
-
-        pushPool({
-          category: shouldUseTechnicalCategory(skill, roleModel, index) ? "technical" : "proof",
-          focus: classifySignalLine(skill) || "execution",
-          source: skill,
-          weight: skillObj.weight || "High"
-        });
-      });
-
-      successSignals.slice(0,2).forEach(signal => pushPool({
-        category:"success_signal",
-        focus:classifySignalLine(signal),
-        source:signal,
-        weight:"High"
-      }));
-
-      if (redFlags.length){
-        pushPool({
-          category:"red_flag",
-          focus:classifySignalLine(redFlags[0]),
-          source:redFlags[0],
-          weight:"Medium"
-        });
-      }
-
-      const simulationObject = detectBestSimulationObject(roleModel);
-      if (simulationObject){
-        pushPool({
-          category:"simulation",
-          focus:roleModel.primaryDomain,
-          source:simulationObject,
-          weight:roleModel.complexityScore >= 4 ? "High" : "Medium"
-        });
-      }
-
-      if (businessPriorities.length){
-        pushPool({
-          category:"business",
-          focus:"business_priority",
-          source:businessPriorities[0],
-          weight:"High"
-        });
-      }
-
-      requirements
-        .filter(req => hasRealWorkObject(req))
-        .slice(0,2)
-        .forEach(req => pushPool({
-          category:"general",
-          focus:"requirement",
-          source:req,
-          weight:"Medium"
-        }));
-
-      const pick = (category) => pool.filter(item => item.category === category);
-
-      const ordered = [
-        ...pick("knockout").slice(0,2),
-        ...pick("proof").slice(0,4),
-        ...pick("technical").slice(0,2),
-        ...pick("success_signal").slice(0,1),
-        ...pick("simulation").slice(0,1),
-        ...pick("red_flag").slice(0,1),
-        ...pick("business").slice(0,1),
-        ...pick("setup").slice(0,1),
-        ...pick("general").slice(0,1)
-      ];
-
-      const final = [];
-      const finalSeen = new Set();
-
-      ordered.forEach((item) => {
-        const key = [item.category || "general", safeText(item.focus || ""), safeText(item.source || "")]
-          .join("::")
-          .toLowerCase();
-        if (finalSeen.has(key)) return;
-        finalSeen.add(key);
-        final.push(item);
-      });
-
-      return final
-        .filter(item => {
-          if (item.category === "setup") return true;
-          return hasRealWorkObject(item.source) || item.category === "simulation" || item.category === "red_flag";
-        })
-        .slice(0, targetCount);
     }
+  }
 
+  // Simulation
+  const simulationObject = detectBestSimulationObject(roleModel);
+  if (simulationObject) {
+    pushPool({
+      category: "simulation",
+      focus: roleModel.primaryDomain,
+      source: simulationObject,
+      weight: roleModel.complexityScore >= 4 ? "High" : "Medium"
+    });
+  }
+
+  // Business context
+  if (businessPriorities.length) {
+    const priority = safeText(businessPriorities[0]);
+    if (priority) {
+      pushPool({
+        category: "business",
+        focus: "business_priority",
+        source: priority,
+        weight: "High"
+      });
+    }
+  }
+
+  // Extra requirements
+  requirements.slice(0, 2).forEach((req) => {
+    const cleaned = safeText(req);
+    if (!cleaned) return;
+
+    pushPool({
+      category: "general",
+      focus: "requirement",
+      source: cleaned,
+      weight: "Medium"
+    });
+  });
+
+  const pick = (category) => pool.filter(item => item.category === category);
+
+  const ordered = [
+    ...pick("knockout").slice(0, 2),
+    ...pick("proof").slice(0, 4),
+    ...pick("technical").slice(0, 2),
+    ...pick("success_signal").slice(0, 1),
+    ...pick("simulation").slice(0, 1),
+    ...pick("red_flag").slice(0, 1),
+    ...pick("business").slice(0, 1),
+    ...pick("setup").slice(0, 1),
+    ...pick("general").slice(0, 2)
+  ];
+
+  const final = [];
+  const finalSeen = new Set();
+
+  ordered.forEach((item) => {
+    const key = [item.category || "general", safeText(item.focus || ""), safeText(item.source || "")]
+      .join("::")
+      .toLowerCase();
+    if (finalSeen.has(key)) return;
+    finalSeen.add(key);
+    final.push(item);
+  });
+
+  // Important: do NOT aggressively filter here by hasRealWorkObject(item.source),
+  // because some items are valid after transformation in getRealWorkObject().
+  return final.slice(0, targetCount);
+}
     function buildQuestionFromPlanItem(item, roleModel){
       const source = safeText(item.source);
       const focus = safeText(item.focus || source);
