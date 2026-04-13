@@ -148,7 +148,7 @@
         <div class="tab-panel active" data-panel="basics">
           <div class="section-title"><div><h3>Role Basics</h3><p>Keep only the essentials here.</p></div></div>
           <div class="form-grid">
-            <div class="field"><label for="clientName">Client Name</label><input id="clientName" list="clientSuggestions" placeholder="Select or type client name" autocomplete="off" /><datalist id="clientSuggestions"></datalist><div class="helper">Choose an existing client or type a new one. New clients are created automatically.</div></div>
+            <div class="field"><label for="clientName">Client Name</label><input id="clientName" list="clientSuggestions" placeholder="Select or type client name" autocomplete="off" /><datalist id="clientSuggestions"></datalist><div class="helper">Choose an existing client. You can type to search, but saving is limited to clients already in your database.</div></div>
             <div class="field"><label for="existingClientSelect">Existing Clients</label><select id="existingClientSelect"><option value="">Choose existing client</option></select></div>
             <div class="field"><label for="jobTitle">Job Title</label><input id="jobTitle" placeholder="e.g. Dealership Sales Specialist" /></div>
             <div class="field"><label for="roleFamily">Role Family</label><select id="roleFamily"><option value="">Select role family</option><option>Technology / Engineering</option><option>Data / BI / Analytics</option><option>Product Management</option><option>Sales / Business Development</option><option>Customer Service / CX</option><option>BPO / Operations</option><option>Finance / Accounting</option><option>HR / Talent Acquisition</option><option>Marketing / Digital</option><option>Admin / Support</option><option>Healthcare Support</option><option>Retail / Store Operations</option><option>Other</option></select></div>
@@ -308,11 +308,31 @@
       els.existingClientSelect.value = client.id;
     }
 
+    function validateClientSelection(showToast = false){
+      const typed = safeText(els.clientName.value);
+      if(!typed) return false;
+      const match = clientsCache.find(c => safeText(c.client_name).toLowerCase() === typed.toLowerCase());
+      if(match){
+        setClientSelectionById(match.id);
+        return true;
+      }
+      if(showToast) showNotice('Client not found. Please choose an existing client from the list.', 'error');
+      return false;
+    }
+
     function syncClientSelectionByName(){
       const typed = safeText(els.clientName.value).toLowerCase();
       const match = clientsCache.find(c => safeText(c.client_name).toLowerCase() === typed);
-      if(match){ els.clientId.value = match.id; els.existingClientSelect.value = match.id; }
-      else { els.clientId.value = ""; els.existingClientSelect.value = ""; }
+      if(match){
+        els.clientId.value = match.id;
+        els.existingClientSelect.value = match.id;
+        if (safeText(els.clientName.value) !== safeText(match.client_name)) {
+          els.clientName.value = match.client_name || els.clientName.value;
+        }
+      } else {
+        els.clientId.value = "";
+        els.existingClientSelect.value = "";
+      }
     }
 
     function normalizeStatus(v){
@@ -1111,16 +1131,19 @@ ${questionCount} question(s) saved to jobs.screening_config for screening.html`;
     async function resolveClientId(){
       const existingId = safeText(els.clientId.value);
       if(existingId) return existingId;
+
       const typed = safeText(els.clientName.value);
       if(!typed) throw new Error("Client is required.");
 
       const existing = clientsCache.find(c => safeText(c.client_name).toLowerCase() === typed.toLowerCase());
-      if(existing) return existing.id;
+      if(existing){
+        els.clientId.value = existing.id;
+        els.existingClientSelect.value = existing.id;
+        els.clientName.value = existing.client_name || typed;
+        return existing.id;
+      }
 
-      const { data, error } = await supabaseClient.from("clients").insert([{ client_name: typed, active: true }]).select("id, client_name").single();
-      if(error) throw error;
-      clientsCache.push(data);
-      return data.id;
+      throw new Error("Client not found. Please choose an existing client from the list first.");
     }
 
     function buildRolePayload(clientId){
@@ -1183,6 +1206,9 @@ ${questionCount} question(s) saved to jobs.screening_config for screening.html`;
 
     async function saveRole(){
       try{
+        if(!validateClientSelection(false)) {
+          throw new Error("Please choose an existing client before saving.");
+        }
         const clientId = await resolveClientId();
         const payload = buildRolePayload(clientId);
         if(!payload.title) throw new Error("Please enter a job title.");
@@ -1320,6 +1346,7 @@ ${questionCount} question(s) saved to jobs.screening_config for screening.html`;
       setClientSelectionById(id);
     });
     els.clientName.addEventListener("input",syncClientSelectionByName);
+    els.clientName.addEventListener("blur",() => validateClientSelection(Boolean(safeText(els.clientName.value))));
 
     [
       els.clientName,els.jobTitle,els.roleFamily,els.location,els.workSetup,els.employmentType,els.seniority,els.roleStatus,
