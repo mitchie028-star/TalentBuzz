@@ -1018,7 +1018,7 @@
       }
 
       function openOutreachComposer(seed = {}){
-        const seededEmail = seed.email || seed.invite_email || '';
+        const seededEmail = seed.email || '';
         if (els.outreachFullName) els.outreachFullName.value = seed.full_name || seed.display_name || '';
         if (els.outreachEmail) els.outreachEmail.value = seededEmail;
         if (els.outreachInviteLink) els.outreachInviteLink.value = seed.invite_link || (seededEmail ? getDefaultInviteLink(seededEmail) : '');
@@ -1048,9 +1048,9 @@
             <button id="contextRefreshSourcingBtn" class="btn btn-outline" type="button">Refresh Sourcing</button>
           `;
         } else if (state.activeTab === 'outreach') {
-          const sentCount = state.data.outreach.filter(r => normalizeText(r.invite_status) === 'sent').length;
-          const startedCount = state.data.outreach.filter(r => normalizeText(r.invite_status) === 'started').length;
-          const completedCount = state.data.outreach.filter(r => normalizeText(r.invite_status) === 'completed').length;
+          const sentCount = state.data.outreach.filter(r => normalizeText(r.status) === 'sent').length;
+          const startedCount = state.data.outreach.filter(r => normalizeText(r.status) === 'started').length;
+          const completedCount = state.data.outreach.filter(r => normalizeText(r.status) === 'completed').length;
           html = `
             <span class="tag-pill">Sent: ${sentCount}</span>
             <span class="tag-pill">Started: ${startedCount}</span>
@@ -1070,6 +1070,36 @@
           updateDashboard();
           renderActiveView();
         });
+      }
+
+
+      function buildOutreachRecord(record = {}){
+        const email = record.email || '';
+        const status =
+          record.profile_completed_at ? 'completed' :
+          record.profile_started_at ? 'started' :
+          record.status || 'sent';
+
+        return {
+          ...record,
+          email,
+          full_name: record.full_name || '',
+          status,
+          recruiter_email: record.sent_by || record.recruiter_email || state.sessionUser?.email || '',
+          sent_at: record.invite_sent_at || record.sent_at || record.created_at || new Date().toISOString(),
+          converted: !!record.profile_completed_at,
+          profile_started_at: record.profile_started_at || null,
+          profile_completed_at: record.profile_completed_at || null,
+          opened_at: record.opened_at || null,
+          clicked_at: record.clicked_at || null
+        };
+      }
+
+      function insertOutreachRecordOptimistically(record = {}){
+        const normalized = buildOutreachRecord(record);
+        const key = String(normalized.id || normalized.email || '');
+        state.merged.invites = [normalized, ...(state.merged.invites || []).filter(r => String(r.id || r.email || '') !== key)];
+        state.data.outreach = [normalized, ...(state.data.outreach || []).filter(r => String(r.id || r.email || '') !== key)];
       }
 
       async function fetchAllRows(buildQuery, pageSize = 500) {
@@ -1191,17 +1221,21 @@
         const profileEmails = new Set((profiles || []).map(p => normalizeText(p.email || '')));
         state.data.outreach = (invites || []).map(i => {
           const email = i.email || i.invite_email || '';
-          const derivedStatus =
+          const status =
             i.profile_completed_at ? 'completed' :
             i.profile_started_at ? 'started' :
             i.status || i.invite_status || 'sent';
+
           return {
             ...i,
-            invite_email: email,
-            invite_status: derivedStatus,
+            email,
+            full_name: i.full_name || '',
+            status,
             recruiter_email: i.sent_by || i.recruiter_email || '',
-            sent_at: i.invite_sent_at || i.sent_at || i.created_at,
+            sent_at: i.invite_sent_at || i.sent_at || i.created_at || '',
             converted: !!(i.profile_completed_at || i.applicant_profile_id || profileEmails.has(normalizeText(email))),
+            profile_started_at: i.profile_started_at || null,
+            profile_completed_at: i.profile_completed_at || null,
             opened_at: i.opened_at || null,
             clicked_at: i.clicked_at || null
           };
@@ -1262,7 +1296,7 @@
           },
           outreach: {
             title: 'Outreach',
-            copy: 'Track invites sent through send-buzzpool-invite, monitor conversion into profiles, and resend outreach when needed.',
+            copy: 'Track invites sent through send-buzzpool-invite, monitor conversion into profiles, resend outreach when needed, and keep a clean invite log.',
             quicks: [['all','All'],['sent','Sent'],['started','Started'],['completed','Completed'],['converted','Converted'],['not_converted','Not Converted']],
             filters: [['status','Invite Status'],['recruiter','Recruiter'],['converted','Converted'],['domain','Email Domain']]
           },
@@ -1323,10 +1357,10 @@
           populateSelect(els.filterThree, cfg.filters[2][1], uniqueOptions(state.data.sourcing.map(r => r.location || '')));
           populateSelect(els.filterFour, cfg.filters[3][1], uniqueOptions(state.data.sourcing.map(r => r.source_stage || '')));
         } else if (state.activeTab === 'outreach') {
-          populateSelect(els.filterOne, cfg.filters[0][1], uniqueOptions(state.data.outreach.map(r => r.invite_status || '')));
+          populateSelect(els.filterOne, cfg.filters[0][1], uniqueOptions(state.data.outreach.map(r => r.status || '')));
           populateSelect(els.filterTwo, cfg.filters[1][1], uniqueOptions(state.data.outreach.map(r => r.recruiter_email || '')));
           populateSelect(els.filterThree, cfg.filters[2][1], ['yes','no']);
-          populateSelect(els.filterFour, cfg.filters[3][1], uniqueOptions(state.data.outreach.map(r => String(r.invite_email || '').split('@')[1] || '')));
+          populateSelect(els.filterFour, cfg.filters[3][1], uniqueOptions(state.data.outreach.map(r => String(r.email || '').split('@')[1] || '')));
         } else {
           populateSelect(els.filterOne, cfg.filters[0][1], uniqueOptions(state.data.pipeline.map(r => r.status || '')));
           populateSelect(els.filterTwo, cfg.filters[1][1], uniqueOptions(state.data.pipeline.map(r => r.job_title || '')));
@@ -1377,19 +1411,19 @@
           }
 
           if (state.activeTab === 'outreach') {
-            if (state.quickFilter === 'sent' && normalizeText(row.invite_status) !== 'sent') return false;
-            if (state.quickFilter === 'started' && normalizeText(row.invite_status) !== 'started') return false;
-            if (state.quickFilter === 'completed' && normalizeText(row.invite_status) !== 'completed') return false;
+            if (state.quickFilter === 'sent' && normalizeText(row.status) !== 'sent') return false;
+            if (state.quickFilter === 'started' && normalizeText(row.status) !== 'started') return false;
+            if (state.quickFilter === 'completed' && normalizeText(row.status) !== 'completed') return false;
             if (state.quickFilter === 'converted' && !row.converted) return false;
             if (state.quickFilter === 'not_converted' && row.converted) return false;
 
-            if (v1 && normalizeText(row.invite_status) !== v1) return false;
+            if (v1 && normalizeText(row.status) !== v1) return false;
             if (v2 && normalizeText(row.recruiter_email) !== v2) return false;
             if (v3 === 'yes' && !row.converted) return false;
             if (v3 === 'no' && row.converted) return false;
-            if (v4 && normalizeText((String(row.invite_email || '').split('@')[1] || '')) !== v4) return false;
+            if (v4 && normalizeText((String(row.email || '').split('@')[1] || '')) !== v4) return false;
 
-            const hay = [row.invite_email,row.invite_status,row.recruiter_email].join(' ');
+            const hay = [row.full_name,row.email,row.status,row.recruiter_email].join(' ');
             return !q || normalizeText(hay).includes(q);
           }
 
@@ -1459,14 +1493,14 @@
           </tr>`).join('');
         } else if (state.activeTab === 'outreach') {
           els.tableBody.innerHTML = rows.map(row => `<tr>
-            <td><div class="candidate-cell"><div class="name">${escapeHtml(row.full_name || row.invite_email || 'No email')}</div><div class="meta">${escapeHtml(row.invite_email || 'No email')}</div></div></td>
-            <td><span class="stage-pill ${statusClass(row.invite_status)}">${escapeHtml(titleCase(String(row.invite_status || 'unknown').replace(/_/g,' ')))}</span></td>
+            <td><div class="candidate-cell"><div class="name">${escapeHtml(row.full_name || row.email || 'No recipient')}</div><div class="meta">${escapeHtml(row.email || 'No email')}</div></div></td>
+            <td><span class="stage-pill ${statusClass(row.status)}">${escapeHtml(titleCase(String(row.status || 'unknown').replace(/_/g,' ')))}</span></td>
             <td>${escapeHtml(row.recruiter_email || 'TalentBuzz')}</td>
             <td><div class="small">${escapeHtml(formatDate(row.sent_at || row.created_at))}</div></td>
             <td>${row.converted ? '<span class="status-pill status-completed">Converted</span>' : '<span class="status-pill status-unknown">Not yet</span>'}</td>
-            <td><span class="small">${row.profile_started_at ? 'Profile started' : row.profile_completed_at ? 'Profile completed' : 'Awaiting profile action'}</span></td>
-            <td><div class="small">${escapeHtml(row.invite_link || 'Tracked invite sent')}</div></td>
-            <td><div class="row-actions"><button class="row-menu-btn" type="button" data-id="${escapeHtml(row.id)}">☰</button><div class="row-menu" id="menu-${escapeHtml(row.id)}"><button type="button" data-open="outreach" data-id="${escapeHtml(row.id)}">Open Invite</button><button type="button" data-compose-email="${escapeHtml(row.id)}">Resend Invite</button></div></div></td>
+            <td><span class="small">${row.profile_completed_at ? 'Profile completed' : row.profile_started_at ? 'Profile started' : 'Awaiting profile action'}</span></td>
+            <td><div class="small">${escapeHtml(row.invite_link || getDefaultInviteLink(row.email || ''))}</div></td>
+            <td><div class="row-actions"><button class="row-menu-btn" type="button" data-id="${escapeHtml(row.id || row.email)}">☰</button><div class="row-menu" id="menu-${escapeHtml(row.id || row.email)}"><button type="button" data-open="outreach" data-id="${escapeHtml(row.id || row.email)}">Open Invite</button><button type="button" data-compose-email="${escapeHtml(row.id || row.email)}" data-source-type="outreach">Resend Invite</button></div></div></td>
           </tr>`).join('');
         } else {
           els.tableBody.innerHTML = rows.map(row => `<tr>
@@ -1551,22 +1585,22 @@
           els.panelActivity.innerHTML = `<div class="activity-item">Created: ${escapeHtml(formatDate(row.created_at))}</div>`;
           setTimeout(() => document.getElementById('panelSendInviteBtn')?.addEventListener('click', () => openOutreachComposer({ full_name: row.display_name, email: row.email })), 0);
         } else if (type === 'outreach') {
-          els.panelName.textContent = row.invite_email || 'Invite';
-          els.panelSubtitle.textContent = `${titleCase(String(row.invite_status || 'unknown').replace(/_/g,' '))} | Outreach`;
-          els.panelBadges.innerHTML = `${badge(titleCase(String(row.invite_status || 'unknown').replace(/_/g,' ')), statusClass(row.invite_status))}${row.converted ? badge('Converted', 'status-completed') : badge('Not Converted', 'status-unknown')}`;
+          els.panelName.textContent = row.full_name || row.email || 'Invite';
+          els.panelSubtitle.textContent = `${titleCase(String(row.status || 'unknown').replace(/_/g,' '))} | Outreach`;
+          els.panelBadges.innerHTML = `${badge(titleCase(String(row.status || 'unknown').replace(/_/g,' ')), statusClass(row.status))}${row.converted ? badge('Converted', 'status-completed') : badge('Not Converted', 'status-unknown')}`;
           els.panelSummary.innerHTML = [
             'Invite stored in buzzpool_invites.',
             row.converted ? 'This invite converted into an applicant profile.' : 'No matching applicant profile found yet.',
             row.invite_note || 'No invite note saved.'
           ].map(s => `<div class="summary-item">${escapeHtml(s)}</div>`).join('');
-          els.panelKv.innerHTML = [kv('Invite Email', row.invite_email), kv('Recruiter', row.recruiter_email), kv('Status', row.invite_status), kv('Sent At', formatDate(row.sent_at || row.created_at))].join('');
+          els.panelKv.innerHTML = [kv('Invite Email', row.email), kv('Recruiter', row.recruiter_email), kv('Status', row.status), kv('Sent At', formatDate(row.sent_at || row.created_at))].join('');
           els.panelActivity.innerHTML = `<div class="activity-item">Invite record created: ${escapeHtml(formatDate(row.created_at))}</div>`;
           if (row.opened_at) els.panelActivity.innerHTML += `<div class="activity-item">Opened: ${escapeHtml(formatDate(row.opened_at))}</div>`;
           if (row.clicked_at) els.panelActivity.innerHTML += `<div class="activity-item">Clicked: ${escapeHtml(formatDate(row.clicked_at))}</div>`;
           if (row.profile_started_at) els.panelActivity.innerHTML += `<div class="activity-item">Profile started: ${escapeHtml(formatDate(row.profile_started_at))}</div>`;
           if (row.profile_completed_at) els.panelActivity.innerHTML += `<div class="activity-item">Profile completed: ${escapeHtml(formatDate(row.profile_completed_at))}</div>`;
           els.panelActions.innerHTML += `<button class="btn btn-primary btn-sm" type="button" id="panelResendInviteBtn">Resend Invite</button>`;
-          setTimeout(() => document.getElementById('panelResendInviteBtn')?.addEventListener('click', () => openOutreachComposer({ full_name: row.full_name, email: row.invite_email, invite_link: row.invite_link })), 0);
+          setTimeout(() => document.getElementById('panelResendInviteBtn')?.addEventListener('click', () => openOutreachComposer({ full_name: row.full_name, email: row.email, invite_link: row.invite_link })), 0);
         } else {
           els.panelName.textContent = row.email || 'Applicant';
           els.panelSubtitle.textContent = `${row.job_title || 'No job title'} | ${titleCase(String(row.status || 'submitted').replace(/_/g,' '))}`;
@@ -1616,7 +1650,7 @@
             const type = btn.dataset.open;
             const id = btn.dataset.id;
             const rows = state.data[type] || [];
-            const row = rows.find(r => String(r.id) === String(id));
+            const row = rows.find(r => String(r.id || r.email) === String(id));
             if (row) openSidePanel(type, row);
           });
         });
@@ -1626,11 +1660,11 @@
             const id = btn.dataset.composeEmail;
             const sourceType = btn.dataset.sourceType || state.activeTab;
             const rows = state.data[sourceType] || state.data.outreach || [];
-            const row = rows.find(r => String(r.id) === String(id));
+            const row = rows.find(r => String(r.id || r.email) === String(id));
             if (!row) return;
             openOutreachComposer({
               full_name: row.full_name || row.display_name || '',
-              email: row.email || row.invite_email || '',
+              email: row.email || '',
               invite_link: row.invite_link || ''
             });
           });
@@ -1879,16 +1913,35 @@
                 invite_link: inviteLink
               });
 
+              insertOutreachRecordOptimistically({
+                id: result.invite_tracking?.invite_id || email,
+                full_name: fullName,
+                email,
+                invite_link: inviteLink,
+                invite_sent_at: new Date().toISOString(),
+                status: result.invite_tracking?.status || 'sent',
+                recruiter_email: state.sessionUser?.email || ''
+              });
+
               showOutreachResult(`Invite sent to ${result.sent_to || email}. Tracking record ${result.invite_tracking?.action || 'saved'}.`, 'success');
 
-              await loadAllData();
+              try {
+                await loadAllData();
+              } catch (refreshError) {
+                console.error('[OUTREACH_REFRESH_ERROR]', refreshError);
+              }
               updateDashboard();
               state.activeTab = 'outreach';
               document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
               document.querySelector('.tab[data-tab="outreach"]')?.classList.add('active');
               renderActiveView();
               closeModal(els.outreachComposerModal);
-              showNotice('Tracked BuzzPool invite sent.', 'success');
+
+              if (!state.data.outreach.length) {
+                showNotice('Invite sent, but the browser could not read candidate_profile_invites. Check your SELECT policy or RLS for that table.', 'warning');
+              } else {
+                showNotice('Tracked BuzzPool invite sent.', 'success');
+              }
             } catch (error) {
               console.error('[OUTREACH_SEND_ERROR]', error);
               showOutreachResult(error?.message || 'Failed to send outreach invite.', 'error');
