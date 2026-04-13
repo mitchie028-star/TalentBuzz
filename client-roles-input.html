@@ -721,260 +721,749 @@
       return `Walk us through a recent time you had to ${task}${toolPart}${triggerPart}${constraintPart}. ${end}`;
     }
 
-    function buildAdaptiveQuestionPlan(roleModel){
-      const intent = deriveQuestionIntent(roleModel);
-      const pool = [];
-      const used = new Set();
-      const pushPool = item => {
-        const key = [item.category || 'general', safeText(item.focus || ''), safeText(item.source || '')].join('::').toLowerCase();
-        if(used.has(key)) return;
-        used.add(key);
-        pool.push(item);
-      };
+    function buildAdaptiveQuestionPlan(roleModel) {
+  const intent = deriveQuestionIntent(roleModel);
+  const pool = [];
+  const used = new Set();
 
-      const targetCount = intent.roleArchetype === 'sales_voice' ? 8 : roleModel.complexityScore >= 5 ? 8 : roleModel.complexityScore >= 3 ? 7 : 6;
+  const pushPool = (item) => {
+    const key = [item.category || "general", safeText(item.focus || ""), safeText(item.source || "")]
+      .join("::")
+      .toLowerCase();
+    if (used.has(key)) return;
+    used.add(key);
+    pool.push(item);
+  };
 
-      const nonNeg = roleModel.nonNeg || [];
-      nonNeg.forEach((signal, index) => {
-        const type = classifySignalLine(signal);
-        const asKnockout = index < 2 || type === 'setup';
-        if(type === 'setup') pushPool({category:'knockout',focus:'setup',source:signal,weight:'Critical',response_type:'Yes/No'});
-        else if(asKnockout) pushPool({category:'knockout',focus:type,source:signal,weight:'Critical',response_type:'Short Answer'});
-        else pushPool({category:'proof',focus:type,source:signal,weight:'Critical'});
+  const targetCount =
+    intent.roleArchetype === "sales_voice"
+      ? 8
+      : roleModel.complexityScore >= 5
+      ? 8
+      : roleModel.complexityScore >= 3
+      ? 7
+      : 6;
+
+  const nonNeg = roleModel.nonNeg || [];
+  const weightedSkills =
+    roleModel.weightedSkills?.length ? roleModel.weightedSkills : roleModel.prioritySkills || [];
+  const successSignals = roleModel.successSignals || [];
+  const redFlags = roleModel.redFlags || [];
+  const requirements = roleModel.requirements || [];
+  const businessPriorities = roleModel.businessPriorities || [];
+
+  let knockoutCount = 0;
+
+  // Non-negotiables: only a small number become knockouts.
+  nonNeg.forEach((signal) => {
+    const type = classifySignalLine(signal);
+
+    if (type === "setup") {
+      pushPool({
+        category: "setup",
+        focus: "setup",
+        source: signal,
+        weight: "Critical",
+        response_type: "Yes/No",
       });
-
-      (roleModel.weightedSkills || roleModel.prioritySkills || []).forEach(skillObj => {
-        const skill = safeText(skillObj.skill);
-        if(skill) pushPool({category:'proof',focus:classifySignalLine(skill),source:skill,weight:skillObj.weight || 'High'});
-      });
-
-      (roleModel.successSignals || []).slice(0,2).forEach(signal => pushPool({category:'success_signal',focus:classifySignalLine(signal),source:signal,weight:'High'}));
-      if ((roleModel.redFlags || []).length) pushPool({category:'red_flag',focus:classifySignalLine(roleModel.redFlags[0]),source:roleModel.redFlags[0],weight:'Medium'});
-      pushPool({category:'simulation',focus:roleModel.primaryDomain,source:roleModel.title || 'role simulation',weight:roleModel.complexityScore >= 4 ? 'High' : 'Medium'});
-      if (intent.focusSetup) pushPool({category:'setup',focus:'setup',source:roleModel.setupCriticality || 'required setup',weight:'High'});
-      if ((roleModel.businessPriorities || []).length) pushPool({category:'business',focus:'business_priority',source:roleModel.businessPriorities[0],weight:'High'});
-      (roleModel.requirements || []).slice(0,2).forEach(req => pushPool({category:'general',focus:'requirement',source:req,weight:'Medium'}));
-
-      const pick = category => pool.filter(item => item.category === category);
-      const ordered = [
-        ...pick('knockout').slice(0,2),
-        ...pick('proof').slice(0,4),
-        ...pick('success_signal').slice(0,1),
-        ...pick('simulation').slice(0,1),
-        ...pick('red_flag').slice(0,1),
-        ...pick('business').slice(0,1),
-        ...pick('setup').slice(0,1),
-        ...pick('general').slice(0,2)
-      ];
-
-      const final = [];
-      const finalSeen = new Set();
-      ordered.forEach(item => {
-        const key = [item.category || 'general', safeText(item.focus || ''), safeText(item.source || '')].join('::').toLowerCase();
-        if(finalSeen.has(key)) return;
-        finalSeen.add(key);
-        final.push(item);
-      });
-
-      return final.slice(0, targetCount);
+      return;
     }
 
-    function buildQuestionFromPlanItem(item, roleModel){
-      const source = safeText(item.source);
-      const focus = safeText(item.focus || source);
-      const tool = detectToolFromSkill(source || focus);
-      const trigger = detectTrigger(roleModel, focus);
-      const constraint = detectConstraint(roleModel, focus);
-      const envNotes = safeText(els.signalEnvironmentNotes.value);
-
-      if(item.category === 'knockout'){
-        if(item.focus === 'setup'){
-          return createEmptyQuestion({
-            question: `Are you willing and able to work in the required setup for this role${envNotes ? ` (${envNotes})` : ''}?`,
-            focus_area: 'Work Setup / Availability', response_type: 'Yes/No', weight: item.weight || 'Critical', category: 'knockout', knockout: true
-          });
-        }
-        return createEmptyQuestion({
-          question: `Walk us through the most recent time you had to prove ${source} in a real role${tool ? ` using ${tool}` : ''}. What company or environment was it in, what exactly did you handle, and what result shows you can do this at the level this role needs?`,
-          focus_area: source || 'Eligibility / Must-Have', response_type: item.response_type || 'Short Answer', weight: item.weight || 'Critical', category: 'knockout', knockout: true
-        });
-      }
-
-      if(item.category === 'simulation'){
-        return createEmptyQuestion({
-          question: buildScenarioQuestion({
-            task: `handle a realistic ${roleModel.title || 'role'} scenario`,
-            tool,
-            trigger,
-            constraint,
-            proofPrompt: 'How would you approach it step by step, what decision would you make first, and what outcome would you try to achieve?'
-          }),
-          focus_area: 'Scenario Simulation', response_type: 'Open Text', weight: item.weight || 'High', category: 'simulation'
-        });
-      }
-
-      if(item.category === 'red_flag'){
-        return createEmptyQuestion({
-          question: buildScenarioQuestion({
-            task: `handle a situation related to ${source}`,
-            tool,
-            trigger,
-            constraint,
-            proofPrompt: 'What did you do to prevent mistakes or risk, and what was the final outcome?'
-          }),
-          focus_area: 'Risk / Red Flag Check', response_type: 'Open Text', weight: item.weight || 'Medium', category: 'red_flag'
-        });
-      }
-
-      if(item.category === 'business'){
-        return createEmptyQuestion({
-          question: buildScenarioQuestion({
-            task: `solve a business problem related to ${source}`,
-            tool,
-            trigger,
-            constraint,
-            proofPrompt: 'What did you prioritize first, what tradeoff did you make, and what business result followed?'
-          }),
-          focus_area: 'Business Context', response_type: 'Open Text', weight: item.weight || 'High', category: 'business'
-        });
-      }
-
-      if(item.category === 'success_signal'){
-        return createEmptyQuestion({
-          question: buildScenarioQuestion({
-            task: `demonstrate ${source}`,
-            tool,
-            trigger,
-            constraint,
-            proofPrompt: 'What did you personally own, how did you execute it, and what measurable result came out of it?'
-          }),
-          focus_area: 'Success Signal', response_type: 'Open Text', weight: item.weight || 'High', category: 'proof'
-        });
-      }
-
-      return createEmptyQuestion({
-        question: buildScenarioQuestion({
-          task: `handle ${source || focus}`,
-          tool,
-          trigger,
-          constraint,
-          proofPrompt: 'What did you personally do, what exact steps did you take, and what was the result?'
-        }),
-        focus_area: source || focus || 'Execution', response_type: 'Open Text', weight: item.weight || 'High', category: item.category === 'general' ? 'proof' : item.category
+    if (knockoutCount < 2 && isStrongKnockoutSignal(signal, type)) {
+      pushPool({
+        category: "knockout",
+        focus: type || "eligibility",
+        source: signal,
+        weight: "Critical",
+        response_type: "Short Answer",
       });
+      knockoutCount += 1;
+      return;
     }
 
-    function isGenericQuestion(q){
-      const text = safeText(q).toLowerCase();
-      return /tell us about your experience|describe your experience|do you have experience|briefly confirm this must-have|briefly confirm this requirement/.test(text) || text.length < 80;
-    }
+    pushPool({
+      category: "proof",
+      focus: type || "must_have",
+      source: signal,
+      weight: "Critical",
+    });
+  });
 
-    function evaluateQuestionQuality(item) {
-      const question = safeText(item?.question);
-      const q = question.toLowerCase();
-      const roleModel = deriveRoleModel();
-      const combinedSignals = [
-        ...(roleModel.nonNeg || []), ...(roleModel.redFlags || []), ...(roleModel.successSignals || []), ...(roleModel.requirements || []),
-        ...((roleModel.weightedSkills || []).map(x => x.skill)), ...((roleModel.prioritySkills || []).map(x => x.skill)),
-        ...(roleModel.businessPriorities || []), roleModel.title, roleModel.family, item?.focus_area
-      ].map(s => safeText(s).toLowerCase()).filter(Boolean);
+  // Skills become proof or technical questions, not more knockouts.
+  weightedSkills.forEach((skillObj, index) => {
+    const skill = safeText(skillObj.skill);
+    if (!skill) return;
 
-      const genericPatterns = [/tell us about your experience/i,/describe your experience/i,/what experience do you have/i,/are you familiar with/i,/do you have experience/i];
-      const scenarioPatterns = [/walk us through/i,/describe a recent time/i,/tell us about a recent time/i,/give a specific example/i,/what happened the last time/i,/recent time you had to/i,/last time you had to/i];
-      const triggerPatterns = [/because of/i,/when\b/i,/after\b/i,/during\b/i,/due to/i,/triggered by/i,/caused by/i];
-      const constraintPatterns = [/under\b/i,/within\b/i,/while\b/i,/despite\b/i,/deadline/i,/sla/i,/high volume/i,/queue/i,/backlog/i,/peak/i,/time pressure/i,/production/i,/accuracy/i,/compliance/i,/risk/i,/urgent/i];
-      const proofPatterns = [/what did you do/i,/what steps did you take/i,/what was the result/i,/what was the outcome/i,/what happened next/i,/how did you handle/i,/how did you fix/i,/how did you troubleshoot/i,/what did you personally do/i];
-      const toolPatterns = [/\bapi\b/i,/\bcrm\b/i,/\bgds\b/i,/\bpnr\b/i,/\bpython\b/i,/\bsql\b/i,/\bsalesforce\b/i,/\bzendesk\b/i,/\bamadeus\b/i,/\bsabre\b/i,/\bopenai\b/i,/\bzapier\b/i,/\bmake\b/i,/\bwebhook\b/i];
-      const measurablePatterns = [/\bhow many\b/i,/\bhow much\b/i,/\bvolume\b/i,/\bmetric/i,/\bkpi/i,/\bcsat\b/i,/\bqa\b/i,/\baht\b/i,/\bconversion\b/i,/\baccuracy\b/i,/\bresult\b/i,/\boutcome\b/i];
-      const vaguePatterns = [/\bgood communication\b/i,/\bteam player\b/i,/\bhardworking\b/i,/\bdetail-oriented\b/i,/\bfast learner\b/i,/\bpassionate\b/i];
+    pushPool({
+      category: shouldUseTechnicalCategory(skill, roleModel, index) ? "technical" : "proof",
+      focus: classifySignalLine(skill) || "execution",
+      source: skill,
+      weight: skillObj.weight || "High",
+    });
+  });
 
-      const roleTermsMatched = combinedSignals.filter(signal => signal && q.includes(signal)).length;
-      const hasGeneric = genericPatterns.some(rx => rx.test(question));
-      const hasScenario = scenarioPatterns.some(rx => rx.test(question));
-      const hasTrigger = triggerPatterns.some(rx => rx.test(question));
-      const hasConstraint = constraintPatterns.some(rx => rx.test(question));
-      const hasProof = proofPatterns.some(rx => rx.test(question));
-      const hasToolAnchor = toolPatterns.some(rx => rx.test(question));
-      const hasMeasurableAnchor = measurablePatterns.some(rx => rx.test(question));
-      const hasVagueLanguage = vaguePatterns.some(rx => rx.test(question));
-      const isTooShort = question.length < 80;
+  successSignals.slice(0, 2).forEach((signal) =>
+    pushPool({
+      category: "success_signal",
+      focus: classifySignalLine(signal),
+      source: signal,
+      weight: "High",
+    })
+  );
 
-      let roleSpecificity = 0, scenarioGrounding = 0, pressureConstraint = 0, proofStrength = 0, fraudResistance = 0, evaluationClarity = 0, signalAlignment = 0;
-      const strengths = [], issues = [];
+  if (redFlags.length) {
+    pushPool({
+      category: "red_flag",
+      focus: classifySignalLine(redFlags[0]),
+      source: redFlags[0],
+      weight: "Medium",
+    });
+  }
 
-      if (roleTermsMatched >= 3) { roleSpecificity = 5; strengths.push('strong role-specific anchoring'); }
-      else if (roleTermsMatched === 2) roleSpecificity = 4;
-      else if (roleTermsMatched === 1) roleSpecificity = 3;
-      else if (item?.focus_area || item?.category !== 'general') { roleSpecificity = 2; issues.push('limited direct role anchoring'); }
-      else { roleSpecificity = 1; issues.push('generic across multiple roles'); }
+  const simulationObject = detectBestSimulationObject(roleModel);
+  if (simulationObject) {
+    pushPool({
+      category: "simulation",
+      focus: roleModel.primaryDomain,
+      source: simulationObject,
+      weight: roleModel.complexityScore >= 4 ? "High" : "Medium",
+    });
+  }
 
-      if (hasScenario && hasTrigger) { scenarioGrounding = 5; strengths.push('anchored to a real work situation'); }
-      else if (hasScenario) scenarioGrounding = 4;
-      else if (/example|situation|case|incident/i.test(question)) scenarioGrounding = 3;
-      else if (!hasGeneric) { scenarioGrounding = 2; issues.push('weak scenario framing'); }
-      else { scenarioGrounding = 1; issues.push('no strong scenario grounding'); }
+  if (businessPriorities.length) {
+    pushPool({
+      category: "business",
+      focus: "business_priority",
+      source: businessPriorities[0],
+      weight: "High",
+    });
+  }
 
-      if (hasConstraint && hasTrigger) { pressureConstraint = 5; strengths.push('includes work pressure or operating constraint'); }
-      else if (hasConstraint) pressureConstraint = 4;
-      else if (hasMeasurableAnchor) pressureConstraint = 3;
-      else if (/customer|system|issue|queue|deadline|production|compliance/i.test(question)) { pressureConstraint = 2; issues.push('pressure implied but not explicit'); }
-      else { pressureConstraint = 1; issues.push('missing pressure / constraint layer'); }
+  requirements
+    .filter((req) => hasRealWorkObject(req))
+    .slice(0, 2)
+    .forEach((req) =>
+      pushPool({
+        category: "general",
+        focus: "requirement",
+        source: req,
+        weight: "Medium",
+      })
+    );
 
-      if (hasProof && /personally|steps|result|outcome/i.test(question)) { proofStrength = 5; strengths.push('forces concrete proof and ownership'); }
-      else if (hasProof) proofStrength = 4;
-      else if (/specific example|real example/i.test(question)) proofStrength = 3;
-      else if (!hasGeneric) { proofStrength = 2; issues.push('asks for information but not enough proof'); }
-      else { proofStrength = 1; issues.push('easy to answer vaguely'); }
+  const pick = (category) => pool.filter((item) => item.category === category);
 
-      if (hasScenario && hasTrigger && hasConstraint && hasProof && (hasToolAnchor || hasMeasurableAnchor)) { fraudResistance = 5; strengths.push('harder to fake with generic AI answers'); }
-      else if (hasScenario && hasProof && (hasToolAnchor || hasConstraint)) fraudResistance = 4;
-      else if (hasScenario || hasProof) fraudResistance = 3;
-      else if (!hasGeneric) { fraudResistance = 2; issues.push('still vulnerable to rehearsed answers'); }
-      else { fraudResistance = 1; issues.push('very easy to fake or bluff'); }
+  const ordered = [
+    ...pick("knockout").slice(0, 2),
+    ...pick("proof").slice(0, 4),
+    ...pick("technical").slice(0, 2),
+    ...pick("success_signal").slice(0, 1),
+    ...pick("simulation").slice(0, 1),
+    ...pick("red_flag").slice(0, 1),
+    ...pick("business").slice(0, 1),
+    ...pick("setup").slice(0, 1),
+    ...pick("general").slice(0, 1),
+  ];
 
-      if (hasProof && (hasMeasurableAnchor || hasToolAnchor || hasConstraint)) { evaluationClarity = 5; strengths.push('easy for recruiter or AI to judge'); }
-      else if (hasProof) evaluationClarity = 4;
-      else if (/how|what|why/i.test(question)) evaluationClarity = 3;
-      else if (!hasGeneric) { evaluationClarity = 2; issues.push('answer quality may be hard to compare'); }
-      else { evaluationClarity = 1; issues.push('weak scoring clarity'); }
+  const final = [];
+  const finalSeen = new Set();
 
-      if (roleTermsMatched >= 3 || item?.weight === 'Critical' || item?.knockout) { signalAlignment = 5; strengths.push('well aligned to role signals'); }
-      else if (roleTermsMatched === 2) signalAlignment = 4;
-      else if (roleTermsMatched === 1) signalAlignment = 3;
-      else if (item?.focus_area) { signalAlignment = 2; issues.push('partial signal alignment only'); }
-      else { signalAlignment = 1; issues.push('not clearly linked to saved signals'); }
+  ordered.forEach((item) => {
+    const key = [item.category || "general", safeText(item.focus || ""), safeText(item.source || "")]
+      .join("::")
+      .toLowerCase();
+    if (finalSeen.has(key)) return;
+    finalSeen.add(key);
+    final.push(item);
+  });
 
-      let penalty = 0;
-      if (hasGeneric) { penalty += 12; issues.push('generic template phrasing'); }
-      if (isTooShort) { penalty += 6; issues.push('too short to create strong applicant pressure'); }
-      if (!hasScenario) penalty += 8;
-      if (!hasTrigger) penalty += 6;
-      if (!hasConstraint) penalty += 8;
-      if (!hasProof) penalty += 10;
-      if (hasVagueLanguage) { penalty += 6; issues.push('contains vague soft-signal language'); }
-      let bonus = 0;
-      if (hasToolAnchor) bonus += 4;
-      if (hasMeasurableAnchor) bonus += 3;
-      if (item?.knockout) bonus += 2;
-      if (item?.category === 'simulation') bonus += 3;
+  return final
+    .filter((item) => {
+      if (item.category === "setup") return true;
+      return hasRealWorkObject(item.source) || item.category === "simulation" || item.category === "red_flag";
+    })
+    .slice(0, targetCount);
+}
 
-      const raw = (roleSpecificity + scenarioGrounding + pressureConstraint + proofStrength + fraudResistance + evaluationClarity + signalAlignment) * 4;
-      let score = Math.round(raw - penalty + bonus);
-      score = Math.max(0, Math.min(100, score));
-      let verdict = 'Rewrite';
-      if (score >= 85) verdict = 'Elite';
-      else if (score >= 75) verdict = 'Strong';
-      else if (score >= 60) verdict = 'Usable';
-      else if (score >= 45) verdict = 'Weak';
+function buildQuestionFromPlanItem(item, roleModel) {
+  const source = safeText(item.source);
+  const focus = safeText(item.focus || source);
+  const tool = detectToolFromSkill(source || focus);
+  const trigger = detectTrigger(roleModel, focus);
+  const constraint = detectConstraint(roleModel, focus);
+  const envNotes = safeText(els.signalEnvironmentNotes?.value);
+  const roleTitle = safeText(roleModel.title || "this role");
+  const workObject = getRealWorkObject(source, roleModel, item.category);
 
-      return {
-        score, verdict,
-        role_relevance: roleSpecificity, scenario_grounding: scenarioGrounding, pressure_constraint: pressureConstraint,
-        proof_strength: proofStrength, fraud_resistance: fraudResistance, evaluation_clarity: evaluationClarity, signal_alignment: signalAlignment,
-        issues: [...new Set(issues)].slice(0,6), strengths: [...new Set(strengths)].slice(0,5)
-      };
-    }
+  if (item.category === "setup") {
+    return createEmptyQuestion({
+      question: `Are you willing and able to work in the required setup for this role${envNotes ? ` (${envNotes})` : ""}?`,
+      focus_area: "Work Setup / Availability",
+      response_type: item.response_type || "Yes/No",
+      weight: item.weight || "Critical",
+      category: "setup",
+      knockout: true,
+    });
+  }
 
+  if (item.category === "knockout") {
+    return createEmptyQuestion({
+      question: `Give one recent example that proves you have handled ${workObject}. Include where you did it, how recently, what you personally owned, and what result shows you can perform at the level required for ${roleTitle}.`,
+      focus_area: source || "Eligibility / Must-Have",
+      response_type: item.response_type || "Short Answer",
+      weight: item.weight || "Critical",
+      category: "knockout",
+      knockout: true,
+    });
+  }
+
+  if (item.category === "simulation") {
+    return createEmptyQuestion({
+      question: buildScenarioQuestion({
+        task: `debug or handle ${workObject}`,
+        tool,
+        trigger,
+        constraint,
+        proofPrompt:
+          "What would you check first, what decision would you make next, and what result would you aim to achieve before release or endorsement?",
+      }),
+      focus_area: "Scenario Simulation",
+      response_type: "Open Text",
+      weight: item.weight || "High",
+      category: "simulation",
+    });
+  }
+
+  if (item.category === "red_flag") {
+    return createEmptyQuestion({
+      question: buildScenarioQuestion({
+        task: `prevent a problem related to ${workObject}`,
+        tool,
+        trigger,
+        constraint,
+        proofPrompt:
+          "What did you do to reduce risk, how did you verify it, and what was the final outcome?",
+      }),
+      focus_area: "Risk / Red Flag Check",
+      response_type: "Open Text",
+      weight: item.weight || "Medium",
+      category: "red_flag",
+    });
+  }
+
+  if (item.category === "business") {
+    return createEmptyQuestion({
+      question: buildScenarioQuestion({
+        task: `solve a business problem involving ${workObject}`,
+        tool,
+        trigger,
+        constraint,
+        proofPrompt:
+          "What did you prioritize first, what tradeoff did you make, and what business result followed?",
+      }),
+      focus_area: "Business Context",
+      response_type: "Open Text",
+      weight: item.weight || "High",
+      category: "business",
+    });
+  }
+
+  if (item.category === "success_signal") {
+    return createEmptyQuestion({
+      question: buildScenarioQuestion({
+        task: `demonstrate ${workObject}`,
+        tool,
+        trigger,
+        constraint,
+        proofPrompt:
+          "What did you personally own, how did you execute it, and what measurable result came out of it?",
+      }),
+      focus_area: "Success Signal",
+      response_type: "Open Text",
+      weight: item.weight || "High",
+      category: "proof",
+    });
+  }
+
+  if (item.category === "technical") {
+    return createEmptyQuestion({
+      question: buildScenarioQuestion({
+        task: `handle ${workObject}`,
+        tool,
+        trigger,
+        constraint,
+        proofPrompt:
+          "What technical decision did you make, what exact steps did you take, and what result or improvement followed?",
+      }),
+      focus_area: source || focus || "Technical Execution",
+      response_type: "Open Text",
+      weight: item.weight || "High",
+      category: "technical",
+    });
+  }
+
+  return createEmptyQuestion({
+    question: buildScenarioQuestion({
+      task: `handle ${workObject}`,
+      tool,
+      trigger,
+      constraint,
+      proofPrompt:
+        "What did you personally do, what exact steps did you take, and what was the result?",
+    }),
+    focus_area: source || focus || "Execution",
+    response_type: "Open Text",
+    weight: item.weight || "High",
+    category: item.category === "general" ? "proof" : item.category,
+  });
+}
+
+function isGenericQuestion(q) {
+  const text = safeText(q).toLowerCase();
+
+  if (
+    /tell us about your experience|describe your experience|do you have experience|briefly confirm this must-have|briefly confirm this requirement/.test(
+      text
+    )
+  ) {
+    return true;
+  }
+
+  if (
+    /required setup|realistic scenario|business priority|general role fit|relevant experience|core competencies/.test(
+      text
+    )
+  ) {
+    return true;
+  }
+
+  if (text.length < 80) return true;
+  if (!hasRealWorkObject(text)) return true;
+
+  return false;
+}
+
+function evaluateQuestionQuality(item) {
+  const question = safeText(item?.question);
+  const q = question.toLowerCase();
+  const roleModel = deriveRoleModel();
+
+  const combinedSignals = [
+    ...(roleModel.nonNeg || []),
+    ...(roleModel.redFlags || []),
+    ...(roleModel.successSignals || []),
+    ...(roleModel.requirements || []),
+    ...((roleModel.weightedSkills || []).map((x) => x.skill)),
+    ...((roleModel.prioritySkills || []).map((x) => x.skill)),
+    ...(roleModel.businessPriorities || []),
+    roleModel.title,
+    roleModel.family,
+    item?.focus_area,
+  ]
+    .map((s) => safeText(s).toLowerCase())
+    .filter(Boolean);
+
+  const genericPatterns = [
+    /tell us about your experience/i,
+    /describe your experience/i,
+    /what experience do you have/i,
+    /are you familiar with/i,
+    /do you have experience/i,
+    /briefly confirm/i,
+  ];
+
+  const scenarioPatterns = [
+    /walk us through/i,
+    /describe a recent time/i,
+    /tell us about a recent time/i,
+    /give a specific example/i,
+    /what happened the last time/i,
+    /recent time you had to/i,
+    /last time you had to/i,
+  ];
+
+  const triggerPatterns = [
+    /because of/i,
+    /when\b/i,
+    /after\b/i,
+    /during\b/i,
+    /due to/i,
+    /triggered by/i,
+    /caused by/i,
+  ];
+
+  const constraintPatterns = [
+    /under\b/i,
+    /within\b/i,
+    /while\b/i,
+    /despite\b/i,
+    /deadline/i,
+    /sla/i,
+    /high volume/i,
+    /queue/i,
+    /backlog/i,
+    /peak/i,
+    /time pressure/i,
+    /production/i,
+    /accuracy/i,
+    /compliance/i,
+    /risk/i,
+    /urgent/i,
+    /release/i,
+    /outage/i,
+    /failure/i,
+  ];
+
+  const proofPatterns = [
+    /what did you do/i,
+    /what exact steps did you take/i,
+    /what steps did you take/i,
+    /what was the result/i,
+    /what was the outcome/i,
+    /what happened next/i,
+    /how did you handle/i,
+    /how did you fix/i,
+    /how did you troubleshoot/i,
+    /what did you personally do/i,
+    /what decision did you make/i,
+  ];
+
+  const toolPatterns = [
+    /\bapi\b/i,
+    /\bcrm\b/i,
+    /\bgds\b/i,
+    /\bpnr\b/i,
+    /\bpython\b/i,
+    /\bsql\b/i,
+    /\bsalesforce\b/i,
+    /\bzendesk\b/i,
+    /\bamadeus\b/i,
+    /\bsabre\b/i,
+    /\bopenai\b/i,
+    /\bzapier\b/i,
+    /\bmake\b/i,
+    /\bwebhook\b/i,
+    /\bpos\b/i,
+    /\berp\b/i,
+    /\bframework\b/i,
+    /\bautomation\b/i,
+    /\bcheckout\b/i,
+    /\bdefect\b/i,
+    /\btest\b/i,
+  ];
+
+  const measurablePatterns = [
+    /\bhow many\b/i,
+    /\bhow much\b/i,
+    /\bvolume\b/i,
+    /\bmetric/i,
+    /\bkpi/i,
+    /\bcsat\b/i,
+    /\bqa\b/i,
+    /\baht\b/i,
+    /\bconversion\b/i,
+    /\baccuracy\b/i,
+    /\bresult\b/i,
+    /\boutcome\b/i,
+    /\bimprovement\b/i,
+    /\bimpact\b/i,
+  ];
+
+  const vaguePatterns = [
+    /\bgood communication\b/i,
+    /\bteam player\b/i,
+    /\bhardworking\b/i,
+    /\bdetail-oriented\b/i,
+    /\bfast learner\b/i,
+    /\bpassionate\b/i,
+    /\brequired setup\b/i,
+    /\brealistic scenario\b/i,
+    /\bgeneral role fit\b/i,
+    /\brelevant experience\b/i,
+    /\bcore competencies\b/i,
+  ];
+
+  const roleTermsMatched = combinedSignals.filter((signal) => signal && q.includes(signal)).length;
+  const hasGeneric = genericPatterns.some((rx) => rx.test(question));
+  const hasScenario = scenarioPatterns.some((rx) => rx.test(question));
+  const hasTrigger = triggerPatterns.some((rx) => rx.test(question));
+  const hasConstraint = constraintPatterns.some((rx) => rx.test(question));
+  const hasProof = proofPatterns.some((rx) => rx.test(question));
+  const hasToolAnchor = toolPatterns.some((rx) => rx.test(question));
+  const hasMeasurableAnchor = measurablePatterns.some((rx) => rx.test(question));
+  const hasVagueLanguage = vaguePatterns.some((rx) => rx.test(question));
+  const realWorkObject = hasRealWorkObject(question);
+  const isTooShort = question.length < 80;
+
+  let roleSpecificity = 0;
+  let scenarioGrounding = 0;
+  let pressureConstraint = 0;
+  let proofStrength = 0;
+  let fraudResistance = 0;
+  let evaluationClarity = 0;
+  let signalAlignment = 0;
+
+  const strengths = [];
+  const issues = [];
+
+  if (roleTermsMatched >= 3) {
+    roleSpecificity = 5;
+    strengths.push("strong role-specific anchoring");
+  } else if (roleTermsMatched === 2) {
+    roleSpecificity = 4;
+  } else if (roleTermsMatched === 1) {
+    roleSpecificity = 3;
+  } else if (item?.focus_area || item?.category !== "general") {
+    roleSpecificity = 2;
+    issues.push("limited direct role anchoring");
+  } else {
+    roleSpecificity = 1;
+    issues.push("generic across multiple roles");
+  }
+
+  if (hasScenario && hasTrigger && realWorkObject) {
+    scenarioGrounding = 5;
+    strengths.push("anchored to a real work situation");
+  } else if (hasScenario && realWorkObject) {
+    scenarioGrounding = 4;
+  } else if (/example|situation|case|incident/i.test(question) && realWorkObject) {
+    scenarioGrounding = 3;
+  } else if (!hasGeneric) {
+    scenarioGrounding = 2;
+    issues.push("weak scenario framing");
+  } else {
+    scenarioGrounding = 1;
+    issues.push("no strong scenario grounding");
+  }
+
+  if (hasConstraint && hasTrigger) {
+    pressureConstraint = 5;
+    strengths.push("includes work pressure or operating constraint");
+  } else if (hasConstraint) {
+    pressureConstraint = 4;
+  } else if (hasMeasurableAnchor) {
+    pressureConstraint = 3;
+  } else if (/customer|system|issue|queue|deadline|production|compliance|release|failure/i.test(question)) {
+    pressureConstraint = 2;
+    issues.push("pressure implied but not explicit");
+  } else {
+    pressureConstraint = 1;
+    issues.push("missing pressure / constraint layer");
+  }
+
+  if (hasProof && /personally|steps|result|outcome|decision/i.test(question)) {
+    proofStrength = 5;
+    strengths.push("forces concrete proof and ownership");
+  } else if (hasProof) {
+    proofStrength = 4;
+  } else if (/specific example|real example/i.test(question)) {
+    proofStrength = 3;
+  } else if (!hasGeneric) {
+    proofStrength = 2;
+    issues.push("asks for information but not enough proof");
+  } else {
+    proofStrength = 1;
+    issues.push("easy to answer vaguely");
+  }
+
+  if (hasScenario && hasTrigger && hasConstraint && hasProof && realWorkObject && (hasToolAnchor || hasMeasurableAnchor)) {
+    fraudResistance = 5;
+    strengths.push("harder to fake with generic AI answers");
+  } else if (hasScenario && hasProof && realWorkObject && (hasToolAnchor || hasConstraint)) {
+    fraudResistance = 4;
+  } else if ((hasScenario || hasProof) && realWorkObject) {
+    fraudResistance = 3;
+  } else if (!hasGeneric) {
+    fraudResistance = 2;
+    issues.push("still vulnerable to rehearsed answers");
+  } else {
+    fraudResistance = 1;
+    issues.push("very easy to fake or bluff");
+  }
+
+  if (hasProof && (hasMeasurableAnchor || hasToolAnchor || hasConstraint)) {
+    evaluationClarity = 5;
+    strengths.push("easy for recruiter or AI to judge");
+  } else if (hasProof) {
+    evaluationClarity = 4;
+  } else if (/how|what|why/i.test(question)) {
+    evaluationClarity = 3;
+  } else if (!hasGeneric) {
+    evaluationClarity = 2;
+    issues.push("answer quality may be hard to compare");
+  } else {
+    evaluationClarity = 1;
+    issues.push("weak scoring clarity");
+  }
+
+  if (roleTermsMatched >= 3 || item?.weight === "Critical" || item?.knockout) {
+    signalAlignment = 5;
+    strengths.push("well aligned to role signals");
+  } else if (roleTermsMatched === 2) {
+    signalAlignment = 4;
+  } else if (roleTermsMatched === 1) {
+    signalAlignment = 3;
+  } else if (item?.focus_area) {
+    signalAlignment = 2;
+    issues.push("partial signal alignment only");
+  } else {
+    signalAlignment = 1;
+    issues.push("not clearly linked to saved signals");
+  }
+
+  let penalty = 0;
+  if (hasGeneric) {
+    penalty += 12;
+    issues.push("generic template phrasing");
+  }
+  if (isTooShort) {
+    penalty += 6;
+    issues.push("too short to create strong applicant pressure");
+  }
+  if (!hasScenario) penalty += 8;
+  if (!hasTrigger) penalty += 6;
+  if (!hasConstraint) penalty += 8;
+  if (!hasProof) penalty += 10;
+  if (hasVagueLanguage) {
+    penalty += 12;
+    issues.push("contains vague or placeholder phrasing");
+  }
+  if (!realWorkObject && item?.category !== "setup") {
+    penalty += 18;
+    issues.push("missing real work object");
+  }
+
+  let bonus = 0;
+  if (hasToolAnchor) bonus += 4;
+  if (hasMeasurableAnchor) bonus += 3;
+  if (item?.knockout) bonus += 2;
+  if (item?.category === "simulation") bonus += 2;
+
+  const raw =
+    (roleSpecificity +
+      scenarioGrounding +
+      pressureConstraint +
+      proofStrength +
+      fraudResistance +
+      evaluationClarity +
+      signalAlignment) *
+    4;
+
+  let score = Math.round(raw - penalty + bonus);
+  score = Math.max(0, Math.min(100, score));
+
+  let verdict = "Rewrite";
+  if (score >= 85) verdict = "Elite";
+  else if (score >= 75) verdict = "Strong";
+  else if (score >= 60) verdict = "Usable";
+  else if (score >= 45) verdict = "Weak";
+
+  return {
+    score,
+    verdict,
+    role_relevance: roleSpecificity,
+    scenario_grounding: scenarioGrounding,
+    pressure_constraint: pressureConstraint,
+    proof_strength: proofStrength,
+    fraud_resistance: fraudResistance,
+    evaluation_clarity: evaluationClarity,
+    signal_alignment: signalAlignment,
+    issues: [...new Set(issues)].slice(0, 6),
+    strengths: [...new Set(strengths)].slice(0, 5),
+  };
+}
+
+/* helper functions needed by the rewritten logic */
+function isStrongKnockoutSignal(signal, type) {
+  const text = safeText(signal).toLowerCase();
+  if (type === "setup") return false;
+  if (/years|licensed|license|certified|certification|bpo voice|acute care|onsite|shift|experience required|required/.test(text)) return true;
+  return false;
+}
+
+function shouldUseTechnicalCategory(skill, roleModel, index) {
+  const s = safeText(skill).toLowerCase();
+  if (roleModel.primaryDomain !== "technical") return false;
+  if (index > 1) return false;
+  return /\bapi\b|\bautomation\b|\bframework\b|\bpython\b|\bsql\b|\barchitecture\b|\bintegration\b|\btesting\b|\bmlops\b|\bdata platform\b|\bpos\b|\berp\b/.test(s);
+}
+
+function hasRealWorkObject(text) {
+  const q = safeText(text).toLowerCase();
+
+  const weakObjects = [
+    "required setup",
+    "realistic scenario",
+    "business priority",
+    "general role fit",
+    "relevant experience",
+    "core competencies",
+    "must-have requirement",
+    "requirement",
+  ];
+  if (weakObjects.some((x) => q.includes(x))) return false;
+
+  const strongObjects = [
+    "api", "framework", "automation", "test", "checkout", "pos", "erp", "workflow",
+    "incident", "defect", "ticket", "customer", "campaign", "pnr", "booking",
+    "appeal", "denial", "integration", "release", "crm", "call", "escalation",
+    "qa", "regression", "script", "dashboard", "report", "query", "warehouse",
+    "etl", "pipeline", "retail", "rebooking", "amadeus", "sabre"
+  ];
+
+  return strongObjects.some((x) => q.includes(x));
+}
+
+function getRealWorkObject(source, roleModel, category) {
+  const src = safeText(source);
+  const lower = src.toLowerCase();
+
+  if (category === "setup") return "required work setup";
+
+  if (hasRealWorkObject(src)) return src;
+
+  if (roleModel.primaryDomain === "technical") {
+    if (/automation|framework|test/.test(lower)) return "an automated test framework";
+    if (/api|integration/.test(lower)) return "an API integration";
+    if (/retail|pos|erp/.test(lower)) return "a POS or ERP workflow";
+    return "a failing automated test or release-critical defect";
+  }
+
+  if (roleModel.primaryDomain === "customer") {
+    if (/voice|call/.test(lower)) return "a customer call";
+    if (/gds|pnr|booking/.test(lower)) return "a booking or PNR update";
+    return "a customer issue or escalation";
+  }
+
+  if (roleModel.primaryDomain === "healthcare") {
+    if (/appeal|denial/.test(lower)) return "a denial or appeal case";
+    return "a clinical documentation or case review workflow";
+  }
+
+  if (roleModel.primaryDomain === "finance") {
+    return "a reconciliation, reporting, or finance control task";
+  }
+
+  if (roleModel.primaryDomain === "operations") {
+    return "an operations workflow or process breakdown";
+  }
+
+  return src || roleModel.title || "a real work task";
+}
+
+function detectBestSimulationObject(roleModel) {
+  const candidates = [
+    ...(roleModel.weightedSkills || []).map((x) => x.skill),
+    ...(roleModel.prioritySkills || []).map((x) => x.skill),
+    ...(roleModel.requirements || []),
+    ...(roleModel.nonNeg || []),
+  ].map((x) => safeText(x)).filter(Boolean);
+
+  const best = candidates.find((x) => hasRealWorkObject(x));
+  if (best) return best;
+
+  return getRealWorkObject(roleModel.title, roleModel, "simulation");
+}
     function evaluateCandidateAnswer(item){
       const answer = safeText(item?.candidate_answer).toLowerCase();
       if(!answer) return null;
