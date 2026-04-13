@@ -160,6 +160,7 @@
             <a href="recruiter-dashboard.html" class="menu-item">Back to BuzzHire</a>
             <a href="client-role-input.html" class="menu-item">Manage Roles</a>
             <button id="menuUploadLinkedInPdfBtn" class="menu-item" type="button">Upload LinkedIn PDF</button>
+            <button id="menuUploadCsvBtn" class="menu-item" type="button">Upload CSV</button>
             <button id="menuRefreshBtn" class="menu-item" type="button">Refresh</button>
             <button id="menuLogoutBtn" class="menu-item danger" type="button">Logout</button>
           </div>
@@ -348,6 +349,37 @@
     </div>
   </div>
 
+
+  <div id="csvUploadModal" class="modal-backdrop">
+    <div class="modal">
+      <div class="modal-header">
+        <div>
+          <h2 class="modal-title">Upload CSV</h2>
+          <p class="modal-subtitle">Bulk upload prospects into BuzzPool with AI scoring and preview before save.</p>
+        </div>
+        <button id="closeCsvModalBtn" class="icon-btn" type="button">&times;</button>
+      </div>
+      <div class="help-box">
+        Expected columns:<br>
+        <strong>full_name, current_title, total_experience, skills, current_company, linkedin_url, summary_of_experience</strong>
+      </div>
+      <div class="form-grid">
+        <div class="field full-span">
+          <label for="csvFileInput">CSV File</label>
+          <input id="csvFileInput" type="file" accept=".csv,text/csv" />
+        </div>
+        <div class="field full-span">
+          <label for="csvPreviewBox">Preview</label>
+          <div id="csvPreviewBox" class="result-box hidden"></div>
+        </div>
+      </div>
+      <div class="form-actions">
+        <button id="parseCsvBtn" class="btn btn-outline" type="button">Parse CSV</button>
+        <button id="saveCsvBtn" class="btn btn-primary" type="button">Save to BuzzPool</button>
+      </div>
+    </div>
+  </div>
+
   <script>
     document.addEventListener('DOMContentLoaded', async () => {
       const SUPABASE_URL = 'https://dilalntcxmvdcmwxjcct.supabase.co';
@@ -366,7 +398,7 @@
       const $ = (id) => document.getElementById(id);
       const els = {
         notice:$('notice'), helloRecruiter:$('helloRecruiter'), menuToggleBtn:$('menuToggleBtn'), actionMenu:$('actionMenu'),
-        menuUploadLinkedInPdfBtn:$('menuUploadLinkedInPdfBtn'), menuRefreshBtn:$('menuRefreshBtn'), menuLogoutBtn:$('menuLogoutBtn'),
+        menuUploadLinkedInPdfBtn:$('menuUploadLinkedInPdfBtn'), menuUploadCsvBtn:$('menuUploadCsvBtn'), menuRefreshBtn:$('menuRefreshBtn'), menuLogoutBtn:$('menuLogoutBtn'),
         fProspects:$('fProspects'), fInvites:$('fInvites'), fProfiles:$('fProfiles'), fApplications:$('fApplications'), fVoice:$('fVoice'),
         mInvites:$('mInvites'), mProfiles:$('mProfiles'), mApplications:$('mApplications'), mVoice:$('mVoice'),
         barProspects:$('barProspects'), barInvites:$('barInvites'), barProfiles:$('barProfiles'), barApplications:$('barApplications'), barVoice:$('barVoice'),
@@ -386,7 +418,10 @@
         prospectLocation:$('prospectLocation'), prospectEmail:$('prospectEmail'), prospectLinkedIn:$('prospectLinkedIn'),
         prospectExperience:$('prospectExperience'), prospectAiScore:$('prospectAiScore'), prospectSkills:$('prospectSkills'),
         prospectSummary:$('prospectSummary'), linkedinPdfResult:$('linkedinPdfResult'),
-        parseLinkedInPdfBtn:$('parseLinkedInPdfBtn'), saveLinkedInProspectBtn:$('saveLinkedInProspectBtn')
+        parseLinkedInPdfBtn:$('parseLinkedInPdfBtn'), saveLinkedInProspectBtn:$('saveLinkedInProspectBtn'),
+        csvUploadModal:$('csvUploadModal'), closeCsvModalBtn:$('closeCsvModalBtn'),
+        csvFileInput:$('csvFileInput'), csvPreviewBox:$('csvPreviewBox'),
+        parseCsvBtn:$('parseCsvBtn'), saveCsvBtn:$('saveCsvBtn')
       };
 
       const normalizeText = (v) => String(v || '').trim().toLowerCase();
@@ -797,6 +832,121 @@
           lastError = error;
         }
         throw lastError || new Error('Unable to save prospect.');
+      }
+
+
+      let csvParsedData = [];
+
+      function parseCsvLine(line=''){
+        const result = [];
+        let current = '';
+        let inQuotes = false;
+
+        for (let i = 0; i < line.length; i++) {
+          const ch = line[i];
+          const next = line[i + 1];
+
+          if (ch === '"' ) {
+            if (inQuotes && next === '"') {
+              current += '"';
+              i += 1;
+            } else {
+              inQuotes = !inQuotes;
+            }
+            continue;
+          }
+
+          if (ch === ',' && !inQuotes) {
+            result.push(current.trim());
+            current = '';
+            continue;
+          }
+
+          current += ch;
+        }
+
+        result.push(current.trim());
+        return result.map(v => v.replace(/^"|"$/g, '').trim());
+      }
+
+      function parseCSVAdvanced(text=''){
+        const rows = String(text || '')
+          .replace(/\r/g, '')
+          .split('\n')
+          .filter(line => line.trim());
+
+        if (!rows.length) return [];
+        const headers = parseCsvLine(rows[0]).map(h => h.toLowerCase().trim());
+
+        return rows.slice(1).map(line => {
+          const values = parseCsvLine(line);
+          const obj = {};
+          headers.forEach((header, index) => {
+            obj[header] = values[index] || '';
+          });
+          return obj;
+        });
+      }
+
+      function computeCsvAIScore(c){
+        let score = 0;
+        if (c.full_name) score += 12;
+        if (c.current_title) score += 20;
+        if (c.current_company) score += 12;
+        if (c.linkedin_url) score += 12;
+
+        if (c.skills) {
+          const skills = String(c.skills).split(',').map(s => s.trim()).filter(Boolean);
+          score += Math.min(skills.length * 4, 24);
+        }
+
+        if (c.total_experience) {
+          const yrs = parseFloat(c.total_experience) || 0;
+          score += Math.min(yrs * 3, 18);
+        }
+
+        if (c.summary_of_experience) score += 8;
+        return Math.min(100, Math.round(score));
+      }
+
+      function renderCsvPreview(rows){
+        if (!els.csvPreviewBox) return;
+        if (!rows.length) {
+          els.csvPreviewBox.classList.remove('hidden');
+          els.csvPreviewBox.innerHTML = 'No valid rows found in the CSV.';
+          return;
+        }
+
+        const previewRows = rows.slice(0, 8).map(row => `
+          <tr>
+            <td>${escapeHtml(row.full_name || '')}</td>
+            <td>${escapeHtml(row.current_title || '')}</td>
+            <td>${escapeHtml(row.current_company || '')}</td>
+            <td>${escapeHtml(String(row.total_experience || ''))}</td>
+            <td>${escapeHtml(String(row.skills || ''))}</td>
+            <td>${escapeHtml(String(row.ai_score || 0))}</td>
+          </tr>
+        `).join('');
+
+        els.csvPreviewBox.classList.remove('hidden');
+        els.csvPreviewBox.innerHTML = `
+          <div style="margin-bottom:10px;"><strong>${rows.length}</strong> row(s) parsed. Showing first ${Math.min(rows.length, 8)}.</div>
+          <div class="table-wrap" style="border:none;">
+            <table style="min-width:900px;">
+              <thead>
+                <tr>
+                  <th>Full Name</th>
+                  <th>Current Title</th>
+                  <th>Current Company</th>
+                  <th>Total Experience</th>
+                  <th>Skills</th>
+                  <th>AI Score</th>
+                </tr>
+              </thead>
+              <tbody>${previewRows}</tbody>
+            </table>
+          </div>
+        `;
       }
 
       async function fetchAllRows(buildQuery, pageSize = 500) {
@@ -1403,6 +1553,103 @@
             } catch (error) {
               console.error('[LINKEDIN_PDF_SAVE_ERROR]', error);
               showPdfResult(error.message || 'Failed to save prospect.', 'error');
+            }
+          });
+        }
+
+
+        if (els.menuUploadCsvBtn) {
+          els.menuUploadCsvBtn.addEventListener('click', () => {
+            openModal(els.csvUploadModal);
+            if (els.csvPreviewBox) {
+              els.csvPreviewBox.classList.add('hidden');
+              els.csvPreviewBox.innerHTML = '';
+            }
+          });
+        }
+
+        if (els.closeCsvModalBtn) {
+          els.closeCsvModalBtn.addEventListener('click', () => closeModal(els.csvUploadModal));
+        }
+
+        if (els.csvUploadModal) {
+          els.csvUploadModal.addEventListener('click', (e) => {
+            if (e.target === els.csvUploadModal) closeModal(els.csvUploadModal);
+          });
+          const csvModalInner = els.csvUploadModal.querySelector('.modal');
+          if (csvModalInner) csvModalInner.addEventListener('click', (e) => e.stopPropagation());
+        }
+
+        if (els.parseCsvBtn) {
+          els.parseCsvBtn.addEventListener('click', async () => {
+            try {
+              const file = els.csvFileInput?.files?.[0];
+              if (!file) throw new Error('Please choose a CSV file first.');
+              const text = await file.text();
+              const parsed = parseCSVAdvanced(text);
+              csvParsedData = parsed.map(row => ({
+                full_name: row.full_name || '',
+                current_title: row.current_title || '',
+                current_company: row.current_company || '',
+                total_experience: row.total_experience || '',
+                skills: row.skills || '',
+                linkedin_url: row.linkedin_url || row.linkedin || '',
+                summary_of_experience: row.summary_of_experience || row.summary || '',
+                ai_score: computeCsvAIScore(row)
+              }));
+              renderCsvPreview(csvParsedData);
+              showNotice(`CSV parsed successfully. ${csvParsedData.length} row(s) ready to save.`, 'success');
+            } catch (error) {
+              console.error('[CSV_PARSE_ERROR]', error);
+              if (els.csvPreviewBox) {
+                els.csvPreviewBox.classList.remove('hidden');
+                els.csvPreviewBox.innerHTML = escapeHtml(error.message || 'Failed to parse CSV.');
+              }
+              showNotice(error.message || 'Failed to parse CSV.', 'error');
+            }
+          });
+        }
+
+        if (els.saveCsvBtn) {
+          els.saveCsvBtn.addEventListener('click', async () => {
+            try {
+              if (!csvParsedData.length) throw new Error('No parsed CSV rows to save yet.');
+              let success = 0;
+              let failed = 0;
+
+              for (const row of csvParsedData) {
+                try {
+                  await saveProspectWithFallback({
+                    full_name: row.full_name,
+                    current_title: row.current_title,
+                    current_company: row.current_company,
+                    location: '',
+                    personal_email: '',
+                    linkedin_url: row.linkedin_url,
+                    total_experience: row.total_experience ? `${row.total_experience}` : '',
+                    experience_summary: row.summary_of_experience,
+                    skills: String(row.skills || '').split(',').map(s => s.trim()).filter(Boolean),
+                    source: 'csv_upload',
+                    ai_score: Number(row.ai_score || 0)
+                  });
+                  success += 1;
+                } catch (innerError) {
+                  console.error('[CSV_ROW_SAVE_ERROR]', row.full_name, innerError);
+                  failed += 1;
+                }
+              }
+
+              await loadAllData();
+              updateDashboard();
+              state.activeTab = 'sourcing';
+              document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+              document.querySelector('.tab[data-tab="sourcing"]')?.classList.add('active');
+              renderActiveView();
+              closeModal(els.csvUploadModal);
+              showNotice(`CSV upload complete. Success: ${success}. Failed: ${failed}.`, failed ? 'warning' : 'success');
+            } catch (error) {
+              console.error('[CSV_SAVE_ERROR]', error);
+              showNotice(error.message || 'Failed to save CSV prospects.', 'error');
             }
           });
         }
