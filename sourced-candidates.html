@@ -180,7 +180,7 @@
       <div class="panel-header">
         <div>
           <h2>Conversion Dashboard</h2>
-          <p>Track the full funnel from sourced lead to invite, profile, and application.</p>
+          <p>Track the full funnel from sourced lead to invite, profile, application, and engagement.</p>
         </div>
       </div>
       <div class="funnel-grid">
@@ -226,6 +226,24 @@
       <div class="tracker-card"><h3 id="countConverted">0</h3><p>Invite Conversions</p></div>
       <div class="tracker-card"><h3 id="countPipeline">0</h3><p>Applications</p></div>
     </div>
+
+
+    <div class="panel">
+      <div class="panel-header">
+        <div>
+          <h2>Outreach Analytics</h2>
+          <p>Track email engagement and profile conversion from invites.</p>
+        </div>
+      </div>
+      <div class="tracker-grid" style="grid-template-columns:repeat(5,minmax(0,1fr));">
+        <div class="tracker-card"><h3 id="oaSent">0</h3><p>Emails Sent</p></div>
+        <div class="tracker-card"><h3 id="oaOpened">0%</h3><p>Open Rate</p></div>
+        <div class="tracker-card"><h3 id="oaClicked">0%</h3><p>Click Rate</p></div>
+        <div class="tracker-card"><h3 id="oaStarted">0%</h3><p>Started Profile</p></div>
+        <div class="tracker-card"><h3 id="oaConverted">0%</h3><p>Completed Profile</p></div>
+      </div>
+    </div>
+
 
     <div class="tabs">
       <button class="tab active" data-tab="talent">Talent</button>
@@ -453,6 +471,7 @@
         barProspects:$('barProspects'), barInvites:$('barInvites'), barProfiles:$('barProfiles'), barApplications:$('barApplications'), barVoice:$('barVoice'),
         countTalent:$('countTalent'), countCompleted:$('countCompleted'), countTalentOnly:$('countTalentOnly'),
         countSourcing:$('countSourcing'), countInvited:$('countInvited'), countConverted:$('countConverted'), countPipeline:$('countPipeline'),
+        oaSent:$('oaSent'), oaOpened:$('oaOpened'), oaClicked:$('oaClicked'), oaStarted:$('oaStarted'), oaConverted:$('oaConverted'),
         activeTitle:$('activeTitle'), activeCopy:$('activeCopy'),
         contextActions:$('contextActions'), quickFilters:$('quickFilters'),
         searchInput:$('searchInput'), filterOne:$('filterOne'), filterTwo:$('filterTwo'), filterThree:$('filterThree'), filterFour:$('filterFour'),
@@ -1220,19 +1239,19 @@
 
         const profileEmails = new Set((profiles || []).map(p => normalizeText(p.email || '')));
         state.data.outreach = (invites || []).map(i => {
-          const email = i.email || i.invite_email || '';
+          const email = i.email || '';
           const status =
             i.profile_completed_at ? 'completed' :
             i.profile_started_at ? 'started' :
-            i.status || i.invite_status || 'sent';
+            i.status || 'sent';
 
           return {
             ...i,
             email,
             full_name: i.full_name || '',
             status,
-            recruiter_email: i.sent_by || i.recruiter_email || '',
-            sent_at: i.invite_sent_at || i.sent_at || i.created_at || '',
+            recruiter_email: i.recruiter_email || '',
+            sent_at: i.invite_sent_at || i.created_at || '',
             converted: !!(i.profile_completed_at || i.applicant_profile_id || profileEmails.has(normalizeText(email))),
             profile_started_at: i.profile_started_at || null,
             profile_completed_at: i.profile_completed_at || null,
@@ -1246,6 +1265,21 @@
           display_name: app.email || 'Applicant',
           score: Number(app.screening_score || 0)
         }));
+      }
+
+
+      function updateOutreachAnalytics(){
+        const sent = state.data.outreach.length;
+        const opened = state.data.outreach.filter(r => r.opened_at).length;
+        const clicked = state.data.outreach.filter(r => r.clicked_at).length;
+        const started = state.data.outreach.filter(r => r.profile_started_at).length;
+        const converted = state.data.outreach.filter(r => r.profile_completed_at).length;
+
+        if (els.oaSent) els.oaSent.textContent = String(sent);
+        if (els.oaOpened) els.oaOpened.textContent = `${pct(opened, sent)}%`;
+        if (els.oaClicked) els.oaClicked.textContent = `${pct(clicked, sent)}%`;
+        if (els.oaStarted) els.oaStarted.textContent = `${pct(started, sent)}%`;
+        if (els.oaConverted) els.oaConverted.textContent = `${pct(converted, sent)}%`;
       }
 
       function updateDashboard(){
@@ -1278,6 +1312,7 @@
         els.countInvited.textContent = String(invites);
         els.countConverted.textContent = String(state.data.outreach.filter(r => r.converted).length);
         els.countPipeline.textContent = String(apps);
+        updateOutreachAnalytics();
       }
 
       function tabConfig(){
@@ -1910,16 +1945,17 @@
               const result = await sendBuzzpoolInvite({
                 full_name: fullName,
                 email,
-                invite_link: inviteLink
+                invite_link: inviteLink,
+                recruiter_email: state.sessionUser?.email || ''
               });
 
               insertOutreachRecordOptimistically({
-                id: result.invite_tracking?.invite_id || email,
+                id: result.invite?.id || result.invite_tracking?.invite_id || email,
                 full_name: fullName,
                 email,
                 invite_link: inviteLink,
                 invite_sent_at: new Date().toISOString(),
-                status: result.invite_tracking?.status || 'sent',
+                status: result.invite?.status || result.invite_tracking?.status || 'sent',
                 recruiter_email: state.sessionUser?.email || ''
               });
 
@@ -1931,6 +1967,7 @@
                 console.error('[OUTREACH_REFRESH_ERROR]', refreshError);
               }
               updateDashboard();
+              updateOutreachAnalytics();
               state.activeTab = 'outreach';
               document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
               document.querySelector('.tab[data-tab="outreach"]')?.classList.add('active');
@@ -1992,6 +2029,7 @@
         bindEvents();
         await loadAllData();
         updateDashboard();
+        updateOutreachAnalytics();
         renderActiveView();
       } catch (error) {
         console.error('[BUZZPOOL_UNIFIED_ERROR]', error);
