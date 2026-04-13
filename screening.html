@@ -688,7 +688,14 @@
       };
     }
 
-    async function insertApplicationWithScreening({ email, applicantProfileId, job, review }){
+    async function insertApplicationWithScreening({
+      email,
+      applicantProfileId,
+      job,
+      review,
+      answers,
+      screeningResponsesPayload
+    }){
       const payload = {
         email,
         applicant_profile_id: applicantProfileId,
@@ -700,45 +707,39 @@
         screening_score: review.score,
         auto_disposition_reason: review.knockoutFailed ? 'screening_knockout' : null,
         confirmation_email_status: 'pending',
-        rejection_email_status: 'pending'
-      };
+        rejection_email_status: 'pending',
 
-      const { data, error } = await supabaseClient.from('applications').insert([payload]).select('id').single();
-      if (error) throw error;
-      return data;
-    }
-
-    async function saveScreeningArtifacts(applicationId, applicantProfileId, answers, review){
-      const screeningResponsesPayload = {
-        submitted_at: new Date().toISOString(),
-        voice_screening: voiceScreeningConfig?.enabled ? {
-          enabled: true,
-          language_requirement: voiceScreeningConfig.requirement || 'None',
-          mode: voiceScreeningConfig.mode || 'auto',
-          answer: answers.find(item => item.question_id === 'voice_screening_intro') || null
-        } : {
-          enabled: false
-        },
-        answers
-      };
-
-      const updatePayload = {
         screening_answers: answers,
         screening_responses: screeningResponsesPayload,
         screening_review_strengths: null,
         screening_review_risks: review.knockoutFailed ? 'Knockout requirement not met.' : null,
         screening_review_summary: `Adaptive screening submitted with score ${review.score}.${voiceScreeningConfig?.enabled ? ' Voice screening file attached.' : ''}`,
-        screening_review_decision: review.screeningResult,
+        screening_review_decision: review.screeningResult
+      };
+
+      const { data, error } = await supabaseClient
+        .from('applications')
+        .insert([payload])
+        .select('id, screening_result, screening_score, screening_answers, screening_responses')
+        .single();
+
+      console.log('[APPLICATION INSERT RESULT]', data, error);
+
+      if (error) throw error;
+      if (!data?.id) throw new Error('Application insert succeeded but no row was returned.');
+      if (!data.screening_answers || !data.screening_responses) {
+        throw new Error('Application was created but screening payload was not persisted.');
+      }
+
+      return data;
+    }
+
+    async function saveScreeningArtifacts(applicationId, applicantProfileId, answers, review){
+      return {
+        id: applicationId,
         screening_result: review.screeningResult,
         screening_score: review.score
       };
-
-      const { error } = await supabaseClient
-        .from('applications')
-        .update(updatePayload)
-        .eq('id', applicationId);
-
-      if (error) throw error;
     }
 
     async function markRoleAlertApplied(jobId, applicantProfileId){
@@ -805,13 +806,29 @@
           : null;
 
         const answers = buildAnswersPayload(voiceUpload);
-        const review = evaluateOverall(answers.filter(item => item.question_id !== 'voice_screening_intro'));
+        const scoredAnswers = answers.filter(item => item.question_id !== 'voice_screening_intro');
+        const review = evaluateOverall(scoredAnswers);
+
+        const screeningResponsesPayload = {
+          submitted_at: new Date().toISOString(),
+          voice_screening: voiceScreeningConfig?.enabled ? {
+            enabled: true,
+            language_requirement: voiceScreeningConfig.requirement || 'None',
+            mode: voiceScreeningConfig.mode || 'auto',
+            answer: answers.find(item => item.question_id === 'voice_screening_intro') || null
+          } : {
+            enabled: false
+          },
+          answers
+        };
 
         const application = await insertApplicationWithScreening({
           email: currentUser.email,
           applicantProfileId: currentProfile.id,
           job: currentJob,
-          review
+          review,
+          answers,
+          screeningResponsesPayload
         });
 
         await saveScreeningArtifacts(application.id, currentProfile.id, answers, review);
