@@ -283,12 +283,12 @@
       <div class="modal-header">
         <div>
           <h2 class="modal-title">Upload LinkedIn PDF</h2>
-          <p class="modal-subtitle">Parse a LinkedIn profile PDF with LinkedIn-specific section detection, preview extracted details, auto-score the prospect, then save to BuzzPool sourcing.</p>
+          <p class="modal-subtitle">Parse a LinkedIn profile PDF, preview extracted details, auto-score the prospect, then save to BuzzPool sourcing.</p>
         </div>
         <button id="closeLinkedInPdfModalBtn" class="icon-btn" type="button">&times;</button>
       </div>
       <div class="help-box">
-        Upload a LinkedIn PDF export. TalentBuzz will extract the candidate's name, current role, location, experience signal, skills, LinkedIn URL, and summary.
+        Upload a LinkedIn PDF export. TalentBuzz will preserve line structure, detect Top Skills / Summary / Experience / Education, and extract cleaner prospect details.
       </div>
       <div class="form-grid">
         <div class="field full-span">
@@ -494,8 +494,6 @@
         return String(text || '')
           .replace(/\r/g, '\n')
           .replace(/\u00a0/g, ' ')
-          .replace(/-\s+([A-Za-z])/g, '-$1')
-          .replace(/([A-Za-z])\s+-\s+([A-Za-z])/g, '$1-$2')
           .replace(/[ \t]+/g, ' ')
           .replace(/\n{3,}/g, '\n\n')
           .trim();
@@ -508,144 +506,179 @@
           .trim();
       }
 
+      function splitInlineSectionLabels(line=''){
+        const labels = ['Contact', 'Top Skills', 'Summary', 'Experience', 'Education', 'Certifications', 'Licenses & Certifications'];
+        let working = String(line || '').trim();
+        if (!working) return [];
+        labels.forEach(label => {
+          const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+          const re = new RegExp(`\\s*(${escaped})\\s*`, 'gi');
+          working = working.replace(re, '\n$1\n');
+        });
+        return working.split(/\n+/).map(s => s.trim()).filter(Boolean);
+      }
+
       function getPdfLines(text=''){
-        return normalizePdfText(text)
+        const rawLines = normalizePdfText(text)
           .split(/\n+/)
           .map(line => line.trim())
           .filter(Boolean);
+
+        const expanded = [];
+        rawLines.forEach(line => expanded.push(...splitInlineSectionLabels(line)));
+        return expanded.filter(Boolean);
       }
 
-      function repairLinkedInUrl(value=''){
-        let text = String(value || '')
+      function findSectionRange(lines, startLabel, endLabels=[]){
+        const start = lines.findIndex(line => new RegExp(`^${startLabel}$`, 'i').test(line));
+        if (start < 0) return { start:-1, end:-1, items:[] };
+        let end = lines.length;
+        for (let i = start + 1; i < lines.length; i++) {
+          if (endLabels.some(label => new RegExp(`^${label}$`, 'i').test(lines[i]))) {
+            end = i;
+            break;
+          }
+        }
+        return { start, end, items: lines.slice(start + 1, end) };
+      }
+
+      function repairLinkedInUrl(text=''){
+        let url = String(text || '')
           .replace(/\(LinkedIn\)/ig, '')
           .replace(/\s+/g, '')
-          .replace(/linkedin\.com\/in\/([A-Za-z0-9]+)-([A-Za-z0-9]+)/ig, 'linkedin.com/in/$1-$2')
+          .replace(/-+/g, '-')
           .trim();
 
-        if (!text) return '';
-        if (!/^https?:\/\//i.test(text)) {
-          if (/^www\./i.test(text) || /linkedin\.com/i.test(text)) text = 'https://' + text;
+        if (!url) return '';
+        if (!/^https?:\/\//i.test(url)) {
+          if (/^www\./i.test(url) || /linkedin\.com/i.test(url)) url = 'https://' + url;
         }
-        return text.replace(/[^\w\-./:%?=&]/g, '');
-      }
-
-      function extractSection(fullText, startLabel, endLabels=[]){
-        const source = flattenPdfText(fullText);
-        const startRegex = new RegExp(`${startLabel}\\s+`, 'i');
-        const startMatch = source.match(startRegex);
-        if (!startMatch) return '';
-        const startIndex = startMatch.index + startMatch[0].length;
-        const tail = source.slice(startIndex);
-
-        let endIndex = tail.length;
-        for (const label of endLabels) {
-          const regex = new RegExp(`\\s${label}\\s+`, 'i');
-          const match = tail.match(regex);
-          if (match && match.index < endIndex) endIndex = match.index;
-        }
-        return tail.slice(0, endIndex).trim();
-      }
-
-      function detectLinkedInUrl(text=''){
-        const flat = flattenPdfText(text);
-        const contactBlock = extractSection(flat, 'Contact', ['Top Skills', 'Summary', 'Experience']);
-        const combined = `${contactBlock} ${flat}`;
-        const match = combined.match(/(?:https?:\/\/)?(?:www\.)?linkedin\.com\/in\/[A-Za-z0-9\-_%\s]+/i);
-        return match ? repairLinkedInUrl(match[0]) : '';
+        return url.replace(/[^\w\-./:%?=&]/g, '');
       }
 
       function detectEmail(text=''){
         return flattenPdfText(text).match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i)?.[0] || '';
       }
 
-      function looksLikeName(line=''){
-        const clean = String(line || '').trim();
-        if (!clean || clean.length > 70) return false;
-        if (/summary|experience|education|top skills|certifications|contact|open to work|linkedin|page \d/i.test(clean)) return false;
-        if (/[@\d]/.test(clean)) return false;
-        const words = clean.split(/\s+/).filter(Boolean);
-        if (words.length < 2 || words.length > 5) return false;
-        return words.every(word => /^[A-Za-z.'\-]+$/.test(word));
-      }
-
       function detectName(text=''){
-        const flat = flattenPdfText(text);
-        const beforeSummary = flat.split(/\bSummary\b/i)[0] || flat;
-        const openMatch = beforeSummary.match(/([A-Z][A-Za-z.'\-]+(?:\s+[A-Z][A-Za-z.'\-]+){1,4})\s+Open to work/i);
-        if (openMatch) return openMatch[1].trim();
-
-        const locationMatch = beforeSummary.match(/([A-Z][A-Za-z.'\-]+(?:\s+[A-Z][A-Za-z.'\-]+){1,4})\s+[A-Za-z ,'-]+Philippines/i);
-        if (locationMatch) return locationMatch[1].trim();
-
         const lines = getPdfLines(text);
-        for (const line of lines.slice(0, 20)) {
-          if (looksLikeName(line)) return line.trim();
+        const contact = findSectionRange(lines, 'Contact', ['Top Skills', 'Summary', 'Experience']).items;
+        for (const line of contact) {
+          const clean = line.trim();
+          if (!clean) continue;
+          if (/linkedin|open to work|philippines|@|\d/i.test(clean)) continue;
+          const words = clean.split(/\s+/).filter(Boolean);
+          if (words.length >= 2 && words.length <= 5 && words.every(w => /^[A-Za-z.'\-]+$/.test(w))) return clean;
+        }
+
+        for (const line of lines.slice(0, 12)) {
+          const clean = line.trim();
+          if (/linkedin|open to work|summary|experience|education|@|\d/i.test(clean)) continue;
+          const words = clean.split(/\s+/).filter(Boolean);
+          if (words.length >= 2 && words.length <= 5 && words.every(w => /^[A-Za-z.'\-]+$/.test(w))) return clean;
         }
         return '';
       }
 
       function detectLocation(text=''){
-        const flat = flattenPdfText(text);
-        const match = flat.match(/Open to work\s+([^\.]*?Philippines)/i);
-        if (match) return match[1].trim();
-
-        const match2 = flat.match(/([A-Za-z][A-Za-z ,'-]*?Philippines)/i);
-        return match2 ? match2[1].trim() : '';
+        const lines = getPdfLines(text);
+        const contact = findSectionRange(lines, 'Contact', ['Top Skills', 'Summary', 'Experience']).items;
+        for (const line of contact) {
+          if (/(philippines|metro manila|national capital region|cebu|davao|makati|taguig|quezon city|manila|pasig|cavite|laguna|rizal|bulacan|pampanga|hyderabad|city)/i.test(line)) {
+            return line.trim();
+          }
+        }
+        return '';
       }
 
-      function detectSkills(text=''){
-        const section = extractSection(text, 'Top Skills', ['Summary', 'Experience', 'Education']);
-        if (!section) return [];
-        const raw = section.split(/\s{2,}|\n+/).map(s => s.trim()).filter(Boolean);
+      function detectLinkedInUrl(text=''){
+        const flat = flattenPdfText(text);
+        const contactMatch = flat.match(/(?:https?:\/\/)?(?:www\.)?linkedin\.com\/in\/[^\s()]+/i);
+        if (contactMatch) return repairLinkedInUrl(contactMatch[0]);
 
-        const stopWords = /open to work|summary|experience|education|contact|linkedin|philippines/i;
-        const name = detectName(text).toLowerCase();
-        const filtered = [];
-        for (const item of raw) {
-          if (stopWords.test(item)) continue;
-          if (name && item.toLowerCase() === name) continue;
-          if (item.length > 40) continue;
-          filtered.push(item);
+        const contactBlock = (flat.match(/Contact\s+([\s\S]*?)\s+Top Skills/i) || [])[1] || '';
+        const slugStart = (contactBlock.match(/linkedin\.com\/in\/([a-z0-9-]+)/i) || [])[1] || '';
+        const name = detectName(text).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+        if (slugStart || name) {
+          const slug = [slugStart.replace(/-+$/,'') || name.split('-')[0], name.split('-').slice(1).join('-')].filter(Boolean).join('-');
+          return repairLinkedInUrl(`https://www.linkedin.com/in/${slug}`);
         }
-        return mergeUnique(filtered).slice(0, 8);
+        return '';
       }
 
       function detectSummary(text=''){
-        const section = extractSection(text, 'Summary', ['Experience', 'Education', 'Licenses & Certifications', 'Certifications']);
+        const lines = getPdfLines(text);
+        const section = findSectionRange(lines, 'Summary', ['Experience', 'Education', 'Certifications', 'Licenses & Certifications']).items;
         return section
-          .replace(/^Open to work\s*/i, '')
+          .filter(line => !/^Open to work$/i.test(line))
+          .join(' ')
           .replace(/\s+/g, ' ')
           .trim();
       }
 
-      function detectExperienceSection(text=''){
-        return extractSection(text, 'Experience', ['Education', 'Licenses & Certifications', 'Certifications', 'Top Skills']);
+      function detectSkills(text=''){
+        const lines = getPdfLines(text);
+        const topIdx = lines.findIndex(line => /^Top Skills$/i.test(line));
+        const endIdx = lines.findIndex(line => /^Experience$/i.test(line));
+        if (topIdx < 0) return [];
+
+        const pool = lines.slice(topIdx + 1, endIdx > topIdx ? endIdx : Math.min(lines.length, topIdx + 18));
+        const results = [];
+
+        for (let i = 0; i < pool.length; i++) {
+          let line = pool[i].trim();
+          if (!line) continue;
+          if (/^Summary$|^Certifications$|^Education$|^Contact$/i.test(line)) continue;
+          if (/open to work|philippines|page \d/i.test(line)) continue;
+          if (line.length > 80) continue;
+          if (/\d{4}|years|months/i.test(line)) continue;
+
+          if (/ and$/i.test(line) && pool[i+1] && !/^Summary$|^Certifications$|^Education$/i.test(pool[i+1])) {
+            line = `${line} ${pool[i+1].trim()}`.replace(/\s+/g, ' ').trim();
+            i += 1;
+          }
+
+          if (/certified professional biller/i.test(line)) continue;
+
+          results.push(line);
+        }
+
+        return mergeUnique(results).slice(0, 8);
       }
 
       function detectCurrentRoleAndCompany(text=''){
-        const exp = detectExperienceSection(text);
-        if (!exp) return { company: '', role: '' };
+        const lines = getPdfLines(text);
+        const exp = findSectionRange(lines, 'Experience', ['Education', 'Certifications', 'Licenses & Certifications']).items;
+        if (!exp.length) return { company:'', role:'' };
 
-        const firstChunk = exp.split(/\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)[a-z]*\s+\d{4}\b/i)[0].trim();
-        const cleaned = firstChunk.replace(/\s+/g, ' ').trim();
+        const clean = exp.filter(line => {
+          if (!line) return false;
+          if (/^Page\s+\d+/i.test(line)) return false;
+          return true;
+        });
 
-        const roleMatch = cleaned.match(/([A-Z][A-Za-z0-9&/.,'()\-]+(?:\s+[A-Z][A-Za-z0-9&/.,'()\-]+){0,5}\b(?:Coder|Analyst|Representative|Advisor|Assistant|Manager|Specialist|Engineer|Officer|Lead|Executive|Support|Reviewer|Associate|Developer|Assistant|Clerk|Consultant|Coordinator|Virtual Assistant))$/i);
-        if (roleMatch) {
-          const role = roleMatch[1].trim();
-          const company = cleaned.slice(0, cleaned.length - role.length).trim();
-          return { company, role };
+        let company = '';
+        let role = '';
+
+        for (let i = 0; i < clean.length; i++) {
+          const line = clean[i];
+          if (!company && !/\d{4}|years|months|present|philippines/i.test(line)) {
+            company = line.trim();
+            continue;
+          }
+          if (company && !role) {
+            if (/\d{4}|years|months|present|philippines/i.test(line)) continue;
+            role = line.trim();
+            break;
+          }
         }
 
-        const tokens = cleaned.split(/\s{2,}|\n+/).map(s => s.trim()).filter(Boolean);
-        if (tokens.length >= 2) {
-          return { company: tokens[0], role: tokens[1] };
-        }
-
-        return { company: cleaned, role: '' };
+        return { company, role };
       }
 
       function detectExperienceYears(text=''){
-        const exp = detectExperienceSection(text);
+        const lines = getPdfLines(text);
+        const exp = findSectionRange(lines, 'Experience', ['Education', 'Certifications', 'Licenses & Certifications']).items.join(' ');
         if (!exp) return 0;
 
         const ranges = [...exp.matchAll(/(19|20)\d{2}\s*-\s*(Present|(19|20)\d{2})/gi)];
@@ -657,14 +690,11 @@
           }
         }
 
-        const durations = [...exp.matchAll(/(\d+)\s+year(?:s)?(?:\s+(\d+)\s+month(?:s)?)?/gi)];
-        if (durations.length) {
-          let total = 0;
-          durations.forEach(m => {
-            total += Number(m[1] || 0);
-            total += Number(m[2] || 0) / 12;
-          });
-          return Math.round(total * 10) / 10;
+        const ym = exp.match(/(\d+)\s+years?(?:\s+(\d+)\s+months?)?/i);
+        if (ym) {
+          const yrs = Number(ym[1] || 0);
+          const mos = Number(ym[2] || 0);
+          return Math.round((yrs + mos / 12) * 10) / 10;
         }
         return 0;
       }
