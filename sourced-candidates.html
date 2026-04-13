@@ -135,6 +135,11 @@
     .form-actions{display:flex;justify-content:flex-end;gap:10px;flex-wrap:wrap;margin-top:14px}
     .result-box{margin-top:12px;padding:12px;border-radius:14px;background:#f8fbff;border:1px solid var(--border);font-size:.88rem;color:var(--muted)}
 
+    
+    .composer-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+    .composer-wide{grid-column:1/-1}
+    .helper-note{font-size:.8rem;color:var(--muted);margin-top:6px}
+
     .hidden{display:none !important}
     @media (max-width:1320px){.tracker-grid,.funnel-grid,.control-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
     @media (max-width:760px){.container{padding:16px 12px 28px}.topbar{grid-template-columns:1fr}.top-right{justify-self:stretch;justify-content:space-between}.brand-logo{width:48px;height:48px}.topbar h1{font-size:1.72rem}.tracker-grid,.funnel-grid,.control-grid,.kv-grid,.form-grid{grid-template-columns:1fr}}
@@ -161,6 +166,7 @@
             <a href="client-role-input.html" class="menu-item">Manage Roles</a>
             <button id="menuUploadLinkedInPdfBtn" class="menu-item" type="button">Upload LinkedIn PDF</button>
             <button id="menuUploadCsvBtn" class="menu-item" type="button">Upload CSV</button>
+            <button id="menuComposeOutreachBtn" class="menu-item" type="button">Compose Outreach</button>
             <button id="menuRefreshBtn" class="menu-item" type="button">Refresh</button>
             <button id="menuLogoutBtn" class="menu-item danger" type="button">Logout</button>
           </div>
@@ -235,6 +241,8 @@
           <p id="activeCopy">Search reusable TalentBuzz profiles, review linked applications, and open communication recordings when they exist.</p>
         </div>
       </div>
+
+      <div id="contextActions" class="stack" style="margin:0 0 12px;"></div>
 
       <div class="quick-filters" id="quickFilters"></div>
 
@@ -380,6 +388,47 @@
     </div>
   </div>
 
+
+  <div id="outreachComposerModal" class="modal-backdrop">
+    <div class="modal">
+      <div class="modal-header">
+        <div>
+          <h2 class="modal-title">BuzzPool Outreach</h2>
+          <p class="modal-subtitle">Send a tracked BuzzPool invite using the <strong>send-buzzpool-invite</strong> edge function.</p>
+        </div>
+        <button id="closeOutreachComposerBtn" class="icon-btn" type="button">&times;</button>
+      </div>
+
+      <div class="help-box">
+        This uses your live invite edge function and writes tracking into <strong>candidate_profile_invites</strong>.
+      </div>
+
+      <div class="composer-grid">
+        <div class="field">
+          <label for="outreachFullName">Full Name</label>
+          <input id="outreachFullName" type="text" placeholder="Candidate full name" />
+        </div>
+        <div class="field">
+          <label for="outreachEmail">Email</label>
+          <input id="outreachEmail" type="email" placeholder="candidate@email.com" />
+        </div>
+        <div class="field composer-wide">
+          <label for="outreachInviteLink">Invite Link</label>
+          <input id="outreachInviteLink" type="text" placeholder="https://talentbuzz.pro/create-profile.html?..." />
+          <div class="helper-note">If left blank, TalentBuzz will generate a default create-profile link using the candidate email.</div>
+        </div>
+      </div>
+
+      <div id="outreachResult" class="result-box" style="display:none"></div>
+
+      <div class="form-actions">
+        <button id="previewOutreachLinkBtn" class="btn btn-outline" type="button">Generate Link</button>
+        <button id="sendOutreachBtn" class="btn btn-primary" type="button">Send Invite</button>
+      </div>
+    </div>
+  </div>
+
+
   <script>
     document.addEventListener('DOMContentLoaded', async () => {
       const SUPABASE_URL = 'https://dilalntcxmvdcmwxjcct.supabase.co';
@@ -398,14 +447,14 @@
       const $ = (id) => document.getElementById(id);
       const els = {
         notice:$('notice'), helloRecruiter:$('helloRecruiter'), menuToggleBtn:$('menuToggleBtn'), actionMenu:$('actionMenu'),
-        menuUploadLinkedInPdfBtn:$('menuUploadLinkedInPdfBtn'), menuUploadCsvBtn:$('menuUploadCsvBtn'), menuRefreshBtn:$('menuRefreshBtn'), menuLogoutBtn:$('menuLogoutBtn'),
+        menuUploadLinkedInPdfBtn:$('menuUploadLinkedInPdfBtn'), menuUploadCsvBtn:$('menuUploadCsvBtn'), menuComposeOutreachBtn:$('menuComposeOutreachBtn'), menuRefreshBtn:$('menuRefreshBtn'), menuLogoutBtn:$('menuLogoutBtn'),
         fProspects:$('fProspects'), fInvites:$('fInvites'), fProfiles:$('fProfiles'), fApplications:$('fApplications'), fVoice:$('fVoice'),
         mInvites:$('mInvites'), mProfiles:$('mProfiles'), mApplications:$('mApplications'), mVoice:$('mVoice'),
         barProspects:$('barProspects'), barInvites:$('barInvites'), barProfiles:$('barProfiles'), barApplications:$('barApplications'), barVoice:$('barVoice'),
         countTalent:$('countTalent'), countCompleted:$('countCompleted'), countTalentOnly:$('countTalentOnly'),
         countSourcing:$('countSourcing'), countInvited:$('countInvited'), countConverted:$('countConverted'), countPipeline:$('countPipeline'),
         activeTitle:$('activeTitle'), activeCopy:$('activeCopy'),
-        quickFilters:$('quickFilters'),
+        contextActions:$('contextActions'), quickFilters:$('quickFilters'),
         searchInput:$('searchInput'), filterOne:$('filterOne'), filterTwo:$('filterTwo'), filterThree:$('filterThree'), filterFour:$('filterFour'),
         clearFiltersBtn:$('clearFiltersBtn'),
         tableHeadRow:$('tableHeadRow'), tableBody:$('tableBody'),
@@ -421,7 +470,10 @@
         parseLinkedInPdfBtn:$('parseLinkedInPdfBtn'), saveLinkedInProspectBtn:$('saveLinkedInProspectBtn'),
         csvUploadModal:$('csvUploadModal'), closeCsvModalBtn:$('closeCsvModalBtn'),
         csvFileInput:$('csvFileInput'), csvPreviewBox:$('csvPreviewBox'),
-        parseCsvBtn:$('parseCsvBtn'), saveCsvBtn:$('saveCsvBtn')
+        parseCsvBtn:$('parseCsvBtn'), saveCsvBtn:$('saveCsvBtn'),
+        outreachComposerModal:$('outreachComposerModal'), closeOutreachComposerBtn:$('closeOutreachComposerBtn'),
+        outreachFullName:$('outreachFullName'), outreachEmail:$('outreachEmail'), outreachInviteLink:$('outreachInviteLink'),
+        outreachResult:$('outreachResult'), previewOutreachLinkBtn:$('previewOutreachLinkBtn'), sendOutreachBtn:$('sendOutreachBtn')
       };
 
       const normalizeText = (v) => String(v || '').trim().toLowerCase();
@@ -949,6 +1001,72 @@
         `;
       }
 
+
+      function showOutreachResult(message, type='info'){
+        if (!els.outreachResult) return;
+        els.outreachResult.style.display = 'block';
+        els.outreachResult.textContent = message;
+        els.outreachResult.style.color = type === 'error' ? 'var(--danger)' : type === 'success' ? 'var(--success)' : 'var(--muted)';
+      }
+
+      function getDefaultInviteLink(email=''){
+        const base = (window.location.origin && window.location.origin !== 'null')
+          ? window.location.origin
+          : 'https://talentbuzz.pro';
+        const cleanEmail = encodeURIComponent(String(email || '').trim().toLowerCase());
+        return `${base}/create-profile.html?email=${cleanEmail}`;
+      }
+
+      function openOutreachComposer(seed = {}){
+        if (els.outreachFullName) els.outreachFullName.value = seed.full_name || seed.display_name || '';
+        if (els.outreachEmail) els.outreachEmail.value = seed.email || seed.invite_email || '';
+        if (els.outreachInviteLink) els.outreachInviteLink.value = seed.invite_link || (seed.email || seed.invite_email ? getDefaultInviteLink(seed.email || seed.invite_email) : '');
+        showOutreachResult('Review the recipient details, then send the tracked invite.', 'info');
+        openModal(els.outreachComposerModal);
+      }
+
+      async function sendBuzzpoolInvite(payload){
+        const { data, error } = await supabase.functions.invoke('send-buzzpool-invite', {
+          body: payload
+        });
+        if (error) throw error;
+        if (!data?.success) throw new Error(data?.error || 'Failed to send invite.');
+        return data;
+      }
+
+      function renderContextActions(){
+        if (!els.contextActions) return;
+        let html = '';
+        if (state.activeTab === 'sourcing') {
+          html = `
+            <button id="contextComposeInviteBtn" class="btn btn-primary" type="button">Send Invite</button>
+            <button id="contextRefreshSourcingBtn" class="btn btn-outline" type="button">Refresh Sourcing</button>
+          `;
+        } else if (state.activeTab === 'outreach') {
+          const sentCount = state.data.outreach.filter(r => normalizeText(r.invite_status) === 'sent').length;
+          const startedCount = state.data.outreach.filter(r => normalizeText(r.invite_status) === 'started').length;
+          const completedCount = state.data.outreach.filter(r => normalizeText(r.invite_status) === 'completed').length;
+          html = `
+            <span class="tag-pill">Sent: ${sentCount}</span>
+            <span class="tag-pill">Started: ${startedCount}</span>
+            <span class="tag-pill">Completed: ${completedCount}</span>
+            <button id="contextComposeInviteBtn" class="btn btn-primary" type="button">New Invite</button>
+            <button id="contextRefreshOutreachBtn" class="btn btn-outline" type="button">Refresh Outreach</button>
+          `;
+        }
+        els.contextActions.innerHTML = html;
+
+        const composeBtn = document.getElementById('contextComposeInviteBtn');
+        if (composeBtn) composeBtn.addEventListener('click', () => openOutreachComposer());
+
+        const refreshBtn = document.getElementById('contextRefreshSourcingBtn') || document.getElementById('contextRefreshOutreachBtn');
+        if (refreshBtn) refreshBtn.addEventListener('click', async () => {
+          await loadAllData();
+          updateDashboard();
+          renderActiveView();
+        });
+      }
+
       async function fetchAllRows(buildQuery, pageSize = 500) {
         const all = [];
         let from = 0;
@@ -1005,7 +1123,7 @@
         const [profiles, prospects, invites, applications] = await Promise.all([
           fetchAllRows((from, to) => supabase.from('applicant_profiles').select('*').order('updated_at', { ascending:false, nullsFirst:false }).range(from, to)),
           fetchAllRows((from, to) => supabase.from('prospects').select('*').order('created_at', { ascending:false }).range(from, to)),
-          fetchAllRows((from, to) => supabase.from('buzzpool_invites').select('*').order('created_at', { ascending:false }).range(from, to)),
+          fetchAllRows((from, to) => supabase.from('candidate_profile_invites').select('*').order('invite_sent_at', { ascending:false, nullsFirst:false }).order('created_at', { ascending:false }).range(from, to)),
           fetchAllRows((from, to) => supabase.from('applications').select('id, applicant_profile_id, email, job_title, status, screening_result, screening_score, screening_answers, screening_responses, created_at').order('created_at', { ascending:false }).range(from, to))
         ]);
 
@@ -1066,10 +1184,23 @@
         }));
 
         const profileEmails = new Set((profiles || []).map(p => normalizeText(p.email || '')));
-        state.data.outreach = (invites || []).map(i => ({
-          ...i,
-          converted: profileEmails.has(normalizeText(i.invite_email || ''))
-        }));
+        state.data.outreach = (invites || []).map(i => {
+          const email = i.email || i.invite_email || '';
+          const derivedStatus =
+            i.profile_completed_at ? 'completed' :
+            i.profile_started_at ? 'started' :
+            i.status || i.invite_status || 'sent';
+          return {
+            ...i,
+            invite_email: email,
+            invite_status: derivedStatus,
+            recruiter_email: i.sent_by || i.recruiter_email || '',
+            sent_at: i.invite_sent_at || i.sent_at || i.created_at,
+            converted: !!(i.profile_completed_at || i.applicant_profile_id || profileEmails.has(normalizeText(email))),
+            opened_at: i.opened_at || null,
+            clicked_at: i.clicked_at || null
+          };
+        });
 
         state.data.pipeline = (applications || []).map(app => ({
           ...app,
@@ -1126,8 +1257,8 @@
           },
           outreach: {
             title: 'Outreach',
-            copy: 'Track invites, conversion into profiles, and who still needs follow-up.',
-            quicks: [['all','All'],['sent','Sent'],['opened','Opened'],['converted','Converted'],['not_converted','Not Converted']],
+            copy: 'Track invites sent through send-buzzpool-invite, monitor conversion into profiles, and resend outreach when needed.',
+            quicks: [['all','All'],['sent','Sent'],['started','Started'],['completed','Completed'],['converted','Converted'],['not_converted','Not Converted']],
             filters: [['status','Invite Status'],['recruiter','Recruiter'],['converted','Converted'],['domain','Email Domain']]
           },
           pipeline: {
@@ -1242,7 +1373,8 @@
 
           if (state.activeTab === 'outreach') {
             if (state.quickFilter === 'sent' && normalizeText(row.invite_status) !== 'sent') return false;
-            if (state.quickFilter === 'opened' && normalizeText(row.invite_status) !== 'opened') return false;
+            if (state.quickFilter === 'started' && normalizeText(row.invite_status) !== 'started') return false;
+            if (state.quickFilter === 'completed' && normalizeText(row.invite_status) !== 'completed') return false;
             if (state.quickFilter === 'converted' && !row.converted) return false;
             if (state.quickFilter === 'not_converted' && row.converted) return false;
 
@@ -1318,18 +1450,18 @@
             <td>${row.linkedin_url ? `<a class="inline-link" href="${escapeHtml(row.linkedin_url)}" target="_blank" rel="noopener noreferrer">Open LinkedIn</a>` : '<span class="small">No LinkedIn URL</span>'}</td>
             <td><div class="stack">${row.tags.map(t => `<span class="tag-pill">${escapeHtml(t)}</span>`).join('')}</div></td>
             <td><div class="small">${escapeHtml(formatDate(row.created_at))}</div></td>
-            <td><div class="row-actions"><button class="row-menu-btn" type="button" data-id="${escapeHtml(row.id)}">☰</button><div class="row-menu" id="menu-${escapeHtml(row.id)}"><button type="button" data-open="sourcing" data-id="${escapeHtml(row.id)}">Open Lead</button></div></div></td>
+            <td><div class="row-actions"><button class="row-menu-btn" type="button" data-id="${escapeHtml(row.id)}">☰</button><div class="row-menu" id="menu-${escapeHtml(row.id)}"><button type="button" data-open="sourcing" data-id="${escapeHtml(row.id)}">Open Lead</button><button type="button" data-compose-email="${escapeHtml(row.id)}" data-source-type="sourcing">Send Invite</button></div></div></td>
           </tr>`).join('');
         } else if (state.activeTab === 'outreach') {
           els.tableBody.innerHTML = rows.map(row => `<tr>
-            <td><div class="candidate-cell"><div class="name">${escapeHtml(row.invite_email || 'No email')}</div></div></td>
+            <td><div class="candidate-cell"><div class="name">${escapeHtml(row.full_name || row.invite_email || 'No email')}</div><div class="meta">${escapeHtml(row.invite_email || 'No email')}</div></div></td>
             <td><span class="stage-pill ${statusClass(row.invite_status)}">${escapeHtml(titleCase(String(row.invite_status || 'unknown').replace(/_/g,' ')))}</span></td>
-            <td>${escapeHtml(row.recruiter_email || '—')}</td>
+            <td>${escapeHtml(row.recruiter_email || 'TalentBuzz')}</td>
             <td><div class="small">${escapeHtml(formatDate(row.sent_at || row.created_at))}</div></td>
             <td>${row.converted ? '<span class="status-pill status-completed">Converted</span>' : '<span class="status-pill status-unknown">Not yet</span>'}</td>
-            <td>${row.converted ? '<span class="small">Profile matched by email</span>' : '<span class="small">No profile yet</span>'}</td>
-            <td><div class="small">${escapeHtml((row.invite_note || '').slice(0,90) || '—')}</div></td>
-            <td><div class="row-actions"><button class="row-menu-btn" type="button" data-id="${escapeHtml(row.id)}">☰</button><div class="row-menu" id="menu-${escapeHtml(row.id)}"><button type="button" data-open="outreach" data-id="${escapeHtml(row.id)}">Open Invite</button></div></div></td>
+            <td><span class="small">${row.profile_started_at ? 'Profile started' : row.profile_completed_at ? 'Profile completed' : 'Awaiting profile action'}</span></td>
+            <td><div class="small">${escapeHtml(row.invite_link || 'Tracked invite sent')}</div></td>
+            <td><div class="row-actions"><button class="row-menu-btn" type="button" data-id="${escapeHtml(row.id)}">☰</button><div class="row-menu" id="menu-${escapeHtml(row.id)}"><button type="button" data-open="outreach" data-id="${escapeHtml(row.id)}">Open Invite</button><button type="button" data-compose-email="${escapeHtml(row.id)}">Resend Invite</button></div></div></td>
           </tr>`).join('');
         } else {
           els.tableBody.innerHTML = rows.map(row => `<tr>
@@ -1349,6 +1481,7 @@
       function renderActiveView(){
         renderQuickFilters();
         renderFilters();
+        renderContextActions();
         renderTable();
       }
 
@@ -1403,6 +1536,7 @@
           els.panelSubtitle.textContent = `${row.title || 'No title'} | ${row.company || 'No company'}`;
           els.panelBadges.innerHTML = `${badge(titleCase(String(row.source_stage || 'new_lead').replace(/_/g,' ')), statusClass(row.source_stage))}`;
           if (row.linkedin_url) els.panelActions.innerHTML += `<a class="btn btn-outline btn-sm" href="${escapeHtml(row.linkedin_url)}" target="_blank" rel="noopener noreferrer">Open LinkedIn</a>`;
+          els.panelActions.innerHTML += `<button class="btn btn-primary btn-sm" type="button" id="panelSendInviteBtn">Send Invite</button>`;
           els.panelSummary.innerHTML = [
             'Lead stored in prospects.',
             row.email ? `Lead email available: ${row.email}` : 'No lead email stored yet.',
@@ -1410,6 +1544,7 @@
           ].map(s => `<div class="summary-item">${escapeHtml(s)}</div>`).join('');
           els.panelKv.innerHTML = [kv('Full Name', row.display_name), kv('Email', row.email), kv('Current Title', row.title), kv('Company', row.company), kv('Location', row.location), kv('LinkedIn', row.linkedin_url || '-')].join('');
           els.panelActivity.innerHTML = `<div class="activity-item">Created: ${escapeHtml(formatDate(row.created_at))}</div>`;
+          setTimeout(() => document.getElementById('panelSendInviteBtn')?.addEventListener('click', () => openOutreachComposer({ full_name: row.display_name, email: row.email })), 0);
         } else if (type === 'outreach') {
           els.panelName.textContent = row.invite_email || 'Invite';
           els.panelSubtitle.textContent = `${titleCase(String(row.invite_status || 'unknown').replace(/_/g,' '))} | Outreach`;
@@ -1421,6 +1556,12 @@
           ].map(s => `<div class="summary-item">${escapeHtml(s)}</div>`).join('');
           els.panelKv.innerHTML = [kv('Invite Email', row.invite_email), kv('Recruiter', row.recruiter_email), kv('Status', row.invite_status), kv('Sent At', formatDate(row.sent_at || row.created_at))].join('');
           els.panelActivity.innerHTML = `<div class="activity-item">Invite record created: ${escapeHtml(formatDate(row.created_at))}</div>`;
+          if (row.opened_at) els.panelActivity.innerHTML += `<div class="activity-item">Opened: ${escapeHtml(formatDate(row.opened_at))}</div>`;
+          if (row.clicked_at) els.panelActivity.innerHTML += `<div class="activity-item">Clicked: ${escapeHtml(formatDate(row.clicked_at))}</div>`;
+          if (row.profile_started_at) els.panelActivity.innerHTML += `<div class="activity-item">Profile started: ${escapeHtml(formatDate(row.profile_started_at))}</div>`;
+          if (row.profile_completed_at) els.panelActivity.innerHTML += `<div class="activity-item">Profile completed: ${escapeHtml(formatDate(row.profile_completed_at))}</div>`;
+          els.panelActions.innerHTML += `<button class="btn btn-primary btn-sm" type="button" id="panelResendInviteBtn">Resend Invite</button>`;
+          setTimeout(() => document.getElementById('panelResendInviteBtn')?.addEventListener('click', () => openOutreachComposer({ full_name: row.full_name, email: row.invite_email, invite_link: row.invite_link })), 0);
         } else {
           els.panelName.textContent = row.email || 'Applicant';
           els.panelSubtitle.textContent = `${row.job_title || 'No job title'} | ${titleCase(String(row.status || 'submitted').replace(/_/g,' '))}`;
@@ -1472,6 +1613,21 @@
             const rows = state.data[type] || [];
             const row = rows.find(r => String(r.id) === String(id));
             if (row) openSidePanel(type, row);
+          });
+        });
+
+        document.querySelectorAll('[data-compose-email]').forEach(btn => {
+          btn.addEventListener('click', () => {
+            const id = btn.dataset.composeEmail;
+            const sourceType = btn.dataset.sourceType || state.activeTab;
+            const rows = state.data[sourceType] || state.data.outreach || [];
+            const row = rows.find(r => String(r.id) === String(id));
+            if (!row) return;
+            openOutreachComposer({
+              full_name: row.full_name || row.display_name || '',
+              email: row.email || row.invite_email || '',
+              invite_link: row.invite_link || ''
+            });
           });
         });
       }
