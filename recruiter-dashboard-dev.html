@@ -2239,6 +2239,18 @@ function renderLearningInsights(row) {
       return data || [];
     }
 
+    async function fetchApplicationsRows() {
+      const applicationSelect = `id,email,job_id,job_title,status,created_at,applicant_profile_id,recruiter_email,application_source,screening_result,screening_score,auto_disposition_reason,stage_note_code,stage_note_label,stage_note_updated_at,endorsement_status,endorsement_sent_at,endorsement_sent_to,endorsed_by,client_feedback_status,client_feedback_notes,client_feedback_at,last_status_change_at,sla_status,sla_due_at,endorsement_notes,screening_answers,screening_responses,screening_review_strengths,screening_review_risks,screening_review_summary,screening_review_decision,profile_fit_score,recruiter_score,top_talent_score,is_top_talent,talent_tag,recruiter_top_talent_override,recruiter_notes,updated_at,screening_review,screening_review_generated_at,screening_review_version`;
+      try {
+        return await fetchAll('recruiter_dashboard_applications', applicationSelect, 'created_at');
+      } catch (error) {
+        const message = String(error?.message || error || '');
+        const missingView = /recruiter_dashboard_applications/i.test(message) || /does not exist/i.test(message);
+        if (!missingView) throw error;
+        return await fetchAll('applications', applicationSelect, 'created_at');
+      }
+    }
+
     async function loadDashboard() {
       if (!supabaseClient) return;
       state.loading = true;
@@ -2246,7 +2258,7 @@ function renderLearningInsights(row) {
       els.applicationsTable.innerHTML = '<tr><td colspan="8" class="small">Loading candidates...</td></tr>';
       try {
         const [applications, profiles, jobs, feedbackRows, outcomeRows] = await Promise.all([
-          fetchAll('applications', `id,email,job_id,job_title,status,created_at,applicant_profile_id,recruiter_email,application_source,screening_score,screening_answers,screening_responses,last_status_change_at,recruiter_notes,stage_note_label,stage_note_updated_at,endorsement_status`),
+          fetchApplicationsRows(),
           fetchAll('applicant_profiles', `id,full_name,email,phone,location,headline,current_title,resume_url,resume_path,resume_file_name,raw_resume_text,parsed_resume_json,years_of_experience,experience_years,years_experience,total_experience,experience,highest_education,degree_course,linkedin,portfolio_url,updated_at`),
           fetchAll('jobs', `id,title,client_name,job_description,keywords,industry,screening_enabled,status,work_setup,location,slug`),
           fetchAllOptional('application_feedback', `id,application_id,applicant_profile_id,job_id,recruiter_email,status_at_feedback,disposition_reason,positive_tags,risk_tags,short_note,job_title,created_at`),
@@ -2291,7 +2303,7 @@ function renderLearningInsights(row) {
 
         populateFilters();
         applyFilters();
-        showNotice(`Dashboard loaded from separate applications, applicant_profiles, and jobs queries to avoid ambiguous joins. Raw counts — applications: ${applications.length}, profiles: ${profiles.length}, jobs: ${jobs.length}.`, 'success');
+        showNotice(`Dashboard loaded from recruiter_dashboard_applications${applications.length ? '' : ' (or fallback source)'} plus applicant_profiles and jobs. Raw counts — applications: ${applications.length}, profiles: ${profiles.length}, jobs: ${jobs.length}.`, applications.length ? 'success' : 'info');
       } catch (error) {
         console.error(error);
         els.applicationsTable.innerHTML = `<tr><td colspan="8" class="small">Unable to load dashboard: ${escapeHtml(error.message || String(error))}</td></tr>`;
