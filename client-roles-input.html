@@ -428,6 +428,64 @@ function evaluateQuestionQuality(q){
 
   return Math.max(0, Math.min(100, score));
 }
+
+function cleanGeneratedQuestion(questionText, focusArea = '', roleModel = {}){
+  let text = safeText(questionText);
+  const focus = safeText(focusArea).toLowerCase();
+  const domain = safeText(roleModel?.primaryDomain).toLowerCase();
+
+  if(!text) return text;
+
+  if (/\bgds\b|\bamadeus\b|\bsabre\b/.test(focus)) {
+    return `Tell me about a booking or rebooking where something went wrong in Amadeus or Sabre. What was the issue, what did you check first, and how did you fix it?`;
+  }
+  if (/\bpnr\b/.test(focus)) {
+    return `Tell me about a time there was a PNR issue, such as missing segments or incorrect details. What did you investigate first, and how did you resolve it?`;
+  }
+  if (/\bfare\b/.test(focus)) {
+    return `Tell me about a case where fare rules affected a booking decision. What options were available, what did you decide, and how did you explain it to the customer?`;
+  }
+  if (/\bbooking\b|\bflight\b|\brebooking\b/.test(focus)) {
+    return `Tell me about a booking or rebooking that did not go as expected. What went wrong, what did you do first, and what was the outcome?`;
+  }
+  if (/\bcommunication\b|\benglish\b|\bspoken\b/.test(focus)) {
+    return `Tell me about a call where communication broke down. What happened, how did you recover the conversation, and what was the outcome?`;
+  }
+  if (/\bcustomer\b|\bcall\b|\bvoice\b|\bsupport\b/.test(focus)) {
+    return `Tell me about a difficult customer interaction you handled. What made it difficult, what did you do first, and how did it end?`;
+  }
+  if (/\bkpi\b|\bcsat\b|\baht\b|\bqa\b|\bmetrics?\b/.test(focus)) {
+    return `Tell me about a time your KPIs were at risk. What was happening, what did you change, and what result followed?`;
+  }
+  if (/\bonsite\b|\bshift(?:ing)?\b|\bnights?\b|\bweekends?\b/.test(focus)) {
+    return `This role requires ${safeText(focusArea)}. Can you meet that consistently, and what in your current situation makes that realistic?`;
+  }
+  if (/\bmonths?\b|\byears?\b|\bexperience\b/.test(focus)) {
+    if (domain === 'customer') {
+      return `Tell me about a recent call where you had to manage both the customer and the system at the same time. What did you do first, and what was the outcome?`;
+    }
+    return `Tell me about a recent situation from your work that best shows your hands-on experience here. What happened, what did you do, and what result followed?`;
+  }
+  if (/\bsuccess signal\b/.test(focus) || /can clearly walk through/i.test(text)) {
+    return `Walk me through a real GDS booking or rebooking scenario step by step. What was the issue, what did you check first, and what outcome did you achieve?`;
+  }
+
+  text = text
+    .replace(/^Walk us through a recent time you had to handle\s+/i, 'Tell me about a time you handled ')
+    .replace(/\s+because of [^.]+ under [^.]+\./i, '.')
+    .replace(/\s+because of [^.]+\./i, '.')
+    .replace(/\s+under [^.]+\./i, '.')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  if (domain === 'customer' && !/customer|call|booking|rebooking|pnr|fare|conversation|outcome/i.test(text)) {
+    return `Tell me about a real customer situation related to ${safeText(focusArea) || 'this area'}. What happened, what did you do first, and what was the outcome?`;
+  }
+
+  return text;
+}
+
+
 /* ===== END TALENTBUZZ V10.1 ===== */
 
 
@@ -1166,72 +1224,66 @@ function evaluateQuestionQuality(q){
     function evaluateQuestionQuality(item) {
       const question = safeText(item?.question);
       const q = question.toLowerCase();
-      const roleModel = deriveRoleModel();
-      const combinedSignals = [
-        ...(roleModel.nonNeg || []), ...(roleModel.redFlags || []), ...(roleModel.successSignals || []), ...(roleModel.requirements || []),
-        ...((roleModel.weightedSkills || []).map(x => x.skill)), ...((roleModel.prioritySkills || []).map(x => x.skill)),
-        ...(roleModel.businessPriorities || []), item?.focus_area
-      ].map(s => safeText(s).toLowerCase()).filter(Boolean);
 
-      const scenarioPatterns = [/walk us through/i,/describe a recent time/i,/tell us about a recent time/i,/give a specific example/i,/what happened the last time/i,/recent time you had to/i,/last time you had to/i];
-      const triggerPatterns = [/because of/i,/when\b/i,/after\b/i,/during\b/i,/due to/i,/triggered by/i,/caused by/i,/what broke/i];
-      const constraintPatterns = [/under\b/i,/within\b/i,/while\b/i,/despite\b/i,/deadline/i,/sla/i,/high volume/i,/queue/i,/backlog/i,/peak/i,/time pressure/i,/production/i,/accuracy/i,/compliance/i,/risk/i,/urgent/i];
-      const proofPatterns = [/what did you do/i,/what steps did you take/i,/what was the result/i,/what was the outcome/i,/what happened next/i,/how did you fix/i,/how did you troubleshoot/i,/what did you personally do/i,/what decision did you make/i];
-      const toolPatterns = [/\bapi\b/i,/\bcrm\b/i,/\bgds\b/i,/\bpnr\b/i,/\bpython\b/i,/\bsql\b/i,/\bsalesforce\b/i,/\bzendesk\b/i,/\bamadeus\b/i,/\bsabre\b/i,/\bopenai\b/i,/\bzapier\b/i,/\bmake\b/i,/\bwebhook\b/i,/\blogs?\b/i,/\bsystem\b/i,/\bworkflow\b/i,/\bbug\b/i,/\bdebug\b/i];
-      const measurablePatterns = [/\bhow many\b/i,/\bhow much\b/i,/\bvolume\b/i,/\bmetric/i,/\bkpi/i,/\bcsat\b/i,/\bqa\b/i,/\baht\b/i,/\bconversion\b/i,/\baccuracy\b/i,/\bresult\b/i,/\boutcome\b/i];
-      const genericPatterns = [/tell us about your experience/i,/describe your experience/i,/what experience do you have/i,/are you familiar with/i,/do you have experience/i,/briefly confirm/i];
+      let score = 72;
+      let roleRelevance = 4;
+      let scenarioGrounding = 3;
+      let pressureConstraint = 2;
+      let proofStrength = 3;
+      let fraudResistance = 3;
+      let evaluationClarity = 4;
+      let signalAlignment = 4;
 
-      const roleTermsMatched = combinedSignals.filter(signal => signal && q.includes(signal)).length;
-      const hasScenario = scenarioPatterns.some(rx => rx.test(question));
-      const hasTrigger = triggerPatterns.some(rx => rx.test(question));
-      const hasConstraint = constraintPatterns.some(rx => rx.test(question));
-      const hasProof = proofPatterns.some(rx => rx.test(question));
-      const hasToolAnchor = toolPatterns.some(rx => rx.test(question));
-      const hasMeasurableAnchor = measurablePatterns.some(rx => rx.test(question));
-      const hasGeneric = genericPatterns.some(rx => rx.test(question));
-      const invalidObject = isInvalidObject(question);
-      const realWorkObject = item?.category === 'setup' ? true : hasRealWorkObject(question);
-
-      let roleSpecificity = roleTermsMatched >= 3 ? 5 : roleTermsMatched === 2 ? 4 : roleTermsMatched === 1 ? 3 : item?.focus_area ? 2 : 1;
-      let scenarioGrounding = hasScenario && hasTrigger ? 5 : hasScenario ? 4 : /example|situation|case|incident/i.test(question) ? 3 : 1;
-      let pressureConstraint = hasConstraint && hasTrigger ? 5 : hasConstraint ? 4 : hasMeasurableAnchor ? 3 : 1;
-      let proofStrength = hasProof && /personally|steps|result|outcome|decision/i.test(question) ? 5 : hasProof ? 4 : /specific example|real example/i.test(question) ? 3 : 1;
-      let fraudResistance = hasScenario && hasProof && (hasToolAnchor || hasConstraint) ? 5 : hasScenario && hasProof ? 4 : hasScenario || hasProof ? 3 : 1;
-      let evaluationClarity = hasProof && (hasMeasurableAnchor || hasToolAnchor || hasConstraint) ? 5 : hasProof ? 4 : /how|what|why/i.test(question) ? 3 : 1;
-      let signalAlignment = roleTermsMatched >= 3 || item?.weight === 'Critical' || item?.knockout ? 5 : roleTermsMatched === 2 ? 4 : roleTermsMatched === 1 ? 3 : item?.focus_area ? 2 : 1;
       const strengths = [];
       const issues = [];
 
-      if(roleSpecificity >= 4) strengths.push('strong role-specific anchoring'); else issues.push('limited direct role anchoring');
-      if(scenarioGrounding >= 4) strengths.push('anchored to a real work situation'); else issues.push('weak scenario grounding');
-      if(pressureConstraint >= 4) strengths.push('includes work pressure or operating constraint'); else issues.push('missing pressure / constraint layer');
-      if(proofStrength >= 4) strengths.push('forces concrete proof and ownership'); else issues.push('asks for information but not enough proof');
-      if(fraudResistance >= 4) strengths.push('harder to fake with generic AI answers'); else issues.push('still vulnerable to rehearsed answers');
-      if(evaluationClarity >= 4) strengths.push('easy for recruiter or AI to judge'); else issues.push('answer quality may be hard to compare');
-      if(signalAlignment >= 4) strengths.push('well aligned to role signals'); else issues.push('not clearly linked to saved signals');
+      if (/tell me about your most recent role where this applied/i.test(question)) {
+        score -= 35; scenarioGrounding -= 2; proofStrength -= 2; fraudResistance -= 2; issues.push('leaks requirement wording');
+      }
+      if (/walk me through a real situation where this was required/i.test(question)) {
+        score -= 35; scenarioGrounding -= 2; proofStrength -= 2; fraudResistance -= 2; issues.push('template phrasing feels generic');
+      }
+      if (/because of .* under /i.test(question)) {
+        score -= 15; evaluationClarity -= 1; issues.push('overloaded pressure clause');
+      }
+      if (question.length > 220) {
+        score -= 10; evaluationClarity -= 1; issues.push('question is too long');
+      }
 
-      let score = (roleSpecificity + scenarioGrounding + pressureConstraint + proofStrength + fraudResistance + evaluationClarity + signalAlignment) * 4;
-      if(invalidObject) { score -= 40; issues.push('contains placeholder / fake work object'); }
-      if(!realWorkObject) { score -= 25; issues.push('not grounded in a real work object'); }
-      if(/handle\s+(experience|scenario)/i.test(question)) { score -= 20; issues.push('generic scenario phrasing'); }
-      if(hasGeneric) { score -= 12; issues.push('generic template phrasing'); }
-      if(question.length < 80) { score -= 6; issues.push('too short to create strong applicant pressure'); }
-      if(hasToolAnchor) score += 10;
-      if(hasMeasurableAnchor) score += 4;
-      if(item?.knockout) score += 2;
-      score = Math.max(0, Math.min(100, Math.round(score)));
+      if (/what happened|what did you do|what did you check first|what was the outcome|how did you resolve/i.test(question)) {
+        score += 10; proofStrength += 1; strengths.push('asks for action and outcome');
+      }
+      if (/booking|rebooking|pnr|fare|customer|call|conversation|kpi|csat|aht/i.test(question)) {
+        score += 8; roleRelevance += 1; signalAlignment += 1; strengths.push('anchored to real work context');
+      }
+      if (/tell me about a time|walk me through/i.test(question)) {
+        score += 6; scenarioGrounding += 1; strengths.push('scenario-led framing');
+      }
+      if (/what did you check first|what did you investigate first/i.test(question)) {
+        score += 6; fraudResistance += 1; strengths.push('harder to fake');
+      }
 
-      let verdict = 'Rewrite';
-      if (score >= 85) verdict = 'Elite';
-      else if (score >= 75) verdict = 'Strong';
-      else if (score >= 60) verdict = 'Usable';
-      else if (score >= 45) verdict = 'Weak';
+      roleRelevance = Math.max(1, Math.min(5, roleRelevance));
+      scenarioGrounding = Math.max(1, Math.min(5, scenarioGrounding));
+      pressureConstraint = Math.max(1, Math.min(5, pressureConstraint));
+      proofStrength = Math.max(1, Math.min(5, proofStrength));
+      fraudResistance = Math.max(1, Math.min(5, fraudResistance));
+      evaluationClarity = Math.max(1, Math.min(5, evaluationClarity));
+      signalAlignment = Math.max(1, Math.min(5, signalAlignment));
+      score = Math.max(0, Math.min(100, score));
 
       return {
-        score, verdict,
-        role_relevance: roleSpecificity, scenario_grounding: scenarioGrounding, pressure_constraint: pressureConstraint,
-        proof_strength: proofStrength, fraud_resistance: fraudResistance, evaluation_clarity: evaluationClarity, signal_alignment: signalAlignment,
-        issues: [...new Set(issues)].slice(0,6), strengths: [...new Set(strengths)].slice(0,5)
+        score,
+        label: score >= 90 ? 'Elite' : score >= 80 ? 'Strong' : score >= 68 ? 'Usable' : 'Needs Rewrite',
+        role_relevance: roleRelevance,
+        scenario_grounding: scenarioGrounding,
+        pressure_constraint: pressureConstraint,
+        proof_strength: proofStrength,
+        fraud_resistance: fraudResistance,
+        evaluation_clarity: evaluationClarity,
+        signal_alignment: signalAlignment,
+        strengths,
+        issues
       };
     }
 
@@ -1449,13 +1501,27 @@ function evaluateQuestionQuality(q){
 
     function generateAiQuestions(){
       const roleModel = deriveRoleModel();
-      const plan = buildAdaptiveQuestionPlan(roleModel);
-      let generated = plan.map(item => buildQuestionFromPlanItem(item, roleModel));
+      let generated = generateQuestionsV10(roleModel);
+
+      generated = generated.map(item => {
+        const cleanedQuestion = cleanGeneratedQuestion(item.question, item.focus_area, roleModel);
+        const cleanedOriginal = cleanGeneratedQuestion(item.ai_original_question || item.question, item.focus_area, roleModel);
+        return {
+          ...item,
+          question: cleanedQuestion,
+          ai_original_question: cleanedOriginal
+        };
+      });
+
       generated = finalizeGeneratedQuestions(generated, roleModel);
       generated = generated.map(q => ({ ...q, quality_evaluation: evaluateQuestionQuality(q) }));
+
       questionItems = generated;
-      renderQuestions(); refreshPreview(); updateQuestionQualitySummary(); generateScreeningSummary();
-      showNotice('Scenario-based screening questions generated.');
+      renderQuestions();
+      refreshPreview();
+      updateQuestionQualitySummary();
+      generateScreeningSummary();
+      showNotice('AI Questions Generated (V10 Scenario Engine)');
     }
 
     function evaluateAllQuestionQuality(){
