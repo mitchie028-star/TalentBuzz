@@ -346,29 +346,79 @@ function inferSignalType(signal){
   const s = tbLower(signal);
 
   if (!s) return 'proof';
-  if (/\b(onsite|hybrid|remote|night shift|graveyard|weekend|weekends|schedule|shifting|relocation|location)\b/.test(s)) return 'setup';
-  if (/\b(at least|minimum|min\.?|years|months|experience|required|license|licensed|certified|certification|registered)\b/.test(s)) return 'eligibility';
-  if (/\b(red flag|deal breaker|avoid|must not|cannot|poor attendance|job hopping|unstable)\b/.test(s)) return 'risk';
-  if (/\b(kpi|csat|aht|qa|sla|accuracy|quality|productivity|turnaround|tat|fcr)\b/.test(s)) return 'performance';
-  if (/\b(api|python|sql|gds|amadeus|sabre|pnr|fare|coding|icd|cpt|drg|appeal|denial|root cause|automation|integration|dashboard|pipeline|reconciliation)\b/.test(s)) return 'technical';
-  if (/\b(communication|english|stakeholder|client facing|presentation|ownership|leadership|autonomy|decision)\b/.test(s)) return 'behavioral';
+
+  // ===== TECH FIRST (prevents eligibility override issues) =====
+  if (/\b(api|python|sql|gds|amadeus|sabre|pnr|fare|coding|icd|cpt|drg|appeal|denial|root cause|automation|integration|dashboard|pipeline|reconciliation|selenium|playwright|cypress|uat|testing)\b/.test(s)) {
+    return 'technical';
+  }
+
+  // ===== SETUP =====
+  if (/\b(onsite|hybrid|remote|night shift|graveyard|weekend(s)?|schedule|shifting|relocation|location)\b/.test(s)) {
+    return 'setup';
+  }
+
+  // ===== ELIGIBILITY =====
+  if (/\b(at least|minimum|min\.?|years?|months?|experience|required|license|licensed|certified|certification|registered)\b/.test(s)) {
+    return 'eligibility';
+  }
+
+  // ===== RISK =====
+  if (/\b(red flag|deal breaker|avoid|must not|cannot|poor attendance|job hopping|unstable)\b/.test(s)) {
+    return 'risk';
+  }
+
+  // ===== PERFORMANCE (avoid catching "qa" inside "quality") =====
+  if (/\b(csat|aht|sla|accuracy|quality|productivity|turnaround|tat|fcr)\b/.test(s)) {
+    return 'performance';
+  }
+
+  // ===== BEHAVIORAL =====
+  if (/\b(communication|english|verbal|spoken|stakeholder|client facing|presentation|ownership|leadership|autonomy|decision)\b/.test(s)) {
+    return 'behavioral';
+  }
+
   return 'proof';
 }
+function inferSignalIntent(meta){
+  const s = tbLower(meta.cleaned);
 
-function classifySignalLineV11(signal, roleModel = {}){
-  const cleaned = stripImportanceLabel(signal);
-  const type = inferSignalType(cleaned);
-  const domain = detectRoleDomain(roleModel);
+  // ===== PRIORITY OVERRIDE (CRITICAL) =====
+  if (meta.type === 'setup') return 'setup';
+  if (meta.type === 'eligibility') return 'eligibility';
 
-  return {
-    raw: tbSafe(signal),
-    cleaned,
-    type,
-    domain,
-    senior: isSeniorRole(roleModel)
-  };
+  // ===== QA =====
+  if (/\b(framework|test automation|selenium|playwright|cypress)\b/.test(s)) return 'qa_framework';
+
+  if (/\b(ci\/cd|pipeline|azure devops|github actions)\b/.test(s)) return 'qa_ci_cd';
+
+  if (/\b(regression|smoke|test cases?|test scripts?)\b/.test(s)) return 'qa_regression';
+
+  if (/\b(deployment|release|uat|system upgrade)\b/.test(s)) return 'qa_release';
+
+  if (/\b(defect|bug|triage|issue tracking)\b/.test(s)) return 'qa_defect';
+
+  // ===== TRAVEL =====
+  if (/\b(gds|amadeus|sabre)\b/.test(s)) return 'travel_gds';
+  if (/\bpnr\b/.test(s)) return 'travel_pnr';
+  if (/\bfare\b/.test(s)) return 'travel_fare';
+  if (/\b(travel|airline|ota)\b/.test(s)) return 'travel_account';
+
+  // ===== CX =====
+  if (/\b(communication|english|verbal|spoken)\b/.test(s)) return 'cx_communication';
+
+  if (/\b(voice|call handling|calls?)\b/.test(s)) return 'cx_voice';
+
+  if (/\b(csat|aht|kpi)\b/.test(s)) return 'cx_metrics';
+
+  // ===== TECH =====
+  if (/\b(api|integration)\b/.test(s)) return 'tech_integration';
+
+  if (/\b(automation|python)\b/.test(s)) return 'tech_automation';
+
+  if (/\b(sql|data|etl|pipeline)\b/.test(s)) return 'tech_data';
+
+  return 'general';
 }
-
 function getSignalEvidencePrompt(meta){
   const s = tbLower(meta.cleaned);
   const domain = meta.domain;
@@ -514,9 +564,17 @@ function generateExecutionQuestionV11(signal, roleModel = {}){
   const meta = classifySignalLineV11(signal, roleModel);
   if (!meta.cleaned) return null;
 
-  const core = getSignalEvidencePrompt(meta);
-  const decision = getDecisionProbeTail(meta);
-  const verify = getSignalVerificationTail(meta);
+  const intent = inferSignalIntent(meta);
+  let question = buildQuestionFromIntent(intent, meta);
+
+  if (meta.type !== 'setup' && meta.type !== 'eligibility') {
+    question += getDecisionProbeTail(meta);
+    question += buildProofPrompt(intent);
+  }
+
+  return question.replace(/\s+/g, ' ').trim();
+}
+return core.replace(/\s+/g, ' ').trim();
 
   return `${core}${decision}${verify}`.replace(/\s+/g, ' ').trim();
 }
