@@ -747,40 +747,102 @@
     }
 
     function isInvalidObject(text){
-      return /realistic scenario|required setup|this role|your role|role scenario|business priority|general role fit/i.test(safeText(text));
+      return /realistic scenario|required setup|this role|your role|role scenario|business priority|general role fit|relevant experience|core competencies/i.test(safeText(text));
+    }
+
+    function isLabelShapedFocus(text = ''){
+      const t = safeText(text).toLowerCase();
+      return (
+        t.startsWith('experience with ') ||
+        t.startsWith('experience testing ') ||
+        t.startsWith('proficiency in ') ||
+        t.startsWith('knowledge of ') ||
+        t.startsWith('familiarity with ') ||
+        t.startsWith('success signal') ||
+        t.startsWith('non-negotiable') ||
+        t.startsWith('must-have') ||
+        t.startsWith('required skill') ||
+        t.startsWith('requirement')
+      );
     }
 
     function escapeRegExp(value){
-      return safeText(value).replace(/[.*+?^${}()|[\\]\\]/g, '\\$&');
+      return safeText(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    }
+
+    function hasRealWorkObject(text){
+      const q = safeText(text).toLowerCase();
+      const weakObjects = [
+        'required setup','realistic scenario','business priority','general role fit','relevant experience','core competencies','must-have requirement','requirement'
+      ];
+      if (weakObjects.some(x => q.includes(x))) return false;
+      const strongObjects = [
+        'api','framework','automation','test','checkout','payment','pos','erp','workflow','incident','defect','ticket','customer',
+        'campaign','pnr','booking','appeal','denial','integration','release','crm','call','escalation','qa','regression',
+        'script','dashboard','report','query','warehouse','etl','pipeline','retail','rebooking','amadeus','sabre','salesforce',
+        'claim','payer','clinical','queue','backlog','inventory','discount','order flow','order','reconciliation'
+      ];
+      return strongObjects.some(x => q.includes(x));
+    }
+
+    function focusToWorkObject(focus = '', roleModel = {}){
+      const f = safeText(focus).toLowerCase();
+      const title = safeText(roleModel.title).toLowerCase();
+      const combined = safeText(roleModel.combined).toLowerCase();
+
+      if (/api testing|rest|web services?|postman|endpoint/.test(f)) return 'an API response returning incorrect or incomplete data';
+      if (/ci\/cd|github actions|azure devops|pipeline/.test(f)) return 'an automated test failure inside the deployment pipeline';
+      if (/python|javascript|typescript|c#|scripting/.test(f)) return 'a recurring QA or automation issue that needed scripting';
+      if (/automation framework|framework/.test(f)) return 'a brittle or slow automation framework that needed improvement';
+      if (/pos|checkout|payment/.test(f) || /retail/.test(title) || /checkout|payment|inventory|retail/.test(combined)) return 'a checkout, payment, or inventory defect affecting transactions';
+      if (/erp|transactional|business-critical/.test(f)) return 'a business-critical workflow defect affecting orders, inventory, or reporting';
+      if (/regression/.test(f)) return 'a regression defect found before release';
+      if (/gds|amadeus|sabre|pnr|rebooking|flight/.test(f)) return 'a flight booking or rebooking issue inside the reservation workflow';
+      if (/customer|de-escalation|call handling|voice|csat/.test(f)) return 'a customer escalation or service breakdown during active queue pressure';
+      if (/crm|salesforce|hubspot|braze|klaviyo|zendesk/.test(f)) return 'a broken customer lifecycle, ticketing, or campaign workflow';
+      if (/denial|appeal|drg|clinical|nurse|medical|coder/.test(f)) return 'a clinical documentation, coding, or payer issue affecting resolution';
+      if (/finance|reconciliation|audit|accounting/.test(f)) return 'a reconciliation or reporting issue with financial impact';
+      if (/logistics|operations|backlog|sla/.test(f)) return 'an operational backlog or process breakdown threatening SLA targets';
+      if (/english|communication|spoken/.test(f)) return 'a live customer or stakeholder interaction where communication quality affected the outcome';
+      if (/success signal/.test(f)) return roleModel.primaryDomain === 'technical'
+        ? 'an improvement to automation coverage, reliability, or release quality'
+        : roleModel.primaryDomain === 'customer'
+          ? 'a difficult customer interaction that ended in a strong service outcome'
+          : 'a real work outcome that showed strong ownership';
+      if (roleModel.primaryDomain === 'technical') return 'a production-related defect or automation problem';
+      if (roleModel.primaryDomain === 'customer') return 'a customer escalation or service breakdown';
+      if (roleModel.primaryDomain === 'healthcare') return 'a documentation, coding, or payer issue';
+      if (roleModel.primaryDomain === 'finance') return 'a reconciliation or reporting issue';
+      if (roleModel.primaryDomain === 'operations') return 'an operations breakdown or queue issue';
+      return 'a real work issue';
     }
 
     function getRealScenario(roleModel){
-      if(roleModel.primaryDomain === 'technical'){
-        const options = [
-          'a regression test failure before release',
-          'a broken API response affecting production',
-          'a failed automation script in CI/CD',
-          'a POS checkout bug affecting transactions',
-          'a data pipeline issue causing bad downstream output'
-        ];
-        return options[Math.min(roleModel.complexityScore || 0, options.length - 1)] || options[0];
+      const combined = safeText(roleModel.combined).toLowerCase();
+      const title = safeText(roleModel.title).toLowerCase();
+      if (roleModel.primaryDomain === 'technical') {
+        if (/retail|checkout|payment|inventory|pos/.test(combined + ' ' + title)) return 'a checkout or inventory defect affecting live transactions';
+        if (/api|integration/.test(combined)) return 'an API response mismatch breaking a critical workflow';
+        if (/qa|automation|test/.test(combined + ' ' + title)) return 'a regression failure that surfaced just before release';
+        if (/data|etl|pipeline/.test(combined + ' ' + title)) return 'a bad downstream data issue caused by a pipeline or transformation failure';
+        return 'a production defect or failed automation flow under release pressure';
       }
-      if(roleModel.primaryDomain === 'customer'){
-        return roleModel.customerDepth > 3
-          ? 'a customer escalation while queue volume was rising'
-          : 'a call queue backlog during peak hours';
+      if (roleModel.primaryDomain === 'customer') {
+        if (/sales|retention|objection/.test(combined)) return 'a customer objection while conversion pressure was high';
+        return 'a customer escalation while queue pressure was rising';
       }
-      if(roleModel.primaryDomain === 'operations') return 'an operations backlog that threatened SLA targets';
-      if(roleModel.primaryDomain === 'finance') return 'a reconciliation exception that could affect reporting accuracy';
-      if(roleModel.primaryDomain === 'healthcare') return 'a clinical documentation or payer issue that could delay resolution';
+      if (roleModel.primaryDomain === 'operations') return 'an operations backlog that threatened SLA targets';
+      if (roleModel.primaryDomain === 'finance') return 'a reconciliation exception that could affect reporting accuracy';
+      if (roleModel.primaryDomain === 'healthcare') return 'a clinical documentation or payer issue that could delay resolution';
       return 'a real work issue';
     }
 
     function buildSimulation(roleModel){
       const scenario = getRealScenario(roleModel);
+      const constraint = detectConstraint(roleModel, scenario);
       return createEmptyQuestion({
-        question: `Walk us through the last time you encountered ${scenario}. What broke, what did you check first (logs, tools, system behavior), and what decision did you make before resolving it?`,
-        ai_original_question: `Walk us through the last time you encountered ${scenario}. What broke, what did you check first (logs, tools, system behavior), and what decision did you make before resolving it?`,
+        question: `You are midway through work when ${scenario} appears under ${constraint}. What would you check first, how would you narrow down whether the issue is in the system, workflow, or data, and what would determine your next decision?`,
+        ai_original_question: `You are midway through work when ${scenario} appears under ${constraint}. What would you check first, how would you narrow down whether the issue is in the system, workflow, or data, and what would determine your next decision?`,
         focus_area: 'Scenario Simulation',
         response_type: 'Open Text',
         weight: 'High',
@@ -795,28 +857,38 @@
       if(isInvalidObject(text)) return null;
 
       text = text
-        .replace(/\bhandle\s+(?:a|an)?\s*realistic\s+/ig, 'work through ')
-        .replace(/\bhandle\s+(experience|scenario)\b/ig, 'work on $1')
-        .replace(/\bhow would you\b/ig, 'What did you')
-        .replace(/\bwhat would you do\b/ig, 'What did you do')
-        .replace(/\byour role\b/ig, 'that situation')
-        .replace(/\bthis role\b/ig, 'that environment');
+        .replace(/handle\s+(?:a|an)?\s*realistic\s+/ig, 'work through ')
+        .replace(/handle\s+(experience|scenario)/ig, 'work on $1')
+        .replace(/how would you/ig, 'What would you')
+        .replace(/your role/ig, 'that situation')
+        .replace(/this role/ig, 'that environment');
+
+      const focus = safeText(item?.focus_area || item?.focus || item?.source);
+      if (isLabelShapedFocus(focus) || /(experience with|experience testing|proficiency in|knowledge of|familiarity with)/i.test(text)) {
+        const workObject = focusToWorkObject(focus || text, roleModel);
+        if (item?.category === 'knockout') {
+          text = `Do you have direct hands-on experience with ${workObject}? Briefly state the environment, tools, and level of ownership.`;
+        } else if (item?.category === 'simulation') {
+          text = buildSimulation(roleModel).question;
+        } else if (item?.category === 'business') {
+          text = `Tell us about a time you had to solve ${workObject}. What did you prioritize first, what tradeoff did you make, and what business result followed?`;
+        } else if (item?.category === 'red_flag') {
+          text = `Tell us about a time ${workObject} created risk. What did you do to prevent mistakes, reduce impact, or stop the issue from repeating?`;
+        } else {
+          text = `Tell us about a time you dealt with ${workObject}. What did you personally do, how did you investigate it, and what was the outcome?`;
+        }
+      }
 
       const roleTitle = safeText(roleModel?.title);
       if(roleTitle){
         const roleRx = new RegExp(`\b${escapeRegExp(roleTitle)}\b`, 'ig');
-        if(roleRx.test(text)){
-          text = text.replace(roleRx, getRealScenario(roleModel));
-        }
+        text = text.replace(roleRx, getRealScenario(roleModel));
       }
 
-      if(item?.category === 'simulation' && !hasRealWorkObject(text)){
-        return buildSimulation(roleModel).question;
-      }
-
-      if(!hasRealWorkObject(text) && item?.category !== 'setup' && item?.category !== 'knockout'){
-        const scenario = getRealScenario(roleModel);
-        text = `${text.replace(/[.\s]*$/, '')}. Ground this in ${scenario}.`;
+      if(item?.category === 'simulation' && !hasRealWorkObject(text)) return buildSimulation(roleModel).question;
+      if(!hasRealWorkObject(text) && item?.category !== 'setup' && item?.category !== 'knockout') {
+        const workObject = focusToWorkObject(focus || text, roleModel);
+        text = `Tell us about a time you dealt with ${workObject}. What did you personally do, what did you check first, and what was the result?`;
       }
 
       text = text.replace(/\s+/g, ' ').trim();
@@ -841,35 +913,20 @@
         return true;
       });
 
-      while(finalList.length < 5){
+      while(finalList.length < 6){
         const fallback = buildSimulation(roleModel);
         const key = safeText(fallback.question).toLowerCase();
         if(!seen.has(key)){
           seen.add(key);
           finalList.push(fallback);
         } else {
-          fallback.question = `${fallback.question} Include the exact system, the first signal you noticed, and the outcome.`;
+          fallback.question = `${fallback.question} Be specific about the first signal you noticed and the final impact.`;
           fallback.ai_original_question = fallback.question;
           finalList.push(fallback);
         }
       }
 
       return finalList;
-    }
-
-
-    function hasRealWorkObject(text){
-      const q = safeText(text).toLowerCase();
-      const weakObjects = [
-        'required setup','realistic scenario','business priority','general role fit','relevant experience','core competencies','must-have requirement','requirement'
-      ];
-      if (weakObjects.some(x => q.includes(x))) return false;
-      const strongObjects = [
-        'api','framework','automation','test','checkout','pos','erp','workflow','incident','defect','ticket','customer',
-        'campaign','pnr','booking','appeal','denial','integration','release','crm','call','escalation','qa','regression',
-        'script','dashboard','report','query','warehouse','etl','pipeline','retail','rebooking','amadeus','sabre','salesforce'
-      ];
-      return strongObjects.some(x => q.includes(x));
     }
 
     function buildAdaptiveQuestionPlan(roleModel){
@@ -934,9 +991,10 @@
       const source = safeText(item.source);
       const focus = safeText(item.focus || source);
       const tool = detectToolFromSkill(source || focus);
-      const trigger = detectTrigger(roleModel, focus);
       const constraint = detectConstraint(roleModel, focus);
       const envNotes = safeText(els.signalEnvironmentNotes.value);
+      const workObject = focusToWorkObject(source || focus, roleModel);
+      const criticalText = source || focus || 'this requirement';
 
       if(item.category === 'knockout'){
         if(item.focus === 'setup'){
@@ -946,69 +1004,51 @@
           });
         }
         return createEmptyQuestion({
-          question: `Walk us through the most recent time you had to prove ${source} in a real role${tool ? ` using ${tool}` : ''}. What company or environment was it in, what exactly did you handle, and what result shows you can do this at the level this role needs?`,
+          question: `Do you have direct hands-on experience with ${criticalText}? Briefly state the environment, tools, and level of ownership.`,
+          ai_original_question: `Do you have direct hands-on experience with ${criticalText}? Briefly state the environment, tools, and level of ownership.`,
           focus_area: source || 'Eligibility / Must-Have', response_type: item.response_type || 'Short Answer', weight: item.weight || 'Critical', category: 'knockout', knockout: true
         });
       }
 
-      if(item.category === 'simulation'){
-        return buildSimulation(roleModel);
-      }
+      if(item.category === 'simulation') return buildSimulation(roleModel);
 
       if(item.category === 'red_flag'){
         return createEmptyQuestion({
-          question: buildScenarioQuestion({
-            task: `handle a situation related to ${source}`,
-            tool,
-            trigger,
-            constraint,
-            proofPrompt: 'What did you do to prevent mistakes or risk, and what was the final outcome?'
-          }),
+          question: `Tell us about a time ${workObject} created risk${constraint ? ` under ${constraint}` : ''}. What did you do to prevent mistakes, reduce impact, or stop the issue from repeating?`,
           focus_area: 'Risk / Red Flag Check', response_type: 'Open Text', weight: item.weight || 'Medium', category: 'red_flag'
         });
       }
 
       if(item.category === 'business'){
         return createEmptyQuestion({
-          question: buildScenarioQuestion({
-            task: `solve a business problem related to ${source}`,
-            tool,
-            trigger,
-            constraint,
-            proofPrompt: 'What did you prioritize first, what tradeoff did you make, and what business result followed?'
-          }),
+          question: `Tell us about a time you had to solve ${workObject}${tool ? ` using ${tool}` : ''}. What did you prioritize first, what tradeoff did you make, and what business result followed?`,
           focus_area: 'Business Context', response_type: 'Open Text', weight: item.weight || 'High', category: 'business'
         });
       }
 
       if(item.category === 'success_signal'){
         return createEmptyQuestion({
-          question: buildScenarioQuestion({
-            task: `demonstrate ${source}`,
-            tool,
-            trigger,
-            constraint,
-            proofPrompt: 'What did you personally own, how did you execute it, and what measurable result came out of it?'
-          }),
+          question: `Tell us about a time you improved, expanded, or took ownership of ${workObject}${tool ? ` using ${tool}` : ''}. What was not working well, what did you personally change, and what measurable result came from it?`,
           focus_area: 'Success Signal', response_type: 'Open Text', weight: item.weight || 'High', category: 'proof'
         });
       }
 
+      if(item.category === 'proof' || item.category === 'general'){
+        return createEmptyQuestion({
+          question: `Tell us about a time you dealt with ${workObject}${tool ? ` using ${tool}` : ''}${constraint ? ` under ${constraint}` : ''}. What did you personally do, how did you investigate it, and what was the outcome?`,
+          focus_area: source || focus || 'Execution', response_type: 'Open Text', weight: item.weight || 'High', category: 'proof'
+        });
+      }
+
       return createEmptyQuestion({
-        question: buildScenarioQuestion({
-          task: `handle ${source || focus}`,
-          tool,
-          trigger,
-          constraint,
-          proofPrompt: 'What did you personally do, what exact steps did you take, and what was the result?'
-        }),
-        focus_area: source || focus || 'Execution', response_type: 'Open Text', weight: item.weight || 'High', category: item.category === 'general' ? 'proof' : item.category
+        question: `Tell us about a time you handled ${workObject}. What did you personally do, what did you check first, and what was the result?`,
+        focus_area: source || focus || 'Execution', response_type: 'Open Text', weight: item.weight || 'High', category: 'proof'
       });
     }
 
     function isGenericQuestion(q){
       const text = safeText(q).toLowerCase();
-      return /tell us about your experience|describe your experience|do you have experience|briefly confirm this must-have|briefly confirm this requirement/.test(text) || text.length < 80;
+      return /tell us about your experience|describe your experience|do you have experience|briefly confirm this must-have|briefly confirm this requirement|how familiar are you/.test(text) || text.length < 80;
     }
 
     function evaluateQuestionQuality(item) {
@@ -1021,31 +1061,22 @@
         ...(roleModel.businessPriorities || []), item?.focus_area
       ].map(s => safeText(s).toLowerCase()).filter(Boolean);
 
-      const scenarioPatterns = [/walk us through/i,/describe a recent time/i,/tell us about a recent time/i,/give a specific example/i,/what happened the last time/i,/recent time you had to/i,/last time you had to/i];
-      const triggerPatterns = [/because of/i,/when\b/i,/after\b/i,/during\b/i,/due to/i,/triggered by/i,/caused by/i,/what broke/i];
-      const constraintPatterns = [/under\b/i,/within\b/i,/while\b/i,/despite\b/i,/deadline/i,/sla/i,/high volume/i,/queue/i,/backlog/i,/peak/i,/time pressure/i,/production/i,/accuracy/i,/compliance/i,/risk/i,/urgent/i];
-      const proofPatterns = [/what did you do/i,/what steps did you take/i,/what was the result/i,/what was the outcome/i,/what happened next/i,/how did you fix/i,/how did you troubleshoot/i,/what did you personally do/i,/what decision did you make/i];
-      const toolPatterns = [/\bapi\b/i,/\bcrm\b/i,/\bgds\b/i,/\bpnr\b/i,/\bpython\b/i,/\bsql\b/i,/\bsalesforce\b/i,/\bzendesk\b/i,/\bamadeus\b/i,/\bsabre\b/i,/\bopenai\b/i,/\bzapier\b/i,/\bmake\b/i,/\bwebhook\b/i,/\blogs?\b/i,/\bsystem\b/i,/\bworkflow\b/i,/\bbug\b/i,/\bdebug\b/i];
-      const measurablePatterns = [/\bhow many\b/i,/\bhow much\b/i,/\bvolume\b/i,/\bmetric/i,/\bkpi/i,/\bcsat\b/i,/\bqa\b/i,/\baht\b/i,/\bconversion\b/i,/\baccuracy\b/i,/\bresult\b/i,/\boutcome\b/i];
-      const genericPatterns = [/tell us about your experience/i,/describe your experience/i,/what experience do you have/i,/are you familiar with/i,/do you have experience/i,/briefly confirm/i];
-
       const roleTermsMatched = combinedSignals.filter(signal => signal && q.includes(signal)).length;
-      const hasScenario = scenarioPatterns.some(rx => rx.test(question));
-      const hasTrigger = triggerPatterns.some(rx => rx.test(question));
-      const hasConstraint = constraintPatterns.some(rx => rx.test(question));
-      const hasProof = proofPatterns.some(rx => rx.test(question));
-      const hasToolAnchor = toolPatterns.some(rx => rx.test(question));
-      const hasMeasurableAnchor = measurablePatterns.some(rx => rx.test(question));
-      const hasGeneric = genericPatterns.some(rx => rx.test(question));
+      const hasConstraint = /(deadline|sla|production|release|queue|customer impact|accuracy|compliance|time pressure|under |while |urgent|backlog)/i.test(question);
+      const hasProof = /(what did you do|what exact steps|what happened next|what was the result|what was the outcome|what did you personally do|what did you check first|what tradeoff did you make|what decision)/i.test(question);
+      const hasToolAnchor = /(api|crm|gds|pnr|python|sql|salesforce|zendesk|amadeus|sabre|logs?|system|workflow|bug|debug|checkout|payment|inventory|pipeline|framework|defect|release)/i.test(question);
+      const hasMeasurableAnchor = /(how many|how much|volume|metric|kpi|csat|qa|aht|conversion|accuracy|result|outcome|measurable)/i.test(question);
+      const hasGeneric = /(tell us about your experience|describe your experience|what experience do you have|are you familiar with|do you have experience|briefly confirm|how familiar are you)/i.test(question);
       const invalidObject = isInvalidObject(question);
       const realWorkObject = item?.category === 'setup' ? true : hasRealWorkObject(question);
+      const labelShaped = isLabelShapedFocus(item?.focus_area || '') || /(experience with|experience testing|proficiency in|knowledge of|familiarity with|success signal|non-negotiable|must-have)/i.test(question);
 
       let roleSpecificity = roleTermsMatched >= 3 ? 5 : roleTermsMatched === 2 ? 4 : roleTermsMatched === 1 ? 3 : item?.focus_area ? 2 : 1;
-      let scenarioGrounding = hasScenario && hasTrigger ? 5 : hasScenario ? 4 : /example|situation|case|incident/i.test(question) ? 3 : 1;
-      let pressureConstraint = hasConstraint && hasTrigger ? 5 : hasConstraint ? 4 : hasMeasurableAnchor ? 3 : 1;
-      let proofStrength = hasProof && /personally|steps|result|outcome|decision/i.test(question) ? 5 : hasProof ? 4 : /specific example|real example/i.test(question) ? 3 : 1;
-      let fraudResistance = hasScenario && hasProof && (hasToolAnchor || hasConstraint) ? 5 : hasScenario && hasProof ? 4 : hasScenario || hasProof ? 3 : 1;
-      let evaluationClarity = hasProof && (hasMeasurableAnchor || hasToolAnchor || hasConstraint) ? 5 : hasProof ? 4 : /how|what|why/i.test(question) ? 3 : 1;
+      let scenarioGrounding = realWorkObject ? 5 : /(example|situation|case|incident|time you dealt with|time you handled)/i.test(question) ? 3 : 1;
+      let pressureConstraint = hasConstraint ? 5 : hasMeasurableAnchor ? 3 : 1;
+      let proofStrength = hasProof ? 5 : /(specific example|real example)/i.test(question) ? 3 : 1;
+      let fraudResistance = realWorkObject && hasProof && (hasToolAnchor || hasConstraint) ? 5 : realWorkObject && hasProof ? 4 : hasProof ? 2 : 1;
+      let evaluationClarity = hasProof && (hasMeasurableAnchor || hasToolAnchor || hasConstraint) ? 5 : hasProof ? 4 : 2;
       let signalAlignment = roleTermsMatched >= 3 || item?.weight === 'Critical' || item?.knockout ? 5 : roleTermsMatched === 2 ? 4 : roleTermsMatched === 1 ? 3 : item?.focus_area ? 2 : 1;
       const strengths = [];
       const issues = [];
@@ -1061,18 +1092,20 @@
       let score = (roleSpecificity + scenarioGrounding + pressureConstraint + proofStrength + fraudResistance + evaluationClarity + signalAlignment) * 4;
       if(invalidObject) { score -= 40; issues.push('contains placeholder / fake work object'); }
       if(!realWorkObject) { score -= 25; issues.push('not grounded in a real work object'); }
+      if(labelShaped) { score -= 22; issues.push('label-shaped wording'); }
       if(/handle\s+(experience|scenario)/i.test(question)) { score -= 20; issues.push('generic scenario phrasing'); }
-      if(hasGeneric) { score -= 12; issues.push('generic template phrasing'); }
+      if(hasGeneric) { score -= 15; issues.push('generic template phrasing'); }
       if(question.length < 80) { score -= 6; issues.push('too short to create strong applicant pressure'); }
-      if(hasToolAnchor) score += 10;
+      if(question.length > 360) { score -= 5; issues.push('too long'); }
+      if(hasToolAnchor) score += 8;
       if(hasMeasurableAnchor) score += 4;
-      if(item?.knockout) score += 2;
+      if(item?.knockout) score += 1;
       score = Math.max(0, Math.min(100, Math.round(score)));
 
       let verdict = 'Rewrite';
-      if (score >= 85) verdict = 'Elite';
-      else if (score >= 75) verdict = 'Strong';
-      else if (score >= 60) verdict = 'Usable';
+      if (score >= 90) verdict = 'Elite';
+      else if (score >= 78) verdict = 'Strong';
+      else if (score >= 62) verdict = 'Usable';
       else if (score >= 45) verdict = 'Weak';
 
       return {
@@ -1081,24 +1114,6 @@
         proof_strength: proofStrength, fraud_resistance: fraudResistance, evaluation_clarity: evaluationClarity, signal_alignment: signalAlignment,
         issues: [...new Set(issues)].slice(0,6), strengths: [...new Set(strengths)].slice(0,5)
       };
-    }
-
-    function evaluateCandidateAnswer(item){
-      const answer = safeText(item?.candidate_answer).toLowerCase();
-      if(!answer) return null;
-      let relevance = 1, proof = 1, depth = 1, outcome = 1, riskPenalty = 0;
-      if (answer.length > 80) relevance += 1;
-      if (/i |my |we |personally|handled|built|implemented|resolved|fixed|configured/.test(answer)) proof += 1;
-      if (/because|when|after|during|under|while/.test(answer)) depth += 1;
-      if (/result|outcome|improved|reduced|increased|closed|completed|delivered/.test(answer)) outcome += 1;
-      if (/maybe|probably|familiar|knowledge|exposed|aware/.test(answer)) riskPenalty += 1;
-      if (answer.length > 180) { relevance += 1; depth += 1; }
-      if (/metric|kpi|sla|%|percent|hours|minutes|calls|tickets|cases/.test(answer)) { proof += 1; outcome += 1; }
-      relevance = Math.min(5, relevance); proof = Math.min(5, proof); depth = Math.min(5, depth); outcome = Math.min(5, outcome); riskPenalty = Math.min(5, riskPenalty);
-      let score = Math.round(((relevance + proof + depth + outcome) / 20) * 100 - riskPenalty * 4);
-      score = Math.max(0, Math.min(100, score));
-      const verdict = score >= 80 ? 'Strong' : score >= 60 ? 'Usable' : score >= 40 ? 'Weak' : 'Poor';
-      return { score, verdict, dimensions: { relevance, proof, depth, outcome, riskPenalty } };
     }
 
     function updateQuestionQualitySummary(){
