@@ -583,7 +583,45 @@
       showNotice('Role saved successfully.'); setModalOpen(false); await loadRoles();
     }
 
-    window.editRole = async id => { try { let role = rolesCache.find(r => r.id === id); if(!role){ const res = await supabaseClient.from('jobs').select('*').eq('id', id).maybeSingle(); if(res.error) throw res.error; role = res.data; } if(!role){ showNotice('Role not found.','error'); return; } if(typeof role.screening_config === 'string'){ try { role.screening_config = JSON.parse(role.screening_config || '[]') || []; } catch { role.screening_config = []; } } if(typeof role.ai_screening_config === 'string'){ try { role.ai_screening_config = JSON.parse(role.ai_screening_config || '{}') || {}; } catch { role.ai_screening_config = {}; } } if(!Array.isArray(role.required_skills)) role.required_skills = typeof role.required_skills === 'string' ? [role.required_skills] : []; if(!Array.isArray(role.nice_to_have_skills)) role.nice_to_have_skills = typeof role.nice_to_have_skills === 'string' ? [role.nice_to_have_skills] : []; populateRoleForm(role); els.roleModalTitle.textContent = 'Edit Role'; setModalOpen(true); switchTab('basics'); } catch(err){ console.error('editRole failed', err); showNotice(`Failed to open workspace: ${err.message || err}`,'error'); } };
+    window.editRole = async id => {
+      try {
+        let role = rolesCache.find(r => r.id === id);
+        if(!role){
+          const res = await supabaseClient.from('jobs').select('*').eq('id', id).maybeSingle();
+          if(res.error) throw res.error;
+          role = res.data;
+        }
+        if(!role || typeof role !== 'object'){
+          showNotice('Role not found.','error');
+          return;
+        }
+
+        if(typeof role.screening_config === 'string'){
+          try { role.screening_config = JSON.parse(role.screening_config || '[]') || []; }
+          catch { role.screening_config = []; }
+        }
+        if(!Array.isArray(role.screening_config)) role.screening_config = [];
+
+        if(typeof role.ai_screening_config === 'string'){
+          try { role.ai_screening_config = JSON.parse(role.ai_screening_config || '{}') || {}; }
+          catch { role.ai_screening_config = {}; }
+        }
+        if(!role.ai_screening_config || typeof role.ai_screening_config !== 'object' || Array.isArray(role.ai_screening_config)){
+          role.ai_screening_config = {};
+        }
+
+        if(!Array.isArray(role.required_skills)) role.required_skills = typeof role.required_skills === 'string' ? [role.required_skills] : [];
+        if(!Array.isArray(role.nice_to_have_skills)) role.nice_to_have_skills = typeof role.nice_to_have_skills === 'string' ? [role.nice_to_have_skills] : [];
+
+        populateRoleForm(role);
+        els.roleModalTitle.textContent = 'Edit Role';
+        setModalOpen(true);
+        switchTab('basics');
+      } catch(err){
+        console.error('editRole failed', err);
+        showNotice(`Failed to open workspace: ${err.message || err}`,'error');
+      }
+    };
     window.toggleHoldRole = async (id, holdValue) => { const { error } = await supabaseClient.from('jobs').update({ is_on_hold: holdValue === true || holdValue === 'true', updated_at: new Date().toISOString() }).eq('id', id); if(error){ showNotice(`Failed to update hold status: ${error.message}`,'error'); return; } showNotice('Role status updated.'); await loadRoles(); };
 
     function openNewRole(){ clearRoleForm(); els.roleModalTitle.textContent = 'Role Workspace'; setModalOpen(true); switchTab('basics'); }
