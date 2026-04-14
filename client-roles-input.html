@@ -538,57 +538,50 @@ function evaluateQuestionQualityV11(q, focusArea = '', roleModel = {}){
 
 function cleanGeneratedQuestionV11(questionText, focusArea = '', roleModel = {}){
   const raw = tbSafe(questionText);
-  const focus = stripImportanceLabel(focusArea);
-
-  if (!raw && focus) {
-    return generateExecutionQuestionV11(focus, roleModel);
-  }
-
   if (!raw) return '';
 
   let cleaned = raw
     .replace(/\s+/g, ' ')
     .replace(/\s+\?/g, '?')
+    .replace(/\s+\./g, '.')
     .trim();
 
-  if (/^tell me about a time\b/i.test(cleaned)) {
-    const rebuilt = generateExecutionQuestionV11(focus || cleaned, roleModel);
-    if (rebuilt) return rebuilt;
+  // ❌ REMOVE generator fallback (causes loops)
+  // DO NOT regenerate here anymore
+
+  // ❌ DO NOT append anything anymore
+  // This function is CLEANUP ONLY
+
+  // Fix broken phrasing patterns
+  cleaned = cleaned
+    .replace(/What did you move the case forward\?/gi, 'How would you move the case forward?')
+    .replace(/Also explain what you checked first.*?\./gi, '')
+    .replace(/How did you know your final action was the right one\?\s*How did you know your final action was the right one\?/gi, 'How did you know your final action was the right one?')
+    .replace(/What did you check first\?\s*What did you check first\?/gi, 'What did you check first?');
+
+  // 🔥 Remove duplicate sentences (CRITICAL)
+  const seen = new Set();
+  cleaned = cleaned
+    .split(/(?<=[\.\?])\s+/)
+    .filter(part => {
+      const key = tbLower(part);
+      if (!key) return false;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .join(' ')
+    .trim();
+
+  // 🔥 Light shortening for long questions
+  if (cleaned.length > 320) {
+    cleaned = cleaned
+      .replace(/\s*Include at least one concrete detail.*?\./gi, ' Include one real detail.')
+      .replace(/\s+/g, ' ')
+      .trim();
   }
 
-  if (/^briefly confirm\b/i.test(cleaned)) {
-    const rebuilt = generateExecutionQuestionV11(focus || cleaned, roleModel);
-    if (rebuilt) return rebuilt;
-  }
-
-  if (/most recent role where this applied/i.test(cleaned)) {
-    const rebuilt = generateExecutionQuestionV11(focus || cleaned, roleModel);
-    if (rebuilt) return rebuilt;
-  }
-
-  const meta = classifySignalLineV11(focus || cleaned, roleModel);
-
-  if (meta.type === 'setup') {
-    return `This role requires ${meta.cleaned}. Can you meet that consistently, and what in your current situation makes that realistic?`;
-  }
-
-  if (!/what did you check first|what would you check first|what did you verify first|what did you review first/i.test(cleaned)) {
-    cleaned += meta.domain === 'healthcare'
-      ? ' What did you review first?'
-      : ' What did you check first?';
-  }
-
-  if (!/what options.*reject|why you chose|how you knew|how did you decide/i.test(cleaned)) {
-    cleaned += meta.senior
-      ? ' What options did you reject, and why did you choose the final path?'
-      : ' How did you know your final action was the right one?';
-  }
-
-  if (!/concrete detail|tool|system|log|payload|record|documentation|output|customer constraint|booking issue/i.test(cleaned)) {
-    cleaned += getSignalVerificationTail(meta);
-  }
-
-  return cleaned.replace(/\s+/g, ' ').trim();
+  return cleaned;
 }
 
 /* ===== OPTIONAL COMPATIBILITY SHIMS ===== */
