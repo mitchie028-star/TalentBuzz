@@ -746,6 +746,117 @@
       return `Walk us through a recent time you had to ${task}${toolPart}${triggerPart}${constraintPart}. ${end}`;
     }
 
+    function isInvalidObject(text){
+      return /realistic scenario|required setup|this role|your role|role scenario|business priority|general role fit/i.test(safeText(text));
+    }
+
+    function escapeRegExp(value){
+      return safeText(value).replace(/[.*+?^${}()|[\\]\\]/g, '\\$&');
+    }
+
+    function getRealScenario(roleModel){
+      if(roleModel.primaryDomain === 'technical'){
+        const options = [
+          'a regression test failure before release',
+          'a broken API response affecting production',
+          'a failed automation script in CI/CD',
+          'a POS checkout bug affecting transactions',
+          'a data pipeline issue causing bad downstream output'
+        ];
+        return options[Math.min(roleModel.complexityScore || 0, options.length - 1)] || options[0];
+      }
+      if(roleModel.primaryDomain === 'customer'){
+        return roleModel.customerDepth > 3
+          ? 'a customer escalation while queue volume was rising'
+          : 'a call queue backlog during peak hours';
+      }
+      if(roleModel.primaryDomain === 'operations') return 'an operations backlog that threatened SLA targets';
+      if(roleModel.primaryDomain === 'finance') return 'a reconciliation exception that could affect reporting accuracy';
+      if(roleModel.primaryDomain === 'healthcare') return 'a clinical documentation or payer issue that could delay resolution';
+      return 'a real work issue';
+    }
+
+    function buildSimulation(roleModel){
+      const scenario = getRealScenario(roleModel);
+      return createEmptyQuestion({
+        question: `Walk us through the last time you encountered ${scenario}. What broke, what did you check first (logs, tools, system behavior), and what decision did you make before resolving it?`,
+        ai_original_question: `Walk us through the last time you encountered ${scenario}. What broke, what did you check first (logs, tools, system behavior), and what decision did you make before resolving it?`,
+        focus_area: 'Scenario Simulation',
+        response_type: 'Open Text',
+        weight: 'High',
+        category: 'simulation',
+        was_ai_generated: true
+      });
+    }
+
+    function rewriteQuestion(questionText, roleModel, item = {}){
+      let text = safeText(questionText);
+      if(!text) return null;
+      if(isInvalidObject(text)) return null;
+
+      text = text
+        .replace(/\bhandle\s+(?:a|an)?\s*realistic\s+/ig, 'work through ')
+        .replace(/\bhandle\s+(experience|scenario)\b/ig, 'work on $1')
+        .replace(/\bhow would you\b/ig, 'What did you')
+        .replace(/\bwhat would you do\b/ig, 'What did you do')
+        .replace(/\byour role\b/ig, 'that situation')
+        .replace(/\bthis role\b/ig, 'that environment');
+
+      const roleTitle = safeText(roleModel?.title);
+      if(roleTitle){
+        const roleRx = new RegExp(`\b${escapeRegExp(roleTitle)}\b`, 'ig');
+        if(roleRx.test(text)){
+          text = text.replace(roleRx, getRealScenario(roleModel));
+        }
+      }
+
+      if(item?.category === 'simulation' && !hasRealWorkObject(text)){
+        return buildSimulation(roleModel).question;
+      }
+
+      if(!hasRealWorkObject(text) && item?.category !== 'setup' && item?.category !== 'knockout'){
+        const scenario = getRealScenario(roleModel);
+        text = `${text.replace(/[.\s]*$/, '')}. Ground this in ${scenario}.`;
+      }
+
+      text = text.replace(/\s+/g, ' ').trim();
+      return text;
+    }
+
+    function finalizeGeneratedQuestions(list, roleModel){
+      let finalList = (Array.isArray(list) ? list : [])
+        .map(item => {
+          const question = rewriteQuestion(item?.question, roleModel, item);
+          if(!question) return null;
+          return { ...item, question, ai_original_question: item?.ai_original_question || question };
+        })
+        .filter(Boolean)
+        .filter(item => !isGenericQuestion(item.question));
+
+      const seen = new Set();
+      finalList = finalList.filter(item => {
+        const key = safeText(item.question).toLowerCase();
+        if(!key || seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+
+      while(finalList.length < 5){
+        const fallback = buildSimulation(roleModel);
+        const key = safeText(fallback.question).toLowerCase();
+        if(!seen.has(key)){
+          seen.add(key);
+          finalList.push(fallback);
+        } else {
+          fallback.question = `${fallback.question} Include the exact system, the first signal you noticed, and the outcome.`;
+          fallback.ai_original_question = fallback.question;
+          finalList.push(fallback);
+        }
+      }
+
+      return finalList;
+    }
+
 
     function hasRealWorkObject(text){
       const q = safeText(text).toLowerCase();
@@ -841,16 +952,7 @@
       }
 
       if(item.category === 'simulation'){
-        return createEmptyQuestion({
-          question: buildScenarioQuestion({
-            task: `handle a realistic ${roleModel.title || 'role'} scenario`,
-            tool,
-            trigger,
-            constraint,
-            proofPrompt: 'How would you approach it step by step, what decision would you make first, and what outcome would you try to achieve?'
-          }),
-          focus_area: 'Scenario Simulation', response_type: 'Open Text', weight: item.weight || 'High', category: 'simulation'
-        });
+        return buildSimulation(roleModel);
       }
 
       if(item.category === 'red_flag'){
@@ -916,97 +1018,57 @@
       const combinedSignals = [
         ...(roleModel.nonNeg || []), ...(roleModel.redFlags || []), ...(roleModel.successSignals || []), ...(roleModel.requirements || []),
         ...((roleModel.weightedSkills || []).map(x => x.skill)), ...((roleModel.prioritySkills || []).map(x => x.skill)),
-        ...(roleModel.businessPriorities || []), roleModel.title, roleModel.family, item?.focus_area
+        ...(roleModel.businessPriorities || []), item?.focus_area
       ].map(s => safeText(s).toLowerCase()).filter(Boolean);
 
-      const genericPatterns = [/tell us about your experience/i,/describe your experience/i,/what experience do you have/i,/are you familiar with/i,/do you have experience/i];
       const scenarioPatterns = [/walk us through/i,/describe a recent time/i,/tell us about a recent time/i,/give a specific example/i,/what happened the last time/i,/recent time you had to/i,/last time you had to/i];
-      const triggerPatterns = [/because of/i,/when\b/i,/after\b/i,/during\b/i,/due to/i,/triggered by/i,/caused by/i];
+      const triggerPatterns = [/because of/i,/when\b/i,/after\b/i,/during\b/i,/due to/i,/triggered by/i,/caused by/i,/what broke/i];
       const constraintPatterns = [/under\b/i,/within\b/i,/while\b/i,/despite\b/i,/deadline/i,/sla/i,/high volume/i,/queue/i,/backlog/i,/peak/i,/time pressure/i,/production/i,/accuracy/i,/compliance/i,/risk/i,/urgent/i];
-      const proofPatterns = [/what did you do/i,/what steps did you take/i,/what was the result/i,/what was the outcome/i,/what happened next/i,/how did you handle/i,/how did you fix/i,/how did you troubleshoot/i,/what did you personally do/i];
-      const toolPatterns = [/\bapi\b/i,/\bcrm\b/i,/\bgds\b/i,/\bpnr\b/i,/\bpython\b/i,/\bsql\b/i,/\bsalesforce\b/i,/\bzendesk\b/i,/\bamadeus\b/i,/\bsabre\b/i,/\bopenai\b/i,/\bzapier\b/i,/\bmake\b/i,/\bwebhook\b/i];
+      const proofPatterns = [/what did you do/i,/what steps did you take/i,/what was the result/i,/what was the outcome/i,/what happened next/i,/how did you fix/i,/how did you troubleshoot/i,/what did you personally do/i,/what decision did you make/i];
+      const toolPatterns = [/\bapi\b/i,/\bcrm\b/i,/\bgds\b/i,/\bpnr\b/i,/\bpython\b/i,/\bsql\b/i,/\bsalesforce\b/i,/\bzendesk\b/i,/\bamadeus\b/i,/\bsabre\b/i,/\bopenai\b/i,/\bzapier\b/i,/\bmake\b/i,/\bwebhook\b/i,/\blogs?\b/i,/\bsystem\b/i,/\bworkflow\b/i,/\bbug\b/i,/\bdebug\b/i];
       const measurablePatterns = [/\bhow many\b/i,/\bhow much\b/i,/\bvolume\b/i,/\bmetric/i,/\bkpi/i,/\bcsat\b/i,/\bqa\b/i,/\baht\b/i,/\bconversion\b/i,/\baccuracy\b/i,/\bresult\b/i,/\boutcome\b/i];
-      const vaguePatterns = [/\bgood communication\b/i,/\bteam player\b/i,/\bhardworking\b/i,/\bdetail-oriented\b/i,/\bfast learner\b/i,/\bpassionate\b/i];
+      const genericPatterns = [/tell us about your experience/i,/describe your experience/i,/what experience do you have/i,/are you familiar with/i,/do you have experience/i,/briefly confirm/i];
 
       const roleTermsMatched = combinedSignals.filter(signal => signal && q.includes(signal)).length;
-      const hasGeneric = genericPatterns.some(rx => rx.test(question));
       const hasScenario = scenarioPatterns.some(rx => rx.test(question));
       const hasTrigger = triggerPatterns.some(rx => rx.test(question));
       const hasConstraint = constraintPatterns.some(rx => rx.test(question));
       const hasProof = proofPatterns.some(rx => rx.test(question));
       const hasToolAnchor = toolPatterns.some(rx => rx.test(question));
       const hasMeasurableAnchor = measurablePatterns.some(rx => rx.test(question));
-      const hasVagueLanguage = vaguePatterns.some(rx => rx.test(question));
+      const hasGeneric = genericPatterns.some(rx => rx.test(question));
+      const invalidObject = isInvalidObject(question);
       const realWorkObject = item?.category === 'setup' ? true : hasRealWorkObject(question);
-      const roleTitleText = safeText(roleModel.title).toLowerCase();
-      const roleTitleAsTask = !!(roleTitleText && q.includes(roleTitleText) && /handle|debug|solve|demonstrate|manage|work on/.test(q));
-      const isTooShort = question.length < 80;
 
-      let roleSpecificity = 0, scenarioGrounding = 0, pressureConstraint = 0, proofStrength = 0, fraudResistance = 0, evaluationClarity = 0, signalAlignment = 0;
-      const strengths = [], issues = [];
+      let roleSpecificity = roleTermsMatched >= 3 ? 5 : roleTermsMatched === 2 ? 4 : roleTermsMatched === 1 ? 3 : item?.focus_area ? 2 : 1;
+      let scenarioGrounding = hasScenario && hasTrigger ? 5 : hasScenario ? 4 : /example|situation|case|incident/i.test(question) ? 3 : 1;
+      let pressureConstraint = hasConstraint && hasTrigger ? 5 : hasConstraint ? 4 : hasMeasurableAnchor ? 3 : 1;
+      let proofStrength = hasProof && /personally|steps|result|outcome|decision/i.test(question) ? 5 : hasProof ? 4 : /specific example|real example/i.test(question) ? 3 : 1;
+      let fraudResistance = hasScenario && hasProof && (hasToolAnchor || hasConstraint) ? 5 : hasScenario && hasProof ? 4 : hasScenario || hasProof ? 3 : 1;
+      let evaluationClarity = hasProof && (hasMeasurableAnchor || hasToolAnchor || hasConstraint) ? 5 : hasProof ? 4 : /how|what|why/i.test(question) ? 3 : 1;
+      let signalAlignment = roleTermsMatched >= 3 || item?.weight === 'Critical' || item?.knockout ? 5 : roleTermsMatched === 2 ? 4 : roleTermsMatched === 1 ? 3 : item?.focus_area ? 2 : 1;
+      const strengths = [];
+      const issues = [];
 
-      if (roleTermsMatched >= 3) { roleSpecificity = 5; strengths.push('strong role-specific anchoring'); }
-      else if (roleTermsMatched === 2) roleSpecificity = 4;
-      else if (roleTermsMatched === 1) roleSpecificity = 3;
-      else if (item?.focus_area || item?.category !== 'general') { roleSpecificity = 2; issues.push('limited direct role anchoring'); }
-      else { roleSpecificity = 1; issues.push('generic across multiple roles'); }
+      if(roleSpecificity >= 4) strengths.push('strong role-specific anchoring'); else issues.push('limited direct role anchoring');
+      if(scenarioGrounding >= 4) strengths.push('anchored to a real work situation'); else issues.push('weak scenario grounding');
+      if(pressureConstraint >= 4) strengths.push('includes work pressure or operating constraint'); else issues.push('missing pressure / constraint layer');
+      if(proofStrength >= 4) strengths.push('forces concrete proof and ownership'); else issues.push('asks for information but not enough proof');
+      if(fraudResistance >= 4) strengths.push('harder to fake with generic AI answers'); else issues.push('still vulnerable to rehearsed answers');
+      if(evaluationClarity >= 4) strengths.push('easy for recruiter or AI to judge'); else issues.push('answer quality may be hard to compare');
+      if(signalAlignment >= 4) strengths.push('well aligned to role signals'); else issues.push('not clearly linked to saved signals');
 
-      if (hasScenario && hasTrigger) { scenarioGrounding = 5; strengths.push('anchored to a real work situation'); }
-      else if (hasScenario) scenarioGrounding = 4;
-      else if (/example|situation|case|incident/i.test(question)) scenarioGrounding = 3;
-      else if (!hasGeneric) { scenarioGrounding = 2; issues.push('weak scenario framing'); }
-      else { scenarioGrounding = 1; issues.push('no strong scenario grounding'); }
+      let score = (roleSpecificity + scenarioGrounding + pressureConstraint + proofStrength + fraudResistance + evaluationClarity + signalAlignment) * 4;
+      if(invalidObject) { score -= 40; issues.push('contains placeholder / fake work object'); }
+      if(!realWorkObject) { score -= 25; issues.push('not grounded in a real work object'); }
+      if(/handle\s+(experience|scenario)/i.test(question)) { score -= 20; issues.push('generic scenario phrasing'); }
+      if(hasGeneric) { score -= 12; issues.push('generic template phrasing'); }
+      if(question.length < 80) { score -= 6; issues.push('too short to create strong applicant pressure'); }
+      if(hasToolAnchor) score += 10;
+      if(hasMeasurableAnchor) score += 4;
+      if(item?.knockout) score += 2;
+      score = Math.max(0, Math.min(100, Math.round(score)));
 
-      if (hasConstraint && hasTrigger) { pressureConstraint = 5; strengths.push('includes work pressure or operating constraint'); }
-      else if (hasConstraint) pressureConstraint = 4;
-      else if (hasMeasurableAnchor) pressureConstraint = 3;
-      else if (/customer|system|issue|queue|deadline|production|compliance/i.test(question)) { pressureConstraint = 2; issues.push('pressure implied but not explicit'); }
-      else { pressureConstraint = 1; issues.push('missing pressure / constraint layer'); }
-
-      if (hasProof && /personally|steps|result|outcome/i.test(question)) { proofStrength = 5; strengths.push('forces concrete proof and ownership'); }
-      else if (hasProof) proofStrength = 4;
-      else if (/specific example|real example/i.test(question)) proofStrength = 3;
-      else if (!hasGeneric) { proofStrength = 2; issues.push('asks for information but not enough proof'); }
-      else { proofStrength = 1; issues.push('easy to answer vaguely'); }
-
-      if (hasScenario && hasTrigger && hasConstraint && hasProof && (hasToolAnchor || hasMeasurableAnchor)) { fraudResistance = 5; strengths.push('harder to fake with generic AI answers'); }
-      else if (hasScenario && hasProof && (hasToolAnchor || hasConstraint)) fraudResistance = 4;
-      else if (hasScenario || hasProof) fraudResistance = 3;
-      else if (!hasGeneric) { fraudResistance = 2; issues.push('still vulnerable to rehearsed answers'); }
-      else { fraudResistance = 1; issues.push('very easy to fake or bluff'); }
-
-      if (hasProof && (hasMeasurableAnchor || hasToolAnchor || hasConstraint)) { evaluationClarity = 5; strengths.push('easy for recruiter or AI to judge'); }
-      else if (hasProof) evaluationClarity = 4;
-      else if (/how|what|why/i.test(question)) evaluationClarity = 3;
-      else if (!hasGeneric) { evaluationClarity = 2; issues.push('answer quality may be hard to compare'); }
-      else { evaluationClarity = 1; issues.push('weak scoring clarity'); }
-
-      if (roleTermsMatched >= 3 || item?.weight === 'Critical' || item?.knockout) { signalAlignment = 5; strengths.push('well aligned to role signals'); }
-      else if (roleTermsMatched === 2) signalAlignment = 4;
-      else if (roleTermsMatched === 1) signalAlignment = 3;
-      else if (item?.focus_area) { signalAlignment = 2; issues.push('partial signal alignment only'); }
-      else { signalAlignment = 1; issues.push('not clearly linked to saved signals'); }
-
-      let penalty = 0;
-      if (hasGeneric) { penalty += 12; issues.push('generic template phrasing'); }
-      if (isTooShort) { penalty += 6; issues.push('too short to create strong applicant pressure'); }
-      if (!hasScenario) penalty += 8;
-      if (!hasTrigger) penalty += 6;
-      if (!hasConstraint) penalty += 8;
-      if (!hasProof) penalty += 10;
-      if (hasVagueLanguage) { penalty += 6; issues.push('contains vague soft-signal language'); }
-      let bonus = 0;
-      if (hasToolAnchor) bonus += 4;
-      if (hasMeasurableAnchor) bonus += 3;
-      if (item?.knockout) bonus += 2;
-      if (item?.category === 'simulation') bonus += 3;
-
-      const raw = (roleSpecificity + scenarioGrounding + pressureConstraint + proofStrength + fraudResistance + evaluationClarity + signalAlignment) * 4;
-      let score = Math.round(raw - penalty + bonus);
-      if ((item?.category !== "setup" && !realWorkObject) || roleTitleAsTask) {
-        score = Math.min(score, 60);
-      }
-      score = Math.max(0, Math.min(100, score));
       let verdict = 'Rewrite';
       if (score >= 85) verdict = 'Elite';
       else if (score >= 75) verdict = 'Strong';
@@ -1237,8 +1299,8 @@
       const roleModel = deriveRoleModel();
       const plan = buildAdaptiveQuestionPlan(roleModel);
       let generated = plan.map(item => buildQuestionFromPlanItem(item, roleModel));
-      generated = generated.filter(q => !isGenericQuestion(q.question));
-      generated.forEach(q => q.quality_evaluation = evaluateQuestionQuality(q));
+      generated = finalizeGeneratedQuestions(generated, roleModel);
+      generated = generated.map(q => ({ ...q, quality_evaluation: evaluateQuestionQuality(q) }));
       questionItems = generated;
       renderQuestions(); refreshPreview(); updateQuestionQualitySummary(); generateScreeningSummary();
       showNotice('Scenario-based screening questions generated.');
@@ -1251,7 +1313,7 @@
     }
 
     function addQuestion(){
-      const question = createEmptyQuestion({ question:'Walk us through a recent time you had to handle a real work situation under pressure. What did you personally do, what steps did you take, and what was the result?', focus_area:'Custom', was_ai_generated:false });
+      const question = createEmptyQuestion({ question:'Walk us through a recent time you had to solve a real work problem under pressure. What broke, what did you check first, what did you personally do, and what was the result?', focus_area:'Custom', was_ai_generated:false });
       question.quality_evaluation = evaluateQuestionQuality(question);
       questionItems.push(question);
       renderQuestions(); refreshPreview(); updateQuestionQualitySummary();
@@ -1443,7 +1505,7 @@ window.toggleHoldRole = async function(id, nextValue){
         }))
       };
 
-      const payload = {
+      const basePayload = {
         client_id: els.clientId.value || null,
         client_name: safeText(els.clientName.value) || null,
         title: safeText(els.jobTitle.value) || null,
@@ -1454,11 +1516,10 @@ window.toggleHoldRole = async function(id, nextValue){
         seniority_level: safeText(els.seniority.value) || null,
         status: safeText(els.roleStatus.value) || 'Open',
         salary_currency: safeText(els.salaryCurrency.value) || 'PHP',
-        salary_period: safeText(els.salaryPeriod.value) || 'Monthly',
         salary_min: parseBudgetNumber(els.salaryMin.value),
         salary_max: parseBudgetNumber(els.salaryMax.value),
         job_description: safeText(els.jobDescription.value) || null,
-        required_skills: uniqueLines(normalizeLines(els.requirements.value)),
+        required_skills: uniqueLines(normalizeLines(els.prioritySkills.value)),
         nice_to_have_skills: uniqueLines(normalizeLines(els.niceToHaveSkills.value)),
         screening_config: questionItems,
         screening_summary: safeText(els.screeningSummaryOutput.textContent) || null,
@@ -1467,10 +1528,28 @@ window.toggleHoldRole = async function(id, nextValue){
         updated_at: new Date().toISOString()
       };
 
-      let result;
-      if (els.roleId.value) result = await supabaseClient.from('jobs').update(payload).eq('id', els.roleId.value);
-      else result = await supabaseClient.from('jobs').insert({ ...payload, created_at: new Date().toISOString() });
+      const optionalColumns = {
+        salary_period: safeText(els.salaryPeriod.value) || 'Monthly',
+        jd_raw_text: safeText(els.jdRawText.value) || null,
+        language_requirement: safeText(els.languageRequirement.value) || 'None',
+        voice_screening_mode: safeText(els.voiceScreeningMode.value) || 'auto'
+      };
 
+      let payload = { ...basePayload, ...optionalColumns };
+      const trySave = async currentPayload => {
+        return els.roleId.value
+          ? await supabaseClient.from('jobs').update(currentPayload).eq('id', els.roleId.value)
+          : await supabaseClient.from('jobs').insert({ ...currentPayload, created_at: new Date().toISOString() });
+      };
+
+      let result = await trySave(payload);
+      if(result.error){
+        const missingMatch = result.error.message && result.error.message.match(/Could not find the '([^']+)' column/);
+        if(missingMatch){
+          delete payload[missingMatch[1]];
+          result = await trySave(payload);
+        }
+      }
       if(result.error){ showNotice(`Failed to save role: ${result.error.message}`,'error'); return; }
       showNotice('Role saved successfully.');
       setModalOpen(false);
@@ -1504,7 +1583,7 @@ window.toggleHoldRole = async function(id, nextValue){
       els.clientName?.addEventListener('change', syncClientSelectionByName);
       els.existingClientSelect?.addEventListener('change', e => setClientSelectionById(e.target.value));
       els.tabButtons.forEach(btn => btn.addEventListener('click', () => switchTab(btn.dataset.tab)));
-      els.openHelpBtn?.addEventListener('click', () => showNotice('This version upgrades generation to scenario-based questions and aligns quality scoring to realism, pressure, and fraud resistance.'));
+      els.openHelpBtn?.addEventListener('click', () => showNotice('This version adds real-work grounding, rewrite-before-render validation, stronger question scoring, and a minimum-question safeguard.'));
       ['jobTitle','roleFamily','location','workSetup','employmentType','seniority','salaryMin','salaryMax','salaryCurrency','salaryPeriod','jobDescription','requirements','prioritySkills','niceToHaveSkills','signalNonNegotiables','signalRedFlags','signalMustHaveSkills','signalSuccessSignals','signalSetupCriticality','signalEnvironmentNotes','signalCommunicationWeight','signalStakeholderWeight','signalAutonomyLevel','signalDecisionMaking','signalBusinessPriorities'].forEach(id => {
         els[id]?.addEventListener('input', refreshPreview);
         els[id]?.addEventListener('change', refreshPreview);
