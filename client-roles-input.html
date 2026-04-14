@@ -278,93 +278,262 @@
 
   <script>
 
-/* ===== TALENTBUZZ V10.1 CLEAN SCENARIO ENGINE ===== */
-function transformSignalToScenario(signal){
-  const s = safeText(signal).toLowerCase();
+/* ===== TALENTBUZZ V11 ADAPTIVE EXECUTION ENGINE ===== */
 
-  if(/\bgds\b|\bamadeus\b|\bsabre\b/.test(s)) return "a booking or rebooking that failed due to system, policy, or availability issues";
-  if(/\bbooking\b|\bflight\b|\brebooking\b/.test(s)) return "a customer booking or rebooking that did not go as expected";
-  if(/\bpnr\b/.test(s)) return "a PNR issue such as missing segments, incorrect details, or system mismatch";
-  if(/\bfare\b/.test(s)) return "a case where fare rules changed what options you could offer";
-  if(/\bcustomer\b|\bcall\b|\bvoice\b|\bsupport\b/.test(s)) return "a difficult customer interaction where expectations were not met";
-  if(/\bkpi\b|\bcsat\b|\baht\b|\bqa\b|\bmetrics?\b/.test(s)) return "a situation where your performance metrics were at risk";
-  if(/\bvolume\b|\bqueue\b|\bmultitask/i.test(s)) return "a high-volume situation where multiple customers needed attention at the same time";
-  if(/\bonsite\b|\bshift(?:ing)?\b|\bnights?\b|\bweekends?\b/.test(s)) return "__SETUP__";
-  if(/\bmonths?\b|\byears?\b/.test(s)) return "a real problem you handled frequently in your recent role";
-  if(/\bcommunication\b|\benglish\b|\bspoken\b/.test(s)) return "a call where communication broke down or the customer did not understand you clearly";
-
-  return null;
+function tbSafe(v){
+  if (typeof safeText === 'function') return safeText(v);
+  return String(v ?? '').trim();
 }
 
-function generateHumanQuestion(signal, roleModel){
-  const sRaw = safeText(signal);
-  if(!sRaw) return null;
-
-  const scenario = transformSignalToScenario(sRaw);
-  const domain = safeText(roleModel?.primaryDomain).toLowerCase();
-  const seniority = safeText(roleModel?.seniority).toLowerCase();
-  const isSenior = /\bsenior\b|\blead\b|\bmanager\b|\bdirector\b|\bexecutive\b/.test(seniority);
-
-  if (scenario === "__SETUP__") {
-    return `This role requires ${sRaw}. Can you meet that consistently, and what in your current situation makes that realistic?`;
-  }
-
-  if (/\bgds\b|\bamadeus\b|\bsabre\b/i.test(sRaw)) {
-    return `Walk me through a booking or rebooking where something went wrong in Amadeus or Sabre. What was the issue, what did you check first, and how did you fix it?`;
-  }
-
-  if (/\bpnr\b/i.test(sRaw)) {
-    return `Tell me about a time there was a PNR issue, such as missing segments or incorrect details. What did you investigate first, and how did you resolve it?`;
-  }
-
-  if (/\bfare\b/i.test(sRaw)) {
-    return `Tell me about a case where fare rules affected a booking decision. What options were available, what did you decide, and how did you explain it to the customer?`;
-  }
-
-  if (/\bkpi\b|\bcsat\b|\baht\b|\bqa\b/i.test(sRaw)) {
-    return `Tell me about a time your KPIs were at risk. What was happening, what did you change, and what result followed?`;
-  }
-
-  if (/\bcommunication\b|\benglish\b|\bspoken\b/i.test(sRaw)) {
-    return `Tell me about a call where communication broke down. What happened, how did you recover the conversation, and what was the outcome?`;
-  }
-
-  if (scenario) {
-    if (domain === 'customer' || /\bcustomer\b|\bcall\b|\bvoice\b|\bsupport\b/i.test(sRaw)) {
-      return `Tell me about a time you handled ${scenario}. What happened, what did you do first, and what was the outcome for the customer?`;
-    }
-    if (domain === 'technical') {
-      return `Tell me about a time you handled ${scenario}. What broke first, what did you check, and how did you resolve it?`;
-    }
-    return `Tell me about a time you handled ${scenario}. What happened and what did you do?`;
-  }
-
-  if (isSenior) {
-    return `Tell me about a time ${sRaw} forced you to make a decision under pressure. What did you do, and why?`;
-  }
-
-  return `Tell me about a specific time ${sRaw} affected your work. What happened, what did you do, and what result followed?`;
+function tbLower(v){
+  return tbSafe(v).toLowerCase();
 }
 
-function buildTrueSimulation(roleModel){
-  const domain = safeText(roleModel?.primaryDomain).toLowerCase();
+function tbUnique(arr){
+  const out = [];
+  const seen = new Set();
+  (arr || []).forEach(item => {
+    const s = tbSafe(item);
+    const key = s.toLowerCase();
+    if (!s || seen.has(key)) return;
+    seen.add(key);
+    out.push(s);
+  });
+  return out;
+}
 
-  let question = `You are handling a customer rebooking request during peak hours, and availability is limited while the customer is becoming frustrated.
+function detectRoleDomain(roleModel = {}){
+  const raw = [
+    roleModel.primaryDomain,
+    roleModel.roleFamily,
+    roleModel.jobTitle,
+    ...(roleModel.nonNeg || []),
+    ...((roleModel.weightedSkills || []).map(x => x.skill)),
+    ...(roleModel.successSignals || [])
+  ].map(tbSafe).join(' ').toLowerCase();
 
-What do you check first, what options do you evaluate, and how do you handle the situation?`;
+  if (/\b(nurse|clinical|payer|appeal|appeals|denial|denials|medical|coding|coder|drg|hospital|utilization|ur)\b/.test(raw)) return 'healthcare';
+  if (/\b(finance|accounting|reconciliation|reporting|audit|auditor|payable|receivable|fp&a|bookkeeping|qlik)\b/.test(raw)) return 'finance';
+  if (/\b(customer|csr|call|voice|support|travel|gds|amadeus|sabre|booking|rebooking|airline|ota|cx|retention|sales chat)\b/.test(raw)) return 'customer';
+  if (/\b(data|developer|engineer|engineering|api|python|automation|mlops|platform|sql|integration|system|architecture|release|testing|devops|cloud)\b/.test(raw)) return 'technical';
+  return tbLower(roleModel.primaryDomain) || 'general';
+}
+
+function isSeniorRole(roleModel = {}){
+  const s = [
+    roleModel.seniority,
+    roleModel.jobTitle
+  ].map(tbSafe).join(' ').toLowerCase();
+
+  return /\b(senior|lead|manager|director|head|principal|architect|executive)\b/.test(s);
+}
+
+function normalizeSignal(signal){
+  return tbSafe(signal)
+    .replace(/^[-•*]\s*/, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function stripImportanceLabel(signal){
+  return normalizeSignal(signal)
+    .replace(/\s+[—-]\s*(critical|high|medium|moderate|low)\s*$/i, '')
+    .replace(/\((critical|high|medium|moderate|low)\)$/i, '')
+    .trim();
+}
+
+function inferSignalType(signal){
+  const s = tbLower(signal);
+
+  if (!s) return 'proof';
+  if (/\b(onsite|hybrid|remote|night shift|graveyard|weekend|weekends|schedule|shifting|relocation|location)\b/.test(s)) return 'setup';
+  if (/\b(at least|minimum|min\.?|years|months|experience|required|license|licensed|certified|certification|registered)\b/.test(s)) return 'eligibility';
+  if (/\b(red flag|deal breaker|avoid|must not|cannot|poor attendance|job hopping|unstable)\b/.test(s)) return 'risk';
+  if (/\b(kpi|csat|aht|qa|sla|accuracy|quality|productivity|turnaround|tat|fcr)\b/.test(s)) return 'performance';
+  if (/\b(api|python|sql|gds|amadeus|sabre|pnr|fare|coding|icd|cpt|drg|appeal|denial|root cause|automation|integration|dashboard|pipeline|reconciliation)\b/.test(s)) return 'technical';
+  if (/\b(communication|english|stakeholder|client facing|presentation|ownership|leadership|autonomy|decision)\b/.test(s)) return 'behavioral';
+  return 'proof';
+}
+
+function classifySignalLineV11(signal, roleModel = {}){
+  const cleaned = stripImportanceLabel(signal);
+  const type = inferSignalType(cleaned);
+  const domain = detectRoleDomain(roleModel);
+
+  return {
+    raw: tbSafe(signal),
+    cleaned,
+    type,
+    domain,
+    senior: isSeniorRole(roleModel)
+  };
+}
+
+function getSignalEvidencePrompt(meta){
+  const s = tbLower(meta.cleaned);
+  const domain = meta.domain;
+
+  if (meta.type === 'setup') {
+    return `This role requires ${meta.cleaned}. Can you meet that consistently, and what in your current situation makes that realistic?`;
+  }
+
+  if (domain === 'customer') {
+    if (/\bgds\b|\bamadeus\b|\bsabre\b/.test(s)) {
+      return `Describe one real booking or rebooking case where you used Amadeus or Sabre and something did not go smoothly. What exactly was the issue, what did you check first, and what action did you personally take?`;
+    }
+    if (/\bpnr\b/.test(s)) {
+      return `Describe one real case where there was a PNR issue, such as missing segments, incorrect details, or mismatch. What did you verify first, and how did you resolve it?`;
+    }
+    if (/\bfare\b|\bfare rules?\b/.test(s)) {
+      return `Describe one case where fare rules limited the options you could offer. What options did you evaluate, which one did you reject, and how did you explain the final decision to the customer?`;
+    }
+    if (/\bcommunication\b|\benglish\b|\bspoken\b/.test(s)) {
+      return `Describe one difficult customer conversation where communication broke down. What exactly caused the breakdown, how did you recover the call, and what was the final outcome?`;
+    }
+    if (/\bkpi\b|\bcsat\b|\baht\b|\bqa\b|\bsla\b/.test(s)) {
+      return `Describe one period when your performance metrics were at risk. What was driving the issue, what did you change in your handling, and what result followed?`;
+    }
+    if (/\btravel\b|\bairline\b|\bota\b|\bbooking\b|\brebooking\b/.test(s)) {
+      return `In your most recent relevant role, describe one booking or rebooking case that became complicated. What triggered the issue, what did you check first, and how did it end?`;
+    }
+    return `Describe one real customer-facing situation where ${meta.cleaned} directly affected your work. What happened first, what did you personally do, and what was the final outcome?`;
+  }
 
   if (domain === 'technical') {
-    question = `A release is about to go live, but a critical workflow suddenly fails in testing.
+    if (/\bapi\b|\bintegration\b|\bwebhook\b|\brest\b/.test(s)) {
+      return `Describe one real integration problem you handled involving an API, webhook, or external system. What failed first, what did you inspect, and what was the fix you implemented?`;
+    }
+    if (/\bpython\b|\bautomation\b|\bworkflow\b/.test(s)) {
+      return `Describe one workflow you automated in a real environment. What was the manual problem, what logic did you build, and what changed after deployment?`;
+    }
+    if (/\bsql\b|\bdata\b|\bpipeline\b|\betl\b/.test(s)) {
+      return `Describe one real data or pipeline issue you handled. What symptom showed up first, what did you check, and how did you confirm the root cause?`;
+    }
+    if (/\btesting\b|\brelease\b|\bproduction\b|\breliability\b|\bincident\b/.test(s)) {
+      return `Describe one real production or release risk you handled. What signal told you something was wrong, what did you investigate first, and how did you decide your next move?`;
+    }
+    return `Describe one real situation where ${meta.cleaned} directly affected delivery or system performance. What broke or stalled first, what did you inspect, and what did you change?`;
+  }
 
-What do you check first, what signals are you looking for, and how do you decide whether to block or proceed?`;
+  if (domain === 'healthcare') {
+    if (/\bappeal\b|\bappeals\b|\bappeal writing\b/.test(s)) {
+      return `Describe one real appeal case you personally worked on. What was denied, what evidence did you use, and what argument or documentation mattered most?`;
+    }
+    if (/\bdenial\b|\bdenials\b|\broot cause\b/.test(s)) {
+      return `Describe one real denial case you investigated. What was the denial reason, what did you review first, and how did you determine the next step?`;
+    }
+    if (/\bdrg\b|\bcoding\b|\bicd\b|\bcpt\b/.test(s)) {
+      return `Describe one coding case that required careful judgment. What documentation did you review first, what made the case challenging, and how did you arrive at your final coding decision?`;
+    }
+    if (/\bacute care\b|\bhospital\b|\bnursing\b/.test(s)) {
+      return `Describe one case from your acute care or hospital experience that is most relevant here. What was happening, what did you assess first, and what action did you personally take?`;
+    }
+    return `Describe one real case where ${meta.cleaned} directly affected your work. What did you review first, what decision did you make, and what was the outcome?`;
+  }
+
+  if (domain === 'finance') {
+    if (/\breconciliation\b|\brecon\b/.test(s)) {
+      return `Describe one reconciliation issue you handled. What mismatch appeared first, what records did you check, and how did you resolve it?`;
+    }
+    if (/\breporting\b|\baccuracy\b|\bvariance\b/.test(s)) {
+      return `Describe one reporting issue where accuracy was at risk. What signaled the problem, what did you verify first, and what did you correct?`;
+    }
+    if (/\baudit\b|\bcontrols?\b/.test(s)) {
+      return `Describe one situation where a control gap or audit concern surfaced. What evidence did you review first, and what action did you take?`;
+    }
+    return `Describe one real finance-related situation where ${meta.cleaned} directly affected your work. What was the issue, what did you validate first, and what result followed?`;
+  }
+
+  return `Describe one real situation where ${meta.cleaned} directly affected your work. What happened first, what did you personally do, and what was the final outcome?`;
+}
+
+function getSignalVerificationTail(meta){
+  if (meta.type === 'setup') return '';
+
+  const domain = meta.domain;
+  if (domain === 'technical') {
+    return ` Include at least one concrete detail that would have existed in the real environment, such as a system, endpoint, log, payload, table, dashboard, or deployment signal.`;
+  }
+  if (domain === 'customer') {
+    return ` Include at least one concrete detail that would have existed in the real interaction, such as the booking issue, fare restriction, queue condition, tool screen, or customer constraint.`;
+  }
+  if (domain === 'healthcare') {
+    return ` Include at least one concrete detail that would have existed in the real case, such as the denial reason, payer rule, documentation gap, coding conflict, or clinical context.`;
+  }
+  if (domain === 'finance') {
+    return ` Include at least one concrete detail that would have existed in the real case, such as the source record, variance, report, control point, or transaction mismatch.`;
+  }
+  return ` Include at least one detail that would have existed in the real workflow, tool, record, or output.`;
+}
+
+function getDecisionProbeTail(meta){
+  if (meta.type === 'setup') return '';
+
+  if (meta.senior) {
+    return ` Also explain what options you considered but rejected, and why you chose the final path.`;
+  }
+
+  if (meta.type === 'technical' || meta.type === 'performance' || meta.type === 'risk') {
+    return ` Also explain what you checked first and how you knew your final action was the right one.`;
+  }
+
+  return ` Also explain what you checked first and why that was your starting point.`;
+}
+
+function generateExecutionQuestionV11(signal, roleModel = {}){
+  const meta = classifySignalLineV11(signal, roleModel);
+  if (!meta.cleaned) return null;
+
+  const core = getSignalEvidencePrompt(meta);
+  const decision = getDecisionProbeTail(meta);
+  const verify = getSignalVerificationTail(meta);
+
+  return `${core}${decision}${verify}`.replace(/\s+/g, ' ').trim();
+}
+
+function chooseQuestionCategoryV11(signal, question, roleModel = {}){
+  const meta = classifySignalLineV11(signal, roleModel);
+  if (meta.type === 'setup' || meta.type === 'eligibility') return 'knockout';
+  if (meta.type === 'risk') return 'red_flag';
+  if (meta.type === 'technical') return 'technical';
+  if (meta.type === 'performance') return 'proof';
+  if (meta.type === 'behavioral') return 'proof';
+  return /Can you meet that consistently/i.test(question) ? 'knockout' : 'proof';
+}
+
+function chooseResponseTypeV11(signal, question, roleModel = {}){
+  const meta = classifySignalLineV11(signal, roleModel);
+  if (meta.type === 'setup' || meta.type === 'eligibility') return 'Short Answer';
+  return 'Open Text';
+}
+
+function chooseQuestionWeightV11(signal, roleModel = {}){
+  const raw = tbLower(signal);
+  if (/\bcritical\b/.test(raw)) return 'Critical';
+  if (/\bhigh\b/.test(raw)) return 'High';
+  if (/\bmedium|moderate\b/.test(raw)) return 'Medium';
+  if (/\blow\b/.test(raw)) return 'Low';
+
+  const meta = classifySignalLineV11(signal, roleModel);
+  if (meta.type === 'setup' || meta.type === 'eligibility') return 'Critical';
+  if (meta.type === 'technical' || meta.type === 'risk') return 'High';
+  return 'High';
+}
+
+function buildExecutionSimulationV11(roleModel = {}){
+  const domain = detectRoleDomain(roleModel);
+  let question = '';
+
+  if (domain === 'customer') {
+    question = `A customer needs an urgent rebooking, but the first option does not meet policy, the next option is more expensive, and the customer is already frustrated. What do you check first, which option would you reject, and how would you move the case forward? Include the specific tool or information you would rely on.`;
+  } else if (domain === 'technical') {
+    question = `A critical workflow is about to go live, but one part of the system starts failing in testing and the root cause is not obvious. What do you inspect first, what possible causes would you try to rule out, and how would you decide whether to block the release or proceed?`;
   } else if (domain === 'healthcare') {
-    question = `A case is close to deadline, but the documentation or payer response does not line up with what you expected.
-
-What do you check first, what signals matter most, and how do you decide your next step?`;
+    question = `A case is near deadline, but the documentation, denial reason, and expected next step do not fully line up. What would you review first, what possible explanation would you try to confirm or reject, and how would you decide the next action?`;
   } else if (domain === 'finance') {
-    question = `A finance exception appears late in the process and could affect reporting accuracy.
-
-What do you check first, what evidence matters most, and how do you decide what to do next?`;
+    question = `A reporting exception appears late in the cycle and could affect accuracy. What would you validate first, what explanations would you test, and how would you decide whether to escalate, correct, or hold the output?`;
+  } else {
+    question = `A high-priority issue appears late in the workflow and the correct next step is not immediately obvious. What would you check first, what options would you rule out, and how would you decide what to do next?`;
   }
 
   return createEmptyQuestion({
@@ -373,120 +542,242 @@ What do you check first, what evidence matters most, and how do you decide what 
     focus_area: 'Simulation',
     response_type: 'Open Text',
     category: 'simulation',
+    weight: isSeniorRole(roleModel) ? 'Critical' : 'High',
+    was_ai_generated: true
+  });
+}
+
+function buildFraudCheckQuestionV11(roleModel = {}){
+  const domain = detectRoleDomain(roleModel);
+  let question = '';
+
+  if (domain === 'technical') {
+    question = `Choose one project or workflow you personally handled that is most relevant to this role. Name the tool stack or systems involved, one issue you ran into, and one concrete output that proves the work was real.`;
+  } else if (domain === 'customer') {
+    question = `Choose one customer-facing case that best shows your fit for this role. Name the tool you used, the exact type of issue you handled, and one detail that would have appeared in the actual case.`;
+  } else if (domain === 'healthcare') {
+    question = `Choose one real case that best shows your fit for this role. Name the denial, appeal, coding, or documentation issue involved, and include one concrete detail that would have appeared in the actual case.`;
+  } else if (domain === 'finance') {
+    question = `Choose one real finance case that best shows your fit for this role. Name the report, control point, reconciliation issue, or variance involved, and include one concrete detail that would have existed in the actual work.`;
+  } else {
+    question = `Choose one real work example that best shows your fit for this role. Name the tool, workflow, or output involved, and include one concrete detail that proves the example is from actual work.`;
+  }
+
+  return createEmptyQuestion({
+    question,
+    ai_original_question: question,
+    focus_area: 'Fraud Resistance / Reality Check',
+    response_type: 'Open Text',
+    category: 'red_flag',
     weight: 'High',
     was_ai_generated: true
   });
 }
 
-function generateQuestionsV10(roleModel){
-  const signals = [
+function generateQuestionsV11(roleModel = {}){
+  const signalPool = tbUnique([
     ...(roleModel.nonNeg || []),
-    ...((roleModel.weightedSkills || []).map(s => s.skill)),
+    ...((roleModel.weightedSkills || []).map(x => x.skill)),
     ...(roleModel.successSignals || [])
-  ].map(x => safeText(x)).filter(Boolean);
+  ].map(normalizeSignal));
 
   const questions = [];
   const seen = new Set();
 
-  signals.forEach(signal => {
-    const q = generateHumanQuestion(signal, roleModel);
+  signalPool.forEach(signal => {
+    const q = generateExecutionQuestionV11(signal, roleModel);
     if (!q) return;
-    const key = q.toLowerCase().trim();
+
+    const key = tbLower(q);
     if (seen.has(key)) return;
     seen.add(key);
+
     questions.push(createEmptyQuestion({
       question: q,
       ai_original_question: q,
-      focus_area: signal,
-      response_type: /can you meet that consistently/i.test(q) ? 'Short Answer' : 'Open Text',
-      category: /can you meet that consistently/i.test(q) ? 'knockout' : 'proof',
-      weight: 'High',
+      focus_area: stripImportanceLabel(signal),
+      response_type: chooseResponseTypeV11(signal, q, roleModel),
+      category: chooseQuestionCategoryV11(signal, q, roleModel),
+      weight: chooseQuestionWeightV11(signal, roleModel),
       was_ai_generated: true
     }));
   });
 
-  const sim = buildTrueSimulation(roleModel);
-  const simKey = safeText(sim.question).toLowerCase();
-  if (!seen.has(simKey)) {
+  const fraudCheck = buildFraudCheckQuestionV11(roleModel);
+  if (!seen.has(tbLower(fraudCheck.question))) {
+    seen.add(tbLower(fraudCheck.question));
+    questions.push(fraudCheck);
+  }
+
+  const sim = buildExecutionSimulationV11(roleModel);
+  if (!seen.has(tbLower(sim.question))) {
+    seen.add(tbLower(sim.question));
     questions.push(sim);
   }
 
   return finalizeGeneratedQuestions(questions, roleModel);
 }
 
-function evaluateQuestionQuality(q){
-  const text = safeText(q).toLowerCase();
+function evaluateQuestionQualityV11(q, focusArea = '', roleModel = {}){
+  const text = tbLower(q);
+  const focus = tbLower(focusArea);
+  const domain = detectRoleDomain(roleModel);
+
   let score = 50;
+  const strengths = [];
+  const issues = [];
 
-  if (/tell me about your most recent role where this applied/.test(text)) score -= 45;
-  if (/walk me through a real situation where this was required/.test(text)) score -= 45;
-  if (/real situation where .* required/.test(text)) score -= 30;
-  if (/what happened|what did you do|how did you|what did you check/.test(text)) score += 20;
-  if (/time you handled|tell me about a time|walk me through/.test(text)) score += 15;
-  if (/customer|booking|rebooking|pnr|fare|issue|problem|failed|frustrated|risk/.test(text)) score += 15;
-  if (typeof hasRealWorkObject === 'function' && hasRealWorkObject(q)) score += 10;
+  const add = (points, label) => {
+    score += points;
+    if (label) strengths.push(label);
+  };
+  const subtract = (points, label) => {
+    score -= points;
+    if (label) issues.push(label);
+  };
 
-  return Math.max(0, Math.min(100, score));
+  if (!text) {
+    return {
+      score: 0,
+      role_relevance: 0,
+      scenario_grounding: 0,
+      pressure_constraint: 0,
+      proof_strength: 0,
+      fraud_resistance: 0,
+      evaluation_clarity: 0,
+      signal_alignment: 0,
+      strengths: [],
+      issues: ['Empty question']
+    };
+  }
+
+  if (/tell me about a time\b/.test(text)) subtract(18, 'Still uses soft interview phrasing');
+  if (/what happened and what did you do\??$/.test(text)) subtract(15, 'Ends too broadly');
+  if (/most recent role where this applied/.test(text)) subtract(30, 'Still generic and easy to fake');
+  if (/briefly confirm/.test(text)) subtract(22, 'Weak verification language');
+  if (text.length < 90) subtract(12, 'Too short to force depth');
+  if (text.length > 500) subtract(8, 'Too long for applicant flow');
+
+  if (/describe one real|describe one .* real|choose one real|in your most recent/.test(text)) add(14, 'Anchored to one real case');
+  if (/what did you check first|what would you check first|what did you verify first|what did you review first/.test(text)) add(14, 'Forces execution order');
+  if (/what options.*reject|what possible causes.*rule out|why you chose/.test(text)) add(14, 'Forces decision logic');
+  if (/concrete detail|tool|system|log|payload|record|case|documentation|dashboard|output/.test(text)) add(14, 'Includes verification detail');
+  if (/final outcome|result followed|how did it end|next action/.test(text)) add(10, 'Outcome clarity');
+  if (/policy|deadline|peak hours|frustrated|limited|risk|late in the cycle|near deadline/.test(text)) add(8, 'Pressure or constraint present');
+
+  if (focus && text.includes(focus)) add(10, 'Aligned to focus area');
+  else if (focus) subtract(8, 'Focus area not visible in question');
+
+  if (domain === 'technical' && /system|api|log|payload|release|workflow|deployment|table/.test(text)) add(8, 'Technical realism');
+  if (domain === 'customer' && /customer|booking|rebooking|fare|pnr|queue|call/.test(text)) add(8, 'Customer workflow realism');
+  if (domain === 'healthcare' && /denial|appeal|documentation|payer|coding|clinical/.test(text)) add(8, 'Healthcare workflow realism');
+  if (domain === 'finance' && /report|variance|reconciliation|control|accuracy|transaction/.test(text)) add(8, 'Finance workflow realism');
+
+  score = Math.max(0, Math.min(100, score));
+
+  const roleRelevance = Math.max(0, Math.min(100, (focus && text.includes(focus) ? 85 : 65) + (/customer|system|clinical|finance|booking|denial|api|report/.test(text) ? 10 : 0)));
+  const scenarioGrounding = /describe one real|choose one real|in your most recent/.test(text) ? 92 : 60;
+  const pressureConstraint = /deadline|frustrated|limited|risk|peak|late|urgent|policy/.test(text) ? 88 : 62;
+  const proofStrength = /what did you check first|what did you verify first|what did you review first|what options.*reject/.test(text) ? 90 : 64;
+  const fraudResistance = /concrete detail|tool|system|log|payload|record|documentation|output/.test(text) ? 90 : 58;
+  const evaluationClarity = /what .* first|what .* reject|what .* outcome|why you chose/.test(text) ? 88 : 66;
+  const signalAlignment = focus && text.includes(focus) ? 92 : 68;
+
+  return {
+    score,
+    role_relevance: roleRelevance,
+    scenario_grounding: scenarioGrounding,
+    pressure_constraint: pressureConstraint,
+    proof_strength: proofStrength,
+    fraud_resistance: fraudResistance,
+    evaluation_clarity: evaluationClarity,
+    signal_alignment: signalAlignment,
+    strengths: tbUnique(strengths),
+    issues: tbUnique(issues)
+  };
+}
+
+function cleanGeneratedQuestionV11(questionText, focusArea = '', roleModel = {}){
+  const raw = tbSafe(questionText);
+  const focus = stripImportanceLabel(focusArea);
+
+  if (!raw && focus) {
+    return generateExecutionQuestionV11(focus, roleModel);
+  }
+
+  if (!raw) return '';
+
+  let cleaned = raw
+    .replace(/\s+/g, ' ')
+    .replace(/\s+\?/g, '?')
+    .trim();
+
+  if (/^tell me about a time\b/i.test(cleaned)) {
+    const rebuilt = generateExecutionQuestionV11(focus || cleaned, roleModel);
+    if (rebuilt) return rebuilt;
+  }
+
+  if (/^briefly confirm\b/i.test(cleaned)) {
+    const rebuilt = generateExecutionQuestionV11(focus || cleaned, roleModel);
+    if (rebuilt) return rebuilt;
+  }
+
+  if (/most recent role where this applied/i.test(cleaned)) {
+    const rebuilt = generateExecutionQuestionV11(focus || cleaned, roleModel);
+    if (rebuilt) return rebuilt;
+  }
+
+  const meta = classifySignalLineV11(focus || cleaned, roleModel);
+
+  if (meta.type === 'setup') {
+    return `This role requires ${meta.cleaned}. Can you meet that consistently, and what in your current situation makes that realistic?`;
+  }
+
+  if (!/what did you check first|what would you check first|what did you verify first|what did you review first/i.test(cleaned)) {
+    cleaned += meta.domain === 'healthcare'
+      ? ' What did you review first?'
+      : ' What did you check first?';
+  }
+
+  if (!/what options.*reject|why you chose|how you knew|how did you decide/i.test(cleaned)) {
+    cleaned += meta.senior
+      ? ' What options did you reject, and why did you choose the final path?'
+      : ' How did you know your final action was the right one?';
+  }
+
+  if (!/concrete detail|tool|system|log|payload|record|documentation|output|customer constraint|booking issue/i.test(cleaned)) {
+    cleaned += getSignalVerificationTail(meta);
+  }
+
+  return cleaned.replace(/\s+/g, ' ').trim();
+}
+
+/* ===== OPTIONAL COMPATIBILITY SHIMS ===== */
+function transformSignalToScenario(signal){
+  return normalizeSignal(signal);
+}
+
+function generateHumanQuestion(signal, roleModel){
+  return generateExecutionQuestionV11(signal, roleModel);
+}
+
+function buildTrueSimulation(roleModel){
+  return buildExecutionSimulationV11(roleModel);
+}
+
+function generateQuestionsV10(roleModel){
+  return generateQuestionsV11(roleModel);
+}
+
+function evaluateQuestionQuality(q, focusArea = '', roleModel = {}){
+  return evaluateQuestionQualityV11(q, focusArea, roleModel);
 }
 
 function cleanGeneratedQuestion(questionText, focusArea = '', roleModel = {}){
-  let text = safeText(questionText);
-  const focus = safeText(focusArea).toLowerCase();
-  const domain = safeText(roleModel?.primaryDomain).toLowerCase();
-
-  if(!text) return text;
-
-  if (/\bgds\b|\bamadeus\b|\bsabre\b/.test(focus)) {
-    return `Tell me about a booking or rebooking where something went wrong in Amadeus or Sabre. What was the issue, what did you check first, and how did you fix it?`;
-  }
-  if (/\bpnr\b/.test(focus)) {
-    return `Tell me about a time there was a PNR issue, such as missing segments or incorrect details. What did you investigate first, and how did you resolve it?`;
-  }
-  if (/\bfare\b/.test(focus)) {
-    return `Tell me about a case where fare rules affected a booking decision. What options were available, what did you decide, and how did you explain it to the customer?`;
-  }
-  if (/\bbooking\b|\bflight\b|\brebooking\b/.test(focus)) {
-    return `Tell me about a booking or rebooking that did not go as expected. What went wrong, what did you do first, and what was the outcome?`;
-  }
-  if (/\bcommunication\b|\benglish\b|\bspoken\b/.test(focus)) {
-    return `Tell me about a call where communication broke down. What happened, how did you recover the conversation, and what was the outcome?`;
-  }
-  if (/\bcustomer\b|\bcall\b|\bvoice\b|\bsupport\b/.test(focus)) {
-    return `Tell me about a difficult customer interaction you handled. What made it difficult, what did you do first, and how did it end?`;
-  }
-  if (/\bkpi\b|\bcsat\b|\baht\b|\bqa\b|\bmetrics?\b/.test(focus)) {
-    return `Tell me about a time your KPIs were at risk. What was happening, what did you change, and what result followed?`;
-  }
-  if (/\bonsite\b|\bshift(?:ing)?\b|\bnights?\b|\bweekends?\b/.test(focus)) {
-    return `This role requires ${safeText(focusArea)}. Can you meet that consistently, and what in your current situation makes that realistic?`;
-  }
-  if (/\bmonths?\b|\byears?\b|\bexperience\b/.test(focus)) {
-    if (domain === 'customer') {
-      return `Tell me about a recent call where you had to manage both the customer and the system at the same time. What did you do first, and what was the outcome?`;
-    }
-    return `Tell me about a recent situation from your work that best shows your hands-on experience here. What happened, what did you do, and what result followed?`;
-  }
-  if (/\bsuccess signal\b/.test(focus) || /can clearly walk through/i.test(text)) {
-    return `Walk me through a real GDS booking or rebooking scenario step by step. What was the issue, what did you check first, and what outcome did you achieve?`;
-  }
-
-  text = text
-    .replace(/^Walk us through a recent time you had to handle\s+/i, 'Tell me about a time you handled ')
-    .replace(/\s+because of [^.]+ under [^.]+\./i, '.')
-    .replace(/\s+because of [^.]+\./i, '.')
-    .replace(/\s+under [^.]+\./i, '.')
-    .replace(/\s+/g, ' ')
-    .trim();
-
-  if (domain === 'customer' && !/customer|call|booking|rebooking|pnr|fare|conversation|outcome/i.test(text)) {
-    return `Tell me about a real customer situation related to ${safeText(focusArea) || 'this area'}. What happened, what did you do first, and what was the outcome?`;
-  }
-
-  return text;
+  return cleanGeneratedQuestionV11(questionText, focusArea, roleModel);
 }
 
-
-/* ===== END TALENTBUZZ V10.1 ===== */
+/* ===== END TALENTBUZZ V11 ===== */
 
 
     const SUPABASE_URL = "https://dilalntcxmvdcmwxjcct.supabase.co";
