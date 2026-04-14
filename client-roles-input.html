@@ -2048,47 +2048,102 @@ function buildAdaptiveQuestionPlan(roleModel){
       updateLearningSnapshot();
     }
 
-    window.updateQuestionField = (i,f,v) => {
-      if(!questionItems[i]) return;
-      questionItems[i][f] = v;
-      if(f === 'question' && questionItems[i].was_ai_generated && !questionItems[i].ai_original_question){
-        questionItems[i].ai_original_question = questionItems[i].question;
-      }
-      if(['question','focus_area','weight','category','feedback_action','feedback_note','ai_original_question'].includes(f)){
-        questionItems[i].quality_evaluation = evaluateQuestionQuality(questionItems[i]);
-        updateQuestionQualitySummary();
-      }
-      refreshPreview();
-      updateLearningSnapshot();
-    };
+    window.updateQuestionField = (i, f, v) => {
+  if (!questionItems[i]) return;
 
-    window.toggleFeedbackTag = (i, tag) => {
-      if(!questionItems[i]) return;
-      const set = new Set(normalizeArray(questionItems[i].feedback_tags));
-      if(set.has(tag)) set.delete(tag); else set.add(tag);
-      questionItems[i].feedback_tags = [...set];
-      updateQuestionQualitySummary();
-      renderQuestions();
-    };
+  questionItems[i][f] = v;
 
-    window.duplicateQuestion = i => {
-      const original = questionItems[i];
-      if(!original) return;
-      questionItems.splice(i+1, 0, JSON.parse(JSON.stringify({ ...original, id:(window.crypto?.randomUUID ? window.crypto.randomUUID() : `q_${Date.now()}`) })));
-      renderQuestions(); refreshPreview(); updateQuestionQualitySummary();
-    };
+  if (
+    f === 'question' &&
+    questionItems[i].was_ai_generated &&
+    !questionItems[i].ai_original_question
+  ) {
+    questionItems[i].ai_original_question = questionItems[i].question;
+  }
 
-    window.removeQuestion = i => {
-      questionItems.splice(i,1);
-      renderQuestions(); refreshPreview(); updateQuestionQualitySummary(); generateScreeningSummary();
-    };
+  if (
+    ['question','focus_area','weight','category','feedback_action','feedback_note','ai_original_question'].includes(f)
+  ) {
+    const roleModel = deriveRoleModel();
 
-    window.evaluateSingleQuestionQuality = i => {
-      if(!questionItems[i]) return;
-      questionItems[i].quality_evaluation = evaluateQuestionQuality(questionItems[i]);
-      renderQuestions(); updateQuestionQualitySummary(); showNotice('Question quality re-evaluated.');
-    };
+    questionItems[i].quality_evaluation = evaluateQuestionQualityV11(
+      questionItems[i].question || '',
+      questionItems[i].focus_area || '',
+      roleModel
+    );
 
+    updateQuestionQualitySummary();
+    generateScreeningSummary();
+  }
+
+  refreshPreview();
+  updateLearningSnapshot();
+};
+
+window.toggleFeedbackTag = (i, tag) => {
+  if (!questionItems[i]) return;
+
+  const set = new Set(normalizeArray(questionItems[i].feedback_tags));
+  if (set.has(tag)) set.delete(tag);
+  else set.add(tag);
+
+  questionItems[i].feedback_tags = [...set];
+
+  updateQuestionQualitySummary();
+  updateLearningSnapshot();
+  renderQuestions();
+};
+
+window.duplicateQuestion = i => {
+  const original = questionItems[i];
+  if (!original) return;
+
+  const copy = JSON.parse(JSON.stringify({
+    ...original,
+    id: (window.crypto?.randomUUID ? window.crypto.randomUUID() : `q_${Date.now()}`)
+  }));
+
+  const roleModel = deriveRoleModel();
+  copy.quality_evaluation = evaluateQuestionQualityV11(
+    copy.question || '',
+    copy.focus_area || '',
+    roleModel
+  );
+
+  questionItems.splice(i + 1, 0, copy);
+
+  renderQuestions();
+  refreshPreview();
+  updateQuestionQualitySummary();
+  generateScreeningSummary();
+  updateLearningSnapshot();
+};
+
+window.removeQuestion = i => {
+  questionItems.splice(i, 1);
+  renderQuestions();
+  refreshPreview();
+  updateQuestionQualitySummary();
+  generateScreeningSummary();
+  updateLearningSnapshot();
+};
+
+window.evaluateSingleQuestionQuality = i => {
+  if (!questionItems[i]) return;
+
+  const roleModel = deriveRoleModel();
+
+  questionItems[i].quality_evaluation = evaluateQuestionQualityV11(
+    questionItems[i].question || '',
+    questionItems[i].focus_area || '',
+    roleModel
+  );
+
+  renderQuestions();
+  updateQuestionQualitySummary();
+  generateScreeningSummary();
+  showNotice('Question quality re-evaluated.');
+};
  function generateAiQuestions(){
   const roleModel = deriveRoleModel();
 
