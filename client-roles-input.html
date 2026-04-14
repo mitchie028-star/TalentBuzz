@@ -5,74 +5,77 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>TalentBuzz | Client Roles Workspace</title>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2">
-// ===== V9 CLEAN ADAPTIVE SCENARIO ENGINE (FINAL) =====
+// ===== V10 SIGNAL → SCENARIO ENGINE (FINAL FIX) =====
 
-// ===== CORE QUESTION GENERATOR =====
+
+// ===== STEP 1: TRANSFORM RAW SIGNAL INTO REAL WORK =====
+function transformSignalToScenario(signal){
+
+  const s = (signal || '').toLowerCase();
+
+  // ===== GDS =====
+  if(/gds|amadeus|sabre/.test(s)){
+    return "handling a booking or rebooking that failed due to system or availability issues";
+  }
+
+  // ===== BOOKING =====
+  if(/booking|flight|rebooking/.test(s)){
+    return "a customer requesting a booking or rebooking that could not be completed smoothly";
+  }
+
+  // ===== PNR =====
+  if(/pnr/.test(s)){
+    return "a PNR issue such as missing segments, incorrect details, or system errors";
+  }
+
+  // ===== FARE =====
+  if(/fare/.test(s)){
+    return "a situation where fare rules impacted what options you could offer the customer";
+  }
+
+  // ===== CUSTOMER =====
+  if(/customer|call|voice|support/.test(s)){
+    return "a difficult customer interaction where expectations were not met";
+  }
+
+  // ===== KPI =====
+  if(/kpi|csat|aht|qa/.test(s)){
+    return "a situation where your performance metrics were at risk";
+  }
+
+  // ===== VOLUME =====
+  if(/volume|queue/.test(s)){
+    return "a high-volume situation where multiple customers needed attention at the same time";
+  }
+
+  // ===== EXPERIENCE (IMPORTANT FIX) =====
+  if(/months|years/.test(s)){
+    return "a real problem you handled frequently in your recent role";
+  }
+
+  // ===== DEFAULT =====
+  return null;
+}
+
+
+// ===== STEP 2: GENERATE HUMAN QUESTION =====
 function generateHumanQuestion(signal, roleModel){
 
   const sRaw = (signal || '').toString().trim();
   if(!sRaw) return null;
 
-  const s = sRaw.toLowerCase();
+  const scenario = transformSignalToScenario(sRaw);
 
-  const level = (roleModel?.seniority || '').toLowerCase();
-  const isSenior = /senior|lead|manager|head/.test(level);
-
-  // ===== GDS =====
-  if(/gds|amadeus|sabre/.test(s)){
-    return `Walk me through a booking or rebooking where something went wrong in Amadeus or Sabre. What happened and how did you fix it?`;
+  if(scenario){
+    return `Tell me about a time you handled ${scenario}. What happened and what did you do?`;
   }
 
-  // ===== BOOKING =====
-  if(/flight|booking|rebooking/.test(s)){
-    return `Tell me about a booking or rebooking that did not go as expected. What went wrong and what did you do?`;
-  }
-
-  // ===== PNR =====
-  if(/pnr/.test(s)){
-    return `Tell me about a time there was an issue with a PNR. What was wrong and how did you resolve it?`;
-  }
-
-  // ===== FARE =====
-  if(/fare/.test(s)){
-    return `Tell me about a situation where fare rules affected a booking decision. What did you decide and why?`;
-  }
-
-  // ===== CUSTOMER =====
-  if(/customer|call|voice|support/.test(s)){
-    return `Tell me about a difficult customer call you handled. What made it difficult and how did you resolve it?`;
-  }
-
-  // ===== VOLUME =====
-  if(/volume|queue|multitask/.test(s)){
-    return `Tell me about a time you handled high call volume while using multiple systems. What did you prioritize and why?`;
-  }
-
-  // ===== KPI =====
-  if(/kpi|csat|aht|qa/.test(s)){
-    return `Tell me about a time your performance metrics were at risk. What happened and how did you recover?`;
-  }
-
-  // ===== COMMUNICATION =====
-  if(/communication|english/.test(s)){
-    return `Tell me about a call where communication broke down. What happened and how did you recover?`;
-  }
-
-  // ===== EXPERIENCE =====
-  if(/months|years/.test(s)){
-    return `In your recent experience related to ${sRaw}, what kinds of issues were you handling most often? Give one real example.`;
-  }
-
-  // ===== DEFAULT =====
-  if(isSenior){
-    return `Tell me about a time ${sRaw} required you to make a decision under pressure. What did you do and why?`;
-  }
-
-  return `Tell me about a real case where ${sRaw} impacted your work. What happened and what did you do?`;
+  // fallback (VERY RARE)
+  return `Tell me about a real situation where ${sRaw} affected your work. What happened and what did you do?`;
 }
 
 
-// ===== SIMULATION =====
+// ===== STEP 3: SIMULATION =====
 function buildTrueSimulation(roleModel){
   return createEmptyQuestion({
     question: `You are handling a customer rebooking request during peak hours, and availability is limited while the customer becomes frustrated.
@@ -86,8 +89,8 @@ What do you check first, what options do you evaluate, and how do you handle the
 }
 
 
-// ===== MAIN GENERATOR =====
-function generateQuestionsV9(roleModel){
+// ===== STEP 4: MAIN GENERATOR =====
+function generateQuestionsV10(roleModel){
 
   const signals = [
     ...(roleModel.nonNeg || []),
@@ -125,43 +128,41 @@ function generateQuestionsV9(roleModel){
 }
 
 
-// ===== BUTTON (ONLY ONE — IMPORTANT) =====
+// ===== BUTTON =====
 if(typeof els !== 'undefined' && els.generateAiQuestionsBtn){
   els.generateAiQuestionsBtn.onclick = () => {
 
     const roleModel = deriveRoleModel();
 
-    const generated = generateQuestionsV9(roleModel);
+    const generated = generateQuestionsV10(roleModel);
 
     questionItems = generated;
 
     renderQuestions();
 
-    showNotice('AI Questions Generated (V9)');
+    showNotice('AI Questions Generated (V10 Scenario Engine)');
   };
 }
 
 
-// ===== QUALITY SCORING =====
+// ===== QUALITY =====
 function evaluateQuestionQuality(q){
 
   const text = (q || '').toLowerCase();
 
   let score = 50;
 
-  // kill generic patterns
+  if(/most recent role/.test(text)) score -= 40;
   if(/real situation where this was required/.test(text)) score -= 40;
-  if(/most recent role where this applied/.test(text)) score -= 30;
 
-  // reward strong signals
-  if(/tell me about|walk me through/.test(text)) score += 20;
-  if(/what happened|what did you do|how did you/.test(text)) score += 20;
-  if(/issue|problem|failed|difficult/.test(text)) score += 20;
+  if(/what happened|what did you do/.test(text)) score += 20;
+  if(/time you handled/.test(text)) score += 20;
+  if(/customer|issue|problem|failed/.test(text)) score += 20;
 
   return Math.max(0, Math.min(100, score));
 }
 
-// ===== END V9 =====
+// ===== END V10 =====
 
 </script>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
