@@ -466,13 +466,33 @@
         return;
       }
       rolesCache = (data || []).map(r => {
-        if (typeof r.screening_config === 'string') {
-          try { r.screening_config = JSON.parse(r.screening_config); } catch { r.screening_config = []; }
+        let screeningConfig = r.screening_config;
+        let aiConfig = r.ai_screening_config;
+
+        if (typeof screeningConfig === 'string') {
+          try { screeningConfig = JSON.parse(screeningConfig); } catch { screeningConfig = []; }
         }
-        if (typeof r.ai_screening_config === 'string') {
-          try { r.ai_screening_config = JSON.parse(r.ai_screening_config); } catch { r.ai_screening_config = {}; }
+        if (!Array.isArray(screeningConfig)) screeningConfig = [];
+
+        if (typeof aiConfig === 'string') {
+          try { aiConfig = JSON.parse(aiConfig); } catch { aiConfig = {}; }
         }
-        return r;
+        if (!aiConfig || typeof aiConfig !== 'object' || Array.isArray(aiConfig)) aiConfig = {};
+
+        const requiredSkills = Array.isArray(r.required_skills)
+          ? r.required_skills
+          : (typeof r.required_skills === 'string' ? [r.required_skills] : []);
+        const niceToHaveSkills = Array.isArray(r.nice_to_have_skills)
+          ? r.nice_to_have_skills
+          : (typeof r.nice_to_have_skills === 'string' ? [r.nice_to_have_skills] : []);
+
+        return {
+          ...r,
+          screening_config: screeningConfig,
+          ai_screening_config: aiConfig,
+          required_skills: requiredSkills,
+          nice_to_have_skills: niceToHaveSkills
+        };
       });
       renderRolesTable();
     }
@@ -1291,50 +1311,91 @@
     }
 
     window.editRole = function(id){
-      const role = rolesCache.find(r => r.id === id);
-      if(!role) return;
-      clearRoleForm();
-      els.roleModalTitle.textContent = 'Edit Role';
-      els.roleId.value = role.id || '';
-      els.clientId.value = role.client_id || '';
-      if (role.client_id) setClientSelectionById(role.client_id);
-      else els.clientName.value = role.client_name || '';
-      els.jobTitle.value = role.title || '';
-      els.roleFamily.value = role.role_family || '';
-      els.location.value = role.location || '';
-      els.workSetup.value = role.work_setup || '';
-      els.employmentType.value = role.employment_type || '';
-      els.seniority.value = role.seniority_level || '';
-      els.roleStatus.value = role.status || 'Open';
-      els.salaryCurrency.value = role.salary_currency || 'PHP';
-      els.salaryPeriod.value = role.salary_period || 'Monthly';
-      els.salaryMin.value = role.salary_min ?? '';
-      els.salaryMax.value = role.salary_max ?? '';
-      els.salaryNotes.value = role.salary_notes || '';
-      els.jobDescription.value = role.job_description || '';
-      els.requirements.value = Array.isArray(role.required_skills) ? role.required_skills.join('\n') : '';
-      els.niceToHaveSkills.value = Array.isArray(role.nice_to_have_skills) ? role.nice_to_have_skills.join('\n') : '';
-      const aiConfig = role.ai_screening_config || {};
-      els.languageRequirement.value = aiConfig.language_requirement || 'None';
-      els.voiceScreeningMode.value = aiConfig.voice_screening_mode || 'auto';
-      const signal = aiConfig.signal_intelligence || {};
-      els.signalNonNegotiables.value = normalizeArray(signal.non_negotiables).join('\n');
-      els.signalRedFlags.value = normalizeArray(signal.red_flags).join('\n');
-      els.signalMustHaveSkills.value = normalizeArray(signal.must_have_skills).join('\n');
-      els.signalSuccessSignals.value = normalizeArray(signal.success_signals).join('\n');
-      els.signalSetupCriticality.value = signal.setup_criticality || '';
-      els.signalEnvironmentNotes.value = signal.environment_notes || '';
-      els.signalCommunicationWeight.value = signal.communication_weight || '';
-      els.signalStakeholderWeight.value = signal.stakeholder_weight || '';
-      els.signalAutonomyLevel.value = signal.autonomy_level || '';
-      els.signalDecisionMaking.value = signal.decision_making || '';
-      els.signalBusinessPriorities.value = normalizeArray(signal.business_priorities).join('\n');
-      if (safeText(els.signalNonNegotiables.value) || safeText(els.signalMustHaveSkills.value) || safeText(els.signalSuccessSignals.value)) buildSignalSummary();
-      hydrateQuestionItems(role.screening_config || []);
-      setModalOpen(true); switchTab('basics'); refreshPreview();
-    }
+      try {
+        const role = rolesCache.find(r => r.id === id);
+        if(!role){
+          showNotice('Role not found.','error');
+          return;
+        }
 
-    window.toggleHoldRole = async function(id, nextValue){
+        clearRoleForm();
+        els.roleModalTitle.textContent = 'Edit Role';
+        els.roleId.value = role.id || '';
+
+        const safeAiConfig = (role.ai_screening_config && typeof role.ai_screening_config === 'object' && !Array.isArray(role.ai_screening_config))
+          ? role.ai_screening_config
+          : {};
+        const signal = (safeAiConfig.signal_intelligence && typeof safeAiConfig.signal_intelligence === 'object' && !Array.isArray(safeAiConfig.signal_intelligence))
+          ? safeAiConfig.signal_intelligence
+          : safeAiConfig;
+        const screeningConfig = Array.isArray(role.screening_config) ? role.screening_config : [];
+        const requiredSkills = Array.isArray(role.required_skills) ? role.required_skills : [];
+        const niceToHaveSkills = Array.isArray(role.nice_to_have_skills) ? role.nice_to_have_skills : [];
+
+        const clientMatch = clientsCache.find(c => c.id === role.client_id) || clientsCache.find(c => safeText(c.client_name).toLowerCase() === safeText(role.client_name).toLowerCase());
+        if (clientMatch) setClientSelectionById(clientMatch.id);
+        else {
+          els.clientId.value = role.client_id || '';
+          els.clientName.value = role.client_name || '';
+        }
+
+        els.jobTitle.value = role.title || '';
+        els.roleFamily.value = role.role_family || '';
+        els.location.value = role.location || '';
+        els.workSetup.value = role.work_setup || '';
+        els.employmentType.value = role.employment_type || '';
+        els.seniority.value = role.seniority_level || '';
+        els.roleStatus.value = role.status || 'Open';
+        els.salaryCurrency.value = role.salary_currency || 'PHP';
+        els.salaryPeriod.value = role.salary_period || 'Monthly';
+        els.salaryMin.value = role.salary_min ?? '';
+        els.salaryMax.value = role.salary_max ?? '';
+        els.salaryNotes.value = role.salary_notes || '';
+        els.jobDescription.value = role.job_description || '';
+        els.jdRawText.value = role.jd_raw_text || '';
+        els.requirements.value = role.requirements_text || role.requirements || '';
+        els.prioritySkills.value = requiredSkills.join('
+');
+        els.niceToHaveSkills.value = niceToHaveSkills.join('
+');
+        els.languageRequirement.value = role.language_requirement || safeAiConfig.language_requirement || 'None';
+        els.voiceScreeningMode.value = role.voice_screening_mode || safeAiConfig.voice_screening_mode || 'auto';
+
+        els.signalNonNegotiables.value = normalizeArray(signal.non_negotiables).join('
+');
+        els.signalRedFlags.value = normalizeArray(signal.red_flags).join('
+');
+        els.signalMustHaveSkills.value = normalizeArray(signal.must_have_skills).join('
+');
+        els.signalSuccessSignals.value = normalizeArray(signal.success_signals).join('
+');
+        els.signalSetupCriticality.value = signal.setup_criticality || '';
+        els.signalEnvironmentNotes.value = signal.environment_notes || '';
+        els.signalCommunicationWeight.value = signal.communication_weight || '';
+        els.signalStakeholderWeight.value = signal.stakeholder_weight || '';
+        els.signalAutonomyLevel.value = signal.autonomy_level || '';
+        els.signalDecisionMaking.value = signal.decision_making || '';
+        els.signalBusinessPriorities.value = normalizeArray(signal.business_priorities).join('
+');
+
+        questionItems = screeningConfig.map(q => createEmptyQuestion({
+          ...q,
+          quality_evaluation: q?.quality_evaluation || evaluateQuestionQuality(q || {}),
+          evaluation: q?.evaluation || null
+        }));
+
+        buildSignalSummary();
+        renderQuestions();
+        refreshPreview();
+        setModalOpen(true);
+        switchTab('basics');
+      } catch (error) {
+        console.error('editRole failed:', error);
+        showNotice(`Failed to open workspace: ${error.message || error}`,'error');
+      }
+    };
+
+window.toggleHoldRole = async function(id, nextValue){
       const { error } = await supabaseClient.from('jobs').update({ is_on_hold: nextValue === true || nextValue === 'true' }).eq('id', id);
       if(error){ showNotice(`Failed to update hold status: ${error.message}`,'error'); return; }
       showNotice('Role status updated.');
