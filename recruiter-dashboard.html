@@ -1076,6 +1076,52 @@
             </div>
 
             <div class="section">
+              <h3>Communication Generator</h3>
+              <div class="muted" id="commMeta">
+                Generate a client endorsement, candidate rejection, or status update using Screening Review + Recruiter Feedback.
+              </div>
+              <div class="kv" style="margin-top:12px;">
+                <div class="kv-item">
+                  <div class="kv-label">Template Type</div>
+                  <div class="field">
+                    <select id="commType">
+                      <option value="endorsement">Endorsement Email</option>
+                      <option value="rejection">Rejection Email</option>
+                      <option value="status_update">Status Update</option>
+                    </select>
+                  </div>
+                </div>
+                <div class="kv-item">
+                  <div class="kv-label">Tone</div>
+                  <div class="field">
+                    <select id="commTone">
+                      <option value="premium">Premium</option>
+                      <option value="warm">Warm</option>
+                      <option value="direct">Direct</option>
+                    </select>
+                  </div>
+                </div>
+                <div class="kv-item full">
+                  <div class="kv-label">Subject</div>
+                  <div class="field">
+                    <input id="commSubject" type="text" placeholder="Generated subject line will appear here" />
+                  </div>
+                </div>
+                <div class="kv-item full">
+                  <div class="kv-label">Generated Message</div>
+                  <div class="field">
+                    <textarea id="commBody" placeholder="Generated message will appear here"></textarea>
+                  </div>
+                </div>
+              </div>
+              <div class="section-actions">
+                <button class="btn btn-xs" id="generateCommBtn" type="button">Generate</button>
+                <button class="btn btn-xs" id="insertCommIntoNotesBtn" type="button">Insert into Notes</button>
+                <button class="btn btn-xs" id="sendCommBtn" type="button">Send Email</button>
+              </div>
+            </div>
+
+            <div class="section">
               <h3>Learning Engine</h3>
               <div class="muted" id="learningMeta">This section learns from recruiter feedback and hiring outcomes for similar roles and now adapts AI scoring when historical signals are available.</div>
               <div class="kv" style="margin-top:12px;">
@@ -1299,6 +1345,14 @@
       feedbackSummary: document.getElementById('feedbackSummary'),
       positiveTagsList: document.getElementById('positiveTagsList'),
       riskTagsList: document.getElementById('riskTagsList'),
+      commMeta: document.getElementById('commMeta'),
+      commType: document.getElementById('commType'),
+      commTone: document.getElementById('commTone'),
+      commSubject: document.getElementById('commSubject'),
+      commBody: document.getElementById('commBody'),
+      generateCommBtn: document.getElementById('generateCommBtn'),
+      insertCommIntoNotesBtn: document.getElementById('insertCommIntoNotesBtn'),
+      sendCommBtn: document.getElementById('sendCommBtn'),
       learningMeta: document.getElementById('learningMeta'),
       learningSummary: document.getElementById('learningSummary'),
       learningSignal: document.getElementById('learningSignal'),
@@ -2471,6 +2525,297 @@
       updateFeedbackPreview();
     }
 
+    function getSelectedCommunicationMode() {
+      return safeText(els.commType?.value || 'endorsement').toLowerCase();
+    }
+
+    function getSelectedCommunicationTone() {
+      return safeText(els.commTone?.value || 'premium').toLowerCase();
+    }
+
+    function getCurrentScreeningReview(row) {
+      return state.selectedScreeningReview || buildScreeningReview(row);
+    }
+
+    function getCommunicationInputs(row) {
+      const review = getCurrentScreeningReview(row);
+      const disposition = safeText(els.feedbackDisposition?.value);
+      const positiveTags = getSelected('positive');
+      const riskTags = getSelected('risk');
+      const recruiterNotes = safeText(els.editNotes?.value);
+
+      return {
+        candidateName: safeText(row.displayName || row.profile?.full_name || 'Candidate'),
+        candidateEmail: safeText(row.profile?.email || row.app?.email).toLowerCase(),
+        jobTitle: safeText(row.jobTitle || row.app?.job_title || 'the role'),
+        clientName: safeText(row.clientName || row.job?.client_name || 'your team'),
+        recruiterEmail: safeText(state.currentUser?.email || row.app?.recruiter_email || ''),
+        overallScore: Number.isFinite(row.score?.overall) ? row.score.overall : null,
+        disposition,
+        positiveTags,
+        riskTags,
+        recruiterNotes,
+        screeningReview: review,
+        row,
+      };
+    }
+
+    function buildEndorsementMessage(data, tone = 'premium') {
+      const strengths = uniq([...(data.screeningReview?.strengths || []), ...data.positiveTags]);
+      const risks = uniq([...(data.screeningReview?.risks || []), ...data.riskTags]);
+      const summary = safeText(data.screeningReview?.summary) || `${data.candidateName} is being endorsed for ${data.jobTitle}.`;
+      const subject = `Endorsement: ${data.candidateName} for ${data.jobTitle}`;
+
+      let intro = '';
+      if (tone === 'direct') {
+        intro = `We are endorsing ${data.candidateName} for ${data.jobTitle}. ${summary}`;
+      } else if (tone === 'warm') {
+        intro = `Hope you're doing well. I'd like to endorse ${data.candidateName} for ${data.jobTitle}. ${summary}`;
+      } else {
+        intro = `I’d like to endorse ${data.candidateName} for ${data.jobTitle}. Based on our review, the candidate shows credible alignment for the role. ${summary}`;
+      }
+
+      const strengthLine = strengths.length
+        ? `Key strengths: ${strengths.slice(0, 4).join(' • ')}.`
+        : 'Key strengths: profile and screening show enough evidence to move forward.';
+      const riskLine = risks.length
+        ? `Areas to validate in interview: ${risks.slice(0, 3).join(' • ')}.`
+        : 'No major risks surfaced at this stage beyond normal interview validation.';
+      const scoreLine = Number.isFinite(data.overallScore)
+        ? `Current TalentBuzz match signal: ${data.overallScore}%.`
+        : '';
+      const noteLine = data.recruiterNotes
+        ? `Recruiter note: ${data.recruiterNotes}`
+        : '';
+
+      const body = [
+        intro,
+        '',
+        strengthLine,
+        riskLine,
+        scoreLine,
+        noteLine,
+        '',
+        `Please let us know if you'd like us to proceed with interview coordination for ${data.candidateName}.`,
+      ].filter(Boolean).join('\n');
+
+      return { subject, body };
+    }
+
+    function buildRejectionMessage(data, tone = 'warm') {
+      const reason = safeText(data.disposition || 'not moving forward');
+      const subject = `Update on your application for ${data.jobTitle}`;
+
+      let opening = `Thank you for your interest in the ${data.jobTitle} opportunity.`;
+      let decision = `After review, we will not be moving forward with your application at this stage.`;
+
+      if (tone === 'direct') {
+        opening = `Thank you for applying for ${data.jobTitle}.`;
+      } else if (tone === 'premium') {
+        opening = `Thank you for taking the time to apply for the ${data.jobTitle} opportunity and for your interest in working with our team.`;
+      }
+
+      const reasonLine = reason ? `Decision context: ${sentenceCase(reason)}.` : '';
+      const close = `We appreciate your time and will keep your profile in mind for future opportunities that may be a stronger fit.`;
+
+      const body = [
+        opening,
+        '',
+        decision,
+        reasonLine,
+        '',
+        close,
+        '',
+        'We wish you the best in your search.',
+      ].filter(Boolean).join('\n');
+
+      return { subject, body };
+    }
+
+    function buildStatusUpdateMessage(data, tone = 'direct') {
+      const status = safeText(els.editStatus?.value || data.disposition || 'under review');
+      const subject = `Application Status Update: ${data.jobTitle}`;
+
+      let body = '';
+      if (tone === 'warm') {
+        body = [
+          `Thank you again for your interest in ${data.jobTitle}.`,
+          '',
+          `Your application status has been updated to: ${sentenceCase(status)}.`,
+          '',
+          'We’ll share the next update as soon as there is movement on the role.',
+        ].join('\n');
+      } else if (tone === 'premium') {
+        body = [
+          `We wanted to share a quick update regarding your application for ${data.jobTitle}.`,
+          '',
+          `Current status: ${sentenceCase(status)}.`,
+          '',
+          'Our team is continuing the review process and we will update you as next steps are confirmed.',
+        ].join('\n');
+      } else {
+        body = [
+          `Your application for ${data.jobTitle} is now marked as: ${sentenceCase(status)}.`,
+          '',
+          'We’ll send the next update once available.',
+        ].join('\n');
+      }
+
+      return { subject, body };
+    }
+
+    function buildCommunicationPayload(row, mode, tone) {
+      const data = getCommunicationInputs(row);
+
+      if (mode === 'rejection') {
+        return { mode, ...data, ...buildRejectionMessage(data, tone) };
+      }
+      if (mode === 'status_update') {
+        return { mode, ...data, ...buildStatusUpdateMessage(data, tone) };
+      }
+      return { mode: 'endorsement', ...data, ...buildEndorsementMessage(data, tone) };
+    }
+
+    function syncCommunicationTypeToStatus() {
+      const status = safeText(els.editStatus?.value).toLowerCase();
+      if (!els.commType) return;
+
+      if (status === 'endorsed') els.commType.value = 'endorsement';
+      else if (status === 'rejected' || status === 'failed paper screening') els.commType.value = 'rejection';
+      else els.commType.value = 'status_update';
+    }
+
+    function generateCommunicationPreview() {
+      const row = state.allRows.find((item) => item.id === state.selectedId);
+      if (!row) {
+        showNotice('Select a candidate first.', 'error');
+        return null;
+      }
+
+      const generated = buildCommunicationPayload(
+        row,
+        getSelectedCommunicationMode(),
+        getSelectedCommunicationTone()
+      );
+
+      if (els.commSubject) els.commSubject.value = generated.subject || '';
+      if (els.commBody) els.commBody.value = generated.body || '';
+
+      const label = generated.mode === 'endorsement'
+        ? 'Endorsement ready.'
+        : generated.mode === 'rejection'
+          ? 'Rejection email ready.'
+          : 'Status update ready.';
+      showNotice(label, 'success');
+      return generated;
+    }
+
+    function insertCommunicationIntoNotes() {
+      const body = safeText(els.commBody?.value);
+      if (!body) {
+        showNotice('Generate the message first.', 'error');
+        return;
+      }
+
+      const subject = safeText(els.commSubject?.value);
+      const current = safeText(els.editNotes?.value);
+      const block = [
+        'Communication Draft',
+        subject ? `Subject: ${subject}` : '',
+        body,
+      ].filter(Boolean).join('\n');
+      const cleaned = current.replace(/\n*Communication Draft[\s\S]*$/m, '').trim();
+      els.editNotes.value = cleaned ? `${cleaned}\n\n${block}` : block;
+      showNotice('Communication draft inserted into recruiter notes.', 'success');
+    }
+
+    async function sendGeneratedCommunication() {
+      const row = state.allRows.find((item) => item.id === state.selectedId);
+      if (!row) {
+        showNotice('Select a candidate first.', 'error');
+        return;
+      }
+
+      const mode = getSelectedCommunicationMode();
+      const subject = safeText(els.commSubject?.value);
+      const body = safeText(els.commBody?.value);
+
+      if (!subject || !body) {
+        showNotice('Generate the message first.', 'error');
+        return;
+      }
+
+      const data = getCommunicationInputs(row);
+
+      try {
+        if (els.sendCommBtn) els.sendCommBtn.disabled = true;
+
+        if (mode === 'endorsement') {
+          const payload = {
+            application_id: row.id,
+            applicant_profile_id: row.profile?.id || row.app?.applicant_profile_id || null,
+            candidate_name: data.candidateName,
+            candidate_email: data.candidateEmail || null,
+            job_title: data.jobTitle,
+            client_name: data.clientName,
+            recruiter_email: data.recruiterEmail || null,
+            subject,
+            message_body: body,
+            summary: safeText(data.screeningReview?.summary),
+            strengths: data.screeningReview?.strengths || [],
+            risks: data.screeningReview?.risks || [],
+            positive_signals: data.positiveTags,
+            risk_signals: data.riskTags,
+            ai_score: data.overallScore,
+            recruiter_notes: data.recruiterNotes || null,
+          };
+
+          const { error } = await supabaseClient.functions.invoke('send-endorsement-email', { body: payload });
+          if (error) throw error;
+
+          await supabaseClient
+            .from('applications')
+            .update({
+              endorsement_status: 'sent',
+              endorsement_sent_at: new Date().toISOString(),
+              endorsement_sent_to: data.clientName || null,
+            })
+            .eq('id', row.id);
+
+          showNotice('Endorsement email sent.', 'success');
+          return;
+        }
+
+        if (mode === 'rejection') {
+          const payload = {
+            application_id: row.id,
+            applicant_profile_id: row.profile?.id || row.app?.applicant_profile_id || null,
+            candidate_name: data.candidateName,
+            candidate_email: data.candidateEmail || null,
+            job_title: data.jobTitle,
+            recruiter_email: data.recruiterEmail || null,
+            subject,
+            message_body: body,
+            rejection_reason_category: data.disposition || null,
+            recruiter_notes: data.recruiterNotes || null,
+          };
+
+          const { error } = await supabaseClient.functions.invoke('send-rejection-email', { body: payload });
+          if (error) throw error;
+
+          showNotice('Rejection email sent.', 'success');
+          return;
+        }
+
+        showNotice('Status update generated. No email was sent because this mode is draft-only.', 'info');
+      } catch (error) {
+        console.error(error);
+        showNotice(`Failed to send communication: ${error.message || error}`, 'error');
+      } finally {
+        if (els.sendCommBtn) els.sendCommBtn.disabled = false;
+      }
+    }
+
     async function fetchAllOptional(table, select, orderColumn = 'created_at') {
       try {
         const { data, error } = await supabaseClient
@@ -2911,6 +3256,10 @@ function renderLearningInsights(row) {
       clearFeedbackInputs();
       state.selectedScreeningReview = buildScreeningReview(row);
       renderScreeningReview(state.selectedScreeningReview);
+      syncCommunicationTypeToStatus();
+      if (els.commSubject) els.commSubject.value = '';
+      if (els.commBody) els.commBody.value = '';
+      generateCommunicationPreview();
       renderLearningInsights(row);
       els.resumeMeta.textContent = 'Resolving resume...';
       els.viewResumeBtn.disabled = true;
@@ -3358,7 +3707,10 @@ function renderLearningInsights(row) {
       renderCheckboxList(els.riskTagsList, RISK_FEEDBACK_OPTIONS, 'risk');
       els.feedbackDisposition?.addEventListener('change', updateFeedbackPreview);
       document.querySelectorAll('input[data-group="positive"], input[data-group="risk"]').forEach((input) => {
-        input.addEventListener('change', updateFeedbackPreview);
+        input.addEventListener('change', () => {
+          updateFeedbackPreview();
+          generateCommunicationPreview();
+        });
       });
       updateFeedbackPreview();
 
@@ -3433,9 +3785,20 @@ function renderLearningInsights(row) {
         if (!row) return;
         state.selectedScreeningReview = buildScreeningReview(row);
         renderScreeningReview(state.selectedScreeningReview);
+        generateCommunicationPreview();
         showNotice('Screening review generated from saved responses.', 'success');
       });
       els.insertScreeningReviewBtn.addEventListener('click', insertScreeningReviewIntoNotes);
+      els.editStatus?.addEventListener('change', () => {
+        syncCommunicationTypeToStatus();
+        generateCommunicationPreview();
+      });
+      els.feedbackDisposition?.addEventListener('change', generateCommunicationPreview);
+      els.commType?.addEventListener('change', generateCommunicationPreview);
+      els.commTone?.addEventListener('change', generateCommunicationPreview);
+      els.generateCommBtn?.addEventListener('click', generateCommunicationPreview);
+      els.insertCommIntoNotesBtn?.addEventListener('click', insertCommunicationIntoNotes);
+      els.sendCommBtn?.addEventListener('click', sendGeneratedCommunication);
       els.viewResumeBtn.addEventListener('click', () => openResumeModal(state.selectedResumeUrl, 'Resume Viewer'));
       els.downloadResumeBtn.addEventListener('click', () => {
         if (!state.selectedResumeUrl) return showNotice('Resume file not found in storage.', 'error');
