@@ -5,8 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>TalentBuzz | Client Roles Workspace</title>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2">
-// ===== V8 TRUE SCENARIO ENGINE (NO GENERIC OUTPUTS) =====
+// ===== V9 CLEAN ADAPTIVE SCENARIO ENGINE (FINAL) =====
 
+// ===== CORE QUESTION GENERATOR =====
 function generateHumanQuestion(signal, roleModel){
 
   const sRaw = (signal || '').toString().trim();
@@ -17,34 +18,34 @@ function generateHumanQuestion(signal, roleModel){
   const level = (roleModel?.seniority || '').toLowerCase();
   const isSenior = /senior|lead|manager|head/.test(level);
 
-  // ===== GDS CORE =====
+  // ===== GDS =====
   if(/gds|amadeus|sabre/.test(s)){
-    return `Walk me through a booking or rebooking where something went wrong in Amadeus or Sabre. What was the issue and how did you fix it?`;
+    return `Walk me through a booking or rebooking where something went wrong in Amadeus or Sabre. What happened and how did you fix it?`;
   }
 
-  // ===== FLIGHT / BOOKING =====
+  // ===== BOOKING =====
   if(/flight|booking|rebooking/.test(s)){
-    return `Tell me about a flight booking or rebooking where something did not go as expected. What happened and what did you do?`;
+    return `Tell me about a booking or rebooking that did not go as expected. What went wrong and what did you do?`;
   }
 
   // ===== PNR =====
   if(/pnr/.test(s)){
-    return `Tell me about a time there was an issue with a PNR (missing segment, incorrect details, or error). How did you resolve it?`;
+    return `Tell me about a time there was an issue with a PNR. What was wrong and how did you resolve it?`;
   }
 
-  // ===== FARE RULES =====
+  // ===== FARE =====
   if(/fare/.test(s)){
-    return `Tell me about a case where fare rules affected a booking or rebooking. What decision did you make and why?`;
+    return `Tell me about a situation where fare rules affected a booking decision. What did you decide and why?`;
   }
 
-  // ===== CALL HANDLING =====
-  if(/call|customer|voice|support/.test(s)){
-    return `Tell me about a difficult customer call you handled recently. What made it challenging and how did you resolve it?`;
+  // ===== CUSTOMER =====
+  if(/customer|call|voice|support/.test(s)){
+    return `Tell me about a difficult customer call you handled. What made it difficult and how did you resolve it?`;
   }
 
-  // ===== HIGH VOLUME =====
-  if(/volume|multitask|queue/.test(s)){
-    return `Tell me about a time you handled high call volume while managing multiple systems. What did you prioritize and why?`;
+  // ===== VOLUME =====
+  if(/volume|queue|multitask/.test(s)){
+    return `Tell me about a time you handled high call volume while using multiple systems. What did you prioritize and why?`;
   }
 
   // ===== KPI =====
@@ -54,36 +55,29 @@ function generateHumanQuestion(signal, roleModel){
 
   // ===== COMMUNICATION =====
   if(/communication|english/.test(s)){
-    return `Tell me about a call where communication broke down. What happened and how did you recover the conversation?`;
+    return `Tell me about a call where communication broke down. What happened and how did you recover?`;
   }
 
   // ===== EXPERIENCE =====
   if(/months|years/.test(s)){
-    return `In your recent experience related to ${sRaw}, what type of customer or booking issues were you handling most often? Give one real example.`;
+    return `In your recent experience related to ${sRaw}, what kinds of issues were you handling most often? Give one real example.`;
   }
 
-  // ===== OWNERSHIP =====
-  if(/ownership|disruption|delay|cancellation/.test(s)){
-    return `Tell me about a disruption (delay, cancellation, or re-accommodation) you handled. What did you take ownership of and what was the outcome?`;
-  }
-
-  // ===== DEFAULT (NO GENERIC TEMPLATE) =====
+  // ===== DEFAULT =====
   if(isSenior){
-    return `Tell me about a time ${sRaw} required you to make a quick decision under pressure. What did you do and why?`;
+    return `Tell me about a time ${sRaw} required you to make a decision under pressure. What did you do and why?`;
   }
 
-  return `Tell me about a real case where ${sRaw} directly impacted a customer or workflow. What happened and what did you do?`;
+  return `Tell me about a real case where ${sRaw} impacted your work. What happened and what did you do?`;
 }
 
 
-// ===== STRONG DOMAIN SIMULATION =====
+// ===== SIMULATION =====
 function buildTrueSimulation(roleModel){
-
   return createEmptyQuestion({
-    question: `You are handling a customer rebooking request during peak hours, and the system shows limited availability while the customer is becoming frustrated.
+    question: `You are handling a customer rebooking request during peak hours, and availability is limited while the customer becomes frustrated.
 
 What do you check first, what options do you evaluate, and how do you handle the situation?`,
-
     focus_area: 'Simulation',
     category: 'simulation',
     weight: 'High',
@@ -92,8 +86,8 @@ What do you check first, what options do you evaluate, and how do you handle the
 }
 
 
-// ===== GENERATOR ENTRY =====
-function generateQuestionsV8(roleModel){
+// ===== MAIN GENERATOR =====
+function generateQuestionsV9(roleModel){
 
   const signals = [
     ...(roleModel.nonNeg || []),
@@ -131,19 +125,19 @@ function generateQuestionsV8(roleModel){
 }
 
 
-// ===== BUTTON HOOK =====
+// ===== BUTTON (ONLY ONE — IMPORTANT) =====
 if(typeof els !== 'undefined' && els.generateAiQuestionsBtn){
   els.generateAiQuestionsBtn.onclick = () => {
 
     const roleModel = deriveRoleModel();
 
-    const generated = generateQuestionsV8(roleModel);
+    const generated = generateQuestionsV9(roleModel);
 
     questionItems = generated;
 
     renderQuestions();
 
-    showNotice('AI Questions Generated (V8 Scenario-Based)');
+    showNotice('AI Questions Generated (V9)');
   };
 }
 
@@ -155,166 +149,19 @@ function evaluateQuestionQuality(q){
 
   let score = 50;
 
+  // kill generic patterns
   if(/real situation where this was required/.test(text)) score -= 40;
   if(/most recent role where this applied/.test(text)) score -= 30;
 
+  // reward strong signals
   if(/tell me about|walk me through/.test(text)) score += 20;
   if(/what happened|what did you do|how did you/.test(text)) score += 20;
-  if(/issue|problem|failed|difficult|unexpected/.test(text)) score += 20;
+  if(/issue|problem|failed|difficult/.test(text)) score += 20;
 
   return Math.max(0, Math.min(100, score));
 }
 
-// ===== END V8 =====
-
-function buildTrueSimulation(roleModel){
-  const scenario = getRealScenario(roleModel);
-  return createEmptyQuestion({
-    question: `You encounter ${scenario}. What is the FIRST thing you check, what signals are you looking for, and what action do you take next?`,
-    focus_area: 'Simulation',
-    category: 'simulation',
-    weight: 'High',
-    was_ai_generated: true
-  });
-}
-
-function generateQuestionsV5(roleModel){
-  const signals = [
-    ...(roleModel.nonNeg||[]),
-    ...((roleModel.weightedSkills||[]).map(s=>s.skill)),
-    ...(roleModel.successSignals||[])
-  ].filter(Boolean);
-
-  const questions = [];
-  signals.forEach(signal=>{
-    const q = generateHumanQuestion(signal, roleModel);
-    if(q){
-      questions.push(createEmptyQuestion({
-        question:q,
-        focus_area: signal,
-        category:'proof',
-        weight:'High',
-        was_ai_generated:true
-      }));
-    }
-  });
-
-  questions.push(buildTrueSimulation(roleModel));
-  return finalizeGeneratedQuestions(questions, roleModel);
-}
-
-// Override button to use V5
-if(typeof els !== 'undefined' && els.generateAiQuestionsBtn){
-  els.generateAiQuestionsBtn.onclick = () => {
-    const roleModel = deriveRoleModel();
-    const generated = generateQuestionsV5(roleModel);
-    questionItems = generated;
-    renderQuestions();
-    showNotice('AI Questions Generated (V5)');
-  };
-}
-
-// Replace quality evaluator
-function evaluateQuestionQuality(q){
-  const text = (q||'').toString().toLowerCase();
-  let score = 50;
-  if(/handle\s+[A-Z]/.test(q)) score -= 40;
-  if(/because of/.test(text)) score -= 20;
-  if(text.length > 220) score -= 10;
-  if(/walk me through|tell me about/.test(text)) score += 20;
-  if(/real|recent|last/.test(text)) score += 10;
-  if(/what did you|how did you/.test(text)) score += 10;
-  if(hasRealWorkObject(q)) score += 20;
-  return Math.max(0, Math.min(100, score));
-}
-// ===== END V5 =====
-
-</script>
-  <script src="https://unpkg.com/mammoth@1.8.0/mammoth.browser.min.js">
-// ===== V5 GENERATOR OVERRIDES (NON-DESTRUCTIVE) =====
-function generateHumanQuestion(signal, roleModel){
-  const s = (signal||'').toString().trim();
-  if(!s) return null;
-  const type = classifySignalLine(s);
-  if(/months|years/i.test(s)){
-    return `Tell me about your most recent role where this applied: ${s}. What were you actually doing day to day?`;
-  }
-  if(type === 'communication'){
-    return `Tell me about a call where communication was difficult. What made it challenging and how did you handle it?`;
-  }
-  if(type === 'kpi'){
-    return `What metrics were you responsible for in your last role? Walk me through how you actually hit or recovered those numbers.`;
-  }
-  if(type === 'crm' || type === 'voice' || type === 'automotive'){
-    return `Walk me through a real case where you used ${s}. What exactly did you do step by step?`;
-  }
-  if(type === 'setup'){
-    return `Are you currently able to meet this requirement: ${s}? If yes, explain your current setup.`;
-  }
-  return `Walk me through a real situation where this was required: ${s}. What happened and what did you do?`;
-}
-
-function buildTrueSimulation(roleModel){
-  const scenario = getRealScenario(roleModel);
-  return createEmptyQuestion({
-    question: `You encounter ${scenario}. What is the FIRST thing you check, what signals are you looking for, and what action do you take next?`,
-    focus_area: 'Simulation',
-    category: 'simulation',
-    weight: 'High',
-    was_ai_generated: true
-  });
-}
-
-function generateQuestionsV5(roleModel){
-  const signals = [
-    ...(roleModel.nonNeg||[]),
-    ...((roleModel.weightedSkills||[]).map(s=>s.skill)),
-    ...(roleModel.successSignals||[])
-  ].filter(Boolean);
-
-  const questions = [];
-  signals.forEach(signal=>{
-    const q = generateHumanQuestion(signal, roleModel);
-    if(q){
-      questions.push(createEmptyQuestion({
-        question:q,
-        focus_area: signal,
-        category:'proof',
-        weight:'High',
-        was_ai_generated:true
-      }));
-    }
-  });
-
-  questions.push(buildTrueSimulation(roleModel));
-  return finalizeGeneratedQuestions(questions, roleModel);
-}
-
-// Override button to use V5
-if(typeof els !== 'undefined' && els.generateAiQuestionsBtn){
-  els.generateAiQuestionsBtn.onclick = () => {
-    const roleModel = deriveRoleModel();
-    const generated = generateQuestionsV5(roleModel);
-    questionItems = generated;
-    renderQuestions();
-    showNotice('AI Questions Generated (V5)');
-  };
-}
-
-// Replace quality evaluator
-function evaluateQuestionQuality(q){
-  const text = (q||'').toString().toLowerCase();
-  let score = 50;
-  if(/handle\s+[A-Z]/.test(q)) score -= 40;
-  if(/because of/.test(text)) score -= 20;
-  if(text.length > 220) score -= 10;
-  if(/walk me through|tell me about/.test(text)) score += 20;
-  if(/real|recent|last/.test(text)) score += 10;
-  if(/what did you|how did you/.test(text)) score += 10;
-  if(hasRealWorkObject(q)) score += 20;
-  return Math.max(0, Math.min(100, score));
-}
-// ===== END V5 =====
+// ===== END V9 =====
 
 </script>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
