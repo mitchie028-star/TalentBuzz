@@ -2089,7 +2089,7 @@ function buildAdaptiveQuestionPlan(roleModel){
       renderQuestions(); updateQuestionQualitySummary(); showNotice('Question quality re-evaluated.');
     };
 
-    function generateAiQuestions(){
+ function generateAiQuestions(){
   const roleModel = deriveRoleModel();
 
   let generated = generateQuestionsV11(roleModel);
@@ -2171,161 +2171,278 @@ function addQuestion(){
   updateQuestionQualitySummary();
 }
 
-    function clearAnswers(){
-      questionItems = questionItems.map(q => ({ ...q, candidate_answer:'', evaluation:null }));
-      renderQuestions(); els.scoringSummaryOutput.textContent = 'No scoring evaluation yet.'; showNotice('Candidate answers cleared.');
+function clearAnswers(){
+  questionItems = questionItems.map(q => ({ ...q, candidate_answer:'', evaluation:null }));
+  renderQuestions();
+  els.scoringSummaryOutput.textContent = 'No scoring evaluation yet.';
+  showNotice('Candidate answers cleared.');
+}
+
+function evaluateAnswers(){
+  let scored = 0;
+  let avg = 0;
+
+  questionItems.forEach(q => {
+    q.evaluation = evaluateCandidateAnswer(q);
+    if(q.evaluation){
+      scored += 1;
+      avg += q.evaluation.score;
+    }
+  });
+
+  renderQuestions();
+
+  if(!scored){
+    els.scoringSummaryOutput.textContent = 'No scoring evaluation yet.';
+    showNotice('No candidate answers found to score.','error');
+    return;
+  }
+
+  els.scoringSummaryOutput.textContent =
+    `Questions scored: ${scored}\nAverage answer score: ${Math.round(avg / scored)}\nThis score evaluates candidate answers, separate from question-quality scoring.`;
+
+  showNotice('Candidate answers evaluated.');
+}
+
+async function readTextFile(file){
+  return await file.text();
+}
+
+async function readDocxFile(file){
+  const arrayBuffer = await file.arrayBuffer();
+  const result = await window.mammoth.extractRawText({ arrayBuffer });
+  return result.value || '';
+}
+
+async function readPdfFile(file){
+  const buffer = await file.arrayBuffer();
+  const pdf = await window.pdfjsLib.getDocument({ data: buffer }).promise;
+  let text = '';
+
+  for(let pageNum = 1; pageNum <= pdf.numPages; pageNum++){
+    const page = await pdf.getPage(pageNum);
+    const content = await page.getTextContent();
+    text += content.items.map(item => item.str).join(' ') + '\n';
+  }
+
+  return text;
+}
+
+async function parseJD(){
+  try {
+    let text = safeText(els.jdRawText.value);
+    const file = els.jdUpload.files?.[0];
+
+    if (!text && file){
+      const name = file.name.toLowerCase();
+      if (name.endsWith('.docx')) text = await readDocxFile(file);
+      else if (name.endsWith('.pdf')) text = await readPdfFile(file);
+      else text = await readTextFile(file);
+
+      els.jdRawText.value = text;
     }
 
-    function evaluateAnswers(){
-      let scored = 0; let avg = 0;
-      questionItems.forEach(q => { q.evaluation = evaluateCandidateAnswer(q); if(q.evaluation){ scored += 1; avg += q.evaluation.score; } });
-      renderQuestions();
-      if(!scored){ els.scoringSummaryOutput.textContent = 'No scoring evaluation yet.'; showNotice('No candidate answers found to score.','error'); return; }
-      els.scoringSummaryOutput.textContent = `Questions scored: ${scored}\nAverage answer score: ${Math.round(avg / scored)}\nThis score evaluates candidate answers, separate from question-quality scoring.`;
-      showNotice('Candidate answers evaluated.');
+    if (!text){
+      showNotice('Please upload or paste a JD first.','error');
+      return;
     }
 
-    async function readTextFile(file){ return await file.text(); }
-    async function readDocxFile(file){ const arrayBuffer = await file.arrayBuffer(); const result = await window.mammoth.extractRawText({ arrayBuffer }); return result.value || ''; }
-    async function readPdfFile(file){
-      const buffer = await file.arrayBuffer();
-      const pdf = await window.pdfjsLib.getDocument({ data: buffer }).promise;
-      let text = '';
-      for(let pageNum=1; pageNum<=pdf.numPages; pageNum++){
-        const page = await pdf.getPage(pageNum);
-        const content = await page.getTextContent();
-        text += content.items.map(item => item.str).join(' ') + '\n';
-      }
-      return text;
+    const lines = normalizeLines(text);
+
+    if (!safeText(els.jobDescription.value)) {
+      els.jobDescription.value = lines.slice(0, 8).join('\n');
     }
 
-    async function parseJD(){
-      try {
-        let text = safeText(els.jdRawText.value);
-        const file = els.jdUpload.files?.[0];
-        if (!text && file){
-          const name = file.name.toLowerCase();
-          if (name.endsWith('.docx')) text = await readDocxFile(file);
-          else if (name.endsWith('.pdf')) text = await readPdfFile(file);
-          else text = await readTextFile(file);
-          els.jdRawText.value = text;
-        }
-        if (!text){ showNotice('Please upload or paste a JD first.','error'); return; }
-        const lines = normalizeLines(text);
-        if (!safeText(els.jobDescription.value)) els.jobDescription.value = lines.slice(0, 8).join('\n');
-        if (!safeText(els.requirements.value)) els.requirements.value = lines.filter(line => /require|experience|skill|must|qualif/i.test(line)).slice(0, 10).join('\n');
-        if (!safeText(els.prioritySkills.value)) els.prioritySkills.value = uniqueLines(lines.filter(line => /python|api|automation|crm|sales|voice|denial|appeal|coding|sql|gds|pnr|zendesk|salesforce|amadeus|sabre/i.test(line))).slice(0,8).join('\n');
-        refreshPreview();
-        showNotice('JD parsed. Review and refine the extracted content.');
-      } catch (error){
-        showNotice(`Failed to parse JD: ${error.message}`,'error');
-      }
+    if (!safeText(els.requirements.value)) {
+      els.requirements.value = lines
+        .filter(line => /require|experience|skill|must|qualif/i.test(line))
+        .slice(0, 10)
+        .join('\n');
     }
 
-    function clearJD(){ els.jdUpload.value = ''; els.jdRawText.value = ''; showNotice('JD input cleared.'); }
-
-    function clearRoleForm(){
-      els.roleId.value = ''; els.clientId.value = ''; els.clientName.value = ''; els.existingClientSelect.value = '';
-      ['jobTitle','roleFamily','location','workSetup','employmentType','seniority','roleStatus','salaryCurrency','salaryPeriod','salaryMin','salaryMax','salaryNotes','languageRequirement','voiceScreeningMode','jdRawText','jobDescription','requirements','prioritySkills','niceToHaveSkills','signalNonNegotiables','signalRedFlags','signalMustHaveSkills','signalSuccessSignals','signalSetupCriticality','signalEnvironmentNotes','signalCommunicationWeight','signalStakeholderWeight','signalAutonomyLevel','signalDecisionMaking','signalBusinessPriorities'].forEach(id => { if(els[id]) els[id].value = ''; });
-      els.roleStatus.value = 'Open'; els.salaryCurrency.value = 'PHP'; els.salaryPeriod.value = 'Monthly'; els.languageRequirement.value = 'None'; els.voiceScreeningMode.value = 'auto';
-      els.signalSummaryOutput.textContent = 'No signal summary generated yet.';
-      els.screeningSummaryOutput.textContent = 'No summary generated yet.';
-      els.scoringSummaryOutput.textContent = 'No scoring evaluation yet.';
-      els.questionQualitySummaryOutput.textContent = 'No question quality evaluation yet.';
-      els.learningSnapshotOutput.textContent = 'No recruiter feedback captured yet.';
-      questionItems = [];
-      renderQuestions(); refreshPreview();
+    if (!safeText(els.prioritySkills.value)) {
+      els.prioritySkills.value = uniqueLines(
+        lines.filter(line => /python|api|automation|crm|sales|voice|denial|appeal|coding|sql|gds|pnr|zendesk|salesforce|amadeus|sabre/i.test(line))
+      ).slice(0, 8).join('\n');
     }
 
-    function hydrateQuestionItems(list){
-      questionItems = normalizeArray(list).map(item => createEmptyQuestion(item)).map(q => ({ ...q, quality_evaluation: q.quality_evaluation || evaluateQuestionQuality(q) }));
-      renderQuestions(); updateQuestionQualitySummary(); generateScreeningSummary(); refreshPreview();
+    refreshPreview();
+    showNotice('JD parsed. Review and refine the extracted content.');
+  } catch (error){
+    showNotice(`Failed to parse JD: ${error.message}`,'error');
+  }
+}
+
+function clearJD(){
+  els.jdUpload.value = '';
+  els.jdRawText.value = '';
+  showNotice('JD input cleared.');
+}
+
+function clearRoleForm(){
+  els.roleId.value = '';
+  els.clientId.value = '';
+  els.clientName.value = '';
+  els.existingClientSelect.value = '';
+
+  [
+    'jobTitle','roleFamily','location','workSetup','employmentType','seniority',
+    'roleStatus','salaryCurrency','salaryPeriod','salaryMin','salaryMax','salaryNotes',
+    'languageRequirement','voiceScreeningMode','jdRawText','jobDescription','requirements',
+    'prioritySkills','niceToHaveSkills','signalNonNegotiables','signalRedFlags',
+    'signalMustHaveSkills','signalSuccessSignals','signalSetupCriticality',
+    'signalEnvironmentNotes','signalCommunicationWeight','signalStakeholderWeight',
+    'signalAutonomyLevel','signalDecisionMaking','signalBusinessPriorities'
+  ].forEach(id => {
+    if(els[id]) els[id].value = '';
+  });
+
+  els.roleStatus.value = 'Open';
+  els.salaryCurrency.value = 'PHP';
+  els.salaryPeriod.value = 'Monthly';
+  els.languageRequirement.value = 'None';
+  els.voiceScreeningMode.value = 'auto';
+
+  els.signalSummaryOutput.textContent = 'No signal summary generated yet.';
+  els.screeningSummaryOutput.textContent = 'No summary generated yet.';
+  els.scoringSummaryOutput.textContent = 'No scoring evaluation yet.';
+  els.questionQualitySummaryOutput.textContent = 'No question quality evaluation yet.';
+  els.learningSnapshotOutput.textContent = 'No recruiter feedback captured yet.';
+
+  questionItems = [];
+  renderQuestions();
+  refreshPreview();
+}
+
+function hydrateQuestionItems(list){
+  const roleModel = deriveRoleModel();
+
+  questionItems = normalizeArray(list)
+    .map(item => createEmptyQuestion(item))
+    .map(q => ({
+      ...q,
+      quality_evaluation: q.quality_evaluation || evaluateQuestionQualityV11(
+        q.question,
+        q.focus_area,
+        roleModel
+      )
+    }));
+
+  renderQuestions();
+  updateQuestionQualitySummary();
+  generateScreeningSummary();
+  refreshPreview();
+}
+
+window.editRole = function(id){
+  try {
+    const role = rolesCache.find(r => r.id === id);
+    if(!role){
+      showNotice('Role not found.','error');
+      return;
     }
 
-    window.editRole = function(id){
-      try {
-        const role = rolesCache.find(r => r.id === id);
-        if(!role){
-          showNotice('Role not found.','error');
-          return;
-        }
+    clearRoleForm();
+    els.roleModalTitle.textContent = 'Edit Role';
+    els.roleId.value = role.id || '';
 
-        clearRoleForm();
-        els.roleModalTitle.textContent = 'Edit Role';
-        els.roleId.value = role.id || '';
+    const safeAiConfig =
+      (role.ai_screening_config &&
+        typeof role.ai_screening_config === 'object' &&
+        !Array.isArray(role.ai_screening_config))
+        ? role.ai_screening_config
+        : {};
 
-        const safeAiConfig = (role.ai_screening_config && typeof role.ai_screening_config === 'object' && !Array.isArray(role.ai_screening_config))
-          ? role.ai_screening_config
-          : {};
-        const signal = (safeAiConfig.signal_intelligence && typeof safeAiConfig.signal_intelligence === 'object' && !Array.isArray(safeAiConfig.signal_intelligence))
-          ? safeAiConfig.signal_intelligence
-          : safeAiConfig;
-        const screeningConfig = Array.isArray(role.screening_config) ? role.screening_config : [];
-        const requiredSkills = Array.isArray(role.required_skills) ? role.required_skills : [];
-        const niceToHaveSkills = Array.isArray(role.nice_to_have_skills) ? role.nice_to_have_skills : [];
+    const signal =
+      (safeAiConfig.signal_intelligence &&
+        typeof safeAiConfig.signal_intelligence === 'object' &&
+        !Array.isArray(safeAiConfig.signal_intelligence))
+        ? safeAiConfig.signal_intelligence
+        : safeAiConfig;
 
-        const clientMatch = clientsCache.find(c => c.id === role.client_id) || clientsCache.find(c => safeText(c.client_name).toLowerCase() === safeText(role.client_name).toLowerCase());
-        if (clientMatch) setClientSelectionById(clientMatch.id);
-        else {
-          els.clientId.value = role.client_id || '';
-          els.clientName.value = role.client_name || '';
-        }
+    const screeningConfig = Array.isArray(role.screening_config) ? role.screening_config : [];
+    const requiredSkills = Array.isArray(role.required_skills) ? role.required_skills : [];
+    const niceToHaveSkills = Array.isArray(role.nice_to_have_skills) ? role.nice_to_have_skills : [];
 
-        els.jobTitle.value = role.title || '';
-        els.roleFamily.value = role.role_family || '';
-        els.location.value = role.location || '';
-        els.workSetup.value = role.work_setup || '';
-        els.employmentType.value = role.employment_type || '';
-        els.seniority.value = role.seniority_level || '';
-        els.roleStatus.value = role.status || 'Open';
-        els.salaryCurrency.value = role.salary_currency || 'PHP';
-        els.salaryPeriod.value = role.salary_period || 'Monthly';
-        els.salaryMin.value = role.salary_min ?? '';
-        els.salaryMax.value = role.salary_max ?? '';
-        els.salaryNotes.value = '';
-        els.jobDescription.value = role.job_description || '';
-        els.jdRawText.value = role.jd_raw_text || '';
-        els.requirements.value = role.requirements_text || role.requirements || '';
-        els.prioritySkills.value = requiredSkills.join('\n');
-        els.niceToHaveSkills.value = niceToHaveSkills.join('\n');
-        els.languageRequirement.value = role.language_requirement || safeAiConfig.language_requirement || 'None';
-        els.voiceScreeningMode.value = role.voice_screening_mode || safeAiConfig.voice_screening_mode || 'auto';
+    const clientMatch =
+      clientsCache.find(c => c.id === role.client_id) ||
+      clientsCache.find(c => safeText(c.client_name).toLowerCase() === safeText(role.client_name).toLowerCase());
 
-        els.signalNonNegotiables.value = normalizeArray(signal.non_negotiables).join('\n');
-        els.signalRedFlags.value = normalizeArray(signal.red_flags).join('\n');
-        els.signalMustHaveSkills.value = normalizeArray(signal.must_have_skills).join('\n');
-        els.signalSuccessSignals.value = normalizeArray(signal.success_signals).join('\n');
-        els.signalSetupCriticality.value = signal.setup_criticality || '';
-        els.signalEnvironmentNotes.value = signal.environment_notes || '';
-        els.signalCommunicationWeight.value = signal.communication_weight || '';
-        els.signalStakeholderWeight.value = signal.stakeholder_weight || '';
-        els.signalAutonomyLevel.value = signal.autonomy_level || '';
-        els.signalDecisionMaking.value = signal.decision_making || '';
-        els.signalBusinessPriorities.value = normalizeArray(signal.business_priorities).join('\n');
+    if (clientMatch) setClientSelectionById(clientMatch.id);
+    else {
+      els.clientId.value = role.client_id || '';
+      els.clientName.value = role.client_name || '';
+    }
 
-        questionItems = screeningConfig.map(q => createEmptyQuestion({
-          ...q,
-          quality_evaluation: q?.quality_evaluation || evaluateQuestionQuality(q || {}),
-          evaluation: q?.evaluation || null
-        }));
+    els.jobTitle.value = role.title || '';
+    els.roleFamily.value = role.role_family || '';
+    els.location.value = role.location || '';
+    els.workSetup.value = role.work_setup || '';
+    els.employmentType.value = role.employment_type || '';
+    els.seniority.value = role.seniority_level || '';
+    els.roleStatus.value = role.status || 'Open';
+    els.salaryCurrency.value = role.salary_currency || 'PHP';
+    els.salaryPeriod.value = role.salary_period || 'Monthly';
+    els.salaryMin.value = role.salary_min ?? '';
+    els.salaryMax.value = role.salary_max ?? '';
+    els.salaryNotes.value = '';
+    els.jobDescription.value = role.job_description || '';
+    els.jdRawText.value = role.jd_raw_text || '';
+    els.requirements.value = role.requirements_text || role.requirements || '';
+    els.prioritySkills.value = requiredSkills.join('\n');
+    els.niceToHaveSkills.value = niceToHaveSkills.join('\n');
+    els.languageRequirement.value = role.language_requirement || safeAiConfig.language_requirement || 'None';
+    els.voiceScreeningMode.value = role.voice_screening_mode || safeAiConfig.voice_screening_mode || 'auto';
 
-        buildSignalSummary();
-        renderQuestions();
-        refreshPreview();
-        setModalOpen(true);
-        switchTab('basics');
-      } catch (error) {
-        console.error('editRole failed:', error);
-        showNotice(`Failed to open workspace: ${error.message || error}`,'error');
-      }
-    };
+    els.signalNonNegotiables.value = normalizeArray(signal.non_negotiables).join('\n');
+    els.signalRedFlags.value = normalizeArray(signal.red_flags).join('\n');
+    els.signalMustHaveSkills.value = normalizeArray(signal.must_have_skills).join('\n');
+    els.signalSuccessSignals.value = normalizeArray(signal.success_signals).join('\n');
+    els.signalSetupCriticality.value = signal.setup_criticality || '';
+    els.signalEnvironmentNotes.value = signal.environment_notes || '';
+    els.signalCommunicationWeight.value = signal.communication_weight || '';
+    els.signalStakeholderWeight.value = signal.stakeholder_weight || '';
+    els.signalAutonomyLevel.value = signal.autonomy_level || '';
+    els.signalDecisionMaking.value = signal.decision_making || '';
+    els.signalBusinessPriorities.value = normalizeArray(signal.business_priorities).join('\n');
+
+    const roleModel = deriveRoleModel();
+
+    questionItems = screeningConfig.map(q => createEmptyQuestion({
+      ...q,
+      quality_evaluation: q?.quality_evaluation || evaluateQuestionQualityV11(
+        q?.question || '',
+        q?.focus_area || '',
+        roleModel
+      ),
+      evaluation: q?.evaluation || null
+    }));
+
+    buildSignalSummary();
+    renderQuestions();
+    refreshPreview();
+    setModalOpen(true);
+    switchTab('basics');
+  } catch (error) {
+    console.error('editRole failed:', error);
+    showNotice(`Failed to open workspace: ${error.message || error}`,'error');
+  }
+};
 
 window.toggleHoldRole = async function(id, nextValue){
-      const { error } = await supabaseClient.from('jobs').update({ is_on_hold: nextValue === true || nextValue === 'true' }).eq('id', id);
-      if(error){ showNotice(`Failed to update hold status: ${error.message}`,'error'); return; }
-      showNotice('Role status updated.');
-      await loadRoles();
-    }
+  const { error } = await supabaseClient
+    .from('jobs')
+    .update({ is_on_hold: nextValue === true || nextValue === 'true' })
+    .eq('id', id);
+
+  if(error){
+    showNotice(`Failed to update hold status: ${error.message}`,'error');
+    return;
+  }
+
+  showNotice('Role status updated.');
+  await loadRoles();
+};
 
     async function saveRole(){
       if(!validateClientSelection(true)) return;
@@ -2415,7 +2532,6 @@ window.toggleHoldRole = async function(id, nextValue){
     }
 
     function attachEvents(){
-  bindScreeningGenerator();
       els.newRoleBtn?.addEventListener('click', openNewRole);
       els.newRoleBtnHero?.addEventListener('click', openNewRole);
       els.closeRoleModalBtn?.addEventListener('click', () => setModalOpen(false));
