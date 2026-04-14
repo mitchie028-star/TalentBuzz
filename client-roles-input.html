@@ -286,102 +286,40 @@ function cleanGeneratedQuestionV11(questionText, focusArea = '', roleModel = {})
   let text = tbSafe(questionText);
   if (!text) return '';
 
-  const domain = detectRoleDomain(roleModel);
-  const focus = stripImportanceLabel(focusArea);
-
-  // --- 1. FIX BROKEN / WEIRD PHRASES ---
+  // --- 1. FIX BROKEN PHRASES ONLY ---
   text = text
     .replace(/What did you move the case forward\?/gi, 'how would you move the case forward?')
     .replace(/\s+/g, ' ')
     .trim();
 
   // --- 2. REMOVE DUPLICATE PROMPTS ---
-  const seenPhrases = new Set();
-  const segments = text.split(/(?<=[\.\?])\s+/);
+  const seen = new Set();
+  const parts = text.split(/(?<=[\.\?])\s+/);
 
-  const cleanedSegments = segments.filter(seg => {
-    const normalized = seg.toLowerCase().trim();
+  const cleaned = parts.filter(p => {
+    const t = p.toLowerCase().trim();
 
-    // detect duplicates like "what did you check first"
-    if (
-      normalized.includes('what did you check first') ||
-      normalized.includes('what would you check first') ||
-      normalized.includes('what did you verify first')
-    ){
-      if (seenPhrases.has('check_first')) return false;
-      seenPhrases.add('check_first');
-      return true;
+    if (t.includes('what did you check first') || t.includes('what would you check first')) {
+      if (seen.has('check')) return false;
+      seen.add('check');
     }
 
-    if (
-      normalized.includes('how did you know your final action') ||
-      normalized.includes('why you chose the final')
-    ){
-      if (seenPhrases.has('decision')) return false;
-      seenPhrases.add('decision');
-      return true;
+    if (t.includes('how did you know your final action') || t.includes('why you chose')) {
+      if (seen.has('decision')) return false;
+      seen.add('decision');
     }
 
-    if (
-      normalized.includes('include at least one concrete detail') ||
-      normalized.includes('include one concrete detail')
-    ){
-      if (seenPhrases.has('proof')) return false;
-      seenPhrases.add('proof');
-      return true;
+    if (t.includes('concrete detail') || t.includes('tool') || t.includes('system')) {
+      if (seen.has('proof')) return false;
+      seen.add('proof');
     }
 
     return true;
   });
 
-  text = cleanedSegments.join(' ');
+  text = cleaned.join(' ');
 
-  // --- 3. SIMPLIFY GENERIC SIGNAL INSERTIONS ---
-  if (/directly affected your work/i.test(text)) {
-    text = text.replace(/directly affected your work/gi, 'in your role');
-  }
-
-  if (/describe one real customer-facing situation where/i.test(text)) {
-    text = text.replace(
-      /describe one real customer-facing situation where (.*?) in your role/gi,
-      (match, p1) => {
-        if (p1.length > 60) return 'Describe one real customer situation';
-        return `Describe one real customer situation involving ${p1}`;
-      }
-    );
-  }
-
-  // --- 4. ENFORCE MAX SIGNAL DENSITY (2–3 PROMPTS ONLY) ---
-  let prompts = [];
-
-  if (/what did you check first|what would you check first/i.test(text)) {
-    prompts.push('check_first');
-  }
-
-  if (/what options.*reject|why you chose/i.test(text)) {
-    prompts.push('decision');
-  }
-
-  if (/final outcome|how did it end|result followed/i.test(text)) {
-    prompts.push('outcome');
-  }
-
-  if (/concrete detail|tool|system|log|record|documentation/i.test(text)) {
-    prompts.push('proof');
-  }
-
-  // Keep max 3 prompts
-  if (prompts.length > 3) {
-    const keep = new Set(prompts.slice(0, 3));
-
-    text = text
-      .replace(/Also explain what you checked first[^.]*\./gi, keep.has('check_first') ? '$&' : '')
-      .replace(/How did you know your final action[^.]*\./gi, keep.has('decision') ? '$&' : '')
-      .replace(/Include at least one concrete detail[^.]*\./gi, keep.has('proof') ? '$&' : '')
-      .replace(/What was the final outcome[^.]*\./gi, keep.has('outcome') ? '$&' : '');
-  }
-
-  // --- 5. SHORTEN LONG QUESTIONS (CRITICAL FIX) ---
+  // --- 3. LIMIT LENGTH (DO NOT REWRITE CONTENT) ---
   if (text.length > 320) {
     text = text
       .replace(/Also explain[^.]*\./gi, '')
@@ -389,26 +327,11 @@ function cleanGeneratedQuestionV11(questionText, focusArea = '', roleModel = {})
       .trim();
   }
 
-  // --- 6. DOMAIN POLISH ---
-  if (domain === 'customer') {
-    text = text.replace(/situation/gi, 'case');
-  }
-
-  if (domain === 'technical') {
-    text = text.replace(/what happened first/gi, 'what failed first');
-  }
-
-  if (domain === 'healthcare') {
-    text = text.replace(/case where/gi, 'clinical case where');
-  }
-
-  // --- 7. FINAL CLEAN ---
-  text = text
+  // --- 4. FINAL CLEAN ---
+  return text
     .replace(/\s+/g, ' ')
     .replace(/\s+\./g, '.')
     .trim();
-
-  return text;
 }
 
 /* ===== END TALENTBUZZ V11 ===== */
