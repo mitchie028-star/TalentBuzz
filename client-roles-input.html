@@ -469,15 +469,45 @@ function getSignalVerificationTail(meta){
 function getDecisionProbeTail(meta){
   if (meta.type === 'setup') return '';
 
+  const cleaned = tbLower(meta.cleaned || '');
+
+  // Senior roles: keep strategic trade-off probing, but shorter
   if (meta.senior) {
-    return ` Also explain what options you considered but rejected, and why you chose the final path.`;
+    const seniorVariants = [
+      ' What options did you reject, and why?',
+      ' What trade-off did you make, and why?',
+      ' Why was that the right path over the alternatives?'
+    ];
+    return seniorVariants[Math.floor(Math.random() * seniorVariants.length)];
   }
 
+  // Technical / performance / risk: use ONE decision probe, not two
   if (meta.type === 'technical' || meta.type === 'performance' || meta.type === 'risk') {
-    return ` Also explain what you checked first and how you knew your final action was the right one.`;
+    const technicalVariants = [
+      ' What did you check first?',
+      ' Why did you choose that approach?',
+      ' How did you know that was the right fix?',
+      ' What signal told you to take that step?'
+    ];
+    return technicalVariants[Math.floor(Math.random() * technicalVariants.length)];
   }
 
-  return ` Also explain what you checked first and why that was your starting point.`;
+  // Customer / behavioral / general proof
+  if (meta.domain === 'customer' || meta.type === 'behavioral' || meta.type === 'proof') {
+    const customerVariants = [
+      ' What did you do first?',
+      ' Why did you handle it that way?',
+      ' What made that your starting point?'
+    ];
+    return customerVariants[Math.floor(Math.random() * customerVariants.length)];
+  }
+
+  // Default fallback
+  const defaultVariants = [
+    ' What did you do first?',
+    ' Why did you approach it that way?'
+  ];
+  return defaultVariants[Math.floor(Math.random() * defaultVariants.length)];
 }
 
 function generateExecutionQuestionV11(signal, roleModel = {}){
@@ -699,57 +729,65 @@ function evaluateQuestionQualityV11(q, focusArea = '', roleModel = {}){
 
 function cleanGeneratedQuestionV11(questionText, focusArea = '', roleModel = {}){
   const raw = tbSafe(questionText);
-  const focus = stripImportanceLabel(focusArea);
-
-  if (!raw && focus) {
-    return generateExecutionQuestionV11(focus, roleModel);
-  }
-
   if (!raw) return '';
 
   let cleaned = raw
     .replace(/\s+/g, ' ')
     .replace(/\s+\?/g, '?')
+    .replace(/\s+\./g, '.')
     .trim();
 
-  if (/^tell me about a time\b/i.test(cleaned)) {
-    const rebuilt = generateExecutionQuestionV11(focus || cleaned, roleModel);
-    if (rebuilt) return rebuilt;
+  // Fix broken wording
+  cleaned = cleaned
+    .replace(/What did you move the case forward\?/gi, 'How would you move the case forward?')
+    .replace(/Also explain what you checked first and why that was your starting point\.\s*What did you check first\?/gi, 'What did you check first?')
+    .replace(/Also explain what you checked first and how you knew your final action was the right one\.\s*How did you know your final action was the right one\?/gi, 'How did you know your final action was the right one?')
+    .replace(/What did you check first\?\s*What did you check first\?/gi, 'What did you check first?')
+    .replace(/How did you know your final action was the right one\?\s*How did you know your final action was the right one\?/gi, 'How did you know your final action was the right one?');
+
+  // Remove duplicate sentences while preserving order
+  const seen = new Set();
+  cleaned = cleaned
+    .split(/(?<=[\.\?])\s+/)
+    .filter(part => {
+      const key = tbLower(part);
+      if (!key) return false;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .join(' ')
+    .trim();
+
+  // Light compression for overlong questions
+  if (cleaned.length > 320) {
+    cleaned = cleaned
+      .replace(/\s*Also explain what you checked first and why that was your starting point\./gi, '')
+      .replace(/\s*Also explain what you checked first and how you knew your final action was the right one\./gi, '')
+      .replace(/\s*Include at least one concrete detail that would have existed in the real interaction, such as the booking issue, fare restriction, queue condition, tool screen, or customer constraint\./gi, ' Include one real interaction detail.')
+      .replace(/\s*Include at least one concrete detail that would have existed in the real environment, such as a system, endpoint, log, payload, table, dashboard, or deployment signal\./gi, ' Include one real system detail.')
+      .replace(/\s*Include at least one concrete detail that would have existed in the real case, such as the denial reason, payer rule, documentation gap, coding conflict, or clinical context\./gi, ' Include one real case detail.')
+      .replace(/\s*Include at least one concrete detail that would have existed in the real case, such as the source record, variance, report, control point, or transaction mismatch\./gi, ' Include one real case detail.')
+      .replace(/\s+/g, ' ')
+      .trim();
   }
 
-  if (/^briefly confirm\b/i.test(cleaned)) {
-    const rebuilt = generateExecutionQuestionV11(focus || cleaned, roleModel);
-    if (rebuilt) return rebuilt;
-  }
+  // Final dedupe pass in case compression created repeats
+  const seenAgain = new Set();
+  cleaned = cleaned
+    .split(/(?<=[\.\?])\s+/)
+    .filter(part => {
+      const key = tbLower(part);
+      if (!key) return false;
+      if (seenAgain.has(key)) return false;
+      seenAgain.add(key);
+      return true;
+    })
+    .join(' ')
+    .replace(/\s+/g, ' ')
+    .trim();
 
-  if (/most recent role where this applied/i.test(cleaned)) {
-    const rebuilt = generateExecutionQuestionV11(focus || cleaned, roleModel);
-    if (rebuilt) return rebuilt;
-  }
-
-  const meta = classifySignalLineV11(focus || cleaned, roleModel);
-
-  if (meta.type === 'setup') {
-    return `This role requires ${meta.cleaned}. Can you meet that consistently, and what in your current situation makes that realistic?`;
-  }
-
-  if (!/what did you check first|what would you check first|what did you verify first|what did you review first/i.test(cleaned)) {
-    cleaned += meta.domain === 'healthcare'
-      ? ' What did you review first?'
-      : ' What did you check first?';
-  }
-
-  if (!/what options.*reject|why you chose|how you knew|how did you decide/i.test(cleaned)) {
-    cleaned += meta.senior
-      ? ' What options did you reject, and why did you choose the final path?'
-      : ' How did you know your final action was the right one?';
-  }
-
-  if (!/concrete detail|tool|system|log|payload|record|documentation|output|customer constraint|booking issue/i.test(cleaned)) {
-    cleaned += getSignalVerificationTail(meta);
-  }
-
-  return cleaned.replace(/\s+/g, ' ').trim();
+  return cleaned;
 }
 
 /* ===== OPTIONAL COMPATIBILITY SHIMS ===== */
