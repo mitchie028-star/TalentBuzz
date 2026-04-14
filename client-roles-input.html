@@ -4,167 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>TalentBuzz | Client Roles Workspace</title>
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2">
-// ===== V10 SIGNAL → SCENARIO ENGINE (FINAL FIX) =====
-
-
-// ===== STEP 1: TRANSFORM RAW SIGNAL INTO REAL WORK =====
-function transformSignalToScenario(signal){
-
-  const s = (signal || '').toLowerCase();
-
-  // ===== GDS =====
-  if(/gds|amadeus|sabre/.test(s)){
-    return "handling a booking or rebooking that failed due to system or availability issues";
-  }
-
-  // ===== BOOKING =====
-  if(/booking|flight|rebooking/.test(s)){
-    return "a customer requesting a booking or rebooking that could not be completed smoothly";
-  }
-
-  // ===== PNR =====
-  if(/pnr/.test(s)){
-    return "a PNR issue such as missing segments, incorrect details, or system errors";
-  }
-
-  // ===== FARE =====
-  if(/fare/.test(s)){
-    return "a situation where fare rules impacted what options you could offer the customer";
-  }
-
-  // ===== CUSTOMER =====
-  if(/customer|call|voice|support/.test(s)){
-    return "a difficult customer interaction where expectations were not met";
-  }
-
-  // ===== KPI =====
-  if(/kpi|csat|aht|qa/.test(s)){
-    return "a situation where your performance metrics were at risk";
-  }
-
-  // ===== VOLUME =====
-  if(/volume|queue/.test(s)){
-    return "a high-volume situation where multiple customers needed attention at the same time";
-  }
-
-  // ===== EXPERIENCE (IMPORTANT FIX) =====
-  if(/months|years/.test(s)){
-    return "a real problem you handled frequently in your recent role";
-  }
-
-  // ===== DEFAULT =====
-  return null;
-}
-
-
-// ===== STEP 2: GENERATE HUMAN QUESTION =====
-function generateHumanQuestion(signal, roleModel){
-
-  const sRaw = (signal || '').toString().trim();
-  if(!sRaw) return null;
-
-  const scenario = transformSignalToScenario(sRaw);
-
-  if(scenario){
-    return `Tell me about a time you handled ${scenario}. What happened and what did you do?`;
-  }
-
-  // fallback (VERY RARE)
-  return `Tell me about a real situation where ${sRaw} affected your work. What happened and what did you do?`;
-}
-
-
-// ===== STEP 3: SIMULATION =====
-function buildTrueSimulation(roleModel){
-  return createEmptyQuestion({
-    question: `You are handling a customer rebooking request during peak hours, and availability is limited while the customer becomes frustrated.
-
-What do you check first, what options do you evaluate, and how do you handle the situation?`,
-    focus_area: 'Simulation',
-    category: 'simulation',
-    weight: 'High',
-    was_ai_generated: true
-  });
-}
-
-
-// ===== STEP 4: MAIN GENERATOR =====
-function generateQuestionsV10(roleModel){
-
-  const signals = [
-    ...(roleModel.nonNeg || []),
-    ...((roleModel.weightedSkills || []).map(s => s.skill)),
-    ...(roleModel.successSignals || [])
-  ]
-  .map(x => (x || '').toString().trim())
-  .filter(Boolean);
-
-  const questions = [];
-  const seen = new Set();
-
-  signals.forEach(signal => {
-
-    const q = generateHumanQuestion(signal, roleModel);
-    if(!q) return;
-
-    const key = q.toLowerCase();
-    if(seen.has(key)) return;
-
-    seen.add(key);
-
-    questions.push(createEmptyQuestion({
-      question: q,
-      focus_area: signal,
-      category: 'proof',
-      weight: 'High',
-      was_ai_generated: true
-    }));
-  });
-
-  questions.push(buildTrueSimulation(roleModel));
-
-  return finalizeGeneratedQuestions(questions, roleModel);
-}
-
-
-// ===== BUTTON =====
-if(typeof els !== 'undefined' && els.generateAiQuestionsBtn){
-  els.generateAiQuestionsBtn.onclick = () => {
-
-    const roleModel = deriveRoleModel();
-
-    const generated = generateQuestionsV10(roleModel);
-
-    questionItems = generated;
-
-    renderQuestions();
-
-    showNotice('AI Questions Generated (V10 Scenario Engine)');
-  };
-}
-
-
-// ===== QUALITY =====
-function evaluateQuestionQuality(q){
-
-  const text = (q || '').toLowerCase();
-
-  let score = 50;
-
-  if(/most recent role/.test(text)) score -= 40;
-  if(/real situation where this was required/.test(text)) score -= 40;
-
-  if(/what happened|what did you do/.test(text)) score += 20;
-  if(/time you handled/.test(text)) score += 20;
-  if(/customer|issue|problem|failed/.test(text)) score += 20;
-
-  return Math.max(0, Math.min(100, score));
-}
-
-// ===== END V10 =====
-
-</script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
@@ -437,6 +277,160 @@ function evaluateQuestionQuality(q){
   <div id="notice" class="notice"></div>
 
   <script>
+
+/* ===== TALENTBUZZ V10.1 CLEAN SCENARIO ENGINE ===== */
+function transformSignalToScenario(signal){
+  const s = safeText(signal).toLowerCase();
+
+  if(/\bgds\b|\bamadeus\b|\bsabre\b/.test(s)) return "a booking or rebooking that failed due to system, policy, or availability issues";
+  if(/\bbooking\b|\bflight\b|\brebooking\b/.test(s)) return "a customer booking or rebooking that did not go as expected";
+  if(/\bpnr\b/.test(s)) return "a PNR issue such as missing segments, incorrect details, or system mismatch";
+  if(/\bfare\b/.test(s)) return "a case where fare rules changed what options you could offer";
+  if(/\bcustomer\b|\bcall\b|\bvoice\b|\bsupport\b/.test(s)) return "a difficult customer interaction where expectations were not met";
+  if(/\bkpi\b|\bcsat\b|\baht\b|\bqa\b|\bmetrics?\b/.test(s)) return "a situation where your performance metrics were at risk";
+  if(/\bvolume\b|\bqueue\b|\bmultitask/i.test(s)) return "a high-volume situation where multiple customers needed attention at the same time";
+  if(/\bonsite\b|\bshift(?:ing)?\b|\bnights?\b|\bweekends?\b/.test(s)) return "__SETUP__";
+  if(/\bmonths?\b|\byears?\b/.test(s)) return "a real problem you handled frequently in your recent role";
+  if(/\bcommunication\b|\benglish\b|\bspoken\b/.test(s)) return "a call where communication broke down or the customer did not understand you clearly";
+
+  return null;
+}
+
+function generateHumanQuestion(signal, roleModel){
+  const sRaw = safeText(signal);
+  if(!sRaw) return null;
+
+  const scenario = transformSignalToScenario(sRaw);
+  const domain = safeText(roleModel?.primaryDomain).toLowerCase();
+  const seniority = safeText(roleModel?.seniority).toLowerCase();
+  const isSenior = /\bsenior\b|\blead\b|\bmanager\b|\bdirector\b|\bexecutive\b/.test(seniority);
+
+  if (scenario === "__SETUP__") {
+    return `This role requires ${sRaw}. Can you meet that consistently, and what in your current situation makes that realistic?`;
+  }
+
+  if (/\bgds\b|\bamadeus\b|\bsabre\b/i.test(sRaw)) {
+    return `Walk me through a booking or rebooking where something went wrong in Amadeus or Sabre. What was the issue, what did you check first, and how did you fix it?`;
+  }
+
+  if (/\bpnr\b/i.test(sRaw)) {
+    return `Tell me about a time there was a PNR issue, such as missing segments or incorrect details. What did you investigate first, and how did you resolve it?`;
+  }
+
+  if (/\bfare\b/i.test(sRaw)) {
+    return `Tell me about a case where fare rules affected a booking decision. What options were available, what did you decide, and how did you explain it to the customer?`;
+  }
+
+  if (/\bkpi\b|\bcsat\b|\baht\b|\bqa\b/i.test(sRaw)) {
+    return `Tell me about a time your KPIs were at risk. What was happening, what did you change, and what result followed?`;
+  }
+
+  if (/\bcommunication\b|\benglish\b|\bspoken\b/i.test(sRaw)) {
+    return `Tell me about a call where communication broke down. What happened, how did you recover the conversation, and what was the outcome?`;
+  }
+
+  if (scenario) {
+    if (domain === 'customer' || /\bcustomer\b|\bcall\b|\bvoice\b|\bsupport\b/i.test(sRaw)) {
+      return `Tell me about a time you handled ${scenario}. What happened, what did you do first, and what was the outcome for the customer?`;
+    }
+    if (domain === 'technical') {
+      return `Tell me about a time you handled ${scenario}. What broke first, what did you check, and how did you resolve it?`;
+    }
+    return `Tell me about a time you handled ${scenario}. What happened and what did you do?`;
+  }
+
+  if (isSenior) {
+    return `Tell me about a time ${sRaw} forced you to make a decision under pressure. What did you do, and why?`;
+  }
+
+  return `Tell me about a specific time ${sRaw} affected your work. What happened, what did you do, and what result followed?`;
+}
+
+function buildTrueSimulation(roleModel){
+  const domain = safeText(roleModel?.primaryDomain).toLowerCase();
+
+  let question = `You are handling a customer rebooking request during peak hours, and availability is limited while the customer is becoming frustrated.
+
+What do you check first, what options do you evaluate, and how do you handle the situation?`;
+
+  if (domain === 'technical') {
+    question = `A release is about to go live, but a critical workflow suddenly fails in testing.
+
+What do you check first, what signals are you looking for, and how do you decide whether to block or proceed?`;
+  } else if (domain === 'healthcare') {
+    question = `A case is close to deadline, but the documentation or payer response does not line up with what you expected.
+
+What do you check first, what signals matter most, and how do you decide your next step?`;
+  } else if (domain === 'finance') {
+    question = `A finance exception appears late in the process and could affect reporting accuracy.
+
+What do you check first, what evidence matters most, and how do you decide what to do next?`;
+  }
+
+  return createEmptyQuestion({
+    question,
+    ai_original_question: question,
+    focus_area: 'Simulation',
+    response_type: 'Open Text',
+    category: 'simulation',
+    weight: 'High',
+    was_ai_generated: true
+  });
+}
+
+function generateQuestionsV10(roleModel){
+  const signals = [
+    ...(roleModel.nonNeg || []),
+    ...((roleModel.weightedSkills || []).map(s => s.skill)),
+    ...(roleModel.successSignals || [])
+  ].map(x => safeText(x)).filter(Boolean);
+
+  const questions = [];
+  const seen = new Set();
+
+  signals.forEach(signal => {
+    const q = generateHumanQuestion(signal, roleModel);
+    if (!q) return;
+    const key = q.toLowerCase().trim();
+    if (seen.has(key)) return;
+    seen.add(key);
+    questions.push(createEmptyQuestion({
+      question: q,
+      ai_original_question: q,
+      focus_area: signal,
+      response_type: /can you meet that consistently/i.test(q) ? 'Short Answer' : 'Open Text',
+      category: /can you meet that consistently/i.test(q) ? 'knockout' : 'proof',
+      weight: 'High',
+      was_ai_generated: true
+    }));
+  });
+
+  const sim = buildTrueSimulation(roleModel);
+  const simKey = safeText(sim.question).toLowerCase();
+  if (!seen.has(simKey)) {
+    questions.push(sim);
+  }
+
+  return finalizeGeneratedQuestions(questions, roleModel);
+}
+
+function evaluateQuestionQuality(q){
+  const text = safeText(q).toLowerCase();
+  let score = 50;
+
+  if (/tell me about your most recent role where this applied/.test(text)) score -= 45;
+  if (/walk me through a real situation where this was required/.test(text)) score -= 45;
+  if (/real situation where .* required/.test(text)) score -= 30;
+  if (/what happened|what did you do|how did you|what did you check/.test(text)) score += 20;
+  if (/time you handled|tell me about a time|walk me through/.test(text)) score += 15;
+  if (/customer|booking|rebooking|pnr|fare|issue|problem|failed|frustrated|risk/.test(text)) score += 15;
+  if (typeof hasRealWorkObject === 'function' && hasRealWorkObject(q)) score += 10;
+
+  return Math.max(0, Math.min(100, score));
+}
+/* ===== END TALENTBUZZ V10.1 ===== */
+
+
     const SUPABASE_URL = "https://dilalntcxmvdcmwxjcct.supabase.co";
     const SUPABASE_ANON_KEY = "sb_publishable_HrLVIUwnaRo54yijtrbWBQ_1aeb4ezs";
     const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
@@ -974,7 +968,7 @@ function evaluateQuestionQuality(q){
 
       if(!hasRealWorkObject(text) && item?.category !== 'setup' && item?.category !== 'knockout'){
         const scenario = getRealScenario(roleModel);
-        text = `${text.replace(/[.\s]*$/, '')}. Ground this in ${scenario}.`;
+        text = `Tell us about a time you dealt with ${focusToWorkObject ? focusToWorkObject(item?.focus_area || text, roleModel) : scenario}. What did you personally do, what did you check first, and what was the outcome?`;
       }
 
       text = text.replace(/\s+/g, ' ').trim();
@@ -1721,6 +1715,7 @@ window.toggleHoldRole = async function(id, nextValue){
     }
 
     function attachEvents(){
+  bindScreeningGenerator();
       els.newRoleBtn?.addEventListener('click', openNewRole);
       els.newRoleBtnHero?.addEventListener('click', openNewRole);
       els.closeRoleModalBtn?.addEventListener('click', () => setModalOpen(false));
@@ -1757,6 +1752,23 @@ window.toggleHoldRole = async function(id, nextValue){
     }
 
     init();
+
+
+// Force the screening generator button to use only V10.1
+function bindScreeningGenerator(){
+  if (!els.generateAiQuestionsBtn) return;
+  els.generateAiQuestionsBtn.onclick = () => {
+    const roleModel = deriveRoleModel();
+    const generated = generateQuestionsV10(roleModel);
+    questionItems = generated;
+    renderQuestions();
+    updateQuestionQualitySummary();
+    generateScreeningSummary();
+    refreshPreview();
+    showNotice('AI Questions Generated (V10 Scenario Engine)');
+  };
+}
+
 </script>
 </body>
 </html>
