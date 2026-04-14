@@ -1325,111 +1325,410 @@ function cleanGeneratedQuestion(questionText, focusArea = '', roleModel = {}){
     }
 
     function finalizeGeneratedQuestions(list, roleModel){
-      let finalList = (Array.isArray(list) ? list : [])
-        .map(item => {
-          const question = rewriteQuestion(item?.question, roleModel, item);
-          if(!question) return null;
-          return { ...item, question, ai_original_question: item?.ai_original_question || question };
-        })
-        .filter(Boolean)
-        .filter(item => !isGenericQuestion(item.question));
+  const input = Array.isArray(list) ? list : [];
+  const seen = new Set();
+  const finalList = [];
 
-      const seen = new Set();
-      finalList = finalList.filter(item => {
-        const key = safeText(item.question).toLowerCase();
-        if(!key || seen.has(key)) return false;
-        seen.add(key);
-        return true;
-      });
+  for (const rawItem of input) {
+    if (!rawItem) continue;
 
-      while(finalList.length < 5){
-        const fallback = buildSimulation(roleModel);
-        const key = safeText(fallback.question).toLowerCase();
-        if(!seen.has(key)){
-          seen.add(key);
-          finalList.push(fallback);
-        } else {
-          fallback.question = `${fallback.question} Include the exact system, the first signal you noticed, and the outcome.`;
-          fallback.ai_original_question = fallback.question;
-          finalList.push(fallback);
-        }
-      }
+    const originalQuestion = safeText(rawItem.question);
+    if (!originalQuestion) continue;
 
-      return finalList;
+    // Preserve the generated wording. Do not run it back through a rewrite layer.
+    const cleanedQuestion =
+      typeof cleanGeneratedQuestionV11 === 'function'
+        ? cleanGeneratedQuestionV11(
+            originalQuestion,
+            rawItem.focus_area || '',
+            roleModel || {}
+          )
+        : originalQuestion;
+
+    const question = safeText(cleanedQuestion);
+    if (!question) continue;
+
+    if (typeof isGenericQuestion === 'function' && isGenericQuestion(question)) {
+      continue;
     }
 
+    const key = question.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
 
-    function hasRealWorkObject(text){
-      const q = safeText(text).toLowerCase();
-      const weakObjects = [
-        'required setup','realistic scenario','business priority','general role fit','relevant experience','core competencies','must-have requirement','requirement'
-      ];
-      if (weakObjects.some(x => q.includes(x))) return false;
-      const strongObjects = [
-        'api','framework','automation','test','checkout','pos','erp','workflow','incident','defect','ticket','customer',
-        'campaign','pnr','booking','appeal','denial','integration','release','crm','call','escalation','qa','regression',
-        'script','dashboard','report','query','warehouse','etl','pipeline','retail','rebooking','amadeus','sabre','salesforce'
-      ];
-      return strongObjects.some(x => q.includes(x));
+    finalList.push({
+      ...rawItem,
+      question,
+      ai_original_question: safeText(rawItem.ai_original_question) || question
+    });
+  }
+
+  while (finalList.length < 5) {
+    const fallback =
+      typeof buildExecutionSimulationV11 === 'function'
+        ? buildExecutionSimulationV11(roleModel || {})
+        : buildSimulation(roleModel || {});
+
+    let fallbackQuestion = safeText(fallback?.question);
+    if (!fallbackQuestion) break;
+
+    let uniqueQuestion = fallbackQuestion;
+    let suffixIndex = 1;
+
+    while (seen.has(uniqueQuestion.toLowerCase())) {
+      suffixIndex += 1;
+      uniqueQuestion = `${fallbackQuestion} Variant ${suffixIndex}.`;
     }
 
-    function buildAdaptiveQuestionPlan(roleModel){
-      const intent = deriveQuestionIntent(roleModel);
-      const pool = [];
-      const used = new Set();
-      const pushPool = item => {
-        const key = [item.category || 'general', safeText(item.focus || ''), safeText(item.source || '')].join('::').toLowerCase();
-        if(used.has(key)) return;
-        used.add(key);
-        pool.push(item);
-      };
+    seen.add(uniqueQuestion.toLowerCase());
 
-      const targetCount = intent.roleArchetype === 'sales_voice' ? 8 : roleModel.complexityScore >= 5 ? 8 : roleModel.complexityScore >= 3 ? 7 : 6;
+    finalList.push({
+      ...fallback,
+      question: uniqueQuestion,
+      ai_original_question: safeText(fallback.ai_original_question) || uniqueQuestion
+    });
+  }
 
-      const nonNeg = roleModel.nonNeg || [];
-      nonNeg.forEach((signal, index) => {
-        const type = classifySignalLine(signal);
-        const asKnockout = index < 2 || type === 'setup';
-        if(type === 'setup') pushPool({category:'knockout',focus:'setup',source:signal,weight:'Critical',response_type:'Yes/No'});
-        else if(asKnockout) pushPool({category:'knockout',focus:type,source:signal,weight:'Critical',response_type:'Short Answer'});
-        else pushPool({category:'proof',focus:type,source:signal,weight:'Critical'});
+  return finalList;
+}
+
+
+   function hasRealWorkObject(text){
+  const q = safeText(text).toLowerCase();
+  if (!q) return false;
+
+  const weakObjects = [
+    'required setup',
+    'realistic scenario',
+    'business priority',
+    'general role fit',
+    'relevant experience',
+    'core competencies',
+    'must-have requirement',
+    'requirement',
+    'this role',
+    'your role',
+    'role expectation',
+    'ideal candidate',
+    'general skill',
+    'soft skill'
+  ];
+
+  if (weakObjects.some(x => q.includes(x))) return false;
+
+  const strongPatterns = [
+    /\bapi\b/,
+    /\bwebhook\b/,
+    /\bframework\b/,
+    /\bautomation\b/,
+    /\bscript\b/,
+    /\bworkflow\b/,
+    /\bintegration\b/,
+    /\brelease\b/,
+    /\bincident\b/,
+    /\bdefect\b/,
+    /\bbug\b/,
+    /\bregression\b/,
+    /\btest(?:ing)?\b/,
+    /\bcheckout\b/,
+    /\bpos\b/,
+    /\berp\b/,
+    /\bcrm\b/,
+    /\bsalesforce\b/,
+    /\bzendesk\b/,
+    /\bquery\b/,
+    /\bdashboard\b/,
+    /\breport\b/,
+    /\bwarehouse\b/,
+    /\betl\b/,
+    /\bpipeline\b/,
+    /\bcall\b/,
+    /\bcustomer\b/,
+    /\bescalation\b/,
+    /\bqa\b/,
+    /\bticket\b/,
+    /\bcampaign\b/,
+    /\bbooking\b/,
+    /\brebooking\b/,
+    /\bpnr\b/,
+    /\bamadeus\b/,
+    /\bsabre\b/,
+    /\bfare\b/,
+    /\bappeal\b/,
+    /\bdenial\b/,
+    /\bpayer\b/,
+    /\bclinical\b/,
+    /\bdrg\b/,
+    /\bcoding\b/,
+    /\breconciliation\b/,
+    /\baudit\b/,
+    /\btransaction\b/,
+    /\bretail\b/,
+    /\bfulfillment\b/,
+    /\binventory\b/
+  ];
+
+  const strongHit = strongPatterns.some(rx => rx.test(q));
+  if (strongHit) return true;
+
+  const actionPatterns = [
+    /\bresolved\b/,
+    /\bdebugged\b/,
+    /\binvestigated\b/,
+    /\bescalated\b/,
+    /\bimplemented\b/,
+    /\bdeployed\b/,
+    /\bvalidated\b/,
+    /\breconciled\b/,
+    /\breviewed\b/,
+    /\bhandled\b/,
+    /\bprocessed\b/,
+    /\btriaged\b/
+  ];
+
+  const contextPatterns = [
+    /\bissue\b/,
+    /\bcase\b/,
+    /\bqueue\b/,
+    /\bbacklog\b/,
+    /\bfailure\b/,
+    /\berror\b/,
+    /\bdenial\b/,
+    /\bincident\b/,
+    /\brequest\b/,
+    /\bexception\b/,
+    /\boutage\b/,
+    /\bdispute\b/
+  ];
+
+  return actionPatterns.some(rx => rx.test(q)) && contextPatterns.some(rx => rx.test(q));
+}
+
+function buildAdaptiveQuestionPlan(roleModel){
+  const intent = deriveQuestionIntent(roleModel);
+  const pool = [];
+  const used = new Set();
+
+  const targetCount =
+    intent.roleArchetype === 'sales_voice' ? 8 :
+    roleModel.complexityScore >= 5 ? 8 :
+    roleModel.complexityScore >= 3 ? 7 : 6;
+
+  const addToPool = ({
+    category = 'general',
+    focus = '',
+    source = '',
+    weight = 'Medium',
+    response_type = 'Open Text',
+    priority = 50
+  }) => {
+    const normalizedFocus = safeText(focus);
+    const normalizedSource = safeText(source);
+    if (!normalizedSource && !normalizedFocus) return;
+
+    const key = [category, normalizedFocus, normalizedSource].join('::').toLowerCase();
+    if (used.has(key)) return;
+    used.add(key);
+
+    pool.push({
+      category,
+      focus: normalizedFocus,
+      source: normalizedSource,
+      weight,
+      response_type,
+      priority
+    });
+  };
+
+  const nonNeg = Array.isArray(roleModel.nonNeg) ? roleModel.nonNeg : [];
+  const weightedSkills = Array.isArray(roleModel.weightedSkills) ? roleModel.weightedSkills : [];
+  const prioritySkills = Array.isArray(roleModel.prioritySkills) ? roleModel.prioritySkills : [];
+  const successSignals = Array.isArray(roleModel.successSignals) ? roleModel.successSignals : [];
+  const redFlags = Array.isArray(roleModel.redFlags) ? roleModel.redFlags : [];
+  const businessPriorities = Array.isArray(roleModel.businessPriorities) ? roleModel.businessPriorities : [];
+  const requirements = Array.isArray(roleModel.requirements) ? roleModel.requirements : [];
+
+  nonNeg.forEach((signal, index) => {
+    const source = safeText(signal);
+    if (!source) return;
+
+    const focus = classifySignalLine(source);
+    const isSetup = focus === 'setup';
+    const isEarlyKnockout = index < 2;
+
+    if (isSetup) {
+      addToPool({
+        category: 'knockout',
+        focus: 'setup',
+        source,
+        weight: 'Critical',
+        response_type: 'Yes/No',
+        priority: 100
       });
-
-      (roleModel.weightedSkills || roleModel.prioritySkills || []).forEach(skillObj => {
-        const skill = safeText(skillObj.skill);
-        if(skill) pushPool({category:'proof',focus:classifySignalLine(skill),source:skill,weight:skillObj.weight || 'High'});
-      });
-
-      (roleModel.successSignals || []).slice(0,2).forEach(signal => pushPool({category:'success_signal',focus:classifySignalLine(signal),source:signal,weight:'High'}));
-      if ((roleModel.redFlags || []).length) pushPool({category:'red_flag',focus:classifySignalLine(roleModel.redFlags[0]),source:roleModel.redFlags[0],weight:'Medium'});
-      pushPool({category:'simulation',focus:roleModel.primaryDomain,source:roleModel.title || 'role simulation',weight:roleModel.complexityScore >= 4 ? 'High' : 'Medium'});
-      if (intent.focusSetup) pushPool({category:'setup',focus:'setup',source:roleModel.setupCriticality || 'required setup',weight:'High'});
-      if ((roleModel.businessPriorities || []).length) pushPool({category:'business',focus:'business_priority',source:roleModel.businessPriorities[0],weight:'High'});
-      (roleModel.requirements || []).slice(0,2).forEach(req => pushPool({category:'general',focus:'requirement',source:req,weight:'Medium'}));
-
-      const pick = category => pool.filter(item => item.category === category);
-      const ordered = [
-        ...pick('knockout').slice(0,2),
-        ...pick('proof').slice(0,4),
-        ...pick('success_signal').slice(0,1),
-        ...pick('simulation').slice(0,1),
-        ...pick('red_flag').slice(0,1),
-        ...pick('business').slice(0,1),
-        ...pick('setup').slice(0,1),
-        ...pick('general').slice(0,2)
-      ];
-
-      const final = [];
-      const finalSeen = new Set();
-      ordered.forEach(item => {
-        const key = [item.category || 'general', safeText(item.focus || ''), safeText(item.source || '')].join('::').toLowerCase();
-        if(finalSeen.has(key)) return;
-        finalSeen.add(key);
-        final.push(item);
-      });
-
-      return final.slice(0, targetCount);
+      return;
     }
+
+    if (isEarlyKnockout) {
+      addToPool({
+        category: 'knockout',
+        focus,
+        source,
+        weight: 'Critical',
+        response_type: 'Short Answer',
+        priority: 95 - index
+      });
+      return;
+    }
+
+    addToPool({
+      category: 'proof',
+      focus,
+      source,
+      weight: 'Critical',
+      response_type: 'Open Text',
+      priority: 88 - index
+    });
+  });
+
+  [...weightedSkills, ...prioritySkills].forEach((skillObj, index) => {
+    const source = safeText(skillObj.skill || skillObj);
+    if (!source) return;
+
+    const declaredWeight = safeText(skillObj.weight || '');
+    const weight = declaredWeight || 'High';
+    const focus = classifySignalLine(source);
+    const isTechnical = ['voice', 'sales', 'crm', 'kpi'].includes(focus) || roleModel.primaryDomain === 'technical';
+
+    addToPool({
+      category: isTechnical ? 'technical' : 'proof',
+      focus,
+      source,
+      weight,
+      response_type: 'Open Text',
+      priority: declaredWeight.toLowerCase() === 'critical' ? 90 : 82 - index
+    });
+  });
+
+  successSignals.slice(0, 2).forEach((signal, index) => {
+    const source = safeText(signal);
+    if (!source) return;
+
+    addToPool({
+      category: 'success_signal',
+      focus: classifySignalLine(source),
+      source,
+      weight: 'High',
+      response_type: 'Open Text',
+      priority: 74 - index
+    });
+  });
+
+  redFlags.slice(0, 2).forEach((signal, index) => {
+    const source = safeText(signal);
+    if (!source) return;
+
+    addToPool({
+      category: 'red_flag',
+      focus: classifySignalLine(source),
+      source,
+      weight: index === 0 ? 'High' : 'Medium',
+      response_type: 'Open Text',
+      priority: 72 - index
+    });
+  });
+
+  addToPool({
+    category: 'simulation',
+    focus: roleModel.primaryDomain || 'general',
+    source: roleModel.title || 'role simulation',
+    weight: roleModel.complexityScore >= 4 ? 'High' : 'Medium',
+    response_type: 'Open Text',
+    priority: 80
+  });
+
+  if (intent.focusSetup || safeText(roleModel.setupCriticality)) {
+    addToPool({
+      category: 'setup',
+      focus: 'setup',
+      source: roleModel.setupCriticality || 'required setup',
+      weight: 'High',
+      response_type: 'Short Answer',
+      priority: 68
+    });
+  }
+
+  if (businessPriorities.length) {
+    addToPool({
+      category: 'business',
+      focus: 'business_priority',
+      source: businessPriorities[0],
+      weight: 'High',
+      response_type: 'Open Text',
+      priority: 64
+    });
+  }
+
+  requirements.slice(0, 2).forEach((req, index) => {
+    const source = safeText(req);
+    if (!source) return;
+
+    addToPool({
+      category: 'general',
+      focus: classifySignalLine(source),
+      source,
+      weight: 'Medium',
+      response_type: 'Open Text',
+      priority: 52 - index
+    });
+  });
+
+  const byCategory = category =>
+    pool
+      .filter(item => item.category === category)
+      .sort((a, b) => b.priority - a.priority);
+
+  const ordered = [
+    ...byCategory('knockout').slice(0, 2),
+    ...byCategory('technical').slice(0, roleModel.primaryDomain === 'technical' ? 2 : 1),
+    ...byCategory('proof').slice(0, 3),
+    ...byCategory('success_signal').slice(0, 1),
+    ...byCategory('simulation').slice(0, 1),
+    ...byCategory('red_flag').slice(0, 1),
+    ...byCategory('business').slice(0, 1),
+    ...byCategory('setup').slice(0, 1),
+    ...byCategory('general').slice(0, 1)
+  ];
+
+  const final = [];
+  const finalSeen = new Set();
+
+  for (const item of ordered) {
+    const key = [item.category, item.focus, item.source].join('::').toLowerCase();
+    if (finalSeen.has(key)) continue;
+    finalSeen.add(key);
+    final.push(item);
+    if (final.length >= targetCount) break;
+  }
+
+  if (final.length < targetCount) {
+    const leftovers = pool
+      .sort((a, b) => b.priority - a.priority)
+      .filter(item => {
+        const key = [item.category, item.focus, item.source].join('::').toLowerCase();
+        return !finalSeen.has(key);
+      });
+
+    for (const item of leftovers) {
+      const key = [item.category, item.focus, item.source].join('::').toLowerCase();
+      if (finalSeen.has(key)) continue;
+      finalSeen.add(key);
+      final.push(item);
+      if (final.length >= targetCount) break;
+    }
+  }
+
+  return final.slice(0, targetCount);
+}
 
     function buildQuestionFromPlanItem(item, roleModel){
       const source = safeText(item.source);
@@ -1791,42 +2090,86 @@ function cleanGeneratedQuestion(questionText, focusArea = '', roleModel = {}){
     };
 
     function generateAiQuestions(){
-      const roleModel = deriveRoleModel();
-      let generated = generateQuestionsV10(roleModel);
+  const roleModel = deriveRoleModel();
 
-      generated = generated.map(item => {
-        const cleanedQuestion = cleanGeneratedQuestion(item.question, item.focus_area, roleModel);
-        const cleanedOriginal = cleanGeneratedQuestion(item.ai_original_question || item.question, item.focus_area, roleModel);
-        return {
-          ...item,
-          question: cleanedQuestion,
-          ai_original_question: cleanedOriginal
-        };
-      });
+  let generated = generateQuestionsV11(roleModel);
 
-      generated = finalizeGeneratedQuestions(generated, roleModel);
-      generated = generated.map(q => ({ ...q, quality_evaluation: evaluateQuestionQuality(q) }));
+  generated = generated.map(item => {
+    const cleanedQuestion = cleanGeneratedQuestionV11(
+      item.question,
+      item.focus_area,
+      roleModel
+    );
 
-      questionItems = generated;
-      renderQuestions();
-      refreshPreview();
-      updateQuestionQualitySummary();
-      generateScreeningSummary();
-      showNotice('AI Questions Generated (V10 Scenario Engine)');
-    }
+    const cleanedOriginal = cleanGeneratedQuestionV11(
+      item.ai_original_question || item.question,
+      item.focus_area,
+      roleModel
+    );
 
-    function evaluateAllQuestionQuality(){
-      questionItems = questionItems.map(q => ({ ...q, quality_evaluation: evaluateQuestionQuality(q) }));
-      renderQuestions(); updateQuestionQualitySummary(); generateScreeningSummary();
-      showNotice('Question quality evaluated across the full set.');
-    }
+    return {
+      ...item,
+      question: cleanedQuestion,
+      ai_original_question: cleanedOriginal
+    };
+  });
 
-    function addQuestion(){
-      const question = createEmptyQuestion({ question:'Walk us through a recent time you had to solve a real work problem under pressure. What broke, what did you check first, what did you personally do, and what was the result?', focus_area:'Custom', was_ai_generated:false });
-      question.quality_evaluation = evaluateQuestionQuality(question);
-      questionItems.push(question);
-      renderQuestions(); refreshPreview(); updateQuestionQualitySummary();
-    }
+  generated = generated.map(q => ({
+    ...q,
+    quality_evaluation: evaluateQuestionQualityV11(
+      q.question,
+      q.focus_area,
+      roleModel
+    )
+  }));
+
+  questionItems = generated;
+  renderQuestions();
+  refreshPreview();
+  updateQuestionQualitySummary();
+  generateScreeningSummary();
+  showNotice('AI Questions Generated (V11 Adaptive Execution Engine)');
+}
+
+function evaluateAllQuestionQuality(){
+  const roleModel = deriveRoleModel();
+
+  questionItems = questionItems.map(q => ({
+    ...q,
+    quality_evaluation: evaluateQuestionQualityV11(
+      q.question,
+      q.focus_area,
+      roleModel
+    )
+  }));
+
+  renderQuestions();
+  updateQuestionQualitySummary();
+  generateScreeningSummary();
+  showNotice('Question quality evaluated across the full set.');
+}
+
+function addQuestion(){
+  const roleModel = deriveRoleModel();
+
+  const question = createEmptyQuestion({
+    question: 'Describe one real work issue you personally handled. What was the issue, what did you check first, what did you do, and what was the final outcome?',
+    ai_original_question: 'Describe one real work issue you personally handled. What was the issue, what did you check first, what did you do, and what was the final outcome?',
+    focus_area: 'Custom',
+    was_ai_generated: false
+  });
+
+  question.quality_evaluation = evaluateQuestionQualityV11(
+    question.question,
+    question.focus_area,
+    roleModel
+  );
+
+  questionItems.push(question);
+  renderQuestions();
+  refreshPreview();
+  updateQuestionQualitySummary();
+}
 
     function clearAnswers(){
       questionItems = questionItems.map(q => ({ ...q, candidate_answer:'', evaluation:null }));
