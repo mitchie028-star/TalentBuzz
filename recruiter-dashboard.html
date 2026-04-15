@@ -3442,9 +3442,11 @@ function renderLearningInsights(row) {
     function threadUnreadCount(thread) {
       const seen = getSeenChatMap();
       const lastSeenAt = seen?.[thread.threadKey];
-      if (!thread.lastMessageAt) return 0;
-      if (!lastSeenAt) return 1;
-      return new Date(thread.lastMessageAt).getTime() > new Date(lastSeenAt).getTime() ? 1 : 0;
+      const inboundTimes = Array.isArray(thread?.inboundMessageAts) ? thread.inboundMessageAts : [];
+      if (!inboundTimes.length) return 0;
+      if (!lastSeenAt) return inboundTimes.length;
+      const seenTs = new Date(lastSeenAt).getTime();
+      return inboundTimes.filter((value) => new Date(value).getTime() > seenTs).length;
     }
     async function initializeCurrentUser() {
       try {
@@ -3454,29 +3456,73 @@ function renderLearningInsights(row) {
         console.warn('Unable to read current user:', err?.message || err);
       }
     }
+    async function loadChatIndexes() {
+      try {
+        const [{ data: candidateMessages, error: candidateError }, { data: clientMessages, error: clientError }] = await Promise.all([
+          supabaseClient
+            .from('applicant_messages')
+            .select('id, applicant_email, applicant_profile_id, application_id, sender_type, message, created_at')
+            .order('created_at', { ascending: false })
+            .limit(500),
+          supabaseClient
+            .from('client_messages')
+            .select('id, client_email, email, sender_type, message, created_at')
+            .order('created_at', { ascending: false })
+            .limit(300)
+        ]);
+
+        if (candidateError) {
+          console.warn('Unable to load applicant chat index:', candidateError?.message || candidateError);
+          state.chatCandidateMessages = [];
+        } else {
+          state.chatCandidateMessages = Array.isArray(candidateMessages) ? candidateMessages : [];
+        }
+
+        if (clientError) {
+          console.warn('Unable to load client chat index:', clientError?.message || clientError);
+          state.chatClientMessages = [];
+        } else {
+          state.chatClientMessages = Array.isArray(clientMessages) ? clientMessages : [];
+        }
+      } catch (err) {
+        console.warn('Unable to load chat indexes:', err?.message || err);
+        state.chatCandidateMessages = [];
+        state.chatClientMessages = [];
+      }
+    }
     async function loadThreadMessages(thread) {
       if (!thread) return [];
       try {
         if (thread.threadType === 'candidate') {
-          let query = supabaseClient
+          const clauses = [];
+          if (thread.applicantProfileId) clauses.push(`applicant_profile_id.eq.${thread.applicantProfileId}`);
+          if (thread.email) clauses.push(`applicant_email.eq.${thread.email}`);
+          if (!clauses.length) return [];
+
+          const { data, error } = await supabaseClient
             .from('applicant_messages')
             .select('id, applicant_email, applicant_profile_id, application_id, sender_type, message, created_at')
             .order('created_at', { ascending: false })
-            .limit(50);
-          if (thread.applicationId) query = query.eq('application_id', thread.applicationId);
-          else if (thread.applicantProfileId) query = query.eq('applicant_profile_id', thread.applicantProfileId);
-          else if (thread.email) query = query.eq('applicant_email', thread.email);
-          const { data, error } = await query;
+            .limit(100)
+            .or(clauses.join(','));
+
           if (error) throw error;
           return (data || []).sort((a, b) => new Date(a.created_at || 0) - new Date(b.created_at || 0));
         } else {
-          let query = supabaseClient
+          const clauses = [];
+          if (thread.email) {
+            clauses.push(`client_email.eq.${thread.email}`);
+            clauses.push(`email.eq.${thread.email}`);
+          }
+          if (!clauses.length) return [];
+
+          const { data, error } = await supabaseClient
             .from('client_messages')
-            .select('*')
+            .select('id, client_email, email, sender_type, message, created_at')
             .order('created_at', { ascending: false })
-            .limit(50);
-          if (thread.email) query = query.or(`client_email.eq.${thread.email},email.eq.${thread.email}`);
-          const { data, error } = await query;
+            .limit(100)
+            .or(clauses.join(','));
+
           if (error) throw error;
           return (data || []).sort((a, b) => new Date(a.created_at || 0) - new Date(b.created_at || 0));
         }
@@ -3496,55 +3542,145 @@ function renderLearningInsights(row) {
     }
     function buildChatThreads() {
       const rows = state.allRows || [];
-      const threads = [];
-      const seenKeys = new Set();
+      const candidateMessages = Array.isArray(state.chatCandidateMessages) ? state.chatCandidateMessages : [];
+      const clientMessages = Array.isArray(state.chatClientMessages) ? state.chatClientMessages : [];
+      const candidateMap = new Map();
+      const clientMap = new Map();
+
+      function candidateKey(email, applicantProfileId) {
+        const profileId = safeText(applicantProfileId);
+        const normalizedEmail = normalizeEmail(email || '');
+        if (profileId) return `candidate:profile:${profileId}`;
+        if (normalizedEmail) return `candidate:email:${normalizedEmail}`;
+        return '';
+      }
 
       rows.forEach((row) => {
         const email = normalizeEmail(row?.app?.email || row?.profile?.email);
-        if (!email) return;
-        const key = `candidate:${row.id || email}`;
-        if (seenKeys.has(key)) return;
-        seenKeys.add(key);
-        const status = formatStatusLabel(row?.status || row?.app?.status || '');
-        threads.push({
+        const applicantProfileId = row?.profile?.id || row?.app?.applicant_profile_id || null;
+        const key = candidateKey(email, applicantProfileId);
+        if (!key) return;
+        const existing = candidateMap.get(key);
+        const subtitleBits = uniq([row.jobTitle, row.clientName].filter(Boolean));
+        const fallbackLastAt = row?.app?.updated_at || row?.app?.created_at || null;
+        if (!existing) {
+          candidateMap.set(key, {
+            threadKey: key,
+            threadType: 'candidate',
+            typeLabel: 'Candidate',
+            name: row.displayName || email || 'Candidate',
+            subtitle: subtitleBits.join(' • '),
+            preview: row?.profile?.headline || row?.profile?.experience_summary || row?.app?.recruiter_notes || 'No messages yet.',
+            lastMessageAt: fallbackLastAt,
+            email,
+            applicantProfileId,
+            applicationId: null,
+            status: formatStatusLabel(row?.status || row?.app?.status || ''),
+            inboundMessageAts: [],
+            relatedJobs: subtitleBits,
+          });
+        } else {
+          const jobs = uniq([...(existing.relatedJobs || []), ...subtitleBits]);
+          existing.relatedJobs = jobs;
+          existing.subtitle = jobs.join(' • ');
+          if (!existing.name && row.displayName) existing.name = row.displayName;
+          if (!existing.email && email) existing.email = email;
+          if (!existing.applicantProfileId && applicantProfileId) existing.applicantProfileId = applicantProfileId;
+          if (!existing.lastMessageAt || new Date(fallbackLastAt || 0) > new Date(existing.lastMessageAt || 0)) {
+            existing.lastMessageAt = fallbackLastAt;
+          }
+        }
+      });
+
+      candidateMessages.forEach((message) => {
+        const key = candidateKey(message?.applicant_email, message?.applicant_profile_id);
+        if (!key) return;
+        const senderType = normalizeText(message?.sender_type || '');
+        const isInbound = !['recruiter', 'admin', 'system'].includes(senderType);
+        const existing = candidateMap.get(key) || {
           threadKey: key,
           threadType: 'candidate',
           typeLabel: 'Candidate',
-          name: row.displayName || email,
-          subtitle: [row.jobTitle, row.clientName].filter(Boolean).join(' • '),
-          preview: row?.profile?.headline || row?.profile?.experience_summary || row?.app?.recruiter_notes || 'No messages yet.',
-          lastMessageAt: row?.app?.updated_at || row?.app?.created_at,
-          email,
-          applicationId: row.id,
-          applicantProfileId: row.profile?.id || row.app?.applicant_profile_id || null,
-          status,
-        });
+          name: normalizeEmail(message?.applicant_email || '') || 'Candidate',
+          subtitle: 'Candidate conversation',
+          preview: 'No messages yet.',
+          lastMessageAt: null,
+          email: normalizeEmail(message?.applicant_email || ''),
+          applicantProfileId: message?.applicant_profile_id || null,
+          applicationId: null,
+          status: '',
+          inboundMessageAts: [],
+          relatedJobs: [],
+        };
+        const messageAt = message?.created_at || null;
+        if (!existing.email && message?.applicant_email) existing.email = normalizeEmail(message.applicant_email);
+        if (!existing.applicantProfileId && message?.applicant_profile_id) existing.applicantProfileId = message.applicant_profile_id;
+        if (!existing.name || existing.name === existing.email) existing.name = existing.name || existing.email || 'Candidate';
+        if (!existing.lastMessageAt || new Date(messageAt || 0) > new Date(existing.lastMessageAt || 0)) {
+          existing.lastMessageAt = messageAt;
+          existing.preview = safeText(message?.message || '') || 'No messages yet.';
+        }
+        if (isInbound && messageAt) existing.inboundMessageAts.push(messageAt);
+        candidateMap.set(key, existing);
       });
 
-      const clientMap = new Map();
       rows.forEach((row) => {
         const clientName = safeText(row.clientName);
-        if (!clientName) return;
         const email = normalizeEmail(row?.app?.endorsement_sent_to || '');
         const key = `client:${email || clientName.toLowerCase()}`;
-        if (clientMap.has(key)) return;
-        clientMap.set(key, {
+        if (!clientName && !email) return;
+        const existing = clientMap.get(key);
+        const fallbackLastAt = row?.app?.client_feedback_at || row?.app?.endorsement_sent_at || row?.app?.updated_at || row?.app?.created_at || null;
+        if (!existing) {
+          clientMap.set(key, {
+            threadKey: key,
+            threadType: 'client',
+            typeLabel: 'Client',
+            name: clientName || email || 'Client',
+            subtitle: row.jobTitle || 'Client conversation',
+            preview: row?.app?.client_feedback_notes || row?.app?.endorsement_notes || 'No messages yet.',
+            lastMessageAt: fallbackLastAt,
+            email,
+            applicationId: null,
+            applicantProfileId: null,
+            status: formatStatusLabel(row?.app?.client_feedback_status || row?.app?.endorsement_status || ''),
+            inboundMessageAts: [],
+          });
+        } else if (!existing.lastMessageAt || new Date(fallbackLastAt || 0) > new Date(existing.lastMessageAt || 0)) {
+          existing.lastMessageAt = fallbackLastAt;
+        }
+      });
+
+      clientMessages.forEach((message) => {
+        const email = normalizeEmail(message?.client_email || message?.email || '');
+        if (!email) return;
+        const key = `client:${email}`;
+        const senderType = normalizeText(message?.sender_type || '');
+        const isInbound = !['recruiter', 'admin', 'system'].includes(senderType);
+        const existing = clientMap.get(key) || {
           threadKey: key,
           threadType: 'client',
           typeLabel: 'Client',
-          name: clientName,
-          subtitle: row.jobTitle || 'Client conversation',
-          preview: row?.app?.client_feedback_notes || row?.app?.endorsement_notes || 'No messages yet.',
-          lastMessageAt: row?.app?.client_feedback_at || row?.app?.endorsement_sent_at || row?.app?.updated_at || row?.app?.created_at,
+          name: email,
+          subtitle: 'Client conversation',
+          preview: 'No messages yet.',
+          lastMessageAt: null,
           email,
-          applicationId: row.id,
+          applicationId: null,
           applicantProfileId: null,
-          status: formatStatusLabel(row?.app?.client_feedback_status || row?.app?.endorsement_status || ''),
-        });
+          status: '',
+          inboundMessageAts: [],
+        };
+        const messageAt = message?.created_at || null;
+        if (!existing.lastMessageAt || new Date(messageAt || 0) > new Date(existing.lastMessageAt || 0)) {
+          existing.lastMessageAt = messageAt;
+          existing.preview = safeText(message?.message || '') || 'No messages yet.';
+        }
+        if (isInbound && messageAt) existing.inboundMessageAts.push(messageAt);
+        clientMap.set(key, existing);
       });
-      threads.push(...clientMap.values());
 
-      state.chatThreads = threads
+      state.chatThreads = [...candidateMap.values(), ...clientMap.values()]
         .map((thread) => ({ ...thread, unreadCount: threadUnreadCount(thread) }))
         .sort((a, b) => new Date(b.lastMessageAt || 0) - new Date(a.lastMessageAt || 0));
     }
@@ -3642,11 +3778,9 @@ function renderLearningInsights(row) {
         els.chatConversationBody.innerHTML = '<div class="chat-conversation-empty">No messages yet in this thread.</div>';
         return;
       }
-      const currentEmail = getCurrentUserEmail();
       els.chatConversationBody.innerHTML = messages.map((row) => {
         const senderType = normalizeText(row?.sender_type || '');
-        const senderEmail = normalizeEmail(row?.sender_email || row?.recruiter_email || row?.email || '');
-        const outbound = ['recruiter','admin','system'].includes(senderType) || (!!currentEmail && senderEmail === currentEmail);
+        const outbound = ['recruiter','admin','system'].includes(senderType);
         return `
           <div class="chat-bubble-row ${outbound ? 'outbound' : 'inbound'}">
             <div class="chat-bubble">
@@ -3712,8 +3846,12 @@ function renderLearningInsights(row) {
       window.location.href = `mailto:${thread.email}?subject=${subject}&body=${body}`;
     }
     async function refreshChatWidget(preserveSelection = false) {
+      await loadChatIndexes();
       buildChatThreads();
-      if (!preserveSelection && !state.chatSelectedThreadKey) {
+      const hasSelectedThread = state.chatThreads.some((item) => item.threadKey === state.chatSelectedThreadKey);
+      if ((!preserveSelection || !hasSelectedThread) && !state.chatSelectedThreadKey) {
+        state.chatSelectedThreadKey = state.chatThreads[0]?.threadKey || null;
+      } else if (!hasSelectedThread) {
         state.chatSelectedThreadKey = state.chatThreads[0]?.threadKey || null;
       }
       updateHeaderBadges();
