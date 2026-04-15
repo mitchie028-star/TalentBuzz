@@ -1112,128 +1112,188 @@ function evaluateQuestionQualityV11(q, focusArea = '', roleModel = {}){ return e
     }
 
     async function loadRoles(){
-      els.rolesTableBody.innerHTML = '<tr><td colspan="6" class="empty-state">Loading roles...</td></tr>';
-      const {data,error} = await supabaseClient.from('jobs').select('*').order('created_at',{ascending:false});
-      if(error){
-        els.rolesTableBody.innerHTML = '<tr><td colspan="6" class="empty-state">Failed to load roles.</td></tr>';
-        showNotice(`Failed to load roles: ${error.message}`,'error');
-        return;
+  try {
+    els.rolesTableBody.innerHTML = '<tr><td colspan="6" class="empty-state">Loading roles...</td></tr>';
+
+    const { data, error } = await supabaseClient
+      .from('jobs')
+      .select('*')
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      throw error;
+    }
+
+    rolesCache = (data || []).map(r => {
+      let screeningConfig = r.screening_config;
+      let aiConfig = r.ai_screening_config;
+
+      if (typeof screeningConfig === 'string') {
+        try {
+          screeningConfig = JSON.parse(screeningConfig);
+        } catch {
+          screeningConfig = [];
+        }
       }
-      rolesCache = (data || []).map(r => {
-        let screeningConfig = r.screening_config;
-        let aiConfig = r.ai_screening_config;
+      if (!Array.isArray(screeningConfig)) screeningConfig = [];
 
-        if (typeof screeningConfig === 'string') {
-          try { screeningConfig = JSON.parse(screeningConfig); } catch { screeningConfig = []; }
+      if (typeof aiConfig === 'string') {
+        try {
+          aiConfig = JSON.parse(aiConfig);
+        } catch {
+          aiConfig = {};
         }
-        if (!Array.isArray(screeningConfig)) screeningConfig = [];
+      }
+      if (!aiConfig || typeof aiConfig !== 'object' || Array.isArray(aiConfig)) {
+        aiConfig = {};
+      }
 
-        if (typeof aiConfig === 'string') {
-          try { aiConfig = JSON.parse(aiConfig); } catch { aiConfig = {}; }
-        }
-        if (!aiConfig || typeof aiConfig !== 'object' || Array.isArray(aiConfig)) aiConfig = {};
+      const requiredSkills = Array.isArray(r.required_skills)
+        ? r.required_skills
+        : (typeof r.required_skills === 'string' ? [r.required_skills] : []);
 
-        const requiredSkills = Array.isArray(r.required_skills)
-          ? r.required_skills
-          : (typeof r.required_skills === 'string' ? [r.required_skills] : []);
-        const niceToHaveSkills = Array.isArray(r.nice_to_have_skills)
-          ? r.nice_to_have_skills
-          : (typeof r.nice_to_have_skills === 'string' ? [r.nice_to_have_skills] : []);
+      const niceToHaveSkills = Array.isArray(r.nice_to_have_skills)
+        ? r.nice_to_have_skills
+        : (typeof r.nice_to_have_skills === 'string' ? [r.nice_to_have_skills] : []);
 
-        return {
-          ...r,
-          screening_config: screeningConfig,
-          ai_screening_config: aiConfig,
-          required_skills: requiredSkills,
-          nice_to_have_skills: niceToHaveSkills
-        };
-      });
-      renderRolesTable();
-    }
-
-    function getSignalCalibrationPayload(){
       return {
-        non_negotiables: normalizeLines(els.signalNonNegotiables.value),
-        red_flags: normalizeLines(els.signalRedFlags.value),
-        must_have_skills: normalizeLines(els.signalMustHaveSkills.value),
-        success_signals: normalizeLines(els.signalSuccessSignals.value),
-        setup_criticality: safeText(els.signalSetupCriticality.value),
-        environment_notes: safeText(els.signalEnvironmentNotes.value),
-        communication_weight: safeText(els.signalCommunicationWeight.value),
-        stakeholder_weight: safeText(els.signalStakeholderWeight.value),
-        autonomy_level: safeText(els.signalAutonomyLevel.value),
-        decision_making: safeText(els.signalDecisionMaking.value),
-        business_priorities: normalizeLines(els.signalBusinessPriorities.value)
+        ...r,
+        screening_config: screeningConfig,
+        ai_screening_config: aiConfig,
+        required_skills: requiredSkills,
+        nice_to_have_skills: niceToHaveSkills
       };
-    }
+    });
 
-    function buildSignalSummaryText(s){
-      return [
-        'TalentBuzz Signal Intelligence','',
-        'Non-Negotiables:',...(s.non_negotiables.length ? s.non_negotiables.map(x => `- ${x}`) : ['- None defined yet']),'',
-        'Must-Have Skills + Importance:',...(s.must_have_skills.length ? s.must_have_skills.map(x => `- ${x}`) : ['- None defined yet']),'',
-        'Success Signals:',...(s.success_signals.length ? s.success_signals.map(x => `- ${x}`) : ['- None defined yet']),'',
-        'Red Flags / Deal Breakers:',...(s.red_flags.length ? s.red_flags.map(x => `- ${x}`) : ['- None defined yet']),'',
-        `Setup Criticality: ${s.setup_criticality || 'Not set'}`,
-        `Communication Weight: ${s.communication_weight || 'Not set'}`,
-        `Stakeholder Weight: ${s.stakeholder_weight || 'Not set'}`,
-        `Autonomy Level: ${s.autonomy_level || 'Not set'}`,'',
-        'Environment Notes:',s.environment_notes || 'Not set','',
-        'Decision-Making Expectation:',s.decision_making || 'Not set','',
-        'Business Priorities:',...(s.business_priorities.length ? s.business_priorities.map(x => `- ${x}`) : ['- None defined yet'])
-      ].join('\n');
-    }
+    renderRolesTable();
+  } catch (error) {
+    console.error('loadRoles failed:', error);
+    els.rolesTableBody.innerHTML = '<tr><td colspan="6" class="empty-state">Failed to load roles.</td></tr>';
+    showNotice(`Failed to load roles: ${error.message || error}`, 'error');
+  }
+}
 
-    function buildSignalSummary(){
-      const s = getSignalCalibrationPayload();
-      els.signalSummaryOutput.textContent = buildSignalSummaryText(s);
-      refreshPreview();
-      showNotice('Signal Intelligence summary generated.');
-    }
+function getSignalCalibrationPayload(){
+  return {
+    non_negotiables: normalizeLines(els.signalNonNegotiables.value),
+    red_flags: normalizeLines(els.signalRedFlags.value),
+    must_have_skills: normalizeLines(els.signalMustHaveSkills.value),
+    success_signals: normalizeLines(els.signalSuccessSignals.value),
+    setup_criticality: safeText(els.signalSetupCriticality.value),
+    environment_notes: safeText(els.signalEnvironmentNotes.value),
+    communication_weight: safeText(els.signalCommunicationWeight.value),
+    stakeholder_weight: safeText(els.signalStakeholderWeight.value),
+    autonomy_level: safeText(els.signalAutonomyLevel.value),
+    decision_making: safeText(els.signalDecisionMaking.value),
+    business_priorities: normalizeLines(els.signalBusinessPriorities.value)
+  };
+}
 
-    function createEmptyQuestion(overrides = {}){
-      const question = overrides.question || '';
-      return {
-        id: overrides.id || (window.crypto?.randomUUID ? window.crypto.randomUUID() : `q_${Date.now()}_${Math.random().toString(36).slice(2,8)}`),
-        question,
-        ai_original_question: overrides.ai_original_question ?? question,
-        focus_area: overrides.focus_area || '',
-        response_type: overrides.response_type || 'Open Text',
-        weight: overrides.weight || 'Medium',
-        category: overrides.category || 'general',
-        knockout: !!overrides.knockout,
-        candidate_answer: overrides.candidate_answer || '',
-        evaluation: overrides.evaluation || null,
-        quality_evaluation: overrides.quality_evaluation || null,
-        feedback_action: overrides.feedback_action || 'keep',
-        feedback_tags: normalizeArray(overrides.feedback_tags),
-        feedback_note: overrides.feedback_note || '',
-        options: normalizeArray(overrides.options),
-        was_ai_generated: overrides.was_ai_generated ?? true
-      };
-    }
+function buildSignalSummaryText(s){
+  return [
+    'TalentBuzz Signal Intelligence','',
+    'Non-Negotiables:',
+    ...(s.non_negotiables.length ? s.non_negotiables.map(x => `- ${x}`) : ['- None defined yet']),
+    '',
+    'Must-Have Skills + Importance:',
+    ...(s.must_have_skills.length ? s.must_have_skills.map(x => `- ${x}`) : ['- None defined yet']),
+    '',
+    'Success Signals:',
+    ...(s.success_signals.length ? s.success_signals.map(x => `- ${x}`) : ['- None defined yet']),
+    '',
+    'Red Flags / Deal Breakers:',
+    ...(s.red_flags.length ? s.red_flags.map(x => `- ${x}`) : ['- None defined yet']),
+    '',
+    `Setup Criticality: ${s.setup_criticality || 'Not set'}`,
+    `Communication Weight: ${s.communication_weight || 'Not set'}`,
+    `Stakeholder Weight: ${s.stakeholder_weight || 'Not set'}`,
+    `Autonomy Level: ${s.autonomy_level || 'Not set'}`,
+    '',
+    'Environment Notes:',
+    s.environment_notes || 'Not set',
+    '',
+    'Decision-Making Expectation:',
+    s.decision_making || 'Not set',
+    '',
+    'Business Priorities:',
+    ...(s.business_priorities.length ? s.business_priorities.map(x => `- ${x}`) : ['- None defined yet'])
+  ].join('\n');
+}
 
-    function renderFeedbackTags(index, item){
-      const current = new Set(normalizeArray(item.feedback_tags));
-      return FEEDBACK_TAG_OPTIONS.map(tag => `<button class="tag-chip ${current.has(tag) ? 'active' : ''}" type="button" onclick="toggleFeedbackTag(${index}, '${tag}')">${tag.replaceAll('_',' ')}</button>`).join('');
-    }
+function buildSignalSummary(){
+  const s = getSignalCalibrationPayload();
+  els.signalSummaryOutput.textContent = buildSignalSummaryText(s);
+  refreshPreview();
+  showNotice('Signal Intelligence summary generated.');
+}
 
-    function countPatternMatches(text, patterns = []){ return patterns.reduce((count, pattern) => count + (pattern.test(text) ? 1 : 0), 0); }
-    function hasAnyPattern(text, patterns = []){ return patterns.some(pattern => pattern.test(text)); }
-    function scorePatternMatches(text, patterns = []){ return patterns.reduce((total, pattern) => total + (pattern.test(text) ? 1 : 0), 0); }
+function createEmptyQuestion(overrides = {}){
+  const question = overrides.question || '';
 
-    function parseWeightedSkills(lines = []){
-      return lines.map(line => safeText(line)).filter(Boolean).map(line => {
-        const parts = line.split(/[-—–:]/).map(x => safeText(x)).filter(Boolean);
-        const skill = parts[0] || line;
-        const meta = safeText(parts.slice(1).join(' ')).toLowerCase();
-        let weight = 'Medium';
-        if(meta.includes('critical')) weight = 'Critical';
-        else if(meta.includes('high')) weight = 'High';
-        else if(meta.includes('low')) weight = 'Low';
-        return { skill, weight };
-      });
-    }
+  return {
+    id: overrides.id || (window.crypto?.randomUUID
+      ? window.crypto.randomUUID()
+      : `q_${Date.now()}_${Math.random().toString(36).slice(2,8)}`),
+    question,
+    ai_original_question: overrides.ai_original_question ?? question,
+    focus_area: overrides.focus_area || '',
+    response_type: overrides.response_type || 'Open Text',
+    weight: overrides.weight || 'Medium',
+    category: overrides.category || 'general',
+    knockout: !!overrides.knockout,
+    candidate_answer: overrides.candidate_answer || '',
+    evaluation: overrides.evaluation || null,
+    quality_evaluation: overrides.quality_evaluation || null,
+    feedback_action: overrides.feedback_action || 'keep',
+    feedback_tags: normalizeArray(overrides.feedback_tags),
+    feedback_note: overrides.feedback_note || '',
+    options: normalizeArray(overrides.options),
+    was_ai_generated: overrides.was_ai_generated ?? true
+  };
+}
+
+function renderFeedbackTags(index, item){
+  const current = new Set(normalizeArray(item.feedback_tags));
+  return FEEDBACK_TAG_OPTIONS.map(tag => `
+    <button
+      class="tag-chip ${current.has(tag) ? 'active' : ''}"
+      type="button"
+      onclick="toggleFeedbackTag(${index}, '${tag}')"
+    >
+      ${tag.replaceAll('_', ' ')}
+    </button>
+  `).join('');
+}
+
+function countPatternMatches(text, patterns = []){
+  return patterns.reduce((count, pattern) => count + (pattern.test(text) ? 1 : 0), 0);
+}
+
+function hasAnyPattern(text, patterns = []){
+  return patterns.some(pattern => pattern.test(text));
+}
+
+function scorePatternMatches(text, patterns = []){
+  return patterns.reduce((total, pattern) => total + (pattern.test(text) ? 1 : 0), 0);
+}
+
+function parseWeightedSkills(lines = []){
+  return lines
+    .map(line => safeText(line))
+    .filter(Boolean)
+    .map(line => {
+      const parts = line.split(/[-—–:]/).map(x => safeText(x)).filter(Boolean);
+      const skill = parts[0] || line;
+      const meta = safeText(parts.slice(1).join(' ')).toLowerCase();
+
+      let weight = 'Medium';
+      if (meta.includes('critical')) weight = 'Critical';
+      else if (meta.includes('high')) weight = 'High';
+      else if (meta.includes('low')) weight = 'Low';
+
+      return { skill, weight };
+    });
+}
 
     function deriveRoleModel(){
       const title = safeText(els.jobTitle.value);
