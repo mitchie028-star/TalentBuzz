@@ -278,7 +278,7 @@
 
   <script>
 
-/* ===== TALENTBUZZ V11 ADAPTIVE EXECUTION ENGINE — 5 QUESTION LIMITED ===== */
+/* ===== TALENTBUZZ V11 ADAPTIVE EXECUTION ENGINE — DOMAIN + INTENT CORE ===== */
 
 function tbSafe(v){
   if (typeof safeText === 'function') return safeText(v);
@@ -292,6 +292,7 @@ function tbLower(v){
 function tbUnique(arr){
   const out = [];
   const seen = new Set();
+
   (arr || []).forEach(item => {
     const s = tbSafe(item);
     const key = s.toLowerCase();
@@ -299,6 +300,7 @@ function tbUnique(arr){
     seen.add(key);
     out.push(s);
   });
+
   return out;
 }
 
@@ -312,14 +314,30 @@ function detectRoleDomain(roleModel = {}){
     ...(roleModel.successSignals || [])
   ].map(tbSafe).join(' ').toLowerCase();
 
-  if (/\b(qa manager|quality manager|quality assurance manager|bpo quality|quality operations|qa lead|qa supervisor|calibration|scorecard|audit findings|call audit|transaction audit|quality analyst|monitoring form|evaluation form|csat|aht|fcr|nps|content moderation qa)\b/.test(raw)) {
+  // ===== BPO QA / QUALITY OPERATIONS =====
+  if (/\b(qa manager|quality manager|quality assurance manager|quality operations|bpo quality|qa lead|qa supervisor|quality analyst|calibration|scorecard|monitoring form|evaluation form|audit findings|call audit|transaction audit|qa audit|quality audit|content moderation qa)\b/.test(raw)) {
     return 'bpo_qa';
   }
 
-  if (/\b(nurse|clinical|payer|appeal|appeals|denial|denials|medical|coding|coder|drg|hospital|utilization|ur)\b/.test(raw)) return 'healthcare';
-  if (/\b(finance|accounting|reconciliation|reporting|payable|receivable|fp&a|bookkeeping|qlik)\b/.test(raw)) return 'finance';
-  if (/\b(customer|csr|call|voice|support|travel|gds|amadeus|sabre|booking|rebooking|airline|ota|cx|retention|sales chat)\b/.test(raw)) return 'customer';
-  if (/\b(data|developer|engineer|engineering|api|python|automation|mlops|platform|sql|integration|system|architecture|release|testing|devops|cloud)\b/.test(raw)) return 'technical';
+  // ===== HEALTHCARE =====
+  if (/\b(nurse|clinical|payer|appeal|appeals|denial|denials|medical|coding|coder|drg|hospital|utilization|ur)\b/.test(raw)) {
+    return 'healthcare';
+  }
+
+  // ===== FINANCE =====
+  if (/\b(finance|accounting|reconciliation|reporting|payable|receivable|fp&a|bookkeeping|qlik)\b/.test(raw)) {
+    return 'finance';
+  }
+
+  // ===== CUSTOMER / CX =====
+  if (/\b(customer|csr|call|voice|support|travel|gds|amadeus|sabre|booking|rebooking|airline|ota|cx|retention|sales chat)\b/.test(raw)) {
+    return 'customer';
+  }
+
+  // ===== TECHNICAL =====
+  if (/\b(data|developer|engineer|engineering|api|python|automation|mlops|platform|sql|integration|system|architecture|release|testing|devops|cloud)\b/.test(raw)) {
+    return 'technical';
+  }
 
   return tbLower(roleModel.primaryDomain) || 'general';
 }
@@ -352,26 +370,37 @@ function inferSignalType(signal){
 
   if (!s) return 'proof';
 
+  // ===== BPO QA FIRST =====
+  if (/\b(calibration|scorecard|monitoring form|evaluation form|audit findings|call audit|transaction audit|qa audit|coaching|quality review|quality analyst|qa team|qa manager)\b/.test(s)) {
+    return 'qa_ops';
+  }
+
+  // ===== TECHNICAL =====
   if (/\b(api|python|sql|gds|amadeus|sabre|pnr|fare|coding|icd|cpt|drg|appeal|denial|root cause|automation|integration|dashboard|pipeline|reconciliation|selenium|playwright|cypress|uat|testing)\b/.test(s)) {
     return 'technical';
   }
 
+  // ===== SETUP =====
   if (/\b(onsite|hybrid|remote|night shift|graveyard|weekend(s)?|schedule|shifting|relocation|location)\b/.test(s)) {
     return 'setup';
   }
 
+  // ===== ELIGIBILITY =====
   if (/\b(at least|minimum|min\.?|years?|months?|experience|required|license|licensed|certified|certification|registered)\b/.test(s)) {
     return 'eligibility';
   }
 
+  // ===== RISK =====
   if (/\b(red flag|deal breaker|avoid|must not|cannot|poor attendance|job hopping|unstable)\b/.test(s)) {
     return 'risk';
   }
 
-  if (/\b(csat|aht|sla|accuracy|quality|productivity|turnaround|tat|fcr)\b/.test(s)) {
+  // ===== PERFORMANCE =====
+  if (/\b(csat|aht|sla|accuracy|productivity|turnaround|tat|fcr|nps|kpi)\b/.test(s)) {
     return 'performance';
   }
 
+  // ===== BEHAVIORAL =====
   if (/\b(communication|english|verbal|spoken|stakeholder|client facing|presentation|ownership|leadership|autonomy|decision)\b/.test(s)) {
     return 'behavioral';
   }
@@ -385,28 +414,33 @@ function inferSignalIntent(meta){
   if (meta.type === 'setup') return 'setup';
   if (meta.type === 'eligibility') return 'eligibility';
 
-   if (/\b(calibration|calibration session|alignment)\b/.test(s)) return 'bpo_qa_calibration';
+  // ===== BPO QA / QUALITY OPS =====
+  if (/\b(calibration|calibration session|alignment)\b/.test(s)) return 'bpo_qa_calibration';
   if (/\b(scorecard|evaluation form|qa form|monitoring form)\b/.test(s)) return 'bpo_qa_scorecard';
-  if (/\b(audit|audit findings|audit quality|transaction audit|call audit)\b/.test(s)) return 'bpo_qa_audit';
+  if (/\b(audit|audit findings|audit quality|transaction audit|call audit|qa audit)\b/.test(s)) return 'bpo_qa_audit';
   if (/\b(csat|aht|fcr|nps|quality score|kpi)\b/.test(s)) return 'bpo_qa_metrics';
   if (/\b(coaching|feedback|dispute|operations dispute|stakeholder alignment)\b/.test(s)) return 'bpo_qa_coaching';
   if (/\b(team lead|manager|leadership|people management|qa team)\b/.test(s)) return 'bpo_qa_leadership';
-  
+
+  // ===== SOFTWARE QA / TESTING =====
   if (/\b(framework|test automation|selenium|playwright|cypress)\b/.test(s)) return 'qa_framework';
   if (/\b(ci\/cd|pipeline|azure devops|github actions)\b/.test(s)) return 'qa_ci_cd';
   if (/\b(regression|smoke|test cases?|test scripts?)\b/.test(s)) return 'qa_regression';
   if (/\b(deployment|release|uat|system upgrade)\b/.test(s)) return 'qa_release';
   if (/\b(defect|bug|triage|issue tracking)\b/.test(s)) return 'qa_defect';
 
+  // ===== TRAVEL =====
   if (/\b(gds|amadeus|sabre)\b/.test(s)) return 'travel_gds';
   if (/\bpnr\b/.test(s)) return 'travel_pnr';
   if (/\bfare\b/.test(s)) return 'travel_fare';
   if (/\b(travel|airline|ota)\b/.test(s)) return 'travel_account';
 
+  // ===== CX =====
   if (/\b(communication|english|verbal|spoken)\b/.test(s)) return 'cx_communication';
   if (/\b(voice|call handling|calls?)\b/.test(s)) return 'cx_voice';
   if (/\b(csat|aht|kpi)\b/.test(s)) return 'cx_metrics';
 
+  // ===== TECH =====
   if (/\b(api|integration)\b/.test(s)) return 'tech_integration';
   if (/\b(automation|python)\b/.test(s)) return 'tech_automation';
   if (/\b(sql|data|etl|pipeline)\b/.test(s)) return 'tech_data';
@@ -418,99 +452,127 @@ function getSignalEvidencePrompt(meta){
   const s = tbLower(meta.cleaned);
   const domain = meta.domain;
 
+  // ===== SETUP / ELIGIBILITY =====
   if (meta.type === 'setup') {
     return `This role requires ${meta.cleaned}. Can you meet that consistently, and what in your current situation makes that realistic?`;
   }
-    if (domain === 'bpo_qa') {
+
+  // ===== BPO QA / QUALITY OPERATIONS =====
+  if (domain === 'bpo_qa') {
+
     if (/\bcalibration|alignment\b/.test(s)) {
-      return `Describe one real calibration situation where QA and operations were not aligned. What exactly was the disagreement, what did you review first, and how did you get the group to a defensible standard?`;
+      return `Describe one real calibration situation where QA and operations were not aligned. What exactly was the disagreement, what evidence did you review first, and what decision or adjustment did you make to resolve it?`;
     }
+
     if (/\bscorecard|evaluation form|monitoring form\b/.test(s)) {
-      return `Describe one real case where a scorecard, QA form, or evaluation standard was not working as intended. What problem showed up first, what did you examine, and what did you change?`;
+      return `Describe one real case where a QA scorecard or evaluation standard was not working as intended. What problem surfaced first, what did you analyze, and what change did you implement?`;
     }
+
     if (/\baudit|audit findings|call audit|transaction audit\b/.test(s)) {
-      return `Describe one real audit or QA review issue you handled. What triggered the review, what did you validate first, and what did you conclude or correct?`;
+      return `Describe one real QA audit or review issue you handled. What triggered the audit, what did you validate first, and what conclusion or corrective action did you make?`;
     }
+
     if (/\bcsat|aht|fcr|nps|quality score|kpi\b/.test(s)) {
-      return `Describe one period when quality metrics and operational metrics were in tension. What signal told you there was a problem, what did you review first, and what action did you take?`;
+      return `Describe one situation where QA metrics and operational performance were in conflict. What signal showed the issue, what did you investigate first, and what action did you take?`;
     }
+
     if (/\bcoaching|feedback|dispute|stakeholder\b/.test(s)) {
-      return `Describe one real case where an agent, team leader, or operations stakeholder challenged QA feedback or scoring. What was the issue, what evidence did you review first, and how did you resolve it?`;
+      return `Describe one real case where QA feedback or scoring was challenged by an agent, team leader, or operations stakeholder. What was the issue, what evidence did you review first, and how did you resolve the disagreement?`;
     }
+
     if (/\bleadership|manager|people management|team lead|qa team\b/.test(s)) {
-      return `Describe one real leadership situation where you had to improve QA team consistency, quality judgment, or audit discipline. What problem surfaced first, what did you address, and what changed afterward?`;
+      return `Describe one real leadership situation where QA consistency or audit quality broke down within your team. What problem surfaced first, what did you address directly, and what changed afterward?`;
     }
+
     return `Describe one real BPO QA situation where ${meta.cleaned} directly affected quality operations. What issue appeared first, what did you review, and what decision or change did you make?`;
   }
 
+  // ===== CUSTOMER / CX =====
   if (domain === 'customer') {
+
     if (/\bgds\b|\bamadeus\b|\bsabre\b/.test(s)) {
       return `Describe one real booking or rebooking case where you used Amadeus or Sabre and something did not go smoothly. What exactly was the issue, what did you check first, and what action did you personally take?`;
     }
+
     if (/\bpnr\b/.test(s)) {
-      return `Describe one real case where there was a PNR issue, such as missing segments, incorrect details, or mismatch. What did you verify first, and how did you resolve it?`;
+      return `Describe one real case where there was a PNR issue. What did you verify first, and how did you resolve it?`;
     }
+
     if (/\bfare\b|\bfare rules?\b/.test(s)) {
-      return `Describe one case where fare rules limited the options you could offer. What options did you evaluate, which one did you reject, and how did you explain the final decision to the customer?`;
+      return `Describe one case where fare rules limited your options. What did you evaluate, what did you reject, and how did you explain the final decision?`;
     }
+
     if (/\bcommunication\b|\benglish\b|\bspoken\b/.test(s)) {
-      return `Describe one difficult customer conversation where communication broke down. What exactly caused the breakdown, how did you recover the call, and what was the final outcome?`;
+      return `Describe one difficult customer interaction where communication broke down. What caused it, what did you do first, and how did it end?`;
     }
-    if (/\bkpi\b|\bcsat\b|\baht\b|\bqa\b|\bsla\b/.test(s)) {
-      return `Describe one period when your performance metrics were at risk. What was driving the issue, what did you change in your handling, and what result followed?`;
+
+    if (/\bkpi\b|\bcsat\b|\baht\b|\bsla\b/.test(s)) {
+      return `Describe one period when your performance metrics were at risk. What caused the issue, what did you adjust, and what result followed?`;
     }
-    if (/\btravel\b|\bairline\b|\bota\b|\bbooking\b|\brebooking\b/.test(s)) {
-      return `In your most recent relevant role, describe one booking or rebooking case that became complicated. What triggered the issue, what did you check first, and how did it end?`;
-    }
-    return `Describe one real customer-facing situation where ${meta.cleaned} directly affected your work. What happened first, what did you personally do, and what was the final outcome?`;
+
+    return `Describe one real customer-facing situation where ${meta.cleaned} directly affected your work. What happened first, what did you personally do, and what was the outcome?`;
   }
 
+  // ===== TECHNICAL =====
   if (domain === 'technical') {
-    if (/\bapi\b|\bintegration\b|\bwebhook\b|\brest\b/.test(s)) {
-      return `Describe one real integration problem you handled involving an API, webhook, or external system. What failed first, what did you inspect, and what was the fix you implemented?`;
+
+    if (/\bapi|integration|webhook|rest\b/.test(s)) {
+      return `Describe one real integration issue you handled. What failed first, what did you inspect, and what was the fix you implemented?`;
     }
-    if (/\bpython\b|\bautomation\b|\bworkflow\b/.test(s)) {
-      return `Describe one workflow you automated in a real environment. What was the manual problem, what logic did you build, and what changed after deployment?`;
+
+    if (/\bpython|automation|workflow\b/.test(s)) {
+      return `Describe one workflow you automated. What was the manual problem, what logic did you build, and what changed after deployment?`;
     }
-    if (/\bsql\b|\bdata\b|\bpipeline\b|\betl\b/.test(s)) {
-      return `Describe one real data or pipeline issue you handled. What symptom showed up first, what did you check, and how did you confirm the root cause?`;
+
+    if (/\bsql|data|pipeline|etl\b/.test(s)) {
+      return `Describe one real data issue you handled. What symptom appeared first, what did you check, and how did you confirm the root cause?`;
     }
-    if (/\btesting\b|\brelease\b|\bproduction\b|\breliability\b|\bincident\b/.test(s)) {
-      return `Describe one real production or release risk you handled. What signal told you something was wrong, what did you investigate first, and how did you decide your next move?`;
+
+    if (/\btesting|release|production|incident\b/.test(s)) {
+      return `Describe one real production or release issue you handled. What signal showed something was wrong, what did you investigate first, and what did you decide?`;
     }
-    return `Describe one real situation where ${meta.cleaned} directly affected delivery or system performance. What broke or stalled first, what did you inspect, and what did you change?`;
+
+    return `Describe one real situation where ${meta.cleaned} directly affected system performance or delivery. What broke first, what did you inspect, and what did you change?`;
   }
 
+  // ===== HEALTHCARE =====
   if (domain === 'healthcare') {
-    if (/\bappeal\b|\bappeals\b|\bappeal writing\b/.test(s)) {
-      return `Describe one real appeal case you personally worked on. What was denied, what evidence did you use, and what argument or documentation mattered most?`;
+
+    if (/\bappeal\b/.test(s)) {
+      return `Describe one real appeal case you worked on. What was denied, what evidence did you use, and what mattered most?`;
     }
-    if (/\bdenial\b|\bdenials\b|\broot cause\b/.test(s)) {
-      return `Describe one real denial case you investigated. What was the denial reason, what did you review first, and how did you determine the next step?`;
+
+    if (/\bdenial\b/.test(s)) {
+      return `Describe one denial case you investigated. What was the reason, what did you review first, and what did you decide?`;
     }
-    if (/\bdrg\b|\bcoding\b|\bicd\b|\bcpt\b/.test(s)) {
-      return `Describe one coding case that required careful judgment. What documentation did you review first, what made the case challenging, and how did you arrive at your final coding decision?`;
+
+    if (/\bcoding|icd|cpt|drg\b/.test(s)) {
+      return `Describe one coding case that required judgment. What did you review, and how did you decide?`;
     }
-    if (/\bacute care\b|\bhospital\b|\bnursing\b/.test(s)) {
-      return `Describe one case from your acute care or hospital experience that is most relevant here. What was happening, what did you assess first, and what action did you personally take?`;
-    }
-    return `Describe one real case where ${meta.cleaned} directly affected your work. What did you review first, what decision did you make, and what was the outcome?`;
+
+    return `Describe one real healthcare case where ${meta.cleaned} directly affected your work. What did you review, and what was the outcome?`;
   }
 
+  // ===== FINANCE =====
   if (domain === 'finance') {
-    if (/\breconciliation\b|\brecon\b/.test(s)) {
-      return `Describe one reconciliation issue you handled. What mismatch appeared first, what records did you check, and how did you resolve it?`;
+
+    if (/\breconciliation\b/.test(s)) {
+      return `Describe one reconciliation issue you handled. What mismatch appeared, what did you check, and how did you resolve it?`;
     }
-    if (/\breporting\b|\baccuracy\b|\bvariance\b/.test(s)) {
-      return `Describe one reporting issue where accuracy was at risk. What signaled the problem, what did you verify first, and what did you correct?`;
+
+    if (/\breporting|accuracy|variance\b/.test(s)) {
+      return `Describe one reporting issue where accuracy was at risk. What signaled the problem, what did you verify, and what did you correct?`;
     }
-    if (/\baudit\b|\bcontrols?\b/.test(s)) {
-      return `Describe one situation where a control gap or audit concern surfaced. What evidence did you review first, and what action did you take?`;
+
+    if (/\baudit|controls?\b/.test(s)) {
+      return `Describe one control or audit issue. What did you review first, and what action did you take?`;
     }
-    return `Describe one real finance-related situation where ${meta.cleaned} directly affected your work. What was the issue, what did you validate first, and what result followed?`;
+
+    return `Describe one real finance-related situation where ${meta.cleaned} directly affected your work. What was the issue, what did you validate, and what result followed?`;
   }
 
-  return `Describe one real situation where ${meta.cleaned} directly affected your work. What happened first, what did you personally do, and what was the final outcome?`;
+  // ===== DEFAULT =====
+  return `Describe one real situation where ${meta.cleaned} directly affected your work. What happened first, what did you personally do, and what was the outcome?`;
 }
 
 function getSignalVerificationTail(meta){
