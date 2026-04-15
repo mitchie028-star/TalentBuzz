@@ -2424,18 +2424,127 @@ function clearRoleForm(){
 function openNewRole(){
   try {
     clearRoleForm();
-    setModalOpen(true);
-
     if (els.roleModalTitle) {
-      els.roleModalTitle.textContent = 'New Role';
+      els.roleModalTitle.textContent = 'Role Workspace';
     }
-
-    // default to first tab
+    setModalOpen(true);
     switchTab('basics');
-
   } catch (error) {
     console.error('openNewRole failed:', error);
     showNotice(`Failed to open role modal: ${error.message || error}`, 'error');
+  }
+}
+
+function hydrateQuestionItems(list = []){
+  const roleModel = deriveRoleModel();
+
+  questionItems = (Array.isArray(list) ? list : [])
+    .map((item, index) => {
+      const q = createEmptyQuestion(item);
+      const question = safeText(q.question);
+
+      return {
+        ...q,
+        sort_order: index + 1,
+        question,
+        ai_original_question: safeText(q.ai_original_question) || question,
+        quality_evaluation: evaluateQuestionQualityV11(
+          question,
+          q.focus_area || '',
+          roleModel
+        )
+      };
+    })
+    .filter(q => safeText(q.question));
+
+  renderQuestions();
+  refreshPreview();
+  updateQuestionQualitySummary();
+  generateScreeningSummary();
+  updateLearningSnapshot();
+}
+
+async function saveRole(){
+  try {
+    if (!validateClientSelection(true)) return;
+
+    const roleModel = deriveRoleModel();
+
+    const aiScreeningConfig = {
+      version: 'v12-proof-first',
+      generated_at: new Date().toISOString(),
+      role_model: roleModel,
+      questions: questionItems.map((q, index) => ({
+        ...q,
+        sort_order: index + 1
+      }))
+    };
+
+    const basePayload = {
+      client_id: safeText(els.clientId?.value) || null,
+      client_name: safeText(els.clientName?.value) || null,
+      title: safeText(els.jobTitle?.value) || null,
+      role_family: safeText(els.roleFamily?.value) || null,
+      location: safeText(els.location?.value) || null,
+      work_setup: safeText(els.workSetup?.value) || null,
+      employment_type: safeText(els.employmentType?.value) || null,
+      seniority_level: safeText(els.seniority?.value) || null,
+      status: safeText(els.roleStatus?.value) || 'Open',
+      salary_currency: safeText(els.salaryCurrency?.value) || 'PHP',
+      salary_min: parseBudgetNumber(els.salaryMin?.value),
+      salary_max: parseBudgetNumber(els.salaryMax?.value),
+      job_description: safeText(els.jobDescription?.value) || null,
+      required_skills: uniqueLines(normalizeLines(els.prioritySkills?.value)),
+      nice_to_have_skills: uniqueLines(normalizeLines(els.niceToHaveSkills?.value)),
+      screening_config: questionItems,
+      screening_summary: safeText(els.screeningSummaryOutput?.textContent) || null,
+      ai_screening_config: aiScreeningConfig,
+      slug: slugify(`${safeText(els.clientName?.value)} ${safeText(els.jobTitle?.value)}`),
+      updated_at: new Date().toISOString()
+    };
+
+    const optionalColumns = {
+      salary_period: safeText(els.salaryPeriod?.value) || 'Monthly',
+      jd_raw_text: safeText(els.jdRawText?.value) || null,
+      language_requirement: safeText(els.languageRequirement?.value) || 'None',
+      voice_screening_mode: safeText(els.voiceScreeningMode?.value) || 'auto'
+    };
+
+    let payload = { ...basePayload, ...optionalColumns };
+
+    const trySave = async currentPayload => {
+      return safeText(els.roleId?.value)
+        ? await supabaseClient.from('jobs').update(currentPayload).eq('id', els.roleId.value)
+        : await supabaseClient.from('jobs').insert({
+            ...currentPayload,
+            created_at: new Date().toISOString()
+          });
+    };
+
+    let result = await trySave(payload);
+
+    if (result.error) {
+      const missingMatch =
+        result.error.message &&
+        result.error.message.match(/Could not find the '([^']+)' column/);
+
+      if (missingMatch) {
+        delete payload[missingMatch[1]];
+        result = await trySave(payload);
+      }
+    }
+
+    if (result.error) {
+      showNotice(`Failed to save role: ${result.error.message}`, 'error');
+      return;
+    }
+
+    showNotice('Role saved successfully.');
+    setModalOpen(false);
+    await loadRoles();
+  } catch (error) {
+    console.error('saveRole failed:', error);
+    showNotice(`Failed to save role: ${error.message || error}`, 'error');
   }
 }
 
@@ -2452,6 +2561,7 @@ function attachEvents(){
       try {
         const roleModel = deriveRoleModel();
         const generated = generateQuestionsV11(roleModel);
+
         hydrateQuestionItems(Array.isArray(generated) ? generated : []);
 
         showNotice(
