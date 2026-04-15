@@ -1018,14 +1018,53 @@ const formatSalaryBudgetLine = obj => {
   return "";
 };
 
-function setModalOpen(open){
+ffunction setModalOpen(open){
   els.roleModal?.classList.toggle("show", open);
   els.roleModal?.setAttribute("aria-hidden", open ? "false" : "true");
 }
 
 function switchTab(name){
-  els.tabButtons.forEach(b => b.classList.toggle("active", b.dataset.tab === name));
-  els.tabPanels.forEach(p => p.classList.toggle("active", p.dataset.panel === name));
+  els.tabButtons.forEach(btn => {
+    btn.classList.toggle("active", btn.dataset.tab === name);
+  });
+  els.tabPanels.forEach(panel => {
+    panel.classList.toggle("active", panel.dataset.panel === name);
+  });
+}
+
+function hydrateQuestionItems(list = []){
+  const roleModel = deriveRoleModel();
+
+  questionItems = (Array.isArray(list) ? list : [])
+    .map((item, index) => {
+      const q = createEmptyQuestion(item);
+
+      const cleanedQuestion =
+        typeof cleanGeneratedQuestionV11 === "function"
+          ? cleanGeneratedQuestionV11(q.question || "", q.focus_area || "", roleModel)
+          : safeText(q.question);
+
+      const finalQuestion = safeText(cleanedQuestion || q.question);
+
+      return {
+        ...q,
+        sort_order: index + 1,
+        question: finalQuestion,
+        ai_original_question: safeText(q.ai_original_question) || finalQuestion,
+        quality_evaluation: evaluateQuestionQualityV11(
+          finalQuestion,
+          q.focus_area || "",
+          roleModel
+        )
+      };
+    })
+    .filter(q => safeText(q.question));
+
+  renderQuestions();
+  refreshPreview();
+  updateQuestionQualitySummary();
+  generateScreeningSummary();
+  updateLearningSnapshot();
 }
 
 async function loadClients(){
@@ -1046,17 +1085,17 @@ async function loadClients(){
       els.clientSuggestions.innerHTML = "";
     }
 
-    clientsCache.forEach(c => {
+    clientsCache.forEach(client => {
       if (els.existingClientSelect) {
         const option = document.createElement("option");
-        option.value = c.id;
-        option.textContent = c.client_name || "";
+        option.value = client.id;
+        option.textContent = client.client_name || "";
         els.existingClientSelect.appendChild(option);
       }
 
       if (els.clientSuggestions) {
         const item = document.createElement("option");
-        item.value = c.client_name || "";
+        item.value = client.client_name || "";
         els.clientSuggestions.appendChild(item);
       }
     });
@@ -1079,7 +1118,10 @@ function validateClientSelection(showToast = false){
   const typed = safeText(els.clientName?.value);
   if (!typed) return false;
 
-  const match = clientsCache.find(c => safeText(c.client_name).toLowerCase() === typed.toLowerCase());
+  const match = clientsCache.find(c =>
+    safeText(c.client_name).toLowerCase() === typed.toLowerCase()
+  );
+
   if (match) {
     setClientSelectionById(match.id);
     return true;
@@ -1144,7 +1186,6 @@ function getFilteredRoles(){
 
 function renderRolesTable(){
   const rows = getFilteredRoles();
-
   if (!els.rolesTableBody) return;
 
   if (!rows.length) {
@@ -1213,20 +1254,14 @@ async function loadRoles(){
       let aiConfig = r.ai_screening_config;
 
       if (typeof screeningConfig === "string") {
-        try {
-          screeningConfig = JSON.parse(screeningConfig);
-        } catch {
-          screeningConfig = [];
-        }
+        try { screeningConfig = JSON.parse(screeningConfig); }
+        catch { screeningConfig = []; }
       }
       if (!Array.isArray(screeningConfig)) screeningConfig = [];
 
       if (typeof aiConfig === "string") {
-        try {
-          aiConfig = JSON.parse(aiConfig);
-        } catch {
-          aiConfig = {};
-        }
+        try { aiConfig = JSON.parse(aiConfig); }
+        catch { aiConfig = {}; }
       }
       if (!aiConfig || typeof aiConfig !== "object" || Array.isArray(aiConfig)) {
         aiConfig = {};
