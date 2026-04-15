@@ -2081,7 +2081,8 @@
       if (!state.selectedScreeningReview) return;
       const current = safeText(els.editNotes.value);
       const block = state.selectedScreeningReview.noteBlock;
-      els.editNotes.value = current ? `${current}\n\n${block}` : block;
+      const cleaned = stripGeneratedNoteBlocks(current);
+      els.editNotes.value = cleaned ? `${cleaned}\n\n${block}` : block;
       showNotice('Screening review inserted into recruiter notes.', 'success');
     }
 
@@ -2342,12 +2343,26 @@
     }
 
     function cleanResumePath(path) {
-      return safeText(path)
-        .replace(/^\/+/, '')
+      let value = safeText(path);
+      if (!value) return '';
+      try { value = decodeURIComponent(value); } catch (_) {}
+      value = value.split('?')[0].split('#')[0];
+      value = value
+        .replace(/^https?:\/\/[^/]+\//i, '')
         .replace(/^storage\/v1\/object\/(public|sign)\/resumes\//i, '')
         .replace(/^storage\/v1\/object\/(public|sign)\/[^/]+\//i, '')
+        .replace(/^object\/(public|sign)\/resumes\//i, '')
+        .replace(/^object\/(public|sign)\/[^/]+\//i, '')
         .replace(/^resumes\//i, '')
         .replace(/^\/+/, '');
+      return value;
+    }
+
+    function getFileNameFromValue(value) {
+      const clean = cleanResumePath(value);
+      if (!clean) return '';
+      const parts = clean.split('/').filter(Boolean);
+      return parts.length ? parts[parts.length - 1] : '';
     }
 
     function isDirectResumeUrl(url) {
@@ -2374,6 +2389,10 @@
       const fileNameCandidates = uniq([
         profile?.resume_file_name,
         app?.resume_file_name,
+        getFileNameFromValue(profile?.resume_path),
+        getFileNameFromValue(app?.resume_path),
+        getFileNameFromValue(profile?.resume_url),
+        getFileNameFromValue(app?.resume_url),
       ].map(safeText));
 
       const candidates = [];
@@ -2532,6 +2551,25 @@
       const cleaned = current.replace(/\n*Structured Recruiter Feedback[\s\S]*$/m, '').trim();
       els.editNotes.value = cleaned ? `${cleaned}\n\n${block}` : block;
     }
+
+    function stripGeneratedNoteBlocks(text) {
+      return safeText(text)
+        .replace(/\n*AI Screening Review[\s\S]*?(?=\n\n[A-Z][^\n]{0,80}:|$)/g, '')
+        .replace(/\n*Structured Recruiter Feedback[\s\S]*?(?=\n\n[A-Z][^\n]{0,80}:|$)/g, '')
+        .trim();
+    }
+
+    function composeRecruiterNotesDocument(baseText = '') {
+      const freeform = stripGeneratedNoteBlocks(baseText);
+      const reviewBlock = safeText(state.selectedScreeningReview?.noteBlock);
+      const feedbackBlock = buildStructuredFeedbackBlock();
+      const sections = [];
+      if (freeform) sections.push(`Recruiter Notes\n${freeform}`);
+      if (reviewBlock) sections.push(reviewBlock);
+      if (feedbackBlock) sections.push(feedbackBlock);
+      return sections.filter(Boolean).join('\n\n').trim();
+    }
+
 
     function clearFeedbackInputs() {
       if (els.feedbackDisposition) els.feedbackDisposition.value = '';
@@ -3409,8 +3447,8 @@ function renderLearningInsights(row) {
       if (!row) return;
       const profileId = row.profile?.id || row.app?.applicant_profile_id;
       const selectedStatus = safeText(els.editStatus.value) || 'submitted';
-      insertStructuredFeedbackIntoNotes();
-      const recruiterNotes = safeText(els.editNotes.value);
+      const recruiterNotes = composeRecruiterNotesDocument(els.editNotes.value);
+      els.editNotes.value = recruiterNotes;
       const resumeFile = els.editResumeFile.files?.[0] || null;
 
       try {
