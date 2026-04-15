@@ -1,217 +1,953 @@
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
-<title>Client Dashboard Preview (ATS) | TalentBuzz</title>
+<title>client-dashboard-preview-adaptive.html | TalentBuzz</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
 <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-
 <style>
-body{font-family:Manrope,sans-serif;margin:0;background:#f6f9ff}
-.container{max-width:1500px;margin:auto;padding:20px}
-.topbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:20px}
-h1{color:#1e3a8a}
-.controls{display:flex;gap:10px}
-select,input{padding:10px;border-radius:10px;border:1px solid #e2e8f0}
-
-.stats{display:grid;grid-template-columns:repeat(6,1fr);gap:12px;margin-bottom:20px}
-.stat{background:#fff;padding:14px;border-radius:14px;border:1px solid #e2e8f0}
-.stat-label{font-size:.7rem;color:#64748b;text-transform:uppercase}
-.stat-value{font-size:1.4rem;font-weight:800;color:#1e3a8a}
-
-.table-wrap{background:#fff;border:1px solid #e2e8f0;border-radius:16px;overflow:auto}
-table{width:100%;border-collapse:collapse}
-th,td{padding:12px;border-bottom:1px solid #e2e8f0}
-th{background:#f8fafc;font-size:.75rem;text-transform:uppercase}
-tr:hover{background:#f1f5ff}
-
-.btn{padding:8px 12px;border:none;border-radius:10px;cursor:pointer;font-weight:700}
-.btn-primary{background:#2563eb;color:#fff}
-
-.drawer{position:fixed;right:0;top:0;height:100%;width:420px;background:#fff;border-left:1px solid #e2e8f0;display:none;flex-direction:column;z-index:1000}
-.drawer.show{display:flex}
-.drawer-header{padding:16px;border-bottom:1px solid #e2e8f0;font-weight:800}
-.drawer-body{padding:16px;overflow:auto}
-
-.chat-btn{position:fixed;bottom:20px;right:20px;width:64px;height:64px;border-radius:50%;background:#2563eb;color:#fff;font-size:22px;display:flex;align-items:center;justify-content:center;box-shadow:0 10px 30px rgba(0,0,0,.2);cursor:pointer}
-.badge{position:absolute;top:-4px;right:-4px;background:red;color:#fff;border-radius:50%;font-size:12px;padding:4px 6px;display:none}
-
-/* Intelligence Layer */
-.intel-box{border:1px solid #e2e8f0;border-radius:12px;padding:10px;margin-top:10px;background:#f8fbff}
-.intel-title{font-size:.75rem;font-weight:800;color:#64748b;margin-bottom:6px;text-transform:uppercase}
-.intel-strong{color:#166534;font-weight:700}
-.intel-risk{color:#b91c1c;font-weight:700}
-.intel-score{font-size:1.2rem;font-weight:800;color:#1e3a8a}
+:root{
+  --bg:#f6f9ff; --panel:#fff; --text:#0f172a; --muted:#64748b; --border:#dbe5f1;
+  --primary:#1e3a8a; --primary2:#2563eb; --good:#166534; --goodBg:#dcfce7;
+  --warn:#b45309; --warnBg:#fef3c7; --bad:#b91c1c; --badBg:#fee2e2; --info:#4338ca; --infoBg:#e0e7ff;
+  --shadow:0 12px 30px rgba(15,23,42,.06),0 4px 10px rgba(15,23,42,.04);
+  --radius:18px;
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;background:linear-gradient(180deg,#f8fbff 0%,#f2f7ff 100%);color:var(--text);font-family:Manrope,sans-serif}
+.page{max-width:1620px;margin:0 auto;padding:20px}
+.panel{background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow)}
+.topbar{display:flex;justify-content:space-between;gap:16px;align-items:flex-start;flex-wrap:wrap;margin-bottom:14px}
+.brand{display:flex;gap:14px;align-items:center}
+.brand-badge{width:54px;height:54px;border-radius:16px;display:grid;place-items:center;color:#fff;font-weight:800;background:linear-gradient(135deg,var(--primary),var(--primary2));box-shadow:var(--shadow)}
+.brand h1{margin:0;color:var(--primary);font-size:1.85rem;line-height:1.1;letter-spacing:-.03em}
+.sub{margin:6px 0 0;color:var(--muted);font-size:.94rem}
+.controls{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.btn,.field input,.field select,.field textarea{font:inherit}
+.btn{appearance:none;border:1px solid var(--border);background:#fff;color:var(--primary);min-height:44px;border-radius:14px;padding:0 14px;font-weight:800;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:8px;text-decoration:none;transition:.18s ease}
+.btn:hover{transform:translateY(-1px)}
+.btn-primary{background:linear-gradient(135deg,var(--primary),var(--primary2));border-color:transparent;color:#fff}
+.btn-soft{background:#eff6ff;border-color:#bfdbfe}
+.btn-xs{min-height:34px;border-radius:11px;padding:0 11px;font-size:.82rem}
+.notice{display:none;margin-bottom:14px;padding:12px 14px;border-radius:14px;font-size:.93rem;font-weight:700}
+.notice.show{display:block}
+.notice.info{background:#eff6ff;color:var(--primary);border:1px solid #bfdbfe}
+.notice.success{background:#ecfdf5;color:var(--good);border:1px solid #bbf7d0}
+.notice.error{background:#fef2f2;color:var(--bad);border:1px solid #fecaca}
+.kpis{display:grid;grid-template-columns:repeat(8,minmax(0,1fr));gap:10px;margin-bottom:14px}
+.kpi{padding:14px;border-radius:16px;border:1px solid var(--border);background:#fff}
+.kpi-label{color:var(--muted);font-size:.73rem;text-transform:uppercase;letter-spacing:.06em;font-weight:800;margin-bottom:8px}
+.kpi-value{color:var(--primary);font-size:1.5rem;font-weight:800;line-height:1}
+.filters{padding:18px;margin-bottom:14px}
+.filters-head{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:14px}
+.filters-head h2,.table-card h2{margin:0;color:var(--primary);font-size:1.1rem}
+.filters-grid{display:grid;grid-template-columns:1.5fr repeat(4,1fr) 1fr 1fr;gap:12px;align-items:end}
+.field label{display:block;margin-bottom:6px;font-size:.84rem;font-weight:800;color:var(--muted)}
+.field input,.field select,.field textarea{width:100%;border:1px solid var(--border);background:#fff;color:var(--text);border-radius:14px;padding:12px 13px;outline:none}
+.field textarea{min-height:110px;resize:vertical}
+.field input:focus,.field select:focus,.field textarea:focus{border-color:#93c5fd;box-shadow:0 0 0 3px rgba(147,197,253,.22)}
+.table-card{padding:18px}
+.table-head{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px}
+.table-sub{color:var(--muted);font-size:.84rem}
+.table-wrap{border:1px solid var(--border);border-radius:18px;overflow:auto;background:#fff;max-height:calc(100vh - 255px)}
+table{width:100%;min-width:1180px;border-collapse:separate;border-spacing:0}
+th,td{padding:12px 10px;border-bottom:1px solid var(--border);text-align:left;vertical-align:top;background:#fff;font-size:.92rem}
+th{position:sticky;top:0;z-index:4;background:#f8fbff;color:var(--muted);font-size:.75rem;text-transform:uppercase;letter-spacing:.06em;font-weight:800}
+tr:hover td{background:#f8fbff}
+tr.active td{background:#eef4ff}
+.name{color:var(--primary);font-weight:800;margin-bottom:4px;line-height:1.35}
+.small{color:var(--muted);font-size:.81rem;line-height:1.45}
+.pill{display:inline-flex;align-items:center;justify-content:center;min-height:28px;padding:6px 10px;border-radius:999px;font-size:.75rem;font-weight:800;white-space:nowrap}
+.pill.good{background:var(--goodBg);color:var(--good)}
+.pill.warn{background:var(--warnBg);color:var(--warn)}
+.pill.bad{background:var(--badBg);color:var(--bad)}
+.pill.info{background:var(--infoBg);color:var(--info)}
+.actions{display:flex;gap:8px;flex-wrap:wrap}
+.workspace{display:grid;grid-template-columns:minmax(0,1fr) 0;gap:16px;transition:grid-template-columns .22s ease}
+.workspace.drawer-open{grid-template-columns:minmax(0,1fr) 500px}
+.drawer-shell{display:none;min-width:0}
+.workspace.drawer-open .drawer-shell{display:block}
+.drawer{position:sticky;top:20px;height:calc(100vh - 40px);display:flex;flex-direction:column;overflow:hidden}
+.drawer-head{padding:18px;border-bottom:1px solid var(--border);background:linear-gradient(180deg,#f8fbff 0%,#fff 100%)}
+.drawer-head-row{display:flex;justify-content:space-between;gap:10px;align-items:flex-start;margin-bottom:12px}
+.drawer-title{margin:0;color:var(--primary);font-size:1.2rem;line-height:1.15}
+.drawer-subtitle{margin:6px 0 0;color:var(--muted);font-size:.89rem}
+.drawer-body{padding:18px;overflow:auto}
+.drawer-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-bottom:12px}
+.score-card,.section{border:1px solid var(--border);border-radius:16px;background:#fff;padding:14px}
+.score-label,.section h3{margin:0 0 10px;color:var(--primary);font-size:.95rem}
+.score-big{color:var(--primary);font-size:1.55rem;font-weight:800;line-height:1;margin-bottom:8px}
+.muted{color:var(--muted);font-size:.83rem;line-height:1.45}
+.kv{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.kv-item{border:1px solid var(--border);border-radius:14px;padding:12px;background:#f8fbff}
+.kv-item.full{grid-column:1/-1}
+.kv-label{color:var(--muted);font-size:.73rem;font-weight:800;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px}
+.kv-value{color:var(--text);font-size:.91rem;line-height:1.5;white-space:pre-wrap;word-break:break-word}
+.section+.section{margin-top:12px}
+.tag-list{display:flex;flex-wrap:wrap;gap:8px}
+.tag{display:inline-flex;align-items:center;gap:6px;padding:7px 10px;border-radius:999px;font-size:.77rem;font-weight:800}
+.tag.good{background:var(--goodBg);color:var(--good)}
+.tag.warn{background:var(--warnBg);color:var(--warn)}
+.tag.bad{background:var(--badBg);color:var(--bad)}
+.tag.info{background:var(--infoBg);color:var(--info)}
+.view-toggle{display:flex;gap:8px;flex-wrap:wrap}
+.chat-widget{position:fixed;right:24px;bottom:24px;z-index:1200;display:flex;flex-direction:column;align-items:flex-end;gap:12px}
+.chat-launcher{position:relative;width:64px;height:64px;border:none;border-radius:999px;cursor:pointer;color:#fff;background:linear-gradient(135deg,var(--primary),var(--primary2));box-shadow:0 18px 40px rgba(30,58,138,.28);display:inline-flex;align-items:center;justify-content:center;font-size:1.45rem}
+.chat-launcher-badge{position:absolute;top:-4px;right:-4px;min-width:24px;height:24px;padding:0 7px;border-radius:999px;background:#dc2626;color:#fff;display:none;align-items:center;justify-content:center;font-size:.74rem;font-weight:800;border:2px solid #fff;line-height:1}
+.chat-launcher-badge.show{display:inline-flex}
+.chat-panel{width:min(400px,calc(100vw - 28px));max-height:min(72vh,640px);background:rgba(255,255,255,.98);backdrop-filter:blur(12px);border:1px solid rgba(226,232,240,.95);border-radius:22px;box-shadow:0 28px 70px rgba(15,23,42,.22);overflow:hidden;display:none;flex-direction:column}
+.chat-panel.show{display:flex}
+.chat-panel-header{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:16px 16px 12px;border-bottom:1px solid var(--border);background:linear-gradient(180deg,#f8fbff 0%,#ffffff 100%)}
+.chat-panel-title{margin:0;color:var(--primary);font-size:1.02rem;line-height:1.1}
+.chat-panel-subtitle{margin:5px 0 0;color:var(--muted);font-size:.82rem;line-height:1.4}
+.chat-icon-btn{width:36px;height:36px;border:1px solid var(--border);border-radius:12px;background:#fff;color:var(--primary);cursor:pointer;font:inherit;display:inline-flex;align-items:center;justify-content:center}
+.chat-list{min-height:160px;max-height:420px;overflow:auto;display:flex;flex-direction:column;gap:10px;padding:12px 16px 16px}
+.chat-thread{border:1px solid var(--border);border-radius:16px;background:#fff;padding:12px}
+.chat-thread-head{display:flex;align-items:flex-start;justify-content:space-between;gap:8px;margin-bottom:6px}
+.chat-thread-name{font-size:.92rem;font-weight:800;color:var(--primary);line-height:1.3}
+.chat-thread-time{font-size:.74rem;color:var(--muted);white-space:nowrap}
+.chat-thread-preview{color:var(--text);font-size:.84rem;line-height:1.45}
+.chat-empty{border:1px dashed var(--border);border-radius:16px;padding:18px;background:#fff;color:var(--muted);font-size:.88rem;text-align:center}
+@media (max-width:1400px){
+  .filters-grid{grid-template-columns:repeat(4,1fr)}
+  .workspace.drawer-open{grid-template-columns:minmax(0,1fr)}
+  .drawer-shell{position:fixed;top:0;right:0;width:min(100vw,500px);height:100vh;z-index:50;padding:10px;background:rgba(15,23,42,.18)}
+  .drawer{height:100%;top:0}
+}
+@media (max-width:980px){
+  .kpis{grid-template-columns:repeat(4,minmax(0,1fr))}
+  .filters-grid,.drawer-grid,.kv{grid-template-columns:1fr}
+}
+@media (max-width:760px){
+  .page{padding:14px}
+  .kpis{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .brand h1{font-size:1.55rem}
+}
 </style>
 </head>
-
 <body>
-<div class="container">
+<div class="page">
+  <div class="topbar">
+    <div class="brand">
+      <div class="brand-badge">TB</div>
+      <div>
+        <h1>Client Dashboard Preview</h1>
+        <p class="sub">Adaptive learning view for recruiters. Mirrors the client dashboard, then adds TalentBuzz intelligence on top.</p>
+      </div>
+    </div>
+    <div class="controls">
+      <div class="view-toggle">
+        <button class="btn btn-soft" id="clientViewBtn" type="button">👁 Client View</button>
+        <button class="btn btn-primary" id="auditViewBtn" type="button">🧠 Recruiter Audit View</button>
+      </div>
+      <button class="btn" id="refreshBtn" type="button">Refresh</button>
+    </div>
+  </div>
 
-<div class="topbar">
-<h1>Client Dashboard Preview (ATS)</h1>
-<div class="controls">
-<select id="clientSelector"></select>
-<button class="btn btn-primary" onclick="loadData()">Load</button>
-</div>
+  <div class="notice" id="notice"></div>
+
+  <section class="panel filters">
+    <div class="filters-head">
+      <h2>Preview Controls</h2>
+      <div class="small">Client-safe mirror plus adaptive learning by role, outcome, and feedback pattern.</div>
+    </div>
+    <div class="filters-grid">
+      <div class="field">
+        <label for="clientSelector">Client</label>
+        <select id="clientSelector"><option value="">Select client</option></select>
+      </div>
+      <div class="field">
+        <label for="searchInput">Search</label>
+        <input id="searchInput" type="text" placeholder="Candidate, role, email, location" />
+      </div>
+      <div class="field">
+        <label for="statusFilter">Status</label>
+        <select id="statusFilter"><option value="">All statuses</option></select>
+      </div>
+      <div class="field">
+        <label for="ratingFilter">Rating</label>
+        <select id="ratingFilter">
+          <option value="">All ratings</option>
+          <option value="5">5 / 5</option>
+          <option value="4">4 / 5</option>
+          <option value="3">3 / 5</option>
+          <option value="2">2 / 5</option>
+          <option value="1">1 / 5</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="roleFilter">Role</label>
+        <select id="roleFilter"><option value="">All roles</option></select>
+      </div>
+      <div class="field">
+        <label for="scoreFilter">AI Band</label>
+        <select id="scoreFilter">
+          <option value="">All bands</option>
+          <option value="strong">Strong</option>
+          <option value="moderate">Moderate</option>
+          <option value="weak">Weak</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>&nbsp;</label>
+        <button class="btn" id="clearFiltersBtn" type="button">Clear Filters</button>
+      </div>
+    </div>
+  </section>
+
+  <section class="kpis" id="kpis">
+    <div class="kpi panel"><div class="kpi-label">Endorsed</div><div class="kpi-value" id="kpiEndorsed">0</div></div>
+    <div class="kpi panel"><div class="kpi-label">Pending</div><div class="kpi-value" id="kpiPending">0</div></div>
+    <div class="kpi panel"><div class="kpi-label">Shortlisted</div><div class="kpi-value" id="kpiShortlisted">0</div></div>
+    <div class="kpi panel"><div class="kpi-label">Rejected</div><div class="kpi-value" id="kpiRejected">0</div></div>
+    <div class="kpi panel"><div class="kpi-label">Offered JO</div><div class="kpi-value" id="kpiOffered">0</div></div>
+    <div class="kpi panel"><div class="kpi-label">Onboarded</div><div class="kpi-value" id="kpiOnboarded">0</div></div>
+    <div class="kpi panel"><div class="kpi-label">Avg Rating</div><div class="kpi-value" id="kpiAvgRating">-</div></div>
+    <div class="kpi panel"><div class="kpi-label">Avg AI Score</div><div class="kpi-value" id="kpiAvgAi">-</div></div>
+  </section>
+
+  <div class="workspace" id="workspace">
+    <section class="panel table-card">
+      <div class="table-head">
+        <h2>Client Preview Pipeline</h2>
+        <div class="table-sub" id="tableCount">0 candidates</div>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Candidate</th>
+              <th>Role</th>
+              <th>Status</th>
+              <th>Rating</th>
+              <th>AI Score</th>
+              <th>Learning Band</th>
+              <th>Signals</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="tableBody">
+            <tr><td colspan="8" class="small">Select a client to load preview data.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <aside class="drawer-shell" id="drawerShell">
+      <section class="panel drawer">
+        <div class="drawer-head">
+          <div class="drawer-head-row">
+            <div>
+              <h3 class="drawer-title" id="drawerName">Select a candidate</h3>
+              <div class="drawer-subtitle" id="drawerMeta">Adaptive learning is computed from similar role outcomes and current client feedback.</div>
+            </div>
+            <button class="btn btn-xs" id="closeDrawerBtn" type="button">Close</button>
+          </div>
+          <div class="actions">
+            <button class="btn btn-xs" id="prevBtn" type="button">← Previous</button>
+            <button class="btn btn-xs" id="nextBtn" type="button">Next →</button>
+            <span class="small" id="drawerIndexMeta">0 of 0</span>
+          </div>
+        </div>
+        <div class="drawer-body">
+          <div class="drawer-grid">
+            <div class="score-card">
+              <div class="score-label">Adaptive AI Score</div>
+              <div class="score-big" id="drawerAiScore">—</div>
+              <div class="muted" id="drawerAiReason">Base score blended with role learning and outcome pattern signals.</div>
+            </div>
+            <div class="score-card">
+              <div class="score-label">Learning Confidence</div>
+              <div class="score-big" id="drawerLearningConfidence">—</div>
+              <div class="muted" id="drawerLearningMeta">Confidence increases when role history is richer.</div>
+            </div>
+            <div class="score-card">
+              <div class="score-label">Base Score</div>
+              <div class="score-big" id="drawerBaseScore">—</div>
+              <div class="muted" id="drawerBaseReason">Experience, rating, resume, and immediate client outcome.</div>
+            </div>
+            <div class="score-card">
+              <div class="score-label">Learning Lift</div>
+              <div class="score-big" id="drawerLearningLift">—</div>
+              <div class="muted" id="drawerLearningLiftMeta">How much similar-role patterns adjusted the base score.</div>
+            </div>
+          </div>
+
+          <div class="section">
+            <h3>Snapshot</h3>
+            <div class="kv">
+              <div class="kv-item"><div class="kv-label">Email</div><div class="kv-value" id="snapEmail">—</div></div>
+              <div class="kv-item"><div class="kv-label">Phone</div><div class="kv-value" id="snapPhone">—</div></div>
+              <div class="kv-item"><div class="kv-label">Location</div><div class="kv-value" id="snapLocation">—</div></div>
+              <div class="kv-item"><div class="kv-label">Experience</div><div class="kv-value" id="snapExperience">—</div></div>
+              <div class="kv-item"><div class="kv-label">Role</div><div class="kv-value" id="snapRole">—</div></div>
+              <div class="kv-item"><div class="kv-label">Endorsed On</div><div class="kv-value" id="snapSentAt">—</div></div>
+            </div>
+          </div>
+
+          <div class="section">
+            <h3>TalentBuzz Signal</h3>
+            <div class="kv">
+              <div class="kv-item full">
+                <div class="kv-label">Positive Signals</div>
+                <div class="tag-list" id="positiveSignals"></div>
+              </div>
+              <div class="kv-item full">
+                <div class="kv-label">Risk Signals</div>
+                <div class="tag-list" id="riskSignals"></div>
+              </div>
+              <div class="kv-item full">
+                <div class="kv-label">Suggested Recruiter Positioning</div>
+                <div class="kv-value" id="signalNarrative">—</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="section">
+            <h3>Adaptive Learning Engine</h3>
+            <div class="kv">
+              <div class="kv-item">
+                <div class="kv-label">Role Pattern Summary</div>
+                <div class="kv-value" id="learningSummary">—</div>
+              </div>
+              <div class="kv-item">
+                <div class="kv-label">Historical Signal</div>
+                <div class="kv-value" id="learningSignal">—</div>
+              </div>
+              <div class="kv-item full">
+                <div class="kv-label">Common Success Signals</div>
+                <div class="kv-value" id="learningSuccessSignals">—</div>
+              </div>
+              <div class="kv-item full">
+                <div class="kv-label">Common Risk Signals</div>
+                <div class="kv-value" id="learningRiskSignals">—</div>
+              </div>
+              <div class="kv-item full">
+                <div class="kv-label">Recommended Next Step</div>
+                <div class="kv-value" id="learningRecommendation">—</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="section" id="auditOnlySection">
+            <h3>Recruiter Audit Layer</h3>
+            <div class="kv">
+              <div class="kv-item full">
+                <div class="kv-label">Client Notes</div>
+                <div class="kv-value" id="clientNotes">—</div>
+              </div>
+              <div class="kv-item">
+                <div class="kv-label">Resume</div>
+                <div class="kv-value" id="resumeMeta">—</div>
+              </div>
+              <div class="kv-item">
+                <div class="kv-label">Decision Guardrail</div>
+                <div class="kv-value" id="guardrailSummary">—</div>
+              </div>
+              <div class="kv-item full">
+                <div class="kv-label">Recommended Endorsement Framing</div>
+                <div class="kv-value" id="endorsementFraming">—</div>
+              </div>
+              <div class="kv-item full">
+                <div class="kv-label">Resume Link</div>
+                <div class="kv-value" id="resumeLinkBox">—</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </aside>
+  </div>
 </div>
 
-<div class="stats">
-<div class="stat"><div class="stat-label">Endorsed</div><div id="statEndorsed" class="stat-value">0</div></div>
-<div class="stat"><div class="stat-label">Pending</div><div id="statPending" class="stat-value">0</div></div>
-<div class="stat"><div class="stat-label">Shortlisted</div><div id="statShortlisted" class="stat-value">0</div></div>
-<div class="stat"><div class="stat-label">Rejected</div><div id="statRejected" class="stat-value">0</div></div>
-<div class="stat"><div class="stat-label">Offered</div><div id="statOffered" class="stat-value">0</div></div>
-<div class="stat"><div class="stat-label">Hired</div><div id="statHired" class="stat-value">0</div></div>
+<div class="chat-widget" id="chatWidget">
+  <div class="chat-panel" id="chatPanel">
+    <div class="chat-panel-header">
+      <div>
+        <h3 class="chat-panel-title">Preview Chat</h3>
+        <div class="chat-panel-subtitle">Placeholder launcher wired for unread counts and future per-candidate threads.</div>
+      </div>
+      <button class="chat-icon-btn" id="chatCloseBtn" type="button">×</button>
+    </div>
+    <div class="chat-list" id="chatList">
+      <div class="chat-empty">Chat UI is ready. Plug in applicant_messages and client_messages next.</div>
+    </div>
+  </div>
+  <button class="chat-launcher" id="chatLauncher" type="button" aria-label="Open chats">
+    💬
+    <span class="chat-launcher-badge" id="chatBadge">0</span>
+  </button>
 </div>
-
-<div class="table-wrap">
-<table>
-<thead>
-<tr>
-<th>Candidate</th>
-<th>Role</th>
-<th>Status</th>
-<th>Rating</th>
-<th>Date</th>
-<th>Action</th>
-</tr>
-</thead>
-<tbody id="table"></tbody>
-</table>
-</div>
-
-</div>
-
-<div class="drawer" id="drawer">
-<div class="drawer-header" id="drawerName">Candidate</div>
-<div class="drawer-body" id="drawerContent">Select candidate</div>
-</div>
-
-<div class="chat-btn" id="chatBtn">💬<div class="badge" id="chatBadge">0</div></div>
 
 <script>
-const supabase = window.supabase.createClient(
-"https://dilalntcxmvdcmwxjcct.supabase.co",
-"sb_publishable_HrLVIUwnaRo54yijtrbWBQ_1aeb4ezs"
-);
+const CONFIG = {
+  SUPABASE_URL: window.TALENTBUZZ_SUPABASE_URL || "https://dilalntcxmvdcmwxjcct.supabase.co",
+  SUPABASE_ANON_KEY: window.TALENTBUZZ_SUPABASE_ANON_KEY || "sb_publishable_HrLVIUwnaRo54yijtrbWBQ_1aeb4ezs",
+  RESUME_BUCKET: "resumes",
+};
 
-let currentData=[];
+const supabase = window.supabase.createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_ANON_KEY);
 
-async function loadClients(){
-const { data } = await supabase.from('clients').select('id, client_name');
-const sel=document.getElementById('clientSelector');
-sel.innerHTML='<option>Select client</option>';
-data.forEach(c=>{
-const o=document.createElement('option');
-o.value=c.id;o.textContent=c.client_name;sel.appendChild(o);
-});
+const state = {
+  mode: "audit",
+  rows: [],
+  filtered: [],
+  selectedId: null,
+  selectedClientId: "",
+  chatOpen: false,
+};
+
+const els = {
+  notice: document.getElementById("notice"),
+  clientSelector: document.getElementById("clientSelector"),
+  searchInput: document.getElementById("searchInput"),
+  statusFilter: document.getElementById("statusFilter"),
+  ratingFilter: document.getElementById("ratingFilter"),
+  roleFilter: document.getElementById("roleFilter"),
+  scoreFilter: document.getElementById("scoreFilter"),
+  refreshBtn: document.getElementById("refreshBtn"),
+  clearFiltersBtn: document.getElementById("clearFiltersBtn"),
+  clientViewBtn: document.getElementById("clientViewBtn"),
+  auditViewBtn: document.getElementById("auditViewBtn"),
+  kpiEndorsed: document.getElementById("kpiEndorsed"),
+  kpiPending: document.getElementById("kpiPending"),
+  kpiShortlisted: document.getElementById("kpiShortlisted"),
+  kpiRejected: document.getElementById("kpiRejected"),
+  kpiOffered: document.getElementById("kpiOffered"),
+  kpiOnboarded: document.getElementById("kpiOnboarded"),
+  kpiAvgRating: document.getElementById("kpiAvgRating"),
+  kpiAvgAi: document.getElementById("kpiAvgAi"),
+  tableCount: document.getElementById("tableCount"),
+  tableBody: document.getElementById("tableBody"),
+  workspace: document.getElementById("workspace"),
+  drawerShell: document.getElementById("drawerShell"),
+  closeDrawerBtn: document.getElementById("closeDrawerBtn"),
+  prevBtn: document.getElementById("prevBtn"),
+  nextBtn: document.getElementById("nextBtn"),
+  drawerIndexMeta: document.getElementById("drawerIndexMeta"),
+  drawerName: document.getElementById("drawerName"),
+  drawerMeta: document.getElementById("drawerMeta"),
+  drawerAiScore: document.getElementById("drawerAiScore"),
+  drawerLearningConfidence: document.getElementById("drawerLearningConfidence"),
+  drawerBaseScore: document.getElementById("drawerBaseScore"),
+  drawerLearningLift: document.getElementById("drawerLearningLift"),
+  drawerAiReason: document.getElementById("drawerAiReason"),
+  drawerLearningMeta: document.getElementById("drawerLearningMeta"),
+  drawerLearningLiftMeta: document.getElementById("drawerLearningLiftMeta"),
+  snapEmail: document.getElementById("snapEmail"),
+  snapPhone: document.getElementById("snapPhone"),
+  snapLocation: document.getElementById("snapLocation"),
+  snapExperience: document.getElementById("snapExperience"),
+  snapRole: document.getElementById("snapRole"),
+  snapSentAt: document.getElementById("snapSentAt"),
+  positiveSignals: document.getElementById("positiveSignals"),
+  riskSignals: document.getElementById("riskSignals"),
+  signalNarrative: document.getElementById("signalNarrative"),
+  learningSummary: document.getElementById("learningSummary"),
+  learningSignal: document.getElementById("learningSignal"),
+  learningSuccessSignals: document.getElementById("learningSuccessSignals"),
+  learningRiskSignals: document.getElementById("learningRiskSignals"),
+  learningRecommendation: document.getElementById("learningRecommendation"),
+  clientNotes: document.getElementById("clientNotes"),
+  resumeMeta: document.getElementById("resumeMeta"),
+  guardrailSummary: document.getElementById("guardrailSummary"),
+  endorsementFraming: document.getElementById("endorsementFraming"),
+  resumeLinkBox: document.getElementById("resumeLinkBox"),
+  auditOnlySection: document.getElementById("auditOnlySection"),
+  chatLauncher: document.getElementById("chatLauncher"),
+  chatBadge: document.getElementById("chatBadge"),
+  chatPanel: document.getElementById("chatPanel"),
+  chatCloseBtn: document.getElementById("chatCloseBtn"),
+};
+
+function safeText(value){ return value == null ? "" : String(value).trim(); }
+function escapeHtml(value){
+  return safeText(value)
+    .replace(/&/g,"&amp;").replace(/</g,"&lt;")
+    .replace(/>/g,"&gt;").replace(/"/g,"&quot;")
+    .replace(/'/g,"&#39;");
+}
+function showNotice(message, type="info"){
+  els.notice.className = `notice show ${type}`;
+  els.notice.textContent = message;
+}
+function hideNotice(){ els.notice.className = "notice"; els.notice.textContent = ""; }
+function formatDate(value){
+  if(!value) return "—";
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? safeText(value) : d.toLocaleDateString();
+}
+function formatDateTime(value){
+  if(!value) return "—";
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? safeText(value) : d.toLocaleString();
+}
+function parseExperience(value){
+  if(typeof value === "number") return value;
+  const text = safeText(value);
+  const match = text.match(/(\d+(\.\d+)?)/);
+  return match ? Number(match[1]) : 0;
+}
+function avg(nums){
+  const valid = nums.filter((n)=>Number.isFinite(n));
+  if(!valid.length) return null;
+  return valid.reduce((a,b)=>a+b,0)/valid.length;
+}
+function uniq(arr){ return [...new Set(arr.filter(Boolean))]; }
+function titleCase(text){
+  return safeText(text).toLowerCase().split(" ").map((w)=>w ? w[0].toUpperCase()+w.slice(1) : "").join(" ");
+}
+function getStatusTone(status){
+  const s = safeText(status).toLowerCase();
+  if(["onboarded","hired"].includes(s)) return "good";
+  if(["rejected_by_client","rejected"].includes(s)) return "bad";
+  if(["shortlisted","offered_jo","passed_application"].includes(s)) return "warn";
+  return "info";
+}
+function scoreBand(score){
+  if(score >= 70) return "strong";
+  if(score >= 45) return "moderate";
+  return "weak";
+}
+function bandLabel(score){
+  const band = scoreBand(score);
+  if(band === "strong") return "Strong";
+  if(band === "moderate") return "Moderate";
+  return "Weak";
+}
+function bandTone(score){
+  const band = scoreBand(score);
+  if(band === "strong") return "good";
+  if(band === "moderate") return "warn";
+  return "bad";
+}
+function getResumeUrl(row){
+  if(safeText(row.resume_url)) return row.resume_url;
+  if(safeText(row.resume_path)){
+    const pub = supabase.storage.from(CONFIG.RESUME_BUCKET).getPublicUrl(row.resume_path);
+    return pub?.data?.publicUrl || "";
+  }
+  return "";
 }
 
-async function loadData(){
-const id=document.getElementById('clientSelector').value;
-const { data } = await supabase.from('client_endorsement_view').select('*').eq('client_id',id);
-currentData=data||[];
-renderStats();renderTable();
+function computeBaseAI(row){
+  let score = 0;
+  const positives = [];
+  const risks = [];
+  const exp = parseExperience(row.years_of_experience || row.experience_years || row.total_experience || row.experience);
+
+  if(exp >= 5){ score += 28; positives.push("Strong experience depth"); }
+  else if(exp >= 2){ score += 16; positives.push("Relevant experience present"); }
+  else { risks.push("Low demonstrated experience"); }
+
+  const rating = Number(row.client_rating || 0);
+  if(rating >= 4){ score += 24; positives.push("High client rating"); }
+  else if(rating >= 3){ score += 12; positives.push("Acceptable client rating"); }
+  else if(rating > 0){ risks.push("Low client rating"); }
+
+  if(getResumeUrl(row)){ score += 18; positives.push("Resume available"); }
+  else { risks.push("Resume missing"); }
+
+  const status = safeText(row.client_response_status).toLowerCase();
+  if(status === "shortlisted"){ score += 16; positives.push("Client shortlisted"); }
+  if(status === "offered_jo"){ score += 20; positives.push("Offer stage reached"); }
+  if(status === "onboarded"){ score += 24; positives.push("Converted to onboarding"); }
+  if(status === "rejected_by_client"){ score -= 18; risks.push("Client rejected"); }
+  if(!status){ risks.push("Still pending client decision"); }
+
+  return {
+    score: Math.max(0, Math.min(100, score)),
+    positives,
+    risks,
+    experienceYears: exp
+  };
 }
 
-function renderStats(){
-const d=currentData;
-document.getElementById('statEndorsed').textContent=d.length;
-document.getElementById('statPending').textContent=d.filter(x=>!x.client_response_status).length;
-document.getElementById('statShortlisted').textContent=d.filter(x=>x.client_response_status==='shortlisted').length;
-document.getElementById('statRejected').textContent=d.filter(x=>x.client_response_status==='rejected_by_client').length;
-document.getElementById('statOffered').textContent=d.filter(x=>x.client_response_status==='offered_jo').length;
-document.getElementById('statHired').textContent=d.filter(x=>x.client_response_status==='onboarded').length;
+function buildRoleHistory(role){
+  const rows = state.rows.filter((r)=>safeText(r.job_title).toLowerCase() === safeText(role).toLowerCase());
+  const total = rows.length;
+  const shortlisted = rows.filter((r)=>safeText(r.client_response_status).toLowerCase() === "shortlisted").length;
+  const offered = rows.filter((r)=>safeText(r.client_response_status).toLowerCase() === "offered_jo").length;
+  const onboarded = rows.filter((r)=>safeText(r.client_response_status).toLowerCase() === "onboarded").length;
+  const rejected = rows.filter((r)=>safeText(r.client_response_status).toLowerCase() === "rejected_by_client").length;
+  const ratings = rows.map((r)=>Number(r.client_rating || 0)).filter(Boolean);
+  const avgRating = avg(ratings) || 0;
+  const resumeRate = total ? rows.filter((r)=>!!getResumeUrl(r)).length / total : 0;
+  const highExpRate = total ? rows.filter((r)=>parseExperience(r.years_of_experience || r.total_experience) >= 5).length / total : 0;
+  const successRate = total ? (shortlisted + offered + onboarded * 1.5) / total : 0;
+  const rejectionRate = total ? rejected / total : 0;
+
+  const successSignals = [];
+  const riskSignals = [];
+
+  if(avgRating >= 4) successSignals.push("High client ratings correlate with success");
+  if(resumeRate >= 0.75) successSignals.push("Resume completeness is common among successful candidates");
+  if(highExpRate >= 0.5) successSignals.push("Deeper experience tends to win for this role");
+  if(successRate >= 0.8) successSignals.push("This role shows healthy downstream conversion");
+
+  if(rejectionRate >= 0.4) riskSignals.push("High client rejection rate on similar profiles");
+  if(resumeRate < 0.5) riskSignals.push("Resume gaps frequently weaken endorsements");
+  if(avgRating && avgRating < 3.5) riskSignals.push("Client quality bar is not being met consistently");
+  if(total < 4) riskSignals.push("Role history is still thin, so learning confidence is limited");
+
+  return {
+    total,
+    shortlisted,
+    offered,
+    onboarded,
+    rejected,
+    avgRating,
+    resumeRate,
+    highExpRate,
+    successRate,
+    rejectionRate,
+    successSignals,
+    riskSignals
+  };
+}
+
+function computeAdaptiveAI(row){
+  const base = computeBaseAI(row);
+  const history = buildRoleHistory(row.job_title);
+  let lift = 0;
+  const positiveSignals = [...base.positives];
+  const riskSignals = [...base.risks];
+
+  if(history.total >= 3){
+    if(history.successRate >= 0.8 && base.experienceYears >= 5){ lift += 8; positiveSignals.push("Matches successful role pattern"); }
+    if(history.avgRating >= 4 && Number(row.client_rating || 0) >= 4){ lift += 6; positiveSignals.push("Aligned with high-rated profile pattern"); }
+    if(history.resumeRate >= 0.75 && getResumeUrl(row)){ lift += 4; positiveSignals.push("Resume completeness fits winning pattern"); }
+    if(history.rejectionRate >= 0.4 && !getResumeUrl(row)){ lift -= 8; riskSignals.push("Missing resume is riskier for this role"); }
+    if(history.highExpRate >= 0.5 && base.experienceYears < 2){ lift -= 10; riskSignals.push("Experience below successful role norm"); }
+  }
+
+  const confidence = history.total >= 8 ? "High" : history.total >= 4 ? "Medium" : "Low";
+  const adaptiveScore = Math.max(0, Math.min(100, Math.round(base.score + lift)));
+
+  let recommendation = "Proceed with standard client review.";
+  if(adaptiveScore >= 75) recommendation = "Strong endorsement candidate. Lead with proof points and confidence.";
+  else if(adaptiveScore >= 55) recommendation = "Worth advancing, but frame around strengths and address one visible risk.";
+  else recommendation = "Needs deeper validation before stronger client push.";
+
+  return {
+    base,
+    history,
+    lift,
+    adaptiveScore,
+    confidence,
+    positiveSignals: uniq(positiveSignals),
+    riskSignals: uniq(riskSignals),
+    recommendation
+  };
+}
+
+function narrativeForRow(row, adaptive){
+  if(adaptive.adaptiveScore >= 75){
+    return "Lead with proof. Present this profile as a strong-fit endorsement backed by both current signals and similar-role history.";
+  }
+  if(adaptive.adaptiveScore >= 55){
+    return "Promising profile. Position the strengths clearly, then proactively address the main risk area before the client raises it.";
+  }
+  return "Needs tighter validation. Use this preview to decide whether to gather stronger evidence before endorsement follow-through.";
+}
+
+function guardrailForRow(adaptive){
+  if(adaptive.riskSignals.length >= 3) return "High review needed. Multiple risk signals are active.";
+  if(adaptive.riskSignals.length >= 1) return "Moderate review needed. At least one visible risk should be addressed.";
+  return "Low friction profile. No major guardrails surfaced from current evidence.";
+}
+
+function populateSelect(selectEl, values, placeholder){
+  const current = selectEl.value;
+  selectEl.innerHTML = `<option value="">${placeholder}</option>`;
+  values.forEach((value)=>{
+    const opt = document.createElement("option");
+    opt.value = value;
+    opt.textContent = value;
+    selectEl.appendChild(opt);
+  });
+  if(values.includes(current)) selectEl.value = current;
+}
+
+function renderFilters(){
+  populateSelect(els.statusFilter, uniq(state.rows.map((r)=>safeText(r.client_response_status)).filter(Boolean)).sort(), "All statuses");
+  populateSelect(els.roleFilter, uniq(state.rows.map((r)=>safeText(r.job_title)).filter(Boolean)).sort(), "All roles");
+}
+
+function renderKpis(rows){
+  els.kpiEndorsed.textContent = rows.length;
+  els.kpiPending.textContent = rows.filter((r)=>!safeText(r.client_response_status)).length;
+  els.kpiShortlisted.textContent = rows.filter((r)=>safeText(r.client_response_status).toLowerCase() === "shortlisted").length;
+  els.kpiRejected.textContent = rows.filter((r)=>safeText(r.client_response_status).toLowerCase() === "rejected_by_client").length;
+  els.kpiOffered.textContent = rows.filter((r)=>safeText(r.client_response_status).toLowerCase() === "offered_jo").length;
+  els.kpiOnboarded.textContent = rows.filter((r)=>safeText(r.client_response_status).toLowerCase() === "onboarded").length;
+  const avgRating = avg(rows.map((r)=>Number(r.client_rating || 0)).filter(Boolean));
+  els.kpiAvgRating.textContent = avgRating ? avgRating.toFixed(1) : "—";
+  const avgAi = avg(rows.map((r)=>computeAdaptiveAI(r).adaptiveScore));
+  els.kpiAvgAi.textContent = Number.isFinite(avgAi) ? `${Math.round(avgAi)}%` : "—";
+}
+
+function applyFilters(){
+  const search = safeText(els.searchInput.value).toLowerCase();
+  const status = safeText(els.statusFilter.value).toLowerCase();
+  const rating = safeText(els.ratingFilter.value);
+  const role = safeText(els.roleFilter.value).toLowerCase();
+  const scoreBandFilter = safeText(els.scoreFilter.value).toLowerCase();
+
+  state.filtered = state.rows.filter((row)=>{
+    const blob = [
+      row.full_name, row.job_title, row.email, row.location, row.phone, row.client_response_notes
+    ].map(safeText).join(" ").toLowerCase();
+
+    const adaptive = computeAdaptiveAI(row);
+
+    if(search && !blob.includes(search)) return false;
+    if(status && safeText(row.client_response_status).toLowerCase() !== status) return false;
+    if(rating && String(row.client_rating || "") !== rating) return false;
+    if(role && safeText(row.job_title).toLowerCase() !== role) return false;
+    if(scoreBandFilter && scoreBand(adaptive.adaptiveScore) !== scoreBandFilter) return false;
+    return true;
+  });
+
+  renderKpis(state.filtered);
+  renderTable();
 }
 
 function renderTable(){
-const tbody=document.getElementById('table');tbody.innerHTML='';
-currentData.forEach(row=>{
-const tr=document.createElement('tr');
-tr.innerHTML=`
-<td>${row.full_name}</td>
-<td>${row.job_title}</td>
-<td>${row.client_response_status||'-'}</td>
-<td>${row.client_rating||'-'}</td>
-<td>${row.sent_at?new Date(row.sent_at).toLocaleDateString():'-'}</td>
-<td><button class='btn' onclick='openDrawer(${JSON.stringify(row)})'>View</button></td>`;
-tbody.appendChild(tr);
-});
+  const rows = state.filtered;
+  els.tableCount.textContent = `${rows.length} candidate${rows.length === 1 ? "" : "s"}`;
+  if(!rows.length){
+    els.tableBody.innerHTML = `<tr><td colspan="8" class="small">No candidates matched the current preview filters.</td></tr>`;
+    return;
+  }
+
+  els.tableBody.innerHTML = rows.map((row)=>{
+    const adaptive = computeAdaptiveAI(row);
+    const tone = getStatusTone(row.client_response_status);
+    const selectedClass = state.selectedId === row.application_id ? "active" : "";
+    const signalsCount = adaptive.positiveSignals.length + adaptive.riskSignals.length;
+    return `
+      <tr class="${selectedClass}">
+        <td>
+          <div class="name">${escapeHtml(row.full_name || "Unnamed Candidate")}</div>
+          <div class="small">${escapeHtml(row.email || "No email")} • ${escapeHtml(row.location || "No location")}</div>
+        </td>
+        <td>
+          <div>${escapeHtml(row.job_title || "—")}</div>
+          <div class="small">${escapeHtml(formatDate(row.sent_at))}</div>
+        </td>
+        <td><span class="pill ${tone}">${escapeHtml(titleCase(row.client_response_status || "pending"))}</span></td>
+        <td>${escapeHtml(String(row.client_rating || "—"))}</td>
+        <td><span class="pill ${bandTone(adaptive.adaptiveScore)}">${adaptive.adaptiveScore}%</span></td>
+        <td><span class="pill ${bandTone(adaptive.adaptiveScore)}">${bandLabel(adaptive.adaptiveScore)}</span></td>
+        <td><div class="small">${signalsCount} signal${signalsCount === 1 ? "" : "s"}</div></td>
+        <td>
+          <div class="actions">
+            <button class="btn btn-xs" type="button" onclick="openDrawerById('${escapeHtml(String(row.application_id || row.endorsement_id || row.id || ""))}')">View</button>
+          </div>
+        </td>
+      </tr>
+    `;
+  }).join("");
 }
 
-function computeAI(row){
-let score=0;
-let positives=[];
-let risks=[];
-
-if(row.years_of_experience>=5){score+=30;positives.push('Strong experience');}
-else if(row.years_of_experience>=2){score+=15;positives.push('Moderate experience');}
-else{risks.push('Low experience');}
-
-if(row.client_rating>=4){score+=30;positives.push('Highly rated');}
-else if(row.client_rating>=3){score+=15;}
-else if(row.client_rating){risks.push('Low rating');}
-
-if(row.resume_url){score+=20;positives.push('Resume present');}
-else{risks.push('No resume');}
-
-if(row.client_response_status==='shortlisted'){score+=20;positives.push('Client shortlisted');}
-if(row.client_response_status==='rejected_by_client'){score-=20;risks.push('Client rejected');}
-
-return {score:Math.max(0,Math.min(100,score)),positives,risks};
+function renderTags(container, items, tone){
+  if(!items.length){
+    container.innerHTML = `<span class="tag info">None</span>`;
+    return;
+  }
+  container.innerHTML = items.map((item)=>`<span class="tag ${tone}">${escapeHtml(item)}</span>`).join("");
 }
 
-function openDrawer(row){
-const ai=computeAI(row);
+function openDrawerById(id){
+  const row = state.filtered.find((r)=>String(r.application_id || r.endorsement_id || r.id || "") === String(id))
+    || state.rows.find((r)=>String(r.application_id || r.endorsement_id || r.id || "") === String(id));
+  if(!row) return;
 
-document.getElementById('drawer').classList.add('show');
-document.getElementById('drawerName').innerText=row.full_name;
+  state.selectedId = String(row.application_id || row.endorsement_id || row.id || "");
+  els.workspace.classList.add("drawer-open");
 
-document.getElementById('drawerContent').innerHTML=`
-<p><b>Email:</b> ${row.email||'-'}</p>
-<p><b>Phone:</b> ${row.phone||'-'}</p>
-<p><b>Location:</b> ${row.location||'-'}</p>
-<p><b>Experience:</b> ${row.years_of_experience||'-'}</p>
+  const adaptive = computeAdaptiveAI(row);
+  const history = adaptive.history;
+  const resumeUrl = getResumeUrl(row);
 
-<div class='intel-box'>
-<div class='intel-title'>AI Match Score</div>
-<div class='intel-score'>${ai.score}%</div>
-</div>
+  els.drawerName.textContent = row.full_name || "Unnamed Candidate";
+  els.drawerMeta.textContent = `${row.job_title || "No role"} • ${formatDateTime(row.sent_at)} • ${state.mode === "client" ? "Client-safe mirror" : "Recruiter audit layer enabled"}`;
+  els.drawerAiScore.textContent = `${adaptive.adaptiveScore}%`;
+  els.drawerLearningConfidence.textContent = adaptive.confidence;
+  els.drawerBaseScore.textContent = `${adaptive.base.score}%`;
+  els.drawerLearningLift.textContent = `${adaptive.lift >= 0 ? "+" : ""}${adaptive.lift}`;
+  els.drawerAiReason.textContent = narrativeForRow(row, adaptive);
+  els.drawerLearningMeta.textContent = `${history.total} similar record${history.total === 1 ? "" : "s"} found for this role.`;
+  els.drawerLearningLiftMeta.textContent = adaptive.lift === 0
+    ? "Current history did not materially adjust the base score."
+    : "Role history adjusted this candidate above or below the raw base score.";
 
-<div class='intel-box'>
-<div class='intel-title'>Positive Signals</div>
-${ai.positives.map(p=>`<div class='intel-strong'>✔ ${p}</div>`).join('')||'-'}
-</div>
+  els.snapEmail.textContent = row.email || "—";
+  els.snapPhone.textContent = row.phone || "—";
+  els.snapLocation.textContent = row.location || "—";
+  els.snapExperience.textContent = row.years_of_experience || row.total_experience || "—";
+  els.snapRole.textContent = row.job_title || "—";
+  els.snapSentAt.textContent = formatDateTime(row.sent_at);
 
-<div class='intel-box'>
-<div class='intel-title'>Risk Signals</div>
-${ai.risks.map(r=>`<div class='intel-risk'>⚠ ${r}</div>`).join('')||'-'}
-</div>
+  renderTags(els.positiveSignals, adaptive.positiveSignals, "good");
+  renderTags(els.riskSignals, adaptive.riskSignals, "bad");
+  els.signalNarrative.textContent = narrativeForRow(row, adaptive);
 
-<p><b>Client Notes:</b> ${row.client_response_notes||'-'}</p>
-${row.resume_url?`<a href='${row.resume_url}' target='_blank'>View Resume</a>`:''}
-`;
-}</p>
-<p><b>Phone:</b> ${row.phone||'-'}</p>
-<p><b>Location:</b> ${row.location||'-'}</p>
-<p><b>Experience:</b> ${row.years_of_experience||'-'}</p>
-<p><b>Notes:</b> ${row.client_response_notes||'-'}</p>
-${row.resume_url?`<a href='${row.resume_url}' target='_blank'>View Resume</a>`:''}
-`;
+  els.learningSummary.textContent = history.total
+    ? `${history.total} similar profile(s) for ${row.job_title}. ${history.shortlisted} shortlisted, ${history.offered} offered, ${history.onboarded} onboarded, ${history.rejected} rejected.`
+    : "No role history yet. This role still needs more data to learn from.";
+  els.learningSignal.textContent = history.total
+    ? `Success rate ${Math.round(history.successRate * 100)}% • Rejection rate ${Math.round(history.rejectionRate * 100)}% • Avg rating ${history.avgRating ? history.avgRating.toFixed(1) : "—"}`
+    : "Learning confidence is low until more endorsements and client outcomes accumulate.";
+  els.learningSuccessSignals.textContent = history.successSignals.length ? history.successSignals.join(" • ") : "No clear success pattern surfaced yet.";
+  els.learningRiskSignals.textContent = history.riskSignals.length ? history.riskSignals.join(" • ") : "No dominant historical risk signal surfaced yet.";
+  els.learningRecommendation.textContent = adaptive.recommendation;
+
+  els.clientNotes.textContent = row.client_response_notes || "No client notes yet.";
+  els.resumeMeta.textContent = resumeUrl ? "Resume available and ready for recruiter review." : "No resume available on the record.";
+  els.guardrailSummary.textContent = guardrailForRow(adaptive);
+  els.endorsementFraming.textContent = adaptive.adaptiveScore >= 70
+    ? "Frame as proof-backed fit. Lead with experience depth, client rating, and readiness."
+    : adaptive.adaptiveScore >= 50
+    ? "Frame carefully. Highlight strengths first, then neutralize one obvious risk."
+    : "Do not oversell yet. Gather stronger proof before sending a stronger recommendation.";
+  els.resumeLinkBox.innerHTML = resumeUrl
+    ? `<a href="${escapeHtml(resumeUrl)}" target="_blank" rel="noopener noreferrer">Open resume in new tab</a>`
+    : "—";
+
+  els.auditOnlySection.style.display = state.mode === "client" ? "none" : "";
+  updateDrawerIndex();
+  renderTable();
 }
 
-// unread simulation
-let unread=0;
-setInterval(()=>{unread=Math.floor(Math.random()*5);updateBadge();},4000);
-function updateBadge(){
-const b=document.getElementById('chatBadge');
-b.style.display=unread>0?'block':'none';b.textContent=unread;
+function updateDrawerIndex(){
+  const rows = state.filtered;
+  const idx = rows.findIndex((r)=>String(r.application_id || r.endorsement_id || r.id || "") === String(state.selectedId));
+  els.drawerIndexMeta.textContent = idx >= 0 ? `${idx + 1} of ${rows.length}` : `0 of ${rows.length}`;
 }
 
-loadClients();
+function navigateDrawer(direction){
+  const rows = state.filtered;
+  if(!rows.length) return;
+  const idx = rows.findIndex((r)=>String(r.application_id || r.endorsement_id || r.id || "") === String(state.selectedId));
+  const nextIdx = idx < 0 ? 0 : (idx + direction + rows.length) % rows.length;
+  const target = rows[nextIdx];
+  openDrawerById(String(target.application_id || target.endorsement_id || target.id || ""));
+}
+
+async function loadClients(){
+  const { data, error } = await supabase.from("clients").select("id, client_name").order("client_name");
+  if(error){
+    showNotice(`Failed to load clients: ${error.message}`, "error");
+    return;
+  }
+  els.clientSelector.innerHTML = `<option value="">Select client</option>`;
+  (data || []).forEach((client)=>{
+    const opt = document.createElement("option");
+    opt.value = client.id;
+    opt.textContent = client.client_name;
+    els.clientSelector.appendChild(opt);
+  });
+}
+
+async function loadRows(){
+  hideNotice();
+  const clientId = safeText(els.clientSelector.value);
+  state.selectedClientId = clientId;
+  if(!clientId){
+    state.rows = [];
+    state.filtered = [];
+    renderKpis([]);
+    renderTable();
+    return;
+  }
+
+  const { data, error } = await supabase
+    .from("client_endorsement_view")
+    .select("*")
+    .eq("client_id", clientId)
+    .order("sent_at", { ascending: false });
+
+  if(error){
+    showNotice(`Failed to load preview: ${error.message}`, "error");
+    return;
+  }
+
+  state.rows = (data || []).map((row, index)=>({
+    ...row,
+    _local_id: String(row.application_id || row.endorsement_id || row.id || `row-${index}`)
+  }));
+
+  renderFilters();
+  applyFilters();
+  showNotice(`Loaded ${state.rows.length} endorsed candidate record(s).`, "success");
+}
+
+function clearFilters(){
+  els.searchInput.value = "";
+  els.statusFilter.value = "";
+  els.ratingFilter.value = "";
+  els.roleFilter.value = "";
+  els.scoreFilter.value = "";
+  applyFilters();
+}
+
+function setMode(mode){
+  state.mode = mode;
+  els.clientViewBtn.className = `btn ${mode === "client" ? "btn-primary" : "btn-soft"}`;
+  els.auditViewBtn.className = `btn ${mode === "audit" ? "btn-primary" : "btn-soft"}`;
+  els.auditOnlySection.style.display = mode === "client" ? "none" : "";
+  if(state.selectedId) openDrawerById(state.selectedId);
+}
+
+function attachEvents(){
+  els.clientSelector.addEventListener("change", loadRows);
+  els.searchInput.addEventListener("input", applyFilters);
+  els.statusFilter.addEventListener("change", applyFilters);
+  els.ratingFilter.addEventListener("change", applyFilters);
+  els.roleFilter.addEventListener("change", applyFilters);
+  els.scoreFilter.addEventListener("change", applyFilters);
+  els.clearFiltersBtn.addEventListener("click", clearFilters);
+  els.refreshBtn.addEventListener("click", loadRows);
+  els.closeDrawerBtn.addEventListener("click", ()=>els.workspace.classList.remove("drawer-open"));
+  els.prevBtn.addEventListener("click", ()=>navigateDrawer(-1));
+  els.nextBtn.addEventListener("click", ()=>navigateDrawer(1));
+  els.clientViewBtn.addEventListener("click", ()=>setMode("client"));
+  els.auditViewBtn.addEventListener("click", ()=>setMode("audit"));
+
+  els.chatLauncher.addEventListener("click", ()=>{
+    state.chatOpen = !state.chatOpen;
+    els.chatPanel.classList.toggle("show", state.chatOpen);
+  });
+  els.chatCloseBtn.addEventListener("click", ()=>{
+    state.chatOpen = false;
+    els.chatPanel.classList.remove("show");
+  });
+}
+
+function initChatBadge(){
+  const unread = Math.min(9, Math.max(0, state.rows.filter((r)=>!safeText(r.client_response_status)).length));
+  if(unread > 0){
+    els.chatBadge.classList.add("show");
+    els.chatBadge.textContent = unread;
+  } else {
+    els.chatBadge.classList.remove("show");
+  }
+}
+
+async function init(){
+  attachEvents();
+  await loadClients();
+  renderKpis([]);
+  renderTable();
+  initChatBadge();
+}
+init();
 </script>
-
 </body>
 </html>
