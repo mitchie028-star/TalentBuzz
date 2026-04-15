@@ -686,6 +686,7 @@ function buildFraudCheckQuestionV11(roleModel = {}){
   });
 }
 
+
 function generateQuestionsV11(roleModel = {}){
   const signalPool = tbUnique([
     ...(roleModel.nonNeg || []),
@@ -1444,7 +1445,7 @@ function cleanGeneratedQuestion(questionText, focusArea = '', roleModel = {}){
       return text;
     }
 
-    function finalizeGeneratedQuestions(list, roleModel){
+ function finalizeGeneratedQuestions(list, roleModel = {}){
   const input = Array.isArray(list) ? list : [];
   const seen = new Set();
   const finalList = [];
@@ -1455,7 +1456,6 @@ function cleanGeneratedQuestion(questionText, focusArea = '', roleModel = {}){
     const originalQuestion = safeText(rawItem.question);
     if (!originalQuestion) continue;
 
-    // Preserve the generated wording. Do not run it back through a rewrite layer.
     const cleanedQuestion =
       typeof cleanGeneratedQuestionV11 === 'function'
         ? cleanGeneratedQuestionV11(
@@ -1468,28 +1468,48 @@ function cleanGeneratedQuestion(questionText, focusArea = '', roleModel = {}){
     const question = safeText(cleanedQuestion);
     if (!question) continue;
 
-    if (typeof isGenericQuestion === 'function' && isGenericQuestion(question)) {
-      continue;
-    }
-
     const key = question.toLowerCase();
     if (seen.has(key)) continue;
     seen.add(key);
 
     finalList.push({
+      ...createEmptyQuestion(rawItem),
       ...rawItem,
       question,
-      ai_original_question: safeText(rawItem.ai_original_question) || question
+      ai_original_question: safeText(rawItem.ai_original_question) || question,
+      quality:
+        typeof evaluateQuestionQualityV11 === 'function'
+          ? evaluateQuestionQualityV11(
+              question,
+              rawItem.focus_area || '',
+              roleModel || {}
+            )
+          : rawItem.quality || null
     });
   }
 
-  while (finalList.length < 5) {
-    const fallback =
-      typeof buildExecutionSimulationV11 === 'function'
-        ? buildExecutionSimulationV11(roleModel || {})
-        : buildSimulation(roleModel || {});
+  const buildSafeFallbackQuestion = () => {
+    if (typeof buildExecutionSimulationV11 === 'function') {
+      const sim = buildExecutionSimulationV11(roleModel || {});
+      if (safeText(sim?.question)) return sim;
+    }
 
-    let fallbackQuestion = safeText(fallback?.question);
+    return createEmptyQuestion({
+      question:
+        'Describe one real situation most relevant to this role. What happened first, what did you personally do, and what was the outcome?',
+      ai_original_question:
+        'Describe one real situation most relevant to this role. What happened first, what did you personally do, and what was the outcome?',
+      focus_area: 'General Role Fit',
+      response_type: 'Open Text',
+      category: 'proof',
+      weight: 'High',
+      was_ai_generated: true
+    });
+  };
+
+  while (finalList.length < 5) {
+    const fallback = buildSafeFallbackQuestion();
+    const fallbackQuestion = safeText(fallback.question);
     if (!fallbackQuestion) break;
 
     let uniqueQuestion = fallbackQuestion;
@@ -1503,351 +1523,45 @@ function cleanGeneratedQuestion(questionText, focusArea = '', roleModel = {}){
     seen.add(uniqueQuestion.toLowerCase());
 
     finalList.push({
+      ...createEmptyQuestion(fallback),
       ...fallback,
       question: uniqueQuestion,
-      ai_original_question: safeText(fallback.ai_original_question) || uniqueQuestion
+      ai_original_question: safeText(fallback.ai_original_question) || uniqueQuestion,
+      quality:
+        typeof evaluateQuestionQualityV11 === 'function'
+          ? evaluateQuestionQualityV11(
+              uniqueQuestion,
+              fallback.focus_area || '',
+              roleModel || {}
+            )
+          : fallback.quality || null
     });
+
+    if (suffixIndex > 10) break;
   }
 
-  return finalList;
-}
-
-
-   function hasRealWorkObject(text){
-  const q = safeText(text).toLowerCase();
-  if (!q) return false;
-
-  const weakObjects = [
-    'required setup',
-    'realistic scenario',
-    'business priority',
-    'general role fit',
-    'relevant experience',
-    'core competencies',
-    'must-have requirement',
-    'requirement',
-    'this role',
-    'your role',
-    'role expectation',
-    'ideal candidate',
-    'general skill',
-    'soft skill'
-  ];
-
-  if (weakObjects.some(x => q.includes(x))) return false;
-
-  const strongPatterns = [
-    /\bapi\b/,
-    /\bwebhook\b/,
-    /\bframework\b/,
-    /\bautomation\b/,
-    /\bscript\b/,
-    /\bworkflow\b/,
-    /\bintegration\b/,
-    /\brelease\b/,
-    /\bincident\b/,
-    /\bdefect\b/,
-    /\bbug\b/,
-    /\bregression\b/,
-    /\btest(?:ing)?\b/,
-    /\bcheckout\b/,
-    /\bpos\b/,
-    /\berp\b/,
-    /\bcrm\b/,
-    /\bsalesforce\b/,
-    /\bzendesk\b/,
-    /\bquery\b/,
-    /\bdashboard\b/,
-    /\breport\b/,
-    /\bwarehouse\b/,
-    /\betl\b/,
-    /\bpipeline\b/,
-    /\bcall\b/,
-    /\bcustomer\b/,
-    /\bescalation\b/,
-    /\bqa\b/,
-    /\bticket\b/,
-    /\bcampaign\b/,
-    /\bbooking\b/,
-    /\brebooking\b/,
-    /\bpnr\b/,
-    /\bamadeus\b/,
-    /\bsabre\b/,
-    /\bfare\b/,
-    /\bappeal\b/,
-    /\bdenial\b/,
-    /\bpayer\b/,
-    /\bclinical\b/,
-    /\bdrg\b/,
-    /\bcoding\b/,
-    /\breconciliation\b/,
-    /\baudit\b/,
-    /\btransaction\b/,
-    /\bretail\b/,
-    /\bfulfillment\b/,
-    /\binventory\b/
-  ];
-
-  const strongHit = strongPatterns.some(rx => rx.test(q));
-  if (strongHit) return true;
-
-  const actionPatterns = [
-    /\bresolved\b/,
-    /\bdebugged\b/,
-    /\binvestigated\b/,
-    /\bescalated\b/,
-    /\bimplemented\b/,
-    /\bdeployed\b/,
-    /\bvalidated\b/,
-    /\breconciled\b/,
-    /\breviewed\b/,
-    /\bhandled\b/,
-    /\bprocessed\b/,
-    /\btriaged\b/
-  ];
-
-  const contextPatterns = [
-    /\bissue\b/,
-    /\bcase\b/,
-    /\bqueue\b/,
-    /\bbacklog\b/,
-    /\bfailure\b/,
-    /\berror\b/,
-    /\bdenial\b/,
-    /\bincident\b/,
-    /\brequest\b/,
-    /\bexception\b/,
-    /\boutage\b/,
-    /\bdispute\b/
-  ];
-
-  return actionPatterns.some(rx => rx.test(q)) && contextPatterns.some(rx => rx.test(q));
-}
-
-function buildAdaptiveQuestionPlan(roleModel){
-  const intent = deriveQuestionIntent(roleModel);
-  const pool = [];
-  const used = new Set();
-
-  const targetCount =
-    intent.roleArchetype === 'sales_voice' ? 8 :
-    roleModel.complexityScore >= 5 ? 8 :
-    roleModel.complexityScore >= 3 ? 7 : 6;
-
-  const addToPool = ({
-    category = 'general',
-    focus = '',
-    source = '',
-    weight = 'Medium',
-    response_type = 'Open Text',
-    priority = 50
-  }) => {
-    const normalizedFocus = safeText(focus);
-    const normalizedSource = safeText(source);
-    if (!normalizedSource && !normalizedFocus) return;
-
-    const key = [category, normalizedFocus, normalizedSource].join('::').toLowerCase();
-    if (used.has(key)) return;
-    used.add(key);
-
-    pool.push({
-      category,
-      focus: normalizedFocus,
-      source: normalizedSource,
-      weight,
-      response_type,
-      priority
-    });
-  };
-
-  const nonNeg = Array.isArray(roleModel.nonNeg) ? roleModel.nonNeg : [];
-  const weightedSkills = Array.isArray(roleModel.weightedSkills) ? roleModel.weightedSkills : [];
-  const prioritySkills = Array.isArray(roleModel.prioritySkills) ? roleModel.prioritySkills : [];
-  const successSignals = Array.isArray(roleModel.successSignals) ? roleModel.successSignals : [];
-  const redFlags = Array.isArray(roleModel.redFlags) ? roleModel.redFlags : [];
-  const businessPriorities = Array.isArray(roleModel.businessPriorities) ? roleModel.businessPriorities : [];
-  const requirements = Array.isArray(roleModel.requirements) ? roleModel.requirements : [];
-
-  nonNeg.forEach((signal, index) => {
-    const source = safeText(signal);
-    if (!source) return;
-
-    const focus = classifySignalLine(source);
-    const isSetup = focus === 'setup';
-    const isEarlyKnockout = index < 2;
-
-    if (isSetup) {
-      addToPool({
-        category: 'knockout',
-        focus: 'setup',
-        source,
-        weight: 'Critical',
-        response_type: 'Yes/No',
-        priority: 100
-      });
-      return;
-    }
-
-    if (isEarlyKnockout) {
-      addToPool({
-        category: 'knockout',
-        focus,
-        source,
-        weight: 'Critical',
-        response_type: 'Short Answer',
-        priority: 95 - index
-      });
-      return;
-    }
-
-    addToPool({
-      category: 'proof',
-      focus,
-      source,
-      weight: 'Critical',
-      response_type: 'Open Text',
-      priority: 88 - index
-    });
-  });
-
-  [...weightedSkills, ...prioritySkills].forEach((skillObj, index) => {
-    const source = safeText(skillObj.skill || skillObj);
-    if (!source) return;
-
-    const declaredWeight = safeText(skillObj.weight || '');
-    const weight = declaredWeight || 'High';
-    const focus = classifySignalLine(source);
-    const isTechnical = ['voice', 'sales', 'crm', 'kpi'].includes(focus) || roleModel.primaryDomain === 'technical';
-
-    addToPool({
-      category: isTechnical ? 'technical' : 'proof',
-      focus,
-      source,
-      weight,
-      response_type: 'Open Text',
-      priority: declaredWeight.toLowerCase() === 'critical' ? 90 : 82 - index
-    });
-  });
-
-  successSignals.slice(0, 2).forEach((signal, index) => {
-    const source = safeText(signal);
-    if (!source) return;
-
-    addToPool({
-      category: 'success_signal',
-      focus: classifySignalLine(source),
-      source,
-      weight: 'High',
-      response_type: 'Open Text',
-      priority: 74 - index
-    });
-  });
-
-  redFlags.slice(0, 2).forEach((signal, index) => {
-    const source = safeText(signal);
-    if (!source) return;
-
-    addToPool({
-      category: 'red_flag',
-      focus: classifySignalLine(source),
-      source,
-      weight: index === 0 ? 'High' : 'Medium',
-      response_type: 'Open Text',
-      priority: 72 - index
-    });
-  });
-
-  addToPool({
-    category: 'simulation',
-    focus: roleModel.primaryDomain || 'general',
-    source: roleModel.title || 'role simulation',
-    weight: roleModel.complexityScore >= 4 ? 'High' : 'Medium',
-    response_type: 'Open Text',
-    priority: 80
-  });
-
-  if (intent.focusSetup || safeText(roleModel.setupCriticality)) {
-    addToPool({
-      category: 'setup',
-      focus: 'setup',
-      source: roleModel.setupCriticality || 'required setup',
-      weight: 'High',
-      response_type: 'Short Answer',
-      priority: 68
-    });
+  if (!finalList.length && input.length) {
+    return input.map((item, index) => ({
+      ...createEmptyQuestion(item),
+      ...item,
+      sort_order: index + 1,
+      question: safeText(item.question),
+      ai_original_question: safeText(item.ai_original_question) || safeText(item.question),
+      quality:
+        typeof evaluateQuestionQualityV11 === 'function'
+          ? evaluateQuestionQualityV11(
+              safeText(item.question),
+              item.focus_area || '',
+              roleModel || {}
+            )
+          : item.quality || null
+    })).filter(item => safeText(item.question));
   }
 
-  if (businessPriorities.length) {
-    addToPool({
-      category: 'business',
-      focus: 'business_priority',
-      source: businessPriorities[0],
-      weight: 'High',
-      response_type: 'Open Text',
-      priority: 64
-    });
-  }
-
-  requirements.slice(0, 2).forEach((req, index) => {
-    const source = safeText(req);
-    if (!source) return;
-
-    addToPool({
-      category: 'general',
-      focus: classifySignalLine(source),
-      source,
-      weight: 'Medium',
-      response_type: 'Open Text',
-      priority: 52 - index
-    });
-  });
-
-  const byCategory = category =>
-    pool
-      .filter(item => item.category === category)
-      .sort((a, b) => b.priority - a.priority);
-
-  const ordered = [
-    ...byCategory('knockout').slice(0, 2),
-    ...byCategory('technical').slice(0, roleModel.primaryDomain === 'technical' ? 2 : 1),
-    ...byCategory('proof').slice(0, 3),
-    ...byCategory('success_signal').slice(0, 1),
-    ...byCategory('simulation').slice(0, 1),
-    ...byCategory('red_flag').slice(0, 1),
-    ...byCategory('business').slice(0, 1),
-    ...byCategory('setup').slice(0, 1),
-    ...byCategory('general').slice(0, 1)
-  ];
-
-  const final = [];
-  const finalSeen = new Set();
-
-  for (const item of ordered) {
-    const key = [item.category, item.focus, item.source].join('::').toLowerCase();
-    if (finalSeen.has(key)) continue;
-    finalSeen.add(key);
-    final.push(item);
-    if (final.length >= targetCount) break;
-  }
-
-  if (final.length < targetCount) {
-    const leftovers = pool
-      .sort((a, b) => b.priority - a.priority)
-      .filter(item => {
-        const key = [item.category, item.focus, item.source].join('::').toLowerCase();
-        return !finalSeen.has(key);
-      });
-
-    for (const item of leftovers) {
-      const key = [item.category, item.focus, item.source].join('::').toLowerCase();
-      if (finalSeen.has(key)) continue;
-      finalSeen.add(key);
-      final.push(item);
-      if (final.length >= targetCount) break;
-    }
-  }
-
-  return final.slice(0, targetCount);
+  return finalList.map((item, index) => ({
+    ...item,
+    sort_order: index + 1
+  }));
 }
 
     function buildQuestionFromPlanItem(item, roleModel){
