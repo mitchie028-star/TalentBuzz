@@ -1888,6 +1888,8 @@ function updateLearningSnapshot(){
 }
 
 function generateScreeningSummary(){
+  if (!els.screeningSummaryOutput) return;
+
   if (!questionItems.length) {
     els.screeningSummaryOutput.textContent = 'No summary generated yet.';
     return;
@@ -1895,10 +1897,11 @@ function generateScreeningSummary(){
 
   const counts = {};
   questionItems.forEach(q => {
-    counts[q.category] = (counts[q.category] || 0) + 1;
+    const key = safeText(q?.category) || 'general';
+    counts[key] = (counts[key] || 0) + 1;
   });
 
-  const reviewed = questionItems.filter(q => q.quality_evaluation?.score !== undefined);
+  const reviewed = questionItems.filter(q => q?.quality_evaluation?.score !== undefined);
   const avgQ = reviewed.length
     ? Math.round(reviewed.reduce((sum, q) => sum + q.quality_evaluation.score, 0) / reviewed.length)
     : 0;
@@ -1911,6 +1914,8 @@ function generateScreeningSummary(){
 }
 
 function refreshPreview(){
+  if (!els.jdPreview) return;
+
   const salaryLine = formatSalaryBudgetLine({
     salary_min: els.salaryMin?.value,
     salary_max: els.salaryMax?.value,
@@ -1936,7 +1941,7 @@ function refreshPreview(){
     '',
     'Questions Preview:',
     ...(questionItems.length
-      ? questionItems.map((q, i) => `${i + 1}. ${q.question}`)
+      ? questionItems.map((q, i) => `${i + 1}. ${safeText(q?.question)}`)
       : ['No questions generated yet.'])
   ];
 
@@ -1944,6 +1949,8 @@ function refreshPreview(){
 }
 
 function renderQuestions(){
+  if (!els.questionsWrap) return;
+
   if (!questionItems.length) {
     els.questionsWrap.innerHTML = '<div class="empty-state">No screening questions yet. Click <strong>Generate AI Questions</strong> or add one manually.</div>';
     updateLearningSnapshot();
@@ -2097,25 +2104,17 @@ window.updateQuestionField = (i, f, v) => {
 
   questionItems[i][f] = v;
 
-  if (
-    f === 'question' &&
-    questionItems[i].was_ai_generated &&
-    !questionItems[i].ai_original_question
-  ) {
+  if (f === 'question' && questionItems[i].was_ai_generated && !questionItems[i].ai_original_question) {
     questionItems[i].ai_original_question = questionItems[i].question;
   }
 
-  if (
-    ['question','focus_area','weight','category','feedback_action','feedback_note','ai_original_question'].includes(f)
-  ) {
+  if (['question','focus_area','weight','category','feedback_action','feedback_note','ai_original_question'].includes(f)) {
     const roleModel = deriveRoleModel();
-
     questionItems[i].quality_evaluation = evaluateQuestionQualityV11(
       questionItems[i].question || '',
       questionItems[i].focus_area || '',
       roleModel
     );
-
     updateQuestionQualitySummary();
     generateScreeningSummary();
   }
@@ -2182,7 +2181,6 @@ window.evaluateSingleQuestionQuality = i => {
   if (!questionItems[i]) return;
 
   const roleModel = deriveRoleModel();
-
   questionItems[i].quality_evaluation = evaluateQuestionQualityV11(
     questionItems[i].question || '',
     questionItems[i].focus_area || '',
@@ -2194,47 +2192,6 @@ window.evaluateSingleQuestionQuality = i => {
   generateScreeningSummary();
   showNotice('Question quality re-evaluated.');
 };
- function generateAiQuestions(){
-  const roleModel = deriveRoleModel();
-
-  let generated = generateQuestionsV11(roleModel);
-
-  generated = generated.map(item => {
-    const cleanedQuestion = cleanGeneratedQuestionV11(
-      item.question,
-      item.focus_area,
-      roleModel
-    );
-
-    const cleanedOriginal = cleanGeneratedQuestionV11(
-      item.ai_original_question || item.question,
-      item.focus_area,
-      roleModel
-    );
-
-    return {
-      ...item,
-      question: cleanedQuestion,
-      ai_original_question: cleanedOriginal
-    };
-  });
-
-  generated = generated.map(q => ({
-    ...q,
-    quality_evaluation: evaluateQuestionQualityV11(
-      q.question,
-      q.focus_area,
-      roleModel
-    )
-  }));
-
-  questionItems = generated;
-  renderQuestions();
-  refreshPreview();
-  updateQuestionQualitySummary();
-  generateScreeningSummary();
-  showNotice('AI Questions Generated (V11 Adaptive Execution Engine)');
-}
 
 function evaluateAllQuestionQuality(){
   const roleModel = deriveRoleModel();
@@ -2274,12 +2231,17 @@ function addQuestion(){
   renderQuestions();
   refreshPreview();
   updateQuestionQualitySummary();
+  generateScreeningSummary();
 }
 
 function clearAnswers(){
-  questionItems = questionItems.map(q => ({ ...q, candidate_answer:'', evaluation:null }));
+  questionItems = questionItems.map(q => ({ ...q, candidate_answer: '', evaluation: null }));
   renderQuestions();
-  els.scoringSummaryOutput.textContent = 'No scoring evaluation yet.';
+
+  if (els.scoringSummaryOutput) {
+    els.scoringSummaryOutput.textContent = 'No scoring evaluation yet.';
+  }
+
   showNotice('Candidate answers cleared.');
 }
 
@@ -2289,7 +2251,7 @@ function evaluateAnswers(){
 
   questionItems.forEach(q => {
     q.evaluation = evaluateCandidateAnswer(q);
-    if(q.evaluation){
+    if (q.evaluation) {
       scored += 1;
       avg += q.evaluation.score;
     }
@@ -2297,14 +2259,18 @@ function evaluateAnswers(){
 
   renderQuestions();
 
-  if(!scored){
-    els.scoringSummaryOutput.textContent = 'No scoring evaluation yet.';
-    showNotice('No candidate answers found to score.','error');
+  if (!scored) {
+    if (els.scoringSummaryOutput) {
+      els.scoringSummaryOutput.textContent = 'No scoring evaluation yet.';
+    }
+    showNotice('No candidate answers found to score.', 'error');
     return;
   }
 
-  els.scoringSummaryOutput.textContent =
-    `Questions scored: ${scored}\nAverage answer score: ${Math.round(avg / scored)}\nThis score evaluates candidate answers, separate from question-quality scoring.`;
+  if (els.scoringSummaryOutput) {
+    els.scoringSummaryOutput.textContent =
+      `Questions scored: ${scored}\nAverage answer score: ${Math.round(avg / scored)}\nThis score evaluates candidate answers, separate from question-quality scoring.`;
+  }
 
   showNotice('Candidate answers evaluated.');
 }
@@ -2324,7 +2290,7 @@ async function readPdfFile(file){
   const pdf = await window.pdfjsLib.getDocument({ data: buffer }).promise;
   let text = '';
 
-  for(let pageNum = 1; pageNum <= pdf.numPages; pageNum++){
+  for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
     const page = await pdf.getPage(pageNum);
     const content = await page.getTextContent();
     text += content.items.map(item => item.str).join(' ') + '\n';
@@ -2335,37 +2301,38 @@ async function readPdfFile(file){
 
 async function parseJD(){
   try {
-    let text = safeText(els.jdRawText.value);
-    const file = els.jdUpload.files?.[0];
+    let text = safeText(els.jdRawText?.value);
+    const file = els.jdUpload?.files?.[0];
 
-    if (!text && file){
+    if (!text && file) {
       const name = file.name.toLowerCase();
+
       if (name.endsWith('.docx')) text = await readDocxFile(file);
       else if (name.endsWith('.pdf')) text = await readPdfFile(file);
       else text = await readTextFile(file);
 
-      els.jdRawText.value = text;
+      if (els.jdRawText) els.jdRawText.value = text;
     }
 
-    if (!text){
-      showNotice('Please upload or paste a JD first.','error');
+    if (!text) {
+      showNotice('Please upload or paste a JD first.', 'error');
       return;
     }
 
     const lines = normalizeLines(text);
 
-    if (!safeText(els.jobDescription.value)) {
+    if (!safeText(els.jobDescription?.value) && els.jobDescription) {
       els.jobDescription.value = lines.slice(0, 8).join('\n');
     }
 
-    if (!safeText(els.requirements.value)) {
+    if (!safeText(els.requirements?.value) && els.requirements) {
       els.requirements.value = lines
         .filter(line => /require|experience|skill|must|qualif/i.test(line))
         .slice(0, 10)
         .join('\n');
     }
 
-    if (!safeText(els.prioritySkills.value)) {
+    if (!safeText(els.prioritySkills?.value) && els.prioritySkills) {
       els.prioritySkills.value = uniqueLines(
         lines.filter(line => /python|api|automation|crm|sales|voice|denial|appeal|coding|sql|gds|pnr|zendesk|salesforce|amadeus|sabre/i.test(line))
       ).slice(0, 8).join('\n');
@@ -2373,22 +2340,23 @@ async function parseJD(){
 
     refreshPreview();
     showNotice('JD parsed. Review and refine the extracted content.');
-  } catch (error){
-    showNotice(`Failed to parse JD: ${error.message}`,'error');
+  } catch (error) {
+    console.error('parseJD failed:', error);
+    showNotice(`Failed to parse JD: ${error.message || error}`, 'error');
   }
 }
 
 function clearJD(){
-  els.jdUpload.value = '';
-  els.jdRawText.value = '';
+  if (els.jdUpload) els.jdUpload.value = '';
+  if (els.jdRawText) els.jdRawText.value = '';
   showNotice('JD input cleared.');
 }
 
 function clearRoleForm(){
-  els.roleId.value = '';
-  els.clientId.value = '';
-  els.clientName.value = '';
-  els.existingClientSelect.value = '';
+  if (els.roleId) els.roleId.value = '';
+  if (els.clientId) els.clientId.value = '';
+  if (els.clientName) els.clientName.value = '';
+  if (els.existingClientSelect) els.existingClientSelect.value = '';
 
   [
     'jobTitle','roleFamily','location','workSetup','employmentType','seniority',
@@ -2399,20 +2367,20 @@ function clearRoleForm(){
     'signalEnvironmentNotes','signalCommunicationWeight','signalStakeholderWeight',
     'signalAutonomyLevel','signalDecisionMaking','signalBusinessPriorities'
   ].forEach(id => {
-    if(els[id]) els[id].value = '';
+    if (els[id]) els[id].value = '';
   });
 
-  els.roleStatus.value = 'Open';
-  els.salaryCurrency.value = 'PHP';
-  els.salaryPeriod.value = 'Monthly';
-  els.languageRequirement.value = 'None';
-  els.voiceScreeningMode.value = 'auto';
+  if (els.roleStatus) els.roleStatus.value = 'Open';
+  if (els.salaryCurrency) els.salaryCurrency.value = 'PHP';
+  if (els.salaryPeriod) els.salaryPeriod.value = 'Monthly';
+  if (els.languageRequirement) els.languageRequirement.value = 'None';
+  if (els.voiceScreeningMode) els.voiceScreeningMode.value = 'auto';
 
-  els.signalSummaryOutput.textContent = 'No signal summary generated yet.';
-  els.screeningSummaryOutput.textContent = 'No summary generated yet.';
-  els.scoringSummaryOutput.textContent = 'No scoring evaluation yet.';
-  els.questionQualitySummaryOutput.textContent = 'No question quality evaluation yet.';
-  els.learningSnapshotOutput.textContent = 'No recruiter feedback captured yet.';
+  if (els.signalSummaryOutput) els.signalSummaryOutput.textContent = 'No signal summary generated yet.';
+  if (els.screeningSummaryOutput) els.screeningSummaryOutput.textContent = 'No summary generated yet.';
+  if (els.scoringSummaryOutput) els.scoringSummaryOutput.textContent = 'No scoring evaluation yet.';
+  if (els.questionQualitySummaryOutput) els.questionQualitySummaryOutput.textContent = 'No question quality evaluation yet.';
+  if (els.learningSnapshotOutput) els.learningSnapshotOutput.textContent = 'No recruiter feedback captured yet.';
 
   questionItems = [];
   renderQuestions();
@@ -2420,71 +2388,82 @@ function clearRoleForm(){
 }
 
 function attachEvents(){
-  els.newRoleBtn?.addEventListener('click', openNewRole);
-  els.newRoleBtnHero?.addEventListener('click', openNewRole);
-  els.closeRoleModalBtn?.addEventListener('click', () => setModalOpen(false));
-  els.refreshRolesBtn?.addEventListener('click', loadRoles);
-  els.clearRoleBtn?.addEventListener('click', clearRoleForm);
-  els.buildSignalBtn?.addEventListener('click', buildSignalSummary);
+  try {
+    els.newRoleBtn?.addEventListener('click', openNewRole);
+    els.newRoleBtnHero?.addEventListener('click', openNewRole);
+    els.closeRoleModalBtn?.addEventListener('click', () => setModalOpen(false));
+    els.refreshRolesBtn?.addEventListener('click', loadRoles);
+    els.clearRoleBtn?.addEventListener('click', clearRoleForm);
+    els.buildSignalBtn?.addEventListener('click', buildSignalSummary);
 
-  els.generateAiQuestionsBtn?.addEventListener('click', () => {
-    try {
-      const roleModel = deriveRoleModel();
-      const generated = generateQuestionsV11(roleModel);
+    els.generateAiQuestionsBtn?.addEventListener('click', () => {
+      try {
+        const roleModel = deriveRoleModel();
+        const generated = generateQuestionsV11(roleModel);
+        hydrateQuestionItems(Array.isArray(generated) ? generated : []);
 
-      hydrateQuestionItems(Array.isArray(generated) ? generated : []);
+        showNotice(
+          questionItems.length
+            ? 'AI Questions Generated (V12 Proof-First Engine)'
+            : 'No AI questions were generated. Please check Signals and role setup.',
+          questionItems.length ? 'success' : 'error'
+        );
+      } catch (error) {
+        console.error('AI question generation failed:', error);
+        showNotice(`AI question generation failed: ${error.message || error}`, 'error');
+      }
+    });
 
-      showNotice(
-        questionItems.length
-          ? 'AI Questions Generated (V12 Proof-First Engine)'
-          : 'No AI questions were generated. Please check Signals and role setup.',
-        questionItems.length ? 'success' : 'error'
-      );
-    } catch (error) {
-      console.error('AI question generation failed:', error);
-      showNotice(`AI question generation failed: ${error.message || error}`, 'error');
-    }
-  });
+    els.evaluateQuestionQualityBtn?.addEventListener('click', evaluateAllQuestionQuality);
+    els.addQuestionBtn?.addEventListener('click', addQuestion);
+    els.generateSummaryBtn?.addEventListener('click', generateScreeningSummary);
+    els.scoreAnswersBtn?.addEventListener('click', evaluateAnswers);
+    els.clearAnswersBtn?.addEventListener('click', clearAnswers);
+    els.saveRoleBtn?.addEventListener('click', saveRole);
+    els.parseJDBtn?.addEventListener('click', parseJD);
+    els.clearJDBtn?.addEventListener('click', clearJD);
+    els.searchInput?.addEventListener('input', renderRolesTable);
+    els.holdFilter?.addEventListener('change', renderRolesTable);
+    els.clientName?.addEventListener('change', syncClientSelectionByName);
+    els.existingClientSelect?.addEventListener('change', e => setClientSelectionById(e.target.value));
+    els.tabButtons.forEach(btn => btn.addEventListener('click', () => switchTab(btn.dataset.tab)));
+    els.openHelpBtn?.addEventListener(
+      'click',
+      () => showNotice('This version adds real-work grounding, rewrite-before-render validation, stronger question scoring, and a minimum-question safeguard.')
+    );
 
-  els.evaluateQuestionQualityBtn?.addEventListener('click', evaluateAllQuestionQuality);
-  els.addQuestionBtn?.addEventListener('click', addQuestion);
-  els.generateSummaryBtn?.addEventListener('click', generateScreeningSummary);
-  els.scoreAnswersBtn?.addEventListener('click', evaluateAnswers);
-  els.clearAnswersBtn?.addEventListener('click', clearAnswers);
-  els.saveRoleBtn?.addEventListener('click', saveRole);
-  els.parseJDBtn?.addEventListener('click', parseJD);
-  els.clearJDBtn?.addEventListener('click', clearJD);
-  els.searchInput?.addEventListener('input', renderRolesTable);
-  els.holdFilter?.addEventListener('change', renderRolesTable);
-  els.clientName?.addEventListener('change', syncClientSelectionByName);
-  els.existingClientSelect?.addEventListener('change', e => setClientSelectionById(e.target.value));
-  els.tabButtons.forEach(btn => btn.addEventListener('click', () => switchTab(btn.dataset.tab)));
-
-  els.openHelpBtn?.addEventListener(
-    'click',
-    () => showNotice('This version adds real-work grounding, rewrite-before-render validation, stronger question scoring, and a minimum-question safeguard.')
-  );
-
-  [
-    'jobTitle','roleFamily','location','workSetup','employmentType','seniority',
-    'salaryMin','salaryMax','salaryCurrency','salaryPeriod',
-    'jobDescription','requirements','prioritySkills','niceToHaveSkills',
-    'signalNonNegotiables','signalRedFlags','signalMustHaveSkills','signalSuccessSignals',
-    'signalSetupCriticality','signalEnvironmentNotes','signalCommunicationWeight',
-    'signalStakeholderWeight','signalAutonomyLevel','signalDecisionMaking',
-    'signalBusinessPriorities'
-  ].forEach(id => {
-    els[id]?.addEventListener('input', refreshPreview);
-    els[id]?.addEventListener('change', refreshPreview);
-  });
+    [
+      'jobTitle','roleFamily','location','workSetup','employmentType','seniority',
+      'salaryMin','salaryMax','salaryCurrency','salaryPeriod',
+      'jobDescription','requirements','prioritySkills','niceToHaveSkills',
+      'signalNonNegotiables','signalRedFlags','signalMustHaveSkills','signalSuccessSignals',
+      'signalSetupCriticality','signalEnvironmentNotes','signalCommunicationWeight',
+      'signalStakeholderWeight','signalAutonomyLevel','signalDecisionMaking',
+      'signalBusinessPriorities'
+    ].forEach(id => {
+      els[id]?.addEventListener('input', refreshPreview);
+      els[id]?.addEventListener('change', refreshPreview);
+    });
+  } catch (error) {
+    console.error('attachEvents failed:', error);
+    showNotice(`Failed to attach events: ${error.message || error}`, 'error');
+  }
 }
 
 async function init(){
-  attachEvents();
-  clearRoleForm();
-  await loadClients();
-  await loadRoles();
-  refreshPreview();
+  try {
+    attachEvents();
+    clearRoleForm();
+    await loadClients();
+    await loadRoles();
+    refreshPreview();
+  } catch (error) {
+    console.error('init failed:', error);
+    if (els.rolesTableBody) {
+      els.rolesTableBody.innerHTML = '<tr><td colspan="6" class="empty-state">Failed to initialize page.</td></tr>';
+    }
+    showNotice(`Failed to initialize page: ${error.message || error}`, 'error');
+  }
 }
 
 init();
