@@ -1454,72 +1454,263 @@ function cleanGeneratedQuestion(questionText, focusArea = '', roleModel = {}){
       return text;
     }
 
-    function finalizeGeneratedQuestions(list, roleModel){
-  const input = Array.isArray(list) ? list : [];
-  const seen = new Set();
-  const finalList = [];
+ function finalizeGeneratedQuestions(questions = [], roleModel = {}){
+  const domain = detectRoleDomain(roleModel);
+  const finalQuestions = [];
+  const seenQuestionKeys = new Set();
+  const seenFocusKeys = new Set();
 
-  for (const rawItem of input) {
-    if (!rawItem) continue;
+  const safeQuestions = Array.isArray(questions) ? questions.filter(Boolean) : [];
 
-    const originalQuestion = safeText(rawItem.question);
-    if (!originalQuestion) continue;
-
-    // Preserve the generated wording. Do not run it back through a rewrite layer.
-    const cleanedQuestion =
-      typeof cleanGeneratedQuestionV11 === 'function'
-        ? cleanGeneratedQuestionV11(
-            originalQuestion,
-            rawItem.focus_area || '',
-            roleModel || {}
-          )
-        : originalQuestion;
-
-    const question = safeText(cleanedQuestion);
-    if (!question) continue;
-
-    if (typeof isGenericQuestion === 'function' && isGenericQuestion(question)) {
-      continue;
-    }
-
-    const key = question.toLowerCase();
-    if (seen.has(key)) continue;
-    seen.add(key);
-
-    finalList.push({
-      ...rawItem,
-      question,
-      ai_original_question: safeText(rawItem.ai_original_question) || question
-    });
+  function getQuestionText(q){
+    return tbSafe(q?.question || q?.ai_original_question);
   }
 
-  while (finalList.length < 5) {
-    const fallback =
-      typeof buildExecutionSimulationV11 === 'function'
-        ? buildExecutionSimulationV11(roleModel || {})
-        : buildSimulation(roleModel || {});
-
-    let fallbackQuestion = safeText(fallback?.question);
-    if (!fallbackQuestion) break;
-
-    let uniqueQuestion = fallbackQuestion;
-    let suffixIndex = 1;
-
-    while (seen.has(uniqueQuestion.toLowerCase())) {
-      suffixIndex += 1;
-      uniqueQuestion = `${fallbackQuestion} Variant ${suffixIndex}.`;
-    }
-
-    seen.add(uniqueQuestion.toLowerCase());
-
-    finalList.push({
-      ...fallback,
-      question: uniqueQuestion,
-      ai_original_question: safeText(fallback.ai_original_question) || uniqueQuestion
-    });
+  function getFocusText(q){
+    return stripImportanceLabel(q?.focus_area || '');
   }
 
-  return finalList;
+  function normalizeQuestionKey(text){
+    return tbLower(text)
+      .replace(/[^\w\s]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  function normalizeFocusKey(text){
+    return tbLower(stripImportanceLabel(text))
+      .replace(/[^\w\s]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  function looksGenericKnockout(text){
+    const t = tbLower(text);
+    return (
+      /briefly confirm whether you meet it/.test(t) ||
+      /this role requires .+ cite the most relevant real experience or credential behind it/.test(t) ||
+      /^this role requires /.test(t)
+    );
+  }
+
+  function looksGenericProof(text){
+    const t = tbLower(text);
+    return (
+      /^describe one real situation where .+ directly affected delivery or system performance/.test(t) ||
+      /^describe one real situation where /.test(t) ||
+      /^describe one real customer-facing situation where /.test(t)
+    );
+  }
+
+  function hasWeakFocusAlignment(q){
+    const text = tbLower(getQuestionText(q));
+    const focus = tbLower(getFocusText(q));
+    if (!focus) return false;
+
+    const focusWords = focus.split(/\s+/).filter(w => w.length >= 4);
+    if (!focusWords.length) return false;
+
+    const matchCount = focusWords.filter(word => text.includes(word)).length;
+    return matchCount === 0;
+  }
+
+  function rewriteKnockoutQuestion(focusArea, roleModel = {}){
+    const cleanFocus = stripImportanceLabel(focusArea);
+    const lower = tbLower(cleanFocus);
+    const domain = detectRoleDomain(roleModel);
+
+    if (!cleanFocus) return '';
+
+    if (/\bportfolio\b/.test(lower)) {
+      return `Share 2 to 3 live examples that best prove your ${cleanFocus}. For each one, state what you personally built, what platform or tools were involved, and which part you owned end to end.`;
+    }
+
+    if (/\bwebflow\b/.test(lower)) {
+      return `Tell us about the strongest real project that proves your ${cleanFocus}. What kind of site was it, what did you personally build inside Webflow, and what part would we be able to verify from the live output?`;
+    }
+
+    if (/\bcms\b|\bcollections\b|\bdynamic content\b/.test(lower)) {
+      return `Describe one real project where you used ${cleanFocus}. What content structure did you set up, why did you structure it that way, and what would we see in the live build that proves your work?`;
+    }
+
+    if (/\bapi\b|\bintegration\b|\bzapier\b|\bhubspot\b|\bsalesforce\b|\bcrm\b/.test(lower)) {
+      return `Describe one real project where you handled ${cleanFocus}. What systems were connected, what data or trigger moved between them, and what issue did you personally solve during the integration?`;
+    }
+
+    if (/\bexperience\b|\byears\b|\bmonths\b|\brequired\b|\blicense\b|\bcertified\b|\bcredential\b/.test(lower)) {
+      return `Confirm your ${cleanFocus} by citing one specific real role or project. State where you used it, what you personally handled, and one concrete detail that makes the claim easy to verify.`;
+    }
+
+    if (/\bremote\b|\bonsite\b|\bhybrid\b|\bshift\b|\bgraveyard\b|\bschedule\b/.test(lower)) {
+      return `This role depends on ${cleanFocus}. Confirm whether you can meet that consistently, and explain what in your current setup makes that realistic long term.`;
+    }
+
+    if (domain === 'technical') {
+      return `Describe one real project that proves your ${cleanFocus}. What did you personally own, what technical decisions did you make, and what live output, system behavior, or shipped result would verify that work?`;
+    }
+
+    if (domain === 'customer') {
+      return `Describe one real role or case that proves your ${cleanFocus}. What kind of customer issue did you handle, what did you personally do, and what result or metric would confirm the work was real?`;
+    }
+
+    return `Describe one real example that proves your ${cleanFocus}. State where you used it, what you personally handled, and one concrete result or output that would verify it.`;
+  }
+
+  function rewriteGenericProofQuestion(focusArea, roleModel = {}){
+    const cleanFocus = stripImportanceLabel(focusArea);
+    const lower = tbLower(cleanFocus);
+    const domain = detectRoleDomain(roleModel);
+
+    if (!cleanFocus) return '';
+
+    if (domain === 'technical') {
+      if (/\bwebflow\b/.test(lower)) {
+        return `Describe one real Webflow project where ${cleanFocus} mattered. What was the build goal, what became difficult, what did you inspect first, and what did you change to get the site working as expected?`;
+      }
+      if (/\bcms\b|\bcollections\b|\bdynamic content\b/.test(lower)) {
+        return `Describe one real build where ${cleanFocus} mattered. What structure did you create, what problem showed up first, and why did you choose that CMS setup over other options?`;
+      }
+      if (/\bhtml\b|\bcss\b|\bjavascript\b/.test(lower)) {
+        return `Describe one real website issue where ${cleanFocus} mattered. What was broken or failing in the live experience, what did you inspect first, and what specific change fixed it?`;
+      }
+      if (/\bperformance\b|\bresponsive\b/.test(lower)) {
+        return `Describe one real project where ${cleanFocus} became a problem. What was the user-facing issue, what did you diagnose first, and what trade-off did you make to improve the result?`;
+      }
+      if (/\bownership\b|\bclient-facing\b|\btroubleshoot\b|\bproblems independently\b/.test(lower)) {
+        return `Describe one real project where ${cleanFocus} clearly showed up in your work. What problem landed on you, what did you do before asking for help, and what outcome proved your judgment was right?`;
+      }
+      return `Describe one real project where ${cleanFocus} directly mattered. What was the actual problem, what did you inspect first, and what decision or change did you personally make?`;
+    }
+
+    if (domain === 'customer') {
+      return `Describe one real customer case where ${cleanFocus} mattered. What was happening, what did you do first, and what outcome showed that your handling worked?`;
+    }
+
+    if (domain === 'healthcare') {
+      return `Describe one real case where ${cleanFocus} mattered. What did you review first, what judgment did you make, and what outcome followed from your action?`;
+    }
+
+    if (domain === 'finance') {
+      return `Describe one real case where ${cleanFocus} mattered. What issue showed up first, what records or signals did you check, and what action did you take to resolve it?`;
+    }
+
+    return `Describe one real situation where ${cleanFocus} mattered. What happened first, what did you personally do, and what result followed?`;
+  }
+
+  function improveQuestion(q){
+    const focus = getFocusText(q);
+    let text = getQuestionText(q);
+
+    if (!text) return null;
+
+    if (looksGenericKnockout(text)) {
+      text = rewriteKnockoutQuestion(focus, roleModel) || text;
+    } else if (looksGenericProof(text) || hasWeakFocusAlignment(q)) {
+      text = rewriteGenericProofQuestion(focus, roleModel) || text;
+    }
+
+    text = cleanGeneratedQuestionV11(text, focus, roleModel);
+
+    const category = q.category || chooseQuestionCategoryV11(focus, text, roleModel);
+    const response_type = q.response_type || chooseResponseTypeV11(focus, text, roleModel);
+    const weight = q.weight || chooseQuestionWeightV11(focus, roleModel);
+    const quality = evaluateQuestionQualityV11(text, focus, roleModel);
+
+    return {
+      ...q,
+      question: text,
+      ai_original_question: q.ai_original_question || text,
+      focus_area: focus || q.focus_area || '',
+      category,
+      response_type,
+      weight,
+      quality_review: quality,
+      quality_score: quality.score,
+      was_ai_generated: q.was_ai_generated !== false
+    };
+  }
+
+  function addQuestion(q){
+    if (!q || finalQuestions.length >= 5) return false;
+
+    const text = getQuestionText(q);
+    const focus = getFocusText(q);
+    const questionKey = normalizeQuestionKey(text);
+    const focusKey = normalizeFocusKey(focus);
+
+    if (!text || seenQuestionKeys.has(questionKey)) return false;
+
+    if (
+      focusKey &&
+      seenFocusKeys.has(focusKey) &&
+      !['simulation', 'red_flag'].includes(q.category)
+    ) {
+      return false;
+    }
+
+    seenQuestionKeys.add(questionKey);
+    if (focusKey) seenFocusKeys.add(focusKey);
+    finalQuestions.push(q);
+    return true;
+  }
+
+  const improved = safeQuestions
+    .map(improveQuestion)
+    .filter(Boolean)
+    .sort((a, b) => {
+      const aCat = a.category || '';
+      const bCat = b.category || '';
+      const aScore = Number(a.quality_score || 0);
+      const bScore = Number(b.quality_score || 0);
+
+      const catPriority = {
+        knockout: 4,
+        technical: 3,
+        proof: 2,
+        red_flag: 1,
+        simulation: 1
+      };
+
+      const aPriority = catPriority[aCat] || 0;
+      const bPriority = catPriority[bCat] || 0;
+
+      if (aPriority !== bPriority) return bPriority - aPriority;
+      return bScore - aScore;
+    });
+
+  const knockoutPool = improved.filter(q => q.category === 'knockout');
+  const technicalPool = improved.filter(q => q.category === 'technical');
+  const proofPool = improved.filter(q => q.category === 'proof');
+  const redFlagPool = improved.filter(q => q.category === 'red_flag');
+  const simulationPool = improved.filter(q => q.category === 'simulation');
+
+  knockoutPool.slice(0, 2).forEach(addQuestion);
+
+  if (domain === 'technical') {
+    technicalPool.slice(0, 1).forEach(addQuestion);
+    proofPool.slice(0, 1).forEach(addQuestion);
+  } else {
+    proofPool.slice(0, 2).forEach(addQuestion);
+  }
+
+  redFlagPool.slice(0, 1).forEach(addQuestion);
+  simulationPool.slice(0, 1).forEach(addQuestion);
+
+  improved.forEach(addQuestion);
+
+  const finalTrimmed = finalQuestions.slice(0, 5).map((q, idx) => {
+    const quality = q.quality_review || evaluateQuestionQualityV11(q.question, q.focus_area, roleModel);
+    return {
+      ...q,
+      order_index: idx + 1,
+      quality_review: quality,
+      quality_score: quality.score,
+      recruiter_action: q.recruiter_action || 'keep',
+      feedback_tags: Array.isArray(q.feedback_tags) ? q.feedback_tags : []
+    };
+  });
+
+  return finalTrimmed;
 }
 
 
