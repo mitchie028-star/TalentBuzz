@@ -2,757 +2,1357 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Client Dashboard | TalentBuzz</title>
+  <title>Client Management | TalentBuzz</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="description" content="TalentBuzz client dashboard for endorsed candidates only." />
+  <meta name="description" content="Client and portal user management workspace." />
+
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+
   <style>
     :root{
-      --blue:#1e3a8a; --blue-light:#2563eb; --text:#0f172a; --muted:#64748b; --line:#e2e8f0;
-      --white:#ffffff; --success:#166534; --error:#b91c1c; --shadow:0 20px 45px rgba(30,58,138,.08),0 4px 14px rgba(15,23,42,.06);
-      --overlay:rgba(15,23,42,.55);
+      --primary:#1e3a8a;
+      --primary-2:#2563eb;
+      --text:#0f172a;
+      --muted:#64748b;
+      --border:#e2e8f0;
+      --white:#ffffff;
+      --success:#166534;
+      --danger:#b91c1c;
+      --info:#4338ca;
+      --shadow:0 12px 30px rgba(30,58,138,.06),0 2px 10px rgba(15,23,42,.04);
+      --radius-lg:18px;
     }
+
     *{box-sizing:border-box}
-    html,body{margin:0;padding:0;font-family:'Manrope',sans-serif;background:linear-gradient(180deg,#f8fbff 0%,#f4f8ff 100%);color:var(--text)}
-    body.modal-open{overflow:hidden}
-    .container{max-width:1560px;margin:0 auto;padding:28px 18px 40px}
-    .top{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap;margin-bottom:18px}
-    .brand-line{display:flex;align-items:center;gap:16px;margin-bottom:8px}
-    .brand-logo{height:50px;width:auto;object-fit:contain;display:block;flex-shrink:0}
-    h1{margin:0;color:var(--blue);font-size:2rem;line-height:1.05;letter-spacing:-0.03em}
-    .subtitle{color:var(--muted);font-size:.95rem;line-height:1.7;margin-top:6px;max-width:860px}
-    .top-actions{display:flex;gap:10px;flex-wrap:wrap}
-    .btn{border:none;border-radius:14px;padding:12px 16px;font:inherit;font-weight:800;cursor:pointer;text-decoration:none;display:inline-flex;align-items:center;justify-content:center;gap:8px;transition:.18s ease;min-height:46px}
-    .btn:hover{transform:translateY(-1px)} .btn:disabled{opacity:.7;cursor:not-allowed;transform:none}
-    .btn-primary{background:linear-gradient(135deg,var(--blue),var(--blue-light));color:#fff}
-    .btn-outline{background:#fff;color:var(--blue);border:1px solid #cbd5e1}
-    .btn-soft{background:#fff;color:#0f172a;border:1px solid var(--line)}
-    .btn-danger{background:#fff;color:var(--error);border:1px solid #fecaca}
-    .btn-xs{min-height:34px;padding:8px 11px;border-radius:11px;font-size:.82rem}
-    .notice{display:none;margin-bottom:16px;padding:14px 16px;border-radius:16px;font-size:.93rem;line-height:1.65;font-weight:700;border:1px solid transparent;background:#fff}
-    .notice.show{display:block}.notice.info{background:#eef2ff;color:#4338ca;border-color:#c7d2fe}.notice.success{background:#ecfdf5;color:var(--success);border-color:#bbf7d0}.notice.error{background:#fef2f2;color:var(--error);border-color:#fecaca}
-    .stats{display:grid;grid-template-columns:repeat(8,minmax(0,1fr));gap:12px;margin-bottom:18px}
-    .stat{background:#fff;border:1px solid var(--line);border-radius:18px;padding:16px;box-shadow:0 8px 24px rgba(15,23,42,.04)}
-    .stat-label{font-size:.78rem;color:var(--muted);text-transform:uppercase;letter-spacing:.07em;font-weight:800;margin-bottom:8px}
-    .stat-value{font-size:1.6rem;font-weight:800;color:var(--blue);line-height:1}
-    .panel{background:#fff;border:1px solid var(--line);border-radius:22px;padding:18px;box-shadow:var(--shadow)}
-    .sticky-head{position:sticky;top:0;z-index:15}
-    .panel-head{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:14px}
-    .panel-title{font-size:1rem;font-weight:800;color:var(--text)}
-    .panel-subtitle{font-size:.88rem;color:var(--muted);margin-top:4px}
-    .filters{display:grid;grid-template-columns:1.5fr 1fr 1fr 1fr 1fr auto;gap:12px;margin-bottom:16px;align-items:center;background:rgba(255,255,255,.96);backdrop-filter:blur(8px)}
-    input,select,textarea{width:100%;padding:12px 14px;border:1px solid var(--line);border-radius:14px;font:inherit;outline:none;background:#fff;color:var(--text)}
-    textarea{resize:vertical;min-height:120px}
-    input:focus,select:focus,textarea:focus{border-color:#93c5fd;box-shadow:0 0 0 3px rgba(147,197,253,.25)}
-    .inline-toggle{display:flex;align-items:center;gap:8px;font-weight:800;color:#334155;white-space:nowrap}
-    .inline-toggle input{width:16px;height:16px;padding:0;margin:0;accent-color:var(--blue-light)}
-    .table-wrap{overflow:auto;border:1px solid var(--line);border-radius:16px;background:#fff}
-    table{width:100%;min-width:1160px;border-collapse:collapse;background:#fff}
-    th,td{padding:14px 12px;border-bottom:1px solid #e5e7eb;text-align:left;vertical-align:top}
-    th{background:#f8fafc;color:var(--muted);font-size:.76rem;text-transform:uppercase;letter-spacing:.07em;font-weight:800;position:sticky;top:0;z-index:1;white-space:nowrap}
-    .small{color:var(--muted);font-size:.84rem;line-height:1.6}
-    .candidate-name{font-weight:800;color:#0f172a;font-size:.96rem}
-    .pill{display:inline-flex;align-items:center;padding:6px 10px;border-radius:999px;font-size:.76rem;font-weight:800;white-space:nowrap;background:#eef2ff;color:#4338ca}
-    .pill.new{background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe;margin-left:8px}
-    .status-passed_application{background:#eff6ff;color:#1d4ed8}
-    .status-shortlisted{background:#ecfdf5;color:#166534}
-    .status-on_hold{background:#fff7ed;color:#b45309}
-    .status-rejected_by_client{background:#fef2f2;color:#b91c1c}
-    .status-need_more_profiles{background:#f5f3ff;color:#6d28d9}
-    .status-offered_jo{background:#eef2ff;color:#4338ca}
-    .status-onboarded{background:#dcfce7;color:#166534}
-    .status-empty{background:#f8fafc;color:#64748b}
-    .action-cell{display:flex;gap:8px;flex-wrap:wrap}.empty{padding:28px 16px;text-align:center;color:var(--muted);font-weight:700}
-    .rating-display{font-weight:800;color:var(--blue)} .muted-dash{color:#94a3b8} .date-cell{min-width:172px}
-    .modal{position:fixed;inset:0;display:none;align-items:center;justify-content:center;padding:18px;z-index:999}
-    .modal.show{display:flex}.modal-backdrop{position:absolute;inset:0;background:var(--overlay)}
-    .modal-card{position:relative;width:min(1040px,100%);max-height:92vh;overflow:auto;background:#fff;border-radius:24px;box-shadow:0 25px 60px rgba(15,23,42,.28);border:1px solid rgba(255,255,255,.6)}
-    .modal-header{display:flex;justify-content:space-between;align-items:flex-start;gap:14px;padding:22px 22px 16px;border-bottom:1px solid var(--line);position:sticky;top:0;background:#fff;z-index:2}
-    .modal-title{font-size:1.2rem;font-weight:800;color:var(--text);margin:0}
-    .modal-subtitle{color:var(--muted);font-size:.9rem;margin-top:6px;line-height:1.6}
-    .icon-btn{width:42px;height:42px;border-radius:12px;border:1px solid var(--line);background:#fff;cursor:pointer;font:inherit;font-size:1.15rem;font-weight:800;color:#334155;flex-shrink:0}
-    .modal-body{padding:20px 22px 22px}.modal-grid{display:grid;grid-template-columns:1.1fr .9fr;gap:18px}
-    .card{background:#fff;border:1px solid var(--line);border-radius:18px;padding:16px}
-    .card-title{font-size:.82rem;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);font-weight:800;margin-bottom:10px}
-    .meta-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
-    .meta-item{background:#f8fafc;border:1px solid #e2e8f0;border-radius:14px;padding:12px}
-    .meta-label{font-size:.74rem;font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px}
-    .meta-value{font-size:.93rem;font-weight:700;color:#0f172a;line-height:1.5;word-break:break-word}
-    .summary-box{background:#f8fafc;border:1px solid #e2e8f0;border-radius:16px;padding:14px;color:#334155;line-height:1.7;white-space:pre-wrap}
-    .quick-status{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-bottom:14px}
-    .quick-status button{min-height:46px;border-radius:14px;border:1px solid #cbd5e1;background:#fff;font:inherit;font-weight:800;cursor:pointer;padding:10px 12px;color:#334155}
-    .quick-status button.active{background:linear-gradient(135deg,var(--blue),var(--blue-light));color:#fff;border-color:transparent}
-    .rating-group{display:flex;gap:8px;flex-wrap:wrap}
-    .rating-btn{border:1px solid #cbd5e1;background:#fff;color:#334155;border-radius:12px;min-width:42px;height:42px;font-weight:800;cursor:pointer}
-    .rating-btn.active{background:linear-gradient(135deg,var(--blue),var(--blue-light));color:#fff;border-color:transparent}
-    .modal-actions{display:flex;justify-content:flex-end;gap:10px;flex-wrap:wrap;margin-top:16px}
-    .resume-row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
-    .last-updated{color:var(--muted);font-size:.84rem;margin-top:10px;line-height:1.5}
-    .decision-strip{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-bottom:16px}
-    .decision-box{background:#f8fafc;border:1px solid #e2e8f0;border-radius:14px;padding:12px}
-    .decision-box .meta-label{margin-bottom:4px}
-    @media (max-width:1300px){.stats{grid-template-columns:repeat(4,minmax(0,1fr))}}
-    @media (max-width:1100px){.stats{grid-template-columns:repeat(3,minmax(0,1fr))}.filters{grid-template-columns:repeat(3,minmax(0,1fr))}.modal-grid{grid-template-columns:1fr}.decision-strip{grid-template-columns:1fr}}
-    @media (max-width:760px){.container{padding:18px 12px 30px}.filters,.stats{grid-template-columns:1fr}h1{font-size:1.7rem}.panel{padding:14px}.brand-logo{height:42px}.modal{padding:10px}.modal-header,.modal-body{padding:16px}.meta-list{grid-template-columns:1fr}.quick-status{grid-template-columns:1fr}}
+    html,body{height:100%}
+    body{
+      margin:0;
+      font-family:"Manrope",sans-serif;
+      background:linear-gradient(180deg,#f8fbff 0%,#f4f8ff 100%);
+      color:var(--text);
+      line-height:1.6;
+    }
+
+    .page-shell{max-width:1480px;margin:0 auto;padding:20px 20px 40px}
+    .top-shell{display:flex;flex-direction:column;gap:10px;margin-bottom:12px}
+    .topbar{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap}
+    .brand-wrap{display:flex;align-items:flex-start;gap:14px;flex:1 1 auto;min-width:260px}
+    .brand-logo{
+      width:56px;height:56px;object-fit:contain;border-radius:14px;background:#fff;
+      border:1px solid var(--border);box-shadow:var(--shadow);padding:7px;flex-shrink:0;
+    }
+    .brand-logo-fallback{
+      width:56px;height:56px;border-radius:14px;display:none;align-items:center;justify-content:center;
+      font-weight:800;color:#fff;background:linear-gradient(135deg,var(--primary),var(--primary-2));
+      box-shadow:var(--shadow);flex-shrink:0;
+    }
+    .brand-text h1{
+      margin:0 0 6px;color:var(--primary);font-size:2rem;line-height:1.1;letter-spacing:-.03em;
+    }
+    .subtitle{margin:0;color:var(--muted);font-size:.95rem;max-width:930px}
+
+    .utility-nav{
+      display:flex;align-items:center;justify-content:flex-end;gap:10px;flex-wrap:wrap;
+      position:relative;margin-left:auto;align-self:flex-start;
+    }
+    .menu-wrap{position:relative}
+    .menu-toggle{
+      display:inline-flex;align-items:center;justify-content:center;min-height:48px;min-width:48px;
+      padding:0 14px;border-radius:14px;border:1px solid var(--border);background:var(--white);
+      box-shadow:var(--shadow);font-weight:800;color:var(--primary);cursor:pointer;font-family:inherit;
+    }
+    .menu-lines{width:18px;height:14px;display:flex;flex-direction:column;justify-content:space-between}
+    .menu-lines span{height:2px;background:var(--primary);border-radius:999px}
+
+    .menu-dropdown{
+      display:none;position:absolute;top:calc(100% + 10px);right:0;width:260px;background:#fff;
+      border:1px solid var(--border);border-radius:16px;padding:12px;box-shadow:0 20px 50px rgba(0,0,0,.15);z-index:50;
+    }
+    .menu-dropdown.show{display:block}
+    .menu-section{font-size:.7rem;font-weight:800;color:var(--muted);padding:6px 10px;text-transform:uppercase}
+    .menu-divider{height:1px;background:var(--border);margin:8px 0}
+    .menu-link,.menu-action{
+      width:100%;display:flex;align-items:center;gap:10px;padding:12px;border-radius:12px;color:var(--text);
+      text-decoration:none;border:none;background:transparent;font:inherit;font-weight:700;cursor:pointer;text-align:left;
+    }
+    .menu-link:hover,.menu-action:hover{background:#f8fbff;transform:translateX(2px)}
+
+    .btn{
+      display:inline-flex;align-items:center;justify-content:center;gap:8px;padding:11px 14px;border-radius:12px;
+      border:1px solid transparent;text-decoration:none;font-weight:800;font-size:.92rem;cursor:pointer;
+      font-family:inherit;transition:.18s ease;background:#fff;white-space:nowrap;
+    }
+    .btn:hover{transform:translateY(-1px)}
+    .btn:disabled{opacity:.65;cursor:not-allowed;transform:none}
+    .btn-primary{background:linear-gradient(135deg,var(--primary),var(--primary-2));color:#fff}
+    .btn-outline{background:#fff;color:var(--primary);border-color:var(--border)}
+    .btn-soft{background:#eff6ff;color:var(--primary);border-color:#bfdbfe}
+    .btn-xs{padding:7px 10px;font-size:.8rem;border-radius:10px}
+
+    .notice{
+      display:none;margin-bottom:16px;padding:12px 14px;border-radius:12px;font-size:.92rem;
+      font-weight:700;border:1px solid transparent;
+    }
+    .notice.show{display:block}
+    .notice.success{background:#ecfdf5;color:var(--success);border-color:#bbf7d0}
+    .notice.error{background:#fef2f2;color:var(--danger);border-color:#fecaca}
+    .notice.info{background:#eef2ff;color:var(--info);border-color:#c7d2fe}
+
+    .stats-grid{
+      display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px;margin-bottom:16px;
+    }
+    .panel,.stat-card{
+      background:var(--white);border:1px solid var(--border);border-radius:var(--radius-lg);box-shadow:var(--shadow);
+    }
+    .stat-card{padding:18px 20px;min-height:112px;display:flex;flex-direction:column;justify-content:center}
+    .stat-label{color:var(--muted);font-size:.82rem;margin-bottom:10px;font-weight:800;letter-spacing:-.01em}
+    .stat-value{color:var(--primary);font-size:2rem;font-weight:800;letter-spacing:-.04em;line-height:1}
+    .stat-sub{margin-top:8px;color:var(--muted);font-size:.78rem;line-height:1.4}
+
+    .panel{padding:20px;margin-bottom:18px}
+    .panel-head-row{
+      display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:14px;
+    }
+    .panel-head-row h2{margin:0;color:var(--primary);font-size:1.2rem;letter-spacing:-.02em}
+    .small{color:var(--muted);font-size:.82rem;line-height:1.5}
+    .metric{font-weight:800;color:var(--primary)}
+
+    .filters-grid{display:grid;grid-template-columns:1.4fr 1fr 1fr auto;gap:14px;align-items:end}
+    .field label{display:block;margin-bottom:6px;font-size:.9rem;font-weight:700}
+    .field input,.field select,.field textarea{
+      width:100%;padding:12px;border-radius:12px;border:1px solid var(--border);font:inherit;background:#fff;outline:none;
+    }
+    .field input:focus,.field select:focus,.field textarea:focus{
+      border-color:#93c5fd;box-shadow:0 0 0 3px rgba(147,197,253,.25)
+    }
+
+    .table-wrap{overflow:auto;border:1px solid var(--border);border-radius:16px;background:#fff}
+    table{width:100%;min-width:1240px;border-collapse:separate;border-spacing:0;background:#fff}
+    thead th{position:sticky;top:0;z-index:6;background:#f8fbff}
+    th,td{
+      padding:12px 10px;border-bottom:1px solid var(--border);text-align:left;vertical-align:top;
+      font-size:.92rem;background:#fff;
+    }
+    tbody tr:last-child td{border-bottom:none}
+    tbody tr:hover td{background:#f8fbff}
+    th{
+      color:var(--muted);font-size:.76rem;font-weight:800;text-transform:uppercase;letter-spacing:.06em;white-space:nowrap;
+    }
+
+    .client-name{font-weight:800;color:var(--primary);margin-bottom:2px;font-size:.96rem;line-height:1.35}
+    .status-pill{
+      display:inline-flex;align-items:center;justify-content:center;min-height:28px;padding:6px 10px;border-radius:999px;
+      font-size:.76rem;font-weight:800;white-space:nowrap;
+    }
+    .status-active{background:#dcfce7;color:#166534}
+    .status-pending{background:#dbeafe;color:#1d4ed8}
+    .status-expired{background:#fee2e2;color:#b91c1c}
+    .status-used{background:#fef3c7;color:#b45309}
+    .status-not_invited{background:#f1f5f9;color:#64748b}
+
+    .row-actions{display:flex;gap:8px;flex-wrap:wrap;min-width:240px}
+    .empty{text-align:center;color:var(--muted);padding:24px 10px;font-size:.95rem}
+    .expand-toggle{font-weight:800}
+    .details-row td{background:#fbfdff;padding:0}
+    .details-wrap{padding:16px;border-top:1px solid #eef2f7}
+    .details-head{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:12px}
+    .sub-table-wrap{overflow:auto;border:1px solid var(--border);border-radius:14px;background:#fff}
+    .sub-table{min-width:920px}
+    .sub-table thead th{position:static;background:#f8fbff}
+    .sub-table tbody tr:hover td{background:#f8fbff}
+    .sub-pill{
+      display:inline-flex;align-items:center;gap:6px;padding:5px 9px;border-radius:999px;
+      background:#eef2ff;color:#4338ca;font-size:.75rem;font-weight:800;
+    }
+
+    .modal{
+      display:none;position:fixed;inset:0;background:rgba(15,23,42,.65);align-items:center;justify-content:center;
+      padding:20px;z-index:9999;
+    }
+    .modal.show{display:flex}
+    .modal-panel{
+      background:#fff;width:min(780px,100%);max-height:92vh;border-radius:18px;overflow:hidden;
+      display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.2);
+    }
+    .modal-header{
+      display:flex;justify-content:space-between;align-items:center;gap:12px;padding:14px 16px;
+      border-bottom:1px solid var(--border);background:#fff;
+    }
+    .modal-title{margin:0;color:var(--primary);font-size:1.05rem}
+    .modal-body{padding:18px;overflow:auto;background:#fff}
+    .drawer-close{
+      border:1px solid var(--border);background:#fff;border-radius:12px;cursor:pointer;width:40px;height:40px;
+      font-size:1.2rem;color:var(--muted);flex-shrink:0;
+    }
+    .modal-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+    .modal-grid .field.full{grid-column:1 / -1}
+
+    @media (max-width:1100px){
+      .stats-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+      .filters-grid{grid-template-columns:1fr 1fr}
+    }
+    @media (max-width:760px){
+      .page-shell{padding:18px 14px 30px}
+      .stats-grid,.filters-grid,.modal-grid{grid-template-columns:1fr}
+      .brand-text h1{font-size:1.7rem}
+      .brand-logo,.brand-logo-fallback{width:46px;height:46px}
+      .utility-nav{width:100%;justify-content:flex-end}
+    }
   </style>
 </head>
 <body>
-  <div class="container">
-    <div class="top">
-      <div>
-        <div class="brand-line">
-          <img src="logo.png" class="brand-logo" alt="TalentBuzz Logo" />
-          <div>
-            <h1>Client Dashboard</h1>
-            <div class="subtitle">Review endorsed candidates for your company only. This portal shows only candidates formally endorsed to your requisitions.</div>
+  <div class="page-shell">
+    <div class="top-shell">
+      <div class="topbar">
+        <div class="brand-wrap">
+          <img src="logo.png" alt="TalentBuzz Logo" class="brand-logo" onerror="this.style.display='none';this.nextElementSibling.style.display='flex';" />
+          <div class="brand-logo-fallback">TB</div>
+          <div class="brand-text">
+            <h1>Client Management</h1>
+            <p class="subtitle">One workspace for client records, portal users, and invite status. This version adds a proper auth gate before the page loads and before any invite action calls your existing <strong>create-client-login</strong> edge function.</p>
+          </div>
+        </div>
+
+        <div class="utility-nav">
+          <button id="openAddClientBtn" class="btn btn-primary" type="button">+ Add Client</button>
+
+          <div class="menu-wrap">
+            <button class="menu-toggle" id="menuToggleBtn" type="button" title="Menu">
+              <span class="menu-lines"><span></span><span></span><span></span></span>
+            </button>
+
+            <div class="menu-dropdown" id="menuDropdown">
+              <div class="menu-section">Workspace</div>
+              <a href="index.html" class="menu-link">🏠 Home</a>
+              <a href="client.html" class="menu-link">🏢 Clients</a>
+              <a href="client-roles-input.html" class="menu-link">📋 Open Roles</a>
+              <a href="recruiter-productivity.html" class="menu-link">📊 Productivity</a>
+              <div class="menu-divider"></div>
+              <button class="menu-action" id="refreshFromMenuBtn" type="button">🔄 Refresh</button>
+              <button class="menu-action" id="logoutBtn" type="button">Logout</button>
+            </div>
           </div>
         </div>
       </div>
-      <div class="top-actions">
-        <button id="refreshBtn" class="btn btn-outline" type="button">Refresh</button>
-        <button id="logoutBtn" class="btn btn-primary" type="button">Logout</button>
+
+      <div id="notice" class="notice"></div>
+    </div>
+
+    <div class="stats-grid">
+      <div class="stat-card">
+        <div class="stat-label">Total Clients</div>
+        <div class="stat-value" id="statTotalClients">0</div>
+        <div class="stat-sub">Distinct companies in the clients table</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Active Clients</div>
+        <div class="stat-value" id="statActiveClients">0</div>
+        <div class="stat-sub">Client records marked active</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Portal Users</div>
+        <div class="stat-value" id="statPortalUsers">0</div>
+        <div class="stat-sub">Existing client_users records</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Pending Invites</div>
+        <div class="stat-value" id="statPendingInvites">0</div>
+        <div class="stat-sub">Latest invite per email that is still pending</div>
       </div>
     </div>
 
-    <div id="previewBanner" class="notice info" style="display:none;"></div>
-    <div id="notice" class="notice"></div>
-
-    <div class="stats">
-      <div class="stat"><div class="stat-label">Endorsed</div><div id="statEndorsed" class="stat-value">0</div></div>
-      <div class="stat"><div class="stat-label">Pending Review</div><div id="statPending" class="stat-value">0</div></div>
-      <div class="stat"><div class="stat-label">Passed Application</div><div id="statPassedApplication" class="stat-value">0</div></div>
-      <div class="stat"><div class="stat-label">Shortlisted</div><div id="statShortlisted" class="stat-value">0</div></div>
-      <div class="stat"><div class="stat-label">Offered JO</div><div id="statOfferedJo" class="stat-value">0</div></div>
-      <div class="stat"><div class="stat-label">Onboarded</div><div id="statOnboarded" class="stat-value">0</div></div>
-      <div class="stat"><div class="stat-label">Rejected</div><div id="statRejected" class="stat-value">0</div></div>
-      <div class="stat"><div class="stat-label">Avg Rating</div><div id="statAvgRating" class="stat-value">-</div></div>
-    </div>
-
-    <div class="panel sticky-head">
-      <div class="panel-head">
-        <div>
-          <div class="panel-title">Endorsed Candidates</div>
-          <div class="panel-subtitle">Search and review candidates endorsed to your company. Use “View” to open full candidate details, preview resumes, and submit feedback.</div>
+    <div class="panel">
+      <div class="panel-head-row">
+        <h2>Search & Filters</h2>
+        <div style="display:flex; gap:10px; flex-wrap:wrap;">
+          <button id="refreshBtn" class="btn btn-outline" type="button">Refresh</button>
+          <button id="clearFiltersBtn" class="btn btn-outline" type="button">Clear Filters</button>
         </div>
       </div>
 
-      <div class="filters">
-        <input id="searchInput" name="search" placeholder="Search candidate name or role" />
-        <select id="roleFilter" name="roleFilter"><option value="">All requisitions</option></select>
-        <select id="statusFilter" name="statusFilter">
-          <option value="">All feedback statuses</option>
-          <option value="passed_application">Passed Application</option>
-          <option value="shortlisted">Shortlisted</option>
-          <option value="on_hold">On Hold</option>
-          <option value="offered_jo">Offered JO</option>
-          <option value="onboarded">Onboarded</option>
-          <option value="rejected_by_client">Rejected</option>
-          <option value="need_more_profiles">Need More Profiles</option>
-        </select>
-        <select id="ratingFilter" name="ratingFilter">
-          <option value="">All ratings</option><option value="5">5 / 5</option><option value="4">4 / 5</option><option value="3">3 / 5</option><option value="2">2 / 5</option><option value="1">1 / 5</option>
-        </select>
-        <select id="dateFilter" name="dateFilter">
-          <option value="">All dates</option><option value="today">Today</option><option value="7d">Last 7 days</option><option value="30d">Last 30 days</option><option value="month">This month</option>
-        </select>
-        <label class="inline-toggle"><input type="checkbox" id="pendingOnlyToggle" />Pending only</label>
+      <div class="filters-grid">
+        <div class="field">
+          <label for="searchInput">Search Client</label>
+          <input id="searchInput" type="text" placeholder="Client name, code, or user email..." />
+        </div>
+
+        <div class="field">
+          <label for="statusFilter">Client Status</label>
+          <select id="statusFilter">
+            <option value="">All clients</option>
+            <option value="has_users">Has users</option>
+            <option value="no_users">No users yet</option>
+            <option value="pending_invites">Pending invites</option>
+            <option value="active_only">Active clients only</option>
+          </select>
+        </div>
+
+        <div class="field">
+          <label for="clientFilter">Client Name</label>
+          <select id="clientFilter">
+            <option value="">All clients</option>
+          </select>
+        </div>
+
+        <div class="field">
+          <label>&nbsp;</label>
+          <button id="openAddUserFromFiltersBtn" class="btn btn-soft" type="button" style="width:100%;">Add User</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head-row">
+        <h2>Client Records</h2>
+        <div class="small">Each row is one client. Expand a client to manage multiple users and resend invite flows tied to that client.</div>
       </div>
 
       <div class="table-wrap">
         <table>
           <thead>
             <tr>
-              <th>Candidate</th><th>Requisition</th><th>Status</th><th>Rating</th><th>Endorsement Date</th><th>Experience</th><th>Resume</th><th>Action</th>
+              <th style="width:72px;">View</th>
+              <th>Client</th>
+              <th>Client Status</th>
+              <th>Users</th>
+              <th>Primary / Latest Email</th>
+              <th>Latest Invite Activity</th>
+              <th>Actions</th>
             </tr>
           </thead>
-          <tbody id="endorsementsTable"><tr><td colspan="8" class="empty">Loading endorsed candidates...</td></tr></tbody>
+          <tbody id="clientTable">
+            <tr><td colspan="7" class="empty">Checking session...</td></tr>
+          </tbody>
         </table>
       </div>
     </div>
   </div>
 
-  <div id="candidateModal" class="modal" aria-hidden="true">
-    <div class="modal-backdrop" data-close-modal="true"></div>
-    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+  <div class="modal" id="clientModal">
+    <div class="modal-panel">
       <div class="modal-header">
-        <div>
-          <h2 id="modalTitle" class="modal-title">Candidate Review</h2>
-          <div id="modalSubtitle" class="modal-subtitle">Review candidate details and submit client feedback.</div>
-        </div>
-        <button id="closeModalBtn" class="icon-btn" type="button" aria-label="Close">×</button>
+        <h3 class="modal-title" id="clientModalTitle">Add Client</h3>
+        <button class="drawer-close" id="closeClientModalBtn" type="button">×</button>
       </div>
       <div class="modal-body">
-        <div class="decision-strip">
-          <div class="decision-box"><div class="meta-label">Current Status</div><div id="modalDecisionStatus" class="meta-value">No feedback yet</div></div>
-          <div class="decision-box"><div class="meta-label">Rating</div><div id="modalDecisionRating" class="meta-value">-</div></div>
-          <div class="decision-box"><div class="meta-label">Endorsed On</div><div id="modalEndorsementDate" class="meta-value">-</div></div>
-        </div>
-
         <div class="modal-grid">
-          <div>
-            <div class="card">
-              <div class="card-title">Candidate Details</div>
-              <div class="meta-list">
-                <div class="meta-item"><div class="meta-label">Full Name</div><div id="modalFullName" class="meta-value">-</div></div>
-                <div class="meta-item"><div class="meta-label">Current Title</div><div id="modalCurrentTitle" class="meta-value">-</div></div>
-                <div class="meta-item"><div class="meta-label">Years of Experience</div><div id="modalExperience" class="meta-value">-</div></div>
-                <div class="meta-item"><div class="meta-label">Location</div><div id="modalLocation" class="meta-value">-</div></div>
-                <div class="meta-item"><div class="meta-label">Phone</div><div id="modalPhone" class="meta-value">-</div></div>
-                <div class="meta-item"><div class="meta-label">Skills</div><div id="modalSkills" class="meta-value">-</div></div>
-              </div>
-            </div>
-            <div class="card" style="margin-top:16px;">
-              <div class="card-title">Requisition Details</div>
-              <div class="meta-list">
-                <div class="meta-item"><div class="meta-label">Requisition</div><div id="modalRole" class="meta-value">-</div></div>
-                <div class="meta-item"><div class="meta-label">Work Setup</div><div id="modalWorkSetup" class="meta-value">-</div></div>
-                <div class="meta-item"><div class="meta-label">Job Location</div><div id="modalJobLocation" class="meta-value">-</div></div>
-                <div class="meta-item"><div class="meta-label">Employment Type</div><div id="modalEmploymentType" class="meta-value">-</div></div>
-              </div>
-            </div>
-            <div class="card" style="margin-top:16px;">
-              <div class="card-title">Candidate Summary</div>
-              <div id="modalSummary" class="summary-box">No candidate summary available.</div>
-            </div>
+          <div class="field full">
+            <label for="clientNameInput">Client Name</label>
+            <input id="clientNameInput" type="text" placeholder="Company name" />
           </div>
 
-          <div>
-            <div class="card">
-              <div class="card-title">Resume</div>
-              <div class="resume-row">
-                <a id="modalResumeBtn" class="btn btn-soft" href="#" target="_blank" rel="noopener" style="display:none;">View Resume</a>
-                <span id="modalNoResume" class="small">No resume uploaded.</span>
-              </div>
-            </div>
-
-            <div class="card" style="margin-top:16px;">
-              <div class="card-title">Quick Feedback</div>
-              <div class="quick-status">
-                <button type="button" class="status-choice" data-status="passed_application">Passed Application</button>
-                <button type="button" class="status-choice" data-status="shortlisted">Shortlisted</button>
-                <button type="button" class="status-choice" data-status="on_hold">On Hold</button>
-                <button type="button" class="status-choice" data-status="offered_jo">Offered JO</button>
-                <button type="button" class="status-choice" data-status="onboarded">Onboarded</button>
-                <button type="button" class="status-choice" data-status="rejected_by_client">Rejected</button>
-                <button type="button" class="status-choice" data-status="need_more_profiles">Need More Profiles</button>
-              </div>
-              <div class="small" style="margin-bottom:8px;">Rating</div>
-              <div id="modalRatingGroup" class="rating-group">
-                <button type="button" class="rating-btn" data-score="1">1</button>
-                <button type="button" class="rating-btn" data-score="2">2</button>
-                <button type="button" class="rating-btn" data-score="3">3</button>
-                <button type="button" class="rating-btn" data-score="4">4</button>
-                <button type="button" class="rating-btn" data-score="5">5</button>
-              </div>
-              <div style="height:14px;"></div>
-              <label for="modalNotes" class="small" style="display:block; margin-bottom:8px;">Notes</label>
-              <textarea id="modalNotes" rows="6" placeholder="Add interview feedback, concerns, shortlist notes, or next steps"></textarea>
-              <div id="modalLastUpdated" class="last-updated">No feedback saved yet.</div>
-              <div class="modal-actions">
-                <button id="clearModalBtn" class="btn btn-danger" type="button">Clear Feedback</button>
-                <button id="saveModalBtn" class="btn btn-primary" type="button">Save Feedback</button>
-              </div>
-            </div>
+          <div class="field">
+            <label for="clientCodeInput">Client Code</label>
+            <input id="clientCodeInput" type="text" placeholder="Optional client code" />
           </div>
+
+          <div class="field">
+            <label for="clientActiveInput">Status</label>
+            <select id="clientActiveInput">
+              <option value="true">Active</option>
+              <option value="false">Inactive</option>
+            </select>
+          </div>
+
+          <div class="field full">
+            <label for="clientEmailInput">Primary Contact Email</label>
+            <input id="clientEmailInput" type="email" placeholder="Optional. Add now if you want to send the first invite." />
+          </div>
+
+          <div class="field full">
+            <label for="clientContactNameInput">Primary Contact Name</label>
+            <input id="clientContactNameInput" type="text" placeholder="Optional contact name for the invite" />
+          </div>
+        </div>
+
+        <div id="clientModalNotice" class="notice" style="margin-top:16px;"></div>
+
+        <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:16px;">
+          <button id="saveClientBtn" class="btn btn-outline" type="button">Save Client Only</button>
+          <button id="saveAndInviteBtn" class="btn btn-primary" type="button">Save Client & Send Invite</button>
         </div>
       </div>
     </div>
   </div>
-  <div id="resumePreviewModal" class="modal" aria-hidden="true">
-    <div class="modal-backdrop" data-close-resume-modal="true"></div>
-    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="resumePreviewTitle">
+
+  <div class="modal" id="userModal">
+    <div class="modal-panel">
       <div class="modal-header">
-        <div>
-          <h2 id="resumePreviewTitle" class="modal-title">Resume Preview</h2>
-          <div class="modal-subtitle">Preview the candidate resume without leaving the dashboard.</div>
-        </div>
-        <button id="closeResumePreviewBtn" class="icon-btn" type="button" aria-label="Close">×</button>
+        <h3 class="modal-title" id="userModalTitle">Add Portal User</h3>
+        <button class="drawer-close" id="closeUserModalBtn" type="button">×</button>
       </div>
-      <div class="modal-body" style="padding:0;background:#f8fafc;">
-        <iframe id="resumePreviewFrame" title="Resume Preview" style="width:100%;height:76vh;border:0;background:#fff;"></iframe>
+      <div class="modal-body">
+        <div class="modal-grid">
+          <div class="field full">
+            <label for="userClientSelect">Client</label>
+            <select id="userClientSelect"></select>
+          </div>
+
+          <div class="field">
+            <label for="userFullNameInput">Full Name</label>
+            <input id="userFullNameInput" type="text" placeholder="Contact name" />
+          </div>
+
+          <div class="field">
+            <label for="userEmailInput">Email</label>
+            <input id="userEmailInput" type="email" placeholder="name@client.com" />
+          </div>
+        </div>
+
+        <div id="userModalNotice" class="notice" style="margin-top:16px;"></div>
+
+        <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:16px;">
+          <button id="saveUserInviteBtn" class="btn btn-primary" type="button">Create Invite</button>
+        </div>
       </div>
     </div>
   </div>
-
 
   <script>
     const SUPABASE_URL = "https://dilalntcxmvdcmwxjcct.supabase.co";
     const SUPABASE_ANON_KEY = "sb_publishable_HrLVIUwnaRo54yijtrbWBQ_1aeb4ezs";
-    const RESUME_BUCKET = "resumes";
-    const PREVIEW_ALLOWED_EMAILS = ["eric.se@talentbuzz.pro","eric.s@talentbuzz.pro","michelle.giray@talentbuzz.pro","mitchie028@gmail.com","angel.n@talentbuzz.pro","jercey.cayetano@talentbuzz.pro","jayson.c@talentbuzz.pro","xyrene.e@talentbuzz.pro"];
+    const APP_BASE_URL = "https://talentbuzz.pro";
+    const LOGIN_PAGE = "login.html";
     const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-    const state = { rows: [], currentClientUser: null, currentSessionUser: null, selectedRow: null, modalDraft: { status: "", rating: null, notes: "" } };
-
     const els = {
-      notice: document.getElementById("notice"), previewBanner: document.getElementById("previewBanner"), table: document.getElementById("endorsementsTable"),
-      searchInput: document.getElementById("searchInput"), roleFilter: document.getElementById("roleFilter"), statusFilter: document.getElementById("statusFilter"),
-      ratingFilter: document.getElementById("ratingFilter"), dateFilter: document.getElementById("dateFilter"), pendingOnlyToggle: document.getElementById("pendingOnlyToggle"),
-      logoutBtn: document.getElementById("logoutBtn"), refreshBtn: document.getElementById("refreshBtn"),
-      statEndorsed: document.getElementById("statEndorsed"), statPending: document.getElementById("statPending"), statPassedApplication: document.getElementById("statPassedApplication"),
-      statShortlisted: document.getElementById("statShortlisted"), statOfferedJo: document.getElementById("statOfferedJo"), statOnboarded: document.getElementById("statOnboarded"),
-      statRejected: document.getElementById("statRejected"), statAvgRating: document.getElementById("statAvgRating"),
-      modal: document.getElementById("candidateModal"), closeModalBtn: document.getElementById("closeModalBtn"), modalTitle: document.getElementById("modalTitle"), modalSubtitle: document.getElementById("modalSubtitle"),
-      modalDecisionStatus: document.getElementById("modalDecisionStatus"), modalDecisionRating: document.getElementById("modalDecisionRating"), modalEndorsementDate: document.getElementById("modalEndorsementDate"),
-      modalFullName: document.getElementById("modalFullName"), modalCurrentTitle: document.getElementById("modalCurrentTitle"), modalExperience: document.getElementById("modalExperience"), modalLocation: document.getElementById("modalLocation"),
-      modalPhone: document.getElementById("modalPhone"), modalSkills: document.getElementById("modalSkills"), modalRole: document.getElementById("modalRole"), modalWorkSetup: document.getElementById("modalWorkSetup"),
-      modalJobLocation: document.getElementById("modalJobLocation"), modalEmploymentType: document.getElementById("modalEmploymentType"), modalSummary: document.getElementById("modalSummary"), modalResumeBtn: document.getElementById("modalResumeBtn"),
-      modalNoResume: document.getElementById("modalNoResume"), modalNotes: document.getElementById("modalNotes"), modalLastUpdated: document.getElementById("modalLastUpdated"), modalRatingGroup: document.getElementById("modalRatingGroup"),
-      saveModalBtn: document.getElementById("saveModalBtn"), clearModalBtn: document.getElementById("clearModalBtn"),
-      resumePreviewModal: document.getElementById("resumePreviewModal"), closeResumePreviewBtn: document.getElementById("closeResumePreviewBtn"), resumePreviewFrame: document.getElementById("resumePreviewFrame"), resumePreviewTitle: document.getElementById("resumePreviewTitle")
+      menuToggleBtn: document.getElementById("menuToggleBtn"),
+      menuDropdown: document.getElementById("menuDropdown"),
+      refreshBtn: document.getElementById("refreshBtn"),
+      refreshFromMenuBtn: document.getElementById("refreshFromMenuBtn"),
+      clearFiltersBtn: document.getElementById("clearFiltersBtn"),
+      logoutBtn: document.getElementById("logoutBtn"),
+
+      openAddClientBtn: document.getElementById("openAddClientBtn"),
+      openAddUserFromFiltersBtn: document.getElementById("openAddUserFromFiltersBtn"),
+
+      searchInput: document.getElementById("searchInput"),
+      statusFilter: document.getElementById("statusFilter"),
+      clientFilter: document.getElementById("clientFilter"),
+
+      notice: document.getElementById("notice"),
+      clientTable: document.getElementById("clientTable"),
+
+      statTotalClients: document.getElementById("statTotalClients"),
+      statActiveClients: document.getElementById("statActiveClients"),
+      statPortalUsers: document.getElementById("statPortalUsers"),
+      statPendingInvites: document.getElementById("statPendingInvites"),
+
+      clientModal: document.getElementById("clientModal"),
+      closeClientModalBtn: document.getElementById("closeClientModalBtn"),
+      clientModalTitle: document.getElementById("clientModalTitle"),
+      clientModalNotice: document.getElementById("clientModalNotice"),
+      clientNameInput: document.getElementById("clientNameInput"),
+      clientCodeInput: document.getElementById("clientCodeInput"),
+      clientActiveInput: document.getElementById("clientActiveInput"),
+      clientEmailInput: document.getElementById("clientEmailInput"),
+      clientContactNameInput: document.getElementById("clientContactNameInput"),
+      saveClientBtn: document.getElementById("saveClientBtn"),
+      saveAndInviteBtn: document.getElementById("saveAndInviteBtn"),
+
+      userModal: document.getElementById("userModal"),
+      closeUserModalBtn: document.getElementById("closeUserModalBtn"),
+      userModalTitle: document.getElementById("userModalTitle"),
+      userModalNotice: document.getElementById("userModalNotice"),
+      userClientSelect: document.getElementById("userClientSelect"),
+      userFullNameInput: document.getElementById("userFullNameInput"),
+      userEmailInput: document.getElementById("userEmailInput"),
+      saveUserInviteBtn: document.getElementById("saveUserInviteBtn")
     };
 
-    const normalize = (value) => String(value || "").trim().toLowerCase();
-    const safeText = (value, fallback = "-") => { const str = String(value ?? "").trim(); return str || fallback; };
-    const escapeHtml = (value) => String(value ?? "").replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;").replaceAll('"',"&quot;").replaceAll("'","&#039;");
-    const getQueryParam = (name) => new URLSearchParams(window.location.search).get(name);
-    const isPreviewMode = () => getQueryParam("preview") === "1";
-    const getPreviewClientId = () => getQueryParam("preview_client_id");
-    const isAllowedPreviewUser = (email) => PREVIEW_ALLOWED_EMAILS.includes(normalize(email));
-    const getRoleName = (row) => row.job_title_from_jobs || row.job_title || row.title || "-";
-    const getEndorsementDateValue = (row) => row.sent_at || row.endorsement_date || null;
+    const state = {
+      clients: [],
+      users: [],
+      invites: [],
+      clientRows: [],
+      expandedClients: new Set(),
+      selectedClientIdForUserModal: "",
+      session: null,
+      user: null
+    };
 
-    function formatDateTime(value){ if(!value) return "-"; const date=new Date(value); if(Number.isNaN(date.getTime())) return "-"; return date.toLocaleString(); }
-    function formatDateOnly(value){ if(!value) return "-"; const date=new Date(value); if(Number.isNaN(date.getTime())) return "-"; return date.toLocaleDateString(); }
-    function isRecentEndorsement(value){ if(!value) return false; const ts=new Date(value).getTime(); if(Number.isNaN(ts)) return false; return (Date.now()-ts) <= (48*60*60*1000); }
-    function matchesDateFilter(value, selected){
-      if(!selected) return true; if(!value) return false; const endorsedAt=new Date(value); if(Number.isNaN(endorsedAt.getTime())) return false; const now=new Date();
-      if(selected==="today") return endorsedAt.toDateString()===now.toDateString();
-      if(selected==="7d") return (now-endorsedAt) <= 7*24*60*60*1000;
-      if(selected==="30d") return (now-endorsedAt) <= 30*24*60*60*1000;
-      if(selected==="month") return endorsedAt.getMonth()===now.getMonth() && endorsedAt.getFullYear()===now.getFullYear();
-      return true;
+    function normalizeText(value){ return String(value || "").trim().toLowerCase(); }
+    function normalizeEmail(value){ return String(value || "").trim().toLowerCase(); }
+
+    function escapeHtml(value){
+      return String(value ?? "")
+        .replace(/&/g,"&amp;")
+        .replace(/</g,"&lt;")
+        .replace(/>/g,"&gt;")
+        .replace(/"/g,"&quot;")
+        .replace(/'/g,"&#039;");
     }
 
-    function showNotice(message, type="info"){ els.notice.textContent=message; els.notice.className=`notice show ${type}`; }
-    function clearNotice(){ els.notice.textContent=""; els.notice.className="notice"; }
+    function formatDateTime(value){
+      if(!value) return "-";
+      const d = new Date(value);
+      if(Number.isNaN(d.getTime())) return "-";
+      return d.toLocaleString();
+    }
 
-    function normalizeEmailFolder(email){
-      return String(email || "")
-        .trim()
-        .toLowerCase()
-        .replace(/@/g, "_")
-        .replace(/[^a-z0-9._-]/g, "_")
-        .replace(/_+/g, "_")
-        .replace(/^_+|_+$/g, "");
+    function isExpired(value){
+      if(!value) return false;
+      const d = new Date(value);
+      if(Number.isNaN(d.getTime())) return false;
+      return d.getTime() < Date.now();
     }
-    function cleanResumePath(path){
-      let value = String(path || "").trim();
-      if(!value) return "";
-      try { value = decodeURIComponent(value); } catch (_) {}
-      value = value.split("?")[0].split("#")[0];
-      value = value
-        .replace(/^https?:\/\/[^/]+\//i, "")
-        .replace(/^storage\/v1\/object\/(public|sign)\/resumes\//i, "")
-        .replace(/^storage\/v1\/object\/(public|sign)\/[^/]+\//i, "")
-        .replace(/^object\/(public|sign)\/resumes\//i, "")
-        .replace(/^object\/(public|sign)\/[^/]+\//i, "")
-        .replace(/^resumes\//i, "")
-        .replace(/^\/+/, "");
-      return value;
-    }
-    function isDirectResumeUrl(url){
-      const value = String(url || "").trim();
-      return /^https?:\/\//i.test(value) || value.startsWith("blob:") || value.startsWith("data:");
-    }
-    function uniq(values){ return [...new Set((values || []).filter(Boolean))]; }
-    function getFileNameFromValue(value){
-      const clean = cleanResumePath(value);
-      if(!clean) return "";
-      const parts = clean.split("/").filter(Boolean);
-      return parts.length ? parts[parts.length - 1] : "";
-    }
-    function buildResumePathCandidates(row){
-      const emailCandidates = uniq([row.email, row.applicant_email, row.profile_email, row.contact_email].map(v => String(v || "").trim()));
-      const rawPathCandidates = uniq([
-        row.resume_path, row.profile_resume_path, row.resume_url, row.profile_resume_url, row.resume_file_name, row.profile_resume_file_name
-      ].map(cleanResumePath));
-      const fileNameCandidates = uniq([
-        row.resume_file_name, row.profile_resume_file_name,
-        getFileNameFromValue(row.resume_path), getFileNameFromValue(row.profile_resume_path),
-        getFileNameFromValue(row.resume_url), getFileNameFromValue(row.profile_resume_url)
-      ].map(v => String(v || "").trim()));
 
-      const candidates = [];
-      rawPathCandidates.forEach(raw => {
-        if(!raw) return;
-        candidates.push(raw);
-        if(!raw.includes("/")){
-          emailCandidates.forEach(email => {
-            const folder = normalizeEmailFolder(email);
-            candidates.push(`manual/${folder}/${raw}`);
-            candidates.push(`sourced-candidates/${folder}/${raw}`);
+    function showNotice(message, type="success"){
+      els.notice.textContent = message;
+      els.notice.className = `notice show ${type}`;
+      clearTimeout(showNotice._timer);
+      showNotice._timer = setTimeout(() => {
+        els.notice.textContent = "";
+        els.notice.className = "notice";
+      }, 4500);
+    }
+
+    function showModalNotice(targetEl, message, type="error"){
+      targetEl.textContent = message;
+      targetEl.className = `notice show ${type}`;
+    }
+
+    function clearModalNotice(targetEl){
+      targetEl.textContent = "";
+      targetEl.className = "notice";
+    }
+
+    function setControlsDisabled(disabled){
+      [
+        els.openAddClientBtn,
+        els.openAddUserFromFiltersBtn,
+        els.refreshBtn,
+        els.refreshFromMenuBtn,
+        els.clearFiltersBtn,
+        els.searchInput,
+        els.statusFilter,
+        els.clientFilter
+      ].forEach(el => {
+        if(el) el.disabled = disabled;
+      });
+    }
+
+    function redirectToLogin(message = ""){
+      if(message){
+        try{
+          sessionStorage.setItem("talentbuzz_auth_notice", message);
+        }catch(_){}
+      }
+      window.location.href = LOGIN_PAGE;
+    }
+
+    async function requireAuth({ redirect = true } = {}){
+      const [{ data: sessionData, error: sessionError }, { data: userData, error: userError }] = await Promise.all([
+        supabaseClient.auth.getSession(),
+        supabaseClient.auth.getUser()
+      ]);
+
+      if(sessionError) throw sessionError;
+      if(userError) throw userError;
+
+      const session = sessionData?.session || null;
+      const user = userData?.user || null;
+
+      state.session = session;
+      state.user = user;
+
+      if(!session?.access_token || !user){
+        if(redirect){
+          redirectToLogin("Your login session expired. Please log in again.");
+          return null;
+        }
+        throw new Error("Your login session expired. Please log in again.");
+      }
+
+      return session;
+    }
+
+    async function requireActiveSessionForAction(){
+      return await requireAuth({ redirect: false });
+    }
+
+    function toggleMenu(forceClose=false){
+      if(forceClose){
+        els.menuDropdown.classList.remove("show");
+        return;
+      }
+      els.menuDropdown.classList.toggle("show");
+    }
+
+    function openClientModal(){
+      clearModalNotice(els.clientModalNotice);
+      els.clientModalTitle.textContent = "Add Client";
+      els.clientNameInput.value = "";
+      els.clientCodeInput.value = "";
+      els.clientActiveInput.value = "true";
+      els.clientEmailInput.value = "";
+      els.clientContactNameInput.value = "";
+      els.clientModal.classList.add("show");
+      document.body.style.overflow = "hidden";
+    }
+
+    function closeClientModal(){
+      els.clientModal.classList.remove("show");
+      document.body.style.overflow = "";
+      clearModalNotice(els.clientModalNotice);
+    }
+
+    function populateUserClientSelect(selectedId = ""){
+      const options = state.clients
+        .slice()
+        .sort((a,b) => String(a.client_name || "").localeCompare(String(b.client_name || "")))
+        .map(client => `<option value="${escapeHtml(client.id)}">${escapeHtml(client.client_name || client.id)}</option>`)
+        .join("");
+
+      els.userClientSelect.innerHTML = options || `<option value="">No clients available</option>`;
+      if(selectedId && state.clients.some(c => c.id === selectedId)){
+        els.userClientSelect.value = selectedId;
+      }
+    }
+
+    function openUserModal(clientId = ""){
+      clearModalNotice(els.userModalNotice);
+      populateUserClientSelect(clientId || state.selectedClientIdForUserModal || "");
+      els.userFullNameInput.value = "";
+      els.userEmailInput.value = "";
+      els.userModal.classList.add("show");
+      document.body.style.overflow = "hidden";
+    }
+
+    function closeUserModal(){
+      els.userModal.classList.remove("show");
+      document.body.style.overflow = "";
+      clearModalNotice(els.userModalNotice);
+    }
+
+    function getInviteStatus(invite){
+      if(!invite) return "not_invited";
+      if(invite.used === true) return "used";
+      if(invite.expires_at && isExpired(invite.expires_at)) return "expired";
+      if(invite.token) return "pending";
+      return "not_invited";
+    }
+
+    function getInviteStatusLabel(status){
+      const map = {
+        active: "Active",
+        pending: "Pending",
+        expired: "Expired",
+        used: "Used",
+        not_invited: "Not Invited"
+      };
+      return map[status] || "Not Invited";
+    }
+
+    function getAggregateStatus(clientRow){
+      if((clientRow.activeUserCount || 0) > 0) return "active";
+      if((clientRow.pendingInviteCount || 0) > 0) return "pending";
+      return "not_invited";
+    }
+
+    function getAggregateStatusLabel(clientRow){
+      const status = getAggregateStatus(clientRow);
+      if(status === "active") return "Has Active Users";
+      if(status === "pending") return "Pending Invites";
+      return "No Portal Users";
+    }
+
+    function buildClientRows(){
+      const usersByClientId = new Map();
+      const invitesByClientId = new Map();
+
+      for(const user of state.users){
+        if(!user.client_id) continue;
+        if(!usersByClientId.has(user.client_id)) usersByClientId.set(user.client_id, []);
+        usersByClientId.get(user.client_id).push(user);
+      }
+
+      for(const invite of state.invites){
+        if(!invite.client_id) continue;
+        if(!invitesByClientId.has(invite.client_id)) invitesByClientId.set(invite.client_id, []);
+        invitesByClientId.get(invite.client_id).push(invite);
+      }
+
+      state.clientRows = state.clients.map(client => {
+        const clientUsers = (usersByClientId.get(client.id) || []).slice();
+        const clientInvites = (invitesByClientId.get(client.id) || []).slice();
+
+        clientUsers.sort((a,b) => String(a.full_name || a.email || "").localeCompare(String(b.full_name || b.email || "")));
+        clientInvites.sort((a,b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
+
+        const latestInviteByEmail = new Map();
+        for(const invite of clientInvites){
+          const key = normalizeEmail(invite.email);
+          if(!key) continue;
+          if(!latestInviteByEmail.has(key)) latestInviteByEmail.set(key, invite);
+        }
+
+        const combinedUserMap = new Map();
+
+        for(const user of clientUsers){
+          const key = normalizeEmail(user.email) || `user:${user.id}`;
+          combinedUserMap.set(key, {
+            email: normalizeEmail(user.email),
+            displayEmail: user.email || "-",
+            full_name: user.full_name || "",
+            client_user_id: user.id || null,
+            client_user_active: user.active === true,
+            latest_invite: latestInviteByEmail.get(normalizeEmail(user.email)) || null
           });
         }
-      });
 
-      fileNameCandidates.forEach(fileName => {
-        emailCandidates.forEach(email => {
-          const folder = normalizeEmailFolder(email);
-          candidates.push(`manual/${folder}/${fileName}`);
-          candidates.push(`sourced-candidates/${folder}/${fileName}`);
+        for(const [emailKey, invite] of latestInviteByEmail.entries()){
+          if(!combinedUserMap.has(emailKey)){
+            combinedUserMap.set(emailKey, {
+              email: invite.email || "",
+              displayEmail: invite.email || "-",
+              full_name: invite.full_name || "",
+              client_user_id: null,
+              client_user_active: false,
+              latest_invite: invite
+            });
+          }
+        }
+
+        const combinedUsers = [...combinedUserMap.values()].sort((a,b) => {
+          const aName = String(a.full_name || a.displayEmail || "");
+          const bName = String(b.full_name || b.displayEmail || "");
+          return aName.localeCompare(bName);
         });
+
+        const activeUserCount = clientUsers.filter(u => u.active === true).length;
+        const pendingInviteCount = combinedUsers.filter(item => getInviteStatus(item.latest_invite) === "pending").length;
+        const latestInvite = clientInvites[0] || null;
+        const primaryEmail = combinedUsers[0]?.displayEmail || "-";
+
+        return {
+          client,
+          clientUsers,
+          clientInvites,
+          combinedUsers,
+          activeUserCount,
+          pendingInviteCount,
+          latestInvite,
+          primaryEmail
+        };
       });
 
-      if(row.applicant_profile_id && fileNameCandidates.length){
-        fileNameCandidates.forEach(fileName => candidates.push(`${row.applicant_profile_id}/${fileName}`));
-      }
-
-      return uniq(candidates.map(cleanResumePath));
-    }
-    async function tryCreateSignedUrl(path){
-      const cleanPath = cleanResumePath(path);
-      if(!cleanPath) return "";
-      try {
-        const { data, error } = await supabaseClient.storage.from(RESUME_BUCKET).createSignedUrl(cleanPath, 3600);
-        if(!error && data?.signedUrl) return data.signedUrl;
-      } catch (error) {
-        console.warn("Signed URL failed for", cleanPath, error);
-      }
-      return "";
-    }
-    async function resolveResumeUrl(row){
-      const directCandidates = [
-        row.resolved_resume_url,
-        row.resume_url,
-        row.profile_resume_url
-      ].map(v => String(v || "").trim()).filter(Boolean);
-
-      for(const direct of directCandidates){
-        if(isDirectResumeUrl(direct)) return direct;
-      }
-
-      const pathCandidates = buildResumePathCandidates(row);
-      for(const path of pathCandidates){
-        const signedUrl = await tryCreateSignedUrl(path);
-        if(signedUrl) return signedUrl;
-      }
-      return "";
-    }
-    function openResumePreview(url, title){
-      if(!url){ showNotice("Resume file not found in storage.", "error"); return; }
-      els.resumePreviewTitle.textContent = title || "Resume Preview";
-      els.resumePreviewFrame.src = url;
-      els.resumePreviewModal.classList.add("show");
-      els.resumePreviewModal.setAttribute("aria-hidden", "false");
-      document.body.classList.add("modal-open");
-    }
-    function closeResumePreview(){
-      els.resumePreviewModal.classList.remove("show");
-      els.resumePreviewModal.setAttribute("aria-hidden", "true");
-      els.resumePreviewFrame.src = "";
-      if(!els.modal.classList.contains("show")) document.body.classList.remove("modal-open");
+      state.clientRows.sort((a,b) => String(a.client.client_name || "").localeCompare(String(b.client.client_name || "")));
     }
 
-    async function redirectToLogin(){ window.location.href = "client.html"; }
+    function updateStats(){
+      const totalClients = state.clients.length;
+      const activeClients = state.clients.filter(c => c.active === true).length;
+      const totalUsers = state.users.length;
 
-    async function getAuthorizedClientUser(email){
-      const { data, error } = await supabaseClient.from("client_users").select("id, client_id, full_name, email, clients(client_name)").eq("email", normalize(email)).limit(1).maybeSingle();
-      if(error) throw error;
-      return data || null;
+      let pendingInviteCount = 0;
+      for(const row of state.clientRows) pendingInviteCount += row.pendingInviteCount || 0;
+
+      els.statTotalClients.textContent = String(totalClients);
+      els.statActiveClients.textContent = String(activeClients);
+      els.statPortalUsers.textContent = String(totalUsers);
+      els.statPendingInvites.textContent = String(pendingInviteCount);
     }
 
-    async function protectPage(){
-      const { data:{session}, error:sessionError } = await supabaseClient.auth.getSession();
-      if(sessionError) throw sessionError;
-      if(!session?.user?.email){ await redirectToLogin(); return false; }
-      state.currentSessionUser = session.user;
+    function populateClientFilter(){
+      const current = els.clientFilter.value;
+      const names = state.clients
+        .map(c => String(c.client_name || "").trim())
+        .filter(Boolean)
+        .sort((a,b) => a.localeCompare(b));
 
-      if(isPreviewMode()){
-        const signedInEmail = normalize(session.user.email);
-        const previewClientId = getPreviewClientId();
-        if(!isAllowedPreviewUser(signedInEmail)){ alert("Preview mode is restricted to internal TalentBuzz users."); await redirectToLogin(); return false; }
-        if(!previewClientId) throw new Error("Missing preview_client_id in URL.");
+      els.clientFilter.innerHTML = `<option value="">All clients</option>` +
+        names.map(name => `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`).join("");
 
-        const { data:previewClient, error:previewClientError } = await supabaseClient.from("clients").select("id, client_name").eq("id", previewClientId).maybeSingle();
-        if(previewClientError) throw previewClientError;
-        if(!previewClient) throw new Error("Preview client not found.");
-
-        state.currentClientUser = { id:"preview-mode", client_id:previewClient.id, full_name:"TalentBuzz Preview Mode", email:session.user.email, clients:{ client_name:previewClient.client_name } };
-        setPreviewBanner(previewClient.client_name);
-        showNotice(`Preview access granted for ${previewClient.client_name}.`, "info");
-        return true;
-      }
-
-    function hidePreviewBanner(){
-      if (!els.previewBanner) return;
-      els.previewBanner.style.display = "none";
-      els.previewBanner.textContent = "";
-      els.previewBanner.className = "notice info";
+      if(names.includes(current)) els.clientFilter.value = current;
     }
-
-    function showPreviewBanner(message){
-      if (!els.previewBanner) return;
-      els.previewBanner.textContent = message || "";
-      els.previewBanner.className = "notice info show";
-      els.previewBanner.style.display = message ? "block" : "none";
-    }
-
-      hidePreviewBanner();
-      const clientUser = await getAuthorizedClientUser(session.user.email);
-      if(!clientUser || !clientUser.client_id){
-        await supabaseClient.auth.signOut();
-        alert(`This account is not authorized for client access. Logged in as: ${session.user.email}`);
-        await redirectToLogin();
-        return false;
-      }
-      state.currentClientUser = clientUser;
-      return true;
-    }
-
-    function updateStats(rows){
-      const endorsed=rows.length;
-      const pending=rows.filter(r=>!normalize(r.client_response_status)).length;
-      const passedApplication=rows.filter(r=>normalize(r.client_response_status)==="passed_application").length;
-      const shortlisted=rows.filter(r=>normalize(r.client_response_status)==="shortlisted").length;
-      const offeredJo=rows.filter(r=>normalize(r.client_response_status)==="offered_jo").length;
-      const onboarded=rows.filter(r=>normalize(r.client_response_status)==="onboarded").length;
-      const rejected=rows.filter(r=>normalize(r.client_response_status)==="rejected_by_client").length;
-      const ratings=rows.map(r=>Number(r.client_rating)).filter(r=>!isNaN(r));
-      const avgRating = ratings.length ? (ratings.reduce((a,b)=>a+b,0)/ratings.length).toFixed(1) : "-";
-      els.statEndorsed.textContent=String(endorsed);
-      els.statPending.textContent=String(pending);
-      els.statPassedApplication.textContent=String(passedApplication);
-      els.statShortlisted.textContent=String(shortlisted);
-      els.statOfferedJo.textContent=String(offeredJo);
-      els.statOnboarded.textContent=String(onboarded);
-      els.statRejected.textContent=String(rejected);
-      els.statAvgRating.textContent=avgRating;
-    }
-
-    function populateRoleFilter(){
-      const currentValue=els.roleFilter.value;
-      const roles=[...new Set(state.rows.map(r=>getRoleName(r)).filter(Boolean))].sort((a,b)=>a.localeCompare(b));
-      els.roleFilter.innerHTML='<option value="">All requisitions</option>'+roles.map(role=>`<option value="${escapeHtml(role)}">${escapeHtml(role)}</option>`).join("");
-      if(roles.includes(currentValue)) els.roleFilter.value=currentValue;
-    }
-
-    function getStatusLabel(status){
-      const map={passed_application:"Passed Application", shortlisted:"Shortlisted", on_hold:"On Hold", offered_jo:"Offered JO", onboarded:"Onboarded", rejected_by_client:"Rejected", need_more_profiles:"Need More Profiles"};
-      return map[normalize(status)] || "No Feedback Yet";
-    }
-    function getStatusClass(status){ const normalized=normalize(status); return normalized ? `status-${normalized}` : "status-empty"; }
 
     function getFilteredRows(){
-      const search=normalize(els.searchInput.value), role=normalize(els.roleFilter.value), status=normalize(els.statusFilter.value), rating=normalize(els.ratingFilter.value), dateFilter=normalize(els.dateFilter.value), pendingOnly=els.pendingOnlyToggle.checked;
-      return state.rows.filter(row=>{
-        const candidateName=normalize(row.full_name), roleName=normalize(getRoleName(row)), feedbackStatus=normalize(row.client_response_status), score=String(row.client_rating ?? ""), endorsedAt=getEndorsementDateValue(row);
-        return (!search || candidateName.includes(search) || roleName.includes(search)) && (!role || roleName===role) && (!status || feedbackStatus===status) && (!rating || score===rating) && (!pendingOnly || !feedbackStatus) && matchesDateFilter(endorsedAt, dateFilter);
+      const search = normalizeText(els.searchInput.value);
+      const status = normalizeText(els.statusFilter.value);
+      const clientFilter = normalizeText(els.clientFilter.value);
+
+      return state.clientRows.filter(row => {
+        const clientName = normalizeText(row.client.client_name);
+        const clientCode = normalizeText(row.client.client_code);
+        const latestEmail = normalizeEmail(row.primaryEmail);
+        const anyUserEmailMatch = row.combinedUsers.some(item => normalizeEmail(item.displayEmail).includes(search));
+        const matchesSearch = !search
+          || clientName.includes(search)
+          || clientCode.includes(search)
+          || latestEmail.includes(search)
+          || anyUserEmailMatch;
+
+        const matchesClient = !clientFilter || clientName === clientFilter;
+
+        let matchesStatus = true;
+        if(status === "has_users") matchesStatus = row.combinedUsers.length > 0;
+        if(status === "no_users") matchesStatus = row.combinedUsers.length === 0;
+        if(status === "pending_invites") matchesStatus = row.pendingInviteCount > 0;
+        if(status === "active_only") matchesStatus = row.client.active === true;
+
+        return matchesSearch && matchesClient && matchesStatus;
       });
     }
 
-    function renderRows(){
-      const rows=getFilteredRows();
-      if(!rows.length){ els.table.innerHTML='<tr><td colspan="8" class="empty">No endorsed candidates match the selected filters.</td></tr>'; return; }
+    function renderCombinedUserRows(combinedUsers){
+      if(!combinedUsers.length){
+        return `<tr><td colspan="6" class="empty">No portal users or invite records yet for this client.</td></tr>`;
+      }
 
-      els.table.innerHTML = rows.map(row=>{
-        const feedbackStatus=normalize(row.client_response_status), displayStatus=getStatusLabel(feedbackStatus), ratingLabel=row.client_rating ? `${row.client_rating}/5` : "-", endorsedAt=getEndorsementDateValue(row), isNew=isRecentEndorsement(endorsedAt);
-        return `<tr>
-          <td><div class="candidate-name">${escapeHtml(row.full_name || "-")}${isNew ? '<span class="pill new">New</span>' : ''}</div><div class="small">${escapeHtml(row.current_title || "")}</div></td>
-          <td><div>${escapeHtml(getRoleName(row))}</div><div class="small">${escapeHtml(row.work_setup || row.employment_type || "")}</div></td>
-          <td><span class="pill ${getStatusClass(feedbackStatus)}">${escapeHtml(displayStatus)}</span></td>
-          <td><span class="rating-display">${escapeHtml(ratingLabel)}</span></td>
-          <td class="date-cell"><div>${escapeHtml(formatDateOnly(endorsedAt))}</div><div class="small">${escapeHtml(formatDateTime(endorsedAt))}</div></td>
-          <td>${escapeHtml(safeText(row.years_of_experience))}</td>
-          <td>${row.resolved_resume_url ? `<button class="btn btn-soft btn-xs preview-resume-btn" type="button" data-id="${escapeHtml(row.endorsement_id || row.id)}">View Resume</button>` : `<span class="small muted-dash">No resume</span>`}</td>
-          <td><div class="action-cell"><button class="btn btn-primary btn-xs view-candidate-btn" type="button" data-id="${escapeHtml(row.endorsement_id || row.id)}">View</button></div></td>
-        </tr>`;
+      return combinedUsers.map(item => {
+        const invite = item.latest_invite;
+        const inviteStatus = item.client_user_active ? "active" : getInviteStatus(invite);
+        const inviteStatusLabel = item.client_user_active ? "Active" : getInviteStatusLabel(inviteStatus);
+        const link = invite?.token ? `${APP_BASE_URL}/client-set-password.html?token=${encodeURIComponent(invite.token)}` : "";
+
+        return `
+          <tr>
+            <td>
+              <div style="font-weight:800;">${escapeHtml(item.full_name || "-")}</div>
+              <div class="small">${item.client_user_id ? "Portal user exists" : "Invite-only record"}</div>
+            </td>
+            <td>${escapeHtml(item.displayEmail || "-")}</td>
+            <td>
+              <span class="status-pill status-${escapeHtml(inviteStatus)}">${escapeHtml(inviteStatusLabel)}</span>
+            </td>
+            <td>${escapeHtml(formatDateTime(invite?.created_at))}</td>
+            <td>${escapeHtml(formatDateTime(invite?.expires_at))}</td>
+            <td>
+              <div class="row-actions">
+                ${item.displayEmail && item.displayEmail !== "-" && !item.client_user_active ? `<button class="btn btn-soft btn-xs resend-invite-btn" type="button" data-email="${escapeHtml(item.displayEmail)}" data-full-name="${escapeHtml(item.full_name || "")}">Resend Invite</button>` : ""}
+                <button class="btn btn-outline btn-xs copy-link-btn" type="button" data-link="${escapeHtml(link)}">Copy Link</button>
+              </div>
+            </td>
+          </tr>
+        `;
       }).join("");
     }
 
-    async function loadRows(){
-      clearNotice();
-      els.table.innerHTML='<tr><td colspan="8" class="empty">Loading endorsed candidates...</td></tr>';
-      if(!state.currentClientUser?.client_id){ els.table.innerHTML='<tr><td colspan="8" class="empty">No client is linked to this portal user.</td></tr>'; updateStats([]); return; }
+    function renderTable(){
+      const rows = getFilteredRows();
 
-      const clientId = state.currentClientUser.client_id;
-      const { data, error } = await supabaseClient.from("client_endorsement_view").select("*").eq("client_id", clientId).order("sent_at", { ascending:false });
-
-      if(error){
-        console.error("Failed loading client endorsements:", error);
-        els.table.innerHTML=`<tr><td colspan="8" class="empty">${escapeHtml(error.message)}</td></tr>`;
-        showNotice("Unable to load endorsements. Please confirm the view returns only endorsed rows tied to this client.", "error");
-        updateStats([]);
+      if(!rows.length){
+        els.clientTable.innerHTML = `<tr><td colspan="7" class="empty">No client records found.</td></tr>`;
         return;
       }
 
-      state.rows = Array.isArray(data) ? data : [];
-      state.rows = await Promise.all(state.rows.map(async (row) => ({
-        ...row,
-        resolved_resume_url: await resolveResumeUrl(row)
-      })));
-      populateRoleFilter();
-      updateStats(state.rows);
-      renderRows();
-      await markViewed();
+      els.clientTable.innerHTML = rows.map(row => {
+        const client = row.client;
+        const expanded = state.expandedClients.has(client.id);
+        const aggregateStatus = getAggregateStatus(row);
+        const aggregateLabel = getAggregateStatusLabel(row);
+
+        return `
+          <tr>
+            <td>
+              <button class="btn btn-outline btn-xs expand-toggle" type="button" data-client-id="${escapeHtml(client.id)}">
+                ${expanded ? "Hide" : "View"}
+              </button>
+            </td>
+            <td>
+              <div class="client-name">${escapeHtml(client.client_name || "-")}</div>
+              <div class="small">Client ID: ${escapeHtml(client.id || "-")}</div>
+              <div class="small">Client Code: ${escapeHtml(client.client_code || "-")}</div>
+            </td>
+            <td>
+              <span class="status-pill status-${escapeHtml(aggregateStatus)}">${escapeHtml(aggregateLabel)}</span>
+              <div class="small">${client.active === true ? "Client record active" : "Client record inactive"}</div>
+            </td>
+            <td>
+              <div class="metric">${escapeHtml(String(row.combinedUsers.length))}</div>
+              <div class="small">${escapeHtml(String(row.activeUserCount))} active portal users</div>
+            </td>
+            <td>
+              <div>${escapeHtml(row.primaryEmail || "-")}</div>
+            </td>
+            <td>
+              <div class="metric">${escapeHtml(formatDateTime(row.latestInvite?.created_at || client.created_at))}</div>
+              <div class="small">${row.latestInvite ? "Latest invite or resend activity" : "No invite sent yet"}</div>
+            </td>
+            <td>
+              <div class="row-actions">
+                <button class="btn btn-soft btn-xs add-user-btn" type="button" data-client-id="${escapeHtml(client.id)}">Add User</button>
+                ${row.latestInvite?.email ? `<button class="btn btn-outline btn-xs resend-invite-btn" type="button" data-email="${escapeHtml(row.latestInvite.email)}" data-client-id="${escapeHtml(client.id)}" data-full-name="${escapeHtml(row.latestInvite.full_name || "")}">Resend Latest</button>` : ""}
+              </div>
+            </td>
+          </tr>
+          ${expanded ? `
+          <tr class="details-row">
+            <td colspan="7">
+              <div class="details-wrap">
+                <div class="details-head">
+                  <div>
+                    <div style="font-weight:800;color:var(--primary);">${escapeHtml(client.client_name || "-")} — Portal Users</div>
+                    <div class="small">Create more invite records for this client and route them through the existing edge function.</div>
+                  </div>
+                  <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                    <span class="sub-pill">${escapeHtml(String(row.combinedUsers.length))} total contacts</span>
+                    <span class="sub-pill">${escapeHtml(String(row.activeUserCount))} active users</span>
+                    <button class="btn btn-soft btn-xs add-user-btn" type="button" data-client-id="${escapeHtml(client.id)}">+ Add User</button>
+                  </div>
+                </div>
+                <div class="sub-table-wrap">
+                  <table class="sub-table">
+                    <thead>
+                      <tr>
+                        <th>Contact</th>
+                        <th>Email</th>
+                        <th>Portal Status</th>
+                        <th>Latest Invite</th>
+                        <th>Expiry</th>
+                        <th>Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      ${renderCombinedUserRows(row.combinedUsers)}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </td>
+          </tr>` : ``}
+        `;
+      }).join("");
     }
 
-    async function markViewed(){
-      if(isPreviewMode()) return;
-      const ids = state.rows.filter(row => (row.endorsement_id || row.id) && !row.client_viewed_at).map(row => row.endorsement_id || row.id);
-      if(!ids.length) return;
-      const { error } = await supabaseClient.from("application_endorsements").update({ client_viewed_at:new Date().toISOString() }).in("id", ids);
-      if(error) console.error("Failed marking endorsements as viewed:", error);
+    async function extractFunctionsError(error){
+      try{
+        if(error?.context && typeof error.context.json === "function"){
+          const payload = await error.context.json();
+          if(payload?.error) return payload.error;
+          if(payload?.message) return payload.message;
+        }
+      }catch(_){}
+      return error?.message || "Request failed.";
     }
 
-    function setStatusSelection(status){
-      document.querySelectorAll(".status-choice").forEach(btn => btn.classList.toggle("active", btn.dataset.status === status));
-      state.modalDraft.status = status || "";
-    }
-    function setRatingSelection(score){
-      const numericScore = score ? Number(score) : null;
-      document.querySelectorAll("#modalRatingGroup .rating-btn").forEach(btn => btn.classList.toggle("active", Number(btn.dataset.score) === numericScore));
-      state.modalDraft.rating = numericScore;
-    }
+    async function invokeCreateClientLogin(payload){
+      await requireActiveSessionForAction();
 
-    function openModalForRow(row){
-      state.selectedRow = row;
-      state.modalDraft = { status: normalize(row.client_response_status), rating: row.client_rating ? Number(row.client_rating) : null, notes: row.client_response_notes || "" };
-      const feedbackStatusLabel=getStatusLabel(row.client_response_status), ratingLabel=row.client_rating ? `${row.client_rating}/5` : "-", endorsedAt=getEndorsementDateValue(row);
+      const result = await supabaseClient.functions.invoke("create-client-login", {
+        body: payload
+      });
 
-      els.modalTitle.textContent = row.full_name || "Candidate Review";
-      els.modalSubtitle.textContent = `${getRoleName(row)} • ${row.client_name || state.currentClientUser?.clients?.client_name || "Your Company"}`;
-      els.modalDecisionStatus.textContent = feedbackStatusLabel;
-      els.modalDecisionRating.textContent = ratingLabel;
-      els.modalEndorsementDate.textContent = formatDateTime(endorsedAt);
-      els.modalFullName.textContent = safeText(row.full_name);
-      els.modalCurrentTitle.textContent = safeText(row.current_title);
-      els.modalExperience.textContent = safeText(row.years_of_experience);
-      els.modalLocation.textContent = safeText(row.location);
-      els.modalPhone.textContent = safeText(row.phone);
-      els.modalSkills.textContent = safeText(row.skills);
-      els.modalRole.textContent = safeText(getRoleName(row));
-      els.modalWorkSetup.textContent = safeText(row.work_setup);
-      els.modalJobLocation.textContent = safeText(row.job_location);
-      els.modalEmploymentType.textContent = safeText(row.employment_type);
-      els.modalSummary.textContent = safeText(row.candidate_summary, "No candidate summary available.");
-      els.modalNotes.value = row.client_response_notes || "";
-
-      if(row.resolved_resume_url){
-        els.modalResumeBtn.style.display="inline-flex";
-        els.modalResumeBtn.href=row.resolved_resume_url;
-        els.modalResumeBtn.textContent = "Open in New Tab";
-        els.modalNoResume.style.display="none";
-      } else {
-        els.modalResumeBtn.style.display="none";
-        els.modalResumeBtn.removeAttribute("href");
-        els.modalNoResume.style.display="inline";
+      if(result.error){
+        const message = await extractFunctionsError(result.error);
+        throw new Error(message);
       }
 
-      const lastResponseTime = row.client_responded_at || row.client_viewed_at;
-      els.modalLastUpdated.textContent = lastResponseTime ? `Last updated: ${formatDateTime(lastResponseTime)}` : "No feedback saved yet.";
+      if(result.data?.error){
+        throw new Error(result.data.error);
+      }
 
-      setStatusSelection(state.modalDraft.status);
-      setRatingSelection(state.modalDraft.rating);
-
-      els.modal.classList.add("show");
-      els.modal.setAttribute("aria-hidden", "false");
-      document.body.classList.add("modal-open");
+      return result.data;
     }
 
-    function closeModal(){
-      els.modal.classList.remove("show");
-      els.modal.setAttribute("aria-hidden", "true");
-      if(!els.resumePreviewModal.classList.contains("show")) document.body.classList.remove("modal-open");
-      state.selectedRow = null;
+    async function sendClientInviteViaFunction({ clientId, clientName, fullName, email, mode = "create" }){
+      const normalizedEmail = normalizeEmail(email);
+      if(!normalizedEmail) throw new Error("Email is required.");
+
+      const resolvedClientName = String(clientName || "").trim();
+      const resolvedPocName = String(fullName || clientName || "").trim();
+
+      const payload = {
+        client_id: clientId,
+        clientId: clientId,
+
+        client_name: resolvedClientName,
+        clientName: resolvedClientName,
+
+        poc_name: resolvedPocName,
+        full_name: resolvedPocName,
+        fullName: resolvedPocName,
+        primary_contact_name: resolvedPocName,
+
+        poc_email: normalizedEmail,
+        email: normalizedEmail,
+        portal_email: normalizedEmail,
+        invite_email: normalizedEmail,
+
+        mode,
+        resend: mode === "resend"
+      };
+
+      return await invokeCreateClientLogin(payload);
     }
 
-    async function saveModalFeedback(){
-      if(!state.selectedRow) return;
-      const endorsementId = state.selectedRow.endorsement_id || state.selectedRow.id;
-      const notes = els.modalNotes.value.trim();
-      const payload = { client_response_status: state.modalDraft.status || null, client_response_notes: notes || null, client_rating: state.modalDraft.rating ? Number(state.modalDraft.rating) : null, client_responded_at: new Date().toISOString() };
+    async function loadClients(){
+      const [clientsResult, clientUsersResult, invitesResult] = await Promise.all([
+        supabaseClient
+          .from("clients")
+          .select("id, client_code, client_name, active, created_at")
+          .order("client_name", { ascending: true }),
+        supabaseClient
+          .from("client_users")
+          .select("id, client_id, full_name, email, active")
+          .order("full_name", { ascending: true }),
+        supabaseClient
+          .from("client_invites")
+          .select("*")
+          .order("created_at", { ascending: false })
+      ]);
 
-      els.saveModalBtn.disabled = true; els.saveModalBtn.textContent = "Saving...";
-      const { error } = await supabaseClient.from("application_endorsements").update(payload).eq("id", endorsementId);
-      els.saveModalBtn.disabled = false; els.saveModalBtn.textContent = "Save Feedback";
+      const { data: clients, error: clientsError } = clientsResult;
+      const { data: clientUsers, error: clientUsersError } = clientUsersResult;
+      const { data: invites, error: invitesError } = invitesResult;
 
-      if(error){ console.error("Save feedback error:", error); showNotice(error.message || "Failed to save feedback.", "error"); return; }
-      showNotice("Feedback saved successfully.", "success");
-      closeModal();
-      await loadRows();
-    }
-
-    async function clearModalFeedback(){
-      if(!state.selectedRow) return;
-      const confirmed = window.confirm("Clear the saved feedback for this endorsement?");
-      if(!confirmed) return;
-
-      const endorsementId = state.selectedRow.endorsement_id || state.selectedRow.id;
-      els.clearModalBtn.disabled = true; els.clearModalBtn.textContent = "Clearing...";
-      const { error } = await supabaseClient.from("application_endorsements").update({ client_response_status:null, client_response_notes:null, client_rating:null, client_responded_at:new Date().toISOString() }).eq("id", endorsementId);
-      els.clearModalBtn.disabled = false; els.clearModalBtn.textContent = "Clear Feedback";
-
-      if(error){ console.error("Clear feedback error:", error); showNotice(error.message || "Failed to clear feedback.", "error"); return; }
-      showNotice("Feedback cleared successfully.", "success");
-      closeModal();
-      await loadRows();
-    }
-
-    async function logout(){ await supabaseClient.auth.signOut(); window.location.href = "client.html"; }
-
-    els.searchInput.addEventListener("input", renderRows);
-    els.roleFilter.addEventListener("change", renderRows);
-    els.statusFilter.addEventListener("change", renderRows);
-    els.ratingFilter.addEventListener("change", renderRows);
-    els.dateFilter.addEventListener("change", renderRows);
-    els.pendingOnlyToggle.addEventListener("change", renderRows);
-
-    els.table.addEventListener("click", (event) => {
-      const resumeBtn = event.target.closest(".preview-resume-btn");
-      if(resumeBtn){
-        const row = state.rows.find(item => String(item.endorsement_id || item.id) === String(resumeBtn.dataset.id));
-        if(row) openResumePreview(row.resolved_resume_url, `${row.full_name || "Candidate"} Resume`);
+      if(clientsError){
+        console.error(clientsError);
+        els.clientTable.innerHTML = `<tr><td colspan="7" class="empty">Failed to load clients.</td></tr>`;
+        showNotice(clientsError.message || "Unable to load client master records.", "error");
         return;
       }
-      const viewBtn = event.target.closest(".view-candidate-btn");
-      if(!viewBtn) return;
-      const row = state.rows.find(item => String(item.endorsement_id || item.id) === String(viewBtn.dataset.id));
-      if(row) openModalForRow(row);
+
+      if(clientUsersError){
+        console.error(clientUsersError);
+        showNotice(clientUsersError.message || "Unable to load portal user records.", "error");
+      }
+
+      if(invitesError){
+        console.error(invitesError);
+        showNotice(invitesError.message || "Unable to load invite records.", "error");
+      }
+
+      state.clients = clients || [];
+      state.users = clientUsers || [];
+      state.invites = invites || [];
+
+      buildClientRows();
+      updateStats();
+      populateClientFilter();
+      populateUserClientSelect();
+      renderTable();
+    }
+
+    async function saveClientRecord(sendInviteAfter=false){
+      const clientName = String(els.clientNameInput.value || "").trim();
+      const clientCode = String(els.clientCodeInput.value || "").trim() || null;
+      const isActive = els.clientActiveInput.value === "true";
+      const email = normalizeEmail(els.clientEmailInput.value);
+      const fullName = String(els.clientContactNameInput.value || "").trim();
+
+      if(!clientName){
+        showModalNotice(els.clientModalNotice, "Client name is required.");
+        return;
+      }
+
+      if(sendInviteAfter && !email){
+        showModalNotice(els.clientModalNotice, "Primary contact email is required when sending the first invite.");
+        return;
+      }
+
+      els.saveClientBtn.disabled = true;
+      els.saveAndInviteBtn.disabled = true;
+
+      try{
+        await requireActiveSessionForAction();
+
+        const { data: existingClientByName, error: existingClientByNameError } = await supabaseClient
+          .from("clients")
+          .select("id, client_name")
+          .ilike("client_name", clientName)
+          .maybeSingle();
+
+        if(existingClientByNameError) throw existingClientByNameError;
+        if(existingClientByName?.id) throw new Error("A client with this name already exists.");
+
+        const { data: newClient, error: createClientError } = await supabaseClient
+          .from("clients")
+          .insert([{
+            client_name: clientName,
+            client_code: clientCode,
+            active: isActive
+          }])
+          .select("id, client_name, client_code, active, created_at")
+          .single();
+
+        if(createClientError) throw createClientError;
+
+        if(sendInviteAfter && email){
+          const { data: existingPortalUser, error: existingPortalUserError } = await supabaseClient
+            .from("client_users")
+            .select("id")
+            .eq("email", email)
+            .maybeSingle();
+
+          if(existingPortalUserError) throw existingPortalUserError;
+          if(existingPortalUser?.id) throw new Error("A client portal user with this email already exists.");
+
+          await sendClientInviteViaFunction({
+            clientId: newClient.id,
+            clientName: newClient.client_name,
+            fullName: fullName || newClient.client_name,
+            email,
+            mode: "create"
+          });
+        }
+
+        showNotice(sendInviteAfter ? "Client created and first invite requested." : "Client created successfully.", "success");
+        closeClientModal();
+        await loadClients();
+      }catch(error){
+        console.error(error);
+        showModalNotice(els.clientModalNotice, error.message || "Unable to save client.");
+      }finally{
+        els.saveClientBtn.disabled = false;
+        els.saveAndInviteBtn.disabled = false;
+      }
+    }
+
+    async function saveUserInvite(){
+      const clientId = String(els.userClientSelect.value || "").trim();
+      const fullName = String(els.userFullNameInput.value || "").trim();
+      const email = normalizeEmail(els.userEmailInput.value);
+
+      if(!clientId){
+        showModalNotice(els.userModalNotice, "Select a client first.");
+        return;
+      }
+
+      if(!email){
+        showModalNotice(els.userModalNotice, "Email is required.");
+        return;
+      }
+
+      els.saveUserInviteBtn.disabled = true;
+
+      try{
+        await requireActiveSessionForAction();
+
+        const { data: existingPortalUser, error: existingPortalUserError } = await supabaseClient
+          .from("client_users")
+          .select("id, client_id, email")
+          .eq("email", email)
+          .maybeSingle();
+
+        if(existingPortalUserError) throw existingPortalUserError;
+        if(existingPortalUser?.id) throw new Error("A portal user with this email already exists. Use that account instead of creating another invite.");
+
+        const { data: latestInvite, error: latestInviteError } = await supabaseClient
+          .from("client_invites")
+          .select("id, email, client_id")
+          .eq("email", email)
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if(latestInviteError) throw latestInviteError;
+        if(latestInvite?.id && latestInvite.client_id === clientId){
+          throw new Error("An invite already exists for this email under this client. Use resend invite instead.");
+        }
+
+        const selectedClient = state.clients.find(c => c.id === clientId);
+        if(!selectedClient) throw new Error("Selected client not found.");
+
+        await sendClientInviteViaFunction({
+          clientId,
+          clientName: selectedClient.client_name,
+          fullName: fullName || selectedClient.client_name,
+          email,
+          mode: "create"
+        });
+
+        showNotice("Portal user invite requested successfully.", "success");
+        closeUserModal();
+        await loadClients();
+        state.expandedClients.add(clientId);
+        renderTable();
+      }catch(error){
+        console.error(error);
+        showModalNotice(els.userModalNotice, error.message || "Unable to create invite.");
+      }finally{
+        els.saveUserInviteBtn.disabled = false;
+      }
+    }
+
+    async function resendClientInvite(email, clientId = "", fullName = ""){
+      await requireActiveSessionForAction();
+
+      const selectedClient = state.clients.find(c => c.id === clientId)
+        || state.clientRows.find(r => r.combinedUsers.some(u => normalizeEmail(u.displayEmail) === normalizeEmail(email)))?.client
+        || null;
+
+      return await sendClientInviteViaFunction({
+        clientId: selectedClient?.id || clientId || null,
+        clientName: selectedClient?.client_name || "",
+        fullName: fullName || selectedClient?.client_name || "",
+        email,
+        mode: "resend"
+      });
+    }
+
+    async function copyInviteLink(link){
+      if(!link){
+        showNotice("No invite link available for this record.", "error");
+        return;
+      }
+      try{
+        await navigator.clipboard.writeText(link);
+        showNotice("Invite link copied.", "success");
+      }catch{
+        showNotice("Unable to copy invite link.", "error");
+      }
+    }
+
+    async function logout(){
+      try{ await supabaseClient.auth.signOut(); }catch(_){}
+      redirectToLogin("");
+    }
+
+    async function init(){
+      setControlsDisabled(true);
+      els.clientTable.innerHTML = `<tr><td colspan="7" class="empty">Checking session...</td></tr>`;
+
+      try{
+        await requireAuth({ redirect: true });
+        setControlsDisabled(false);
+        await loadClients();
+      }catch(error){
+        console.error("init failed:", error);
+        els.clientTable.innerHTML = `<tr><td colspan="7" class="empty">Session expired. Redirecting to login...</td></tr>`;
+        showNotice(error.message || "Unable to initialize page.", "error");
+      }
+    }
+
+    supabaseClient.auth.onAuthStateChange((event, session) => {
+      state.session = session || null;
+      if((event === "SIGNED_OUT" || !session?.access_token) && document.visibilityState === "visible"){
+        redirectToLogin("Your login session expired. Please log in again.");
+      }
     });
 
-    els.modal.addEventListener("click", (event) => {
-      if(event.target.matches("[data-close-modal='true']")) closeModal();
-      const statusBtn = event.target.closest(".status-choice");
-      if(statusBtn) setStatusSelection(statusBtn.dataset.status);
-      const ratingBtn = event.target.closest("#modalRatingGroup .rating-btn");
-      if(ratingBtn) setRatingSelection(ratingBtn.dataset.score);
+    els.menuToggleBtn.addEventListener("click", () => toggleMenu());
+    els.refreshBtn.addEventListener("click", async () => {
+      try{
+        await requireActiveSessionForAction();
+        await loadClients();
+      }catch(error){
+        showNotice(error.message || "Unable to refresh records.", "error");
+      }
+    });
+    els.refreshFromMenuBtn.addEventListener("click", async () => {
+      toggleMenu(true);
+      try{
+        await requireActiveSessionForAction();
+        await loadClients();
+      }catch(error){
+        showNotice(error.message || "Unable to refresh records.", "error");
+      }
     });
 
-    els.modalResumeBtn.addEventListener("click", (event) => {
-      if(!state.selectedRow?.resolved_resume_url) return;
-      event.preventDefault();
-      openResumePreview(state.selectedRow.resolved_resume_url, `${state.selectedRow.full_name || "Candidate"} Resume`);
+    els.clearFiltersBtn.addEventListener("click", () => {
+      els.searchInput.value = "";
+      els.statusFilter.value = "";
+      els.clientFilter.value = "";
+      renderTable();
     });
 
-    els.resumePreviewModal.addEventListener("click", (event) => {
-      if(event.target.matches("[data-close-resume-modal='true']")) closeResumePreview();
+    els.logoutBtn.addEventListener("click", logout);
+    els.searchInput.addEventListener("input", renderTable);
+    els.statusFilter.addEventListener("change", renderTable);
+    els.clientFilter.addEventListener("change", renderTable);
+
+    els.openAddClientBtn.addEventListener("click", async () => {
+      try{
+        await requireActiveSessionForAction();
+        openClientModal();
+      }catch(error){
+        showNotice(error.message || "Please log in again.", "error");
+      }
+    });
+
+    els.openAddUserFromFiltersBtn.addEventListener("click", async () => {
+      try{
+        await requireActiveSessionForAction();
+        openUserModal();
+      }catch(error){
+        showNotice(error.message || "Please log in again.", "error");
+      }
+    });
+
+    els.closeClientModalBtn.addEventListener("click", closeClientModal);
+    els.closeUserModalBtn.addEventListener("click", closeUserModal);
+    els.saveClientBtn.addEventListener("click", () => saveClientRecord(false));
+    els.saveAndInviteBtn.addEventListener("click", () => saveClientRecord(true));
+    els.saveUserInviteBtn.addEventListener("click", saveUserInvite);
+
+    document.addEventListener("click", async (event) => {
+      if(!event.target.closest(".menu-wrap")) toggleMenu(true);
+
+      const expandBtn = event.target.closest(".expand-toggle");
+      if(expandBtn){
+        const clientId = expandBtn.dataset.clientId;
+        if(!clientId) return;
+        if(state.expandedClients.has(clientId)) state.expandedClients.delete(clientId);
+        else state.expandedClients.add(clientId);
+        renderTable();
+        return;
+      }
+
+      const addUserBtn = event.target.closest(".add-user-btn");
+      if(addUserBtn){
+        const clientId = addUserBtn.dataset.clientId || "";
+        state.selectedClientIdForUserModal = clientId;
+        try{
+          await requireActiveSessionForAction();
+          openUserModal(clientId);
+        }catch(error){
+          showNotice(error.message || "Please log in again.", "error");
+        }
+        return;
+      }
+
+      const resendBtn = event.target.closest(".resend-invite-btn");
+      if(resendBtn){
+        const email = resendBtn.dataset.email;
+        const clientId = resendBtn.dataset.clientId || "";
+        const fullName = resendBtn.dataset.fullName || "";
+        if(!email) return;
+
+        const confirmed = window.confirm(`Resend invite to ${email}?`);
+        if(!confirmed) return;
+
+        const originalText = resendBtn.textContent;
+        resendBtn.disabled = true;
+        resendBtn.textContent = "Sending...";
+
+        try{
+          const data = await resendClientInvite(email, clientId, fullName);
+          showNotice(data?.message || "Invite request sent successfully.", "success");
+          await loadClients();
+        }catch(error){
+          console.error(error);
+          showNotice(error.message || "Failed to send invite request.", "error");
+        }finally{
+          resendBtn.disabled = false;
+          resendBtn.textContent = originalText;
+        }
+        return;
+      }
+
+      const copyBtn = event.target.closest(".copy-link-btn");
+      if(copyBtn){
+        await copyInviteLink(copyBtn.dataset.link || "");
+        return;
+      }
+
+      if(event.target === els.clientModal) closeClientModal();
+      if(event.target === els.userModal) closeUserModal();
     });
 
     document.addEventListener("keydown", (event) => {
-      if(event.key === "Escape" && els.resumePreviewModal.classList.contains("show")) closeResumePreview();
-      if(event.key === "Escape" && els.modal.classList.contains("show")) closeModal();
-    });
-    els.closeModalBtn.addEventListener("click", closeModal);
-    els.closeResumePreviewBtn.addEventListener("click", closeResumePreview);
-    els.saveModalBtn.addEventListener("click", saveModalFeedback);
-    els.clearModalBtn.addEventListener("click", clearModalFeedback);
-    els.logoutBtn.addEventListener("click", logout);
-    els.refreshBtn.addEventListener("click", loadRows);
-
-    (async () => {
-      try {
-        const allowed = await protectPage();
-        if(!allowed) return;
-        await loadRows();
-      } catch (error) {
-        console.error("Client dashboard initialization failed:", error);
-        showNotice(error.message || "Failed to initialize client dashboard.", "error");
-        els.table.innerHTML = '<tr><td colspan="8" class="empty">Failed to load dashboard.</td></tr>';
+      if(event.key === "Escape"){
+        toggleMenu(true);
+        closeClientModal();
+        closeUserModal();
       }
-    })();
+    });
+
+    init();
   </script>
 </body>
 </html>
