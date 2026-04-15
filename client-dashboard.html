@@ -134,7 +134,7 @@
       <div class="panel-head">
         <div>
           <div class="panel-title">Endorsed Candidates</div>
-          <div class="panel-subtitle">Search and review candidates endorsed to your company. Use “View” to open full candidate details and submit feedback.</div>
+          <div class="panel-subtitle">Search and review candidates endorsed to your company. Use “View” to open full candidate details, preview resumes, and submit feedback.</div>
         </div>
       </div>
 
@@ -260,10 +260,27 @@
       </div>
     </div>
   </div>
+  <div id="resumePreviewModal" class="modal" aria-hidden="true">
+    <div class="modal-backdrop" data-close-resume-modal="true"></div>
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="resumePreviewTitle">
+      <div class="modal-header">
+        <div>
+          <h2 id="resumePreviewTitle" class="modal-title">Resume Preview</h2>
+          <div class="modal-subtitle">Preview the candidate resume without leaving the dashboard.</div>
+        </div>
+        <button id="closeResumePreviewBtn" class="icon-btn" type="button" aria-label="Close">×</button>
+      </div>
+      <div class="modal-body" style="padding:0;background:#f8fafc;">
+        <iframe id="resumePreviewFrame" title="Resume Preview" style="width:100%;height:76vh;border:0;background:#fff;"></iframe>
+      </div>
+    </div>
+  </div>
+
 
   <script>
     const SUPABASE_URL = "https://dilalntcxmvdcmwxjcct.supabase.co";
     const SUPABASE_ANON_KEY = "sb_publishable_HrLVIUwnaRo54yijtrbWBQ_1aeb4ezs";
+    const RESUME_BUCKET = "resumes";
     const PREVIEW_ALLOWED_EMAILS = ["eric.se@talentbuzz.pro","eric.s@talentbuzz.pro","michelle.giray@talentbuzz.pro","mitchie028@gmail.com","angel.n@talentbuzz.pro","jercey.cayetano@talentbuzz.pro","jayson.c@talentbuzz.pro","xyrene.e@talentbuzz.pro"];
     const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
@@ -283,7 +300,8 @@
       modalPhone: document.getElementById("modalPhone"), modalSkills: document.getElementById("modalSkills"), modalRole: document.getElementById("modalRole"), modalWorkSetup: document.getElementById("modalWorkSetup"),
       modalJobLocation: document.getElementById("modalJobLocation"), modalEmploymentType: document.getElementById("modalEmploymentType"), modalSummary: document.getElementById("modalSummary"), modalResumeBtn: document.getElementById("modalResumeBtn"),
       modalNoResume: document.getElementById("modalNoResume"), modalNotes: document.getElementById("modalNotes"), modalLastUpdated: document.getElementById("modalLastUpdated"), modalRatingGroup: document.getElementById("modalRatingGroup"),
-      saveModalBtn: document.getElementById("saveModalBtn"), clearModalBtn: document.getElementById("clearModalBtn")
+      saveModalBtn: document.getElementById("saveModalBtn"), clearModalBtn: document.getElementById("clearModalBtn"),
+      resumePreviewModal: document.getElementById("resumePreviewModal"), closeResumePreviewBtn: document.getElementById("closeResumePreviewBtn"), resumePreviewFrame: document.getElementById("resumePreviewFrame"), resumePreviewTitle: document.getElementById("resumePreviewTitle")
     };
 
     const normalize = (value) => String(value || "").trim().toLowerCase();
@@ -310,8 +328,123 @@
 
     function showNotice(message, type="info"){ els.notice.textContent=message; els.notice.className=`notice show ${type}`; }
     function clearNotice(){ els.notice.textContent=""; els.notice.className="notice"; }
-    function setPreviewBanner(clientName){ els.previewBanner.style.display="block"; els.previewBanner.className="notice info show"; els.previewBanner.textContent=`Preview Mode: You are viewing the client dashboard as ${clientName}.`; }
-    function hidePreviewBanner(){ els.previewBanner.style.display="none"; els.previewBanner.className="notice info"; els.previewBanner.textContent=""; }
+
+    function normalizeEmailFolder(email){
+      return String(email || "")
+        .trim()
+        .toLowerCase()
+        .replace(/@/g, "_")
+        .replace(/[^a-z0-9._-]/g, "_")
+        .replace(/_+/g, "_")
+        .replace(/^_+|_+$/g, "");
+    }
+    function cleanResumePath(path){
+      let value = String(path || "").trim();
+      if(!value) return "";
+      try { value = decodeURIComponent(value); } catch (_) {}
+      value = value.split("?")[0].split("#")[0];
+      value = value
+        .replace(/^https?:\/\/[^/]+\//i, "")
+        .replace(/^storage\/v1\/object\/(public|sign)\/resumes\//i, "")
+        .replace(/^storage\/v1\/object\/(public|sign)\/[^/]+\//i, "")
+        .replace(/^object\/(public|sign)\/resumes\//i, "")
+        .replace(/^object\/(public|sign)\/[^/]+\//i, "")
+        .replace(/^resumes\//i, "")
+        .replace(/^\/+/, "");
+      return value;
+    }
+    function isDirectResumeUrl(url){
+      const value = String(url || "").trim();
+      return /^https?:\/\//i.test(value) || value.startsWith("blob:") || value.startsWith("data:");
+    }
+    function uniq(values){ return [...new Set((values || []).filter(Boolean))]; }
+    function getFileNameFromValue(value){
+      const clean = cleanResumePath(value);
+      if(!clean) return "";
+      const parts = clean.split("/").filter(Boolean);
+      return parts.length ? parts[parts.length - 1] : "";
+    }
+    function buildResumePathCandidates(row){
+      const emailCandidates = uniq([row.email, row.applicant_email, row.profile_email, row.contact_email].map(v => String(v || "").trim()));
+      const rawPathCandidates = uniq([
+        row.resume_path, row.profile_resume_path, row.resume_url, row.profile_resume_url, row.resume_file_name, row.profile_resume_file_name
+      ].map(cleanResumePath));
+      const fileNameCandidates = uniq([
+        row.resume_file_name, row.profile_resume_file_name,
+        getFileNameFromValue(row.resume_path), getFileNameFromValue(row.profile_resume_path),
+        getFileNameFromValue(row.resume_url), getFileNameFromValue(row.profile_resume_url)
+      ].map(v => String(v || "").trim()));
+
+      const candidates = [];
+      rawPathCandidates.forEach(raw => {
+        if(!raw) return;
+        candidates.push(raw);
+        if(!raw.includes("/")){
+          emailCandidates.forEach(email => {
+            const folder = normalizeEmailFolder(email);
+            candidates.push(`manual/${folder}/${raw}`);
+            candidates.push(`sourced-candidates/${folder}/${raw}`);
+          });
+        }
+      });
+
+      fileNameCandidates.forEach(fileName => {
+        emailCandidates.forEach(email => {
+          const folder = normalizeEmailFolder(email);
+          candidates.push(`manual/${folder}/${fileName}`);
+          candidates.push(`sourced-candidates/${folder}/${fileName}`);
+        });
+      });
+
+      if(row.applicant_profile_id && fileNameCandidates.length){
+        fileNameCandidates.forEach(fileName => candidates.push(`${row.applicant_profile_id}/${fileName}`));
+      }
+
+      return uniq(candidates.map(cleanResumePath));
+    }
+    async function tryCreateSignedUrl(path){
+      const cleanPath = cleanResumePath(path);
+      if(!cleanPath) return "";
+      try {
+        const { data, error } = await supabaseClient.storage.from(RESUME_BUCKET).createSignedUrl(cleanPath, 3600);
+        if(!error && data?.signedUrl) return data.signedUrl;
+      } catch (error) {
+        console.warn("Signed URL failed for", cleanPath, error);
+      }
+      return "";
+    }
+    async function resolveResumeUrl(row){
+      const directCandidates = [
+        row.resolved_resume_url,
+        row.resume_url,
+        row.profile_resume_url
+      ].map(v => String(v || "").trim()).filter(Boolean);
+
+      for(const direct of directCandidates){
+        if(isDirectResumeUrl(direct)) return direct;
+      }
+
+      const pathCandidates = buildResumePathCandidates(row);
+      for(const path of pathCandidates){
+        const signedUrl = await tryCreateSignedUrl(path);
+        if(signedUrl) return signedUrl;
+      }
+      return "";
+    }
+    function openResumePreview(url, title){
+      if(!url){ showNotice("Resume file not found in storage.", "error"); return; }
+      els.resumePreviewTitle.textContent = title || "Resume Preview";
+      els.resumePreviewFrame.src = url;
+      els.resumePreviewModal.classList.add("show");
+      els.resumePreviewModal.setAttribute("aria-hidden", "false");
+      document.body.classList.add("modal-open");
+    }
+    function closeResumePreview(){
+      els.resumePreviewModal.classList.remove("show");
+      els.resumePreviewModal.setAttribute("aria-hidden", "true");
+      els.resumePreviewFrame.src = "";
+      if(!els.modal.classList.contains("show")) document.body.classList.remove("modal-open");
+    }
 
     async function redirectToLogin(){ window.location.href = "client.html"; }
 
@@ -409,7 +542,7 @@
           <td><span class="rating-display">${escapeHtml(ratingLabel)}</span></td>
           <td class="date-cell"><div>${escapeHtml(formatDateOnly(endorsedAt))}</div><div class="small">${escapeHtml(formatDateTime(endorsedAt))}</div></td>
           <td>${escapeHtml(safeText(row.years_of_experience))}</td>
-          <td>${row.resume_url ? `<a class="btn btn-soft btn-xs" href="${escapeHtml(row.resume_url)}" target="_blank" rel="noopener">View Resume</a>` : `<span class="small muted-dash">No resume</span>`}</td>
+          <td>${row.resolved_resume_url ? `<button class="btn btn-soft btn-xs preview-resume-btn" type="button" data-id="${escapeHtml(row.endorsement_id || row.id)}">View Resume</button>` : `<span class="small muted-dash">No resume</span>`}</td>
           <td><div class="action-cell"><button class="btn btn-primary btn-xs view-candidate-btn" type="button" data-id="${escapeHtml(row.endorsement_id || row.id)}">View</button></div></td>
         </tr>`;
       }).join("");
@@ -432,6 +565,10 @@
       }
 
       state.rows = Array.isArray(data) ? data : [];
+      state.rows = await Promise.all(state.rows.map(async (row) => ({
+        ...row,
+        resolved_resume_url: await resolveResumeUrl(row)
+      })));
       populateRoleFilter();
       updateStats(state.rows);
       renderRows();
@@ -479,8 +616,16 @@
       els.modalSummary.textContent = safeText(row.candidate_summary, "No candidate summary available.");
       els.modalNotes.value = row.client_response_notes || "";
 
-      if(row.resume_url){ els.modalResumeBtn.style.display="inline-flex"; els.modalResumeBtn.href=row.resume_url; els.modalNoResume.style.display="none"; }
-      else { els.modalResumeBtn.style.display="none"; els.modalResumeBtn.removeAttribute("href"); els.modalNoResume.style.display="inline"; }
+      if(row.resolved_resume_url){
+        els.modalResumeBtn.style.display="inline-flex";
+        els.modalResumeBtn.href=row.resolved_resume_url;
+        els.modalResumeBtn.textContent = "Open in New Tab";
+        els.modalNoResume.style.display="none";
+      } else {
+        els.modalResumeBtn.style.display="none";
+        els.modalResumeBtn.removeAttribute("href");
+        els.modalNoResume.style.display="inline";
+      }
 
       const lastResponseTime = row.client_responded_at || row.client_viewed_at;
       els.modalLastUpdated.textContent = lastResponseTime ? `Last updated: ${formatDateTime(lastResponseTime)}` : "No feedback saved yet.";
@@ -496,7 +641,7 @@
     function closeModal(){
       els.modal.classList.remove("show");
       els.modal.setAttribute("aria-hidden", "true");
-      document.body.classList.remove("modal-open");
+      if(!els.resumePreviewModal.classList.contains("show")) document.body.classList.remove("modal-open");
       state.selectedRow = null;
     }
 
@@ -542,6 +687,12 @@
     els.pendingOnlyToggle.addEventListener("change", renderRows);
 
     els.table.addEventListener("click", (event) => {
+      const resumeBtn = event.target.closest(".preview-resume-btn");
+      if(resumeBtn){
+        const row = state.rows.find(item => String(item.endorsement_id || item.id) === String(resumeBtn.dataset.id));
+        if(row) openResumePreview(row.resolved_resume_url, `${row.full_name || "Candidate"} Resume`);
+        return;
+      }
       const viewBtn = event.target.closest(".view-candidate-btn");
       if(!viewBtn) return;
       const row = state.rows.find(item => String(item.endorsement_id || item.id) === String(viewBtn.dataset.id));
@@ -556,8 +707,22 @@
       if(ratingBtn) setRatingSelection(ratingBtn.dataset.score);
     });
 
-    document.addEventListener("keydown", (event) => { if(event.key === "Escape" && els.modal.classList.contains("show")) closeModal(); });
+    els.modalResumeBtn.addEventListener("click", (event) => {
+      if(!state.selectedRow?.resolved_resume_url) return;
+      event.preventDefault();
+      openResumePreview(state.selectedRow.resolved_resume_url, `${state.selectedRow.full_name || "Candidate"} Resume`);
+    });
+
+    els.resumePreviewModal.addEventListener("click", (event) => {
+      if(event.target.matches("[data-close-resume-modal='true']")) closeResumePreview();
+    });
+
+    document.addEventListener("keydown", (event) => {
+      if(event.key === "Escape" && els.resumePreviewModal.classList.contains("show")) closeResumePreview();
+      if(event.key === "Escape" && els.modal.classList.contains("show")) closeModal();
+    });
     els.closeModalBtn.addEventListener("click", closeModal);
+    els.closeResumePreviewBtn.addEventListener("click", closeResumePreview);
     els.saveModalBtn.addEventListener("click", saveModalFeedback);
     els.clearModalBtn.addEventListener("click", clearModalFeedback);
     els.logoutBtn.addEventListener("click", logout);
