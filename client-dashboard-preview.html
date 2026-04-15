@@ -841,18 +841,66 @@ function navigateDrawer(direction){
 }
 
 async function loadClients(){
-  const { data, error } = await supabase.from("clients").select("id, client_name").order("client_name");
-  if(error){
-    showNotice(`Failed to load clients: ${error.message}`, "error");
+  els.clientSelector.innerHTML = `<option value="">Loading clients...</option>`;
+
+  let clients = [];
+  let directError = null;
+
+  const direct = await supabase
+    .from("clients")
+    .select("id, client_name")
+    .order("client_name");
+
+  if (!direct.error && Array.isArray(direct.data) && direct.data.length) {
+    clients = direct.data
+      .filter((c) => c && c.id && c.client_name)
+      .map((c) => ({ id: String(c.id), client_name: String(c.client_name) }));
+  } else {
+    directError = direct.error || null;
+  }
+
+  if (!clients.length) {
+    const fallback = await supabase
+      .from("client_endorsement_view")
+      .select("client_id, client_name")
+      .order("client_name");
+
+    if (!fallback.error && Array.isArray(fallback.data) && fallback.data.length) {
+      const seen = new Map();
+      fallback.data.forEach((row) => {
+        const id = safeText(row.client_id);
+        const name = safeText(row.client_name);
+        if (id && name && !seen.has(id)) {
+          seen.set(id, { id, client_name: name });
+        }
+      });
+      clients = Array.from(seen.values()).sort((a, b) => a.client_name.localeCompare(b.client_name));
+    }
+  }
+
+  els.clientSelector.innerHTML = `<option value="">Select client</option>`;
+
+  if (!clients.length) {
+    const msg = directError
+      ? "No clients available for this recruiter preview. The clients table may be blocked by RLS, and no visible client records were found in client_endorsement_view."
+      : "No clients available yet. Make sure there are endorsed records in client_endorsement_view for this preview.";
+    showNotice(msg, "error");
     return;
   }
-  els.clientSelector.innerHTML = `<option value="">Select client</option>`;
-  (data || []).forEach((client)=>{
+
+  clients.forEach((client) => {
     const opt = document.createElement("option");
     opt.value = client.id;
     opt.textContent = client.client_name;
     els.clientSelector.appendChild(opt);
   });
+
+  if (clients.length === 1) {
+    els.clientSelector.value = clients[0].id;
+    await loadRows();
+  } else {
+    showNotice(`Loaded ${clients.length} client option(s).`, "success");
+  }
 }
 
 async function loadRows(){
@@ -885,6 +933,7 @@ async function loadRows(){
 
   renderFilters();
   applyFilters();
+  initChatBadge();
   showNotice(`Loaded ${state.rows.length} endorsed candidate record(s).`, "success");
 }
 
