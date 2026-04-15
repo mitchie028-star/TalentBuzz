@@ -1459,6 +1459,7 @@ function cleanGeneratedQuestion(questionText, focusArea = '', roleModel = {}){
   const finalQuestions = [];
   const seenQuestionKeys = new Set();
   const seenFocusKeys = new Set();
+
   const safeQuestions = Array.isArray(questions) ? questions.filter(Boolean) : [];
 
   function getQuestionText(q){
@@ -1509,19 +1510,13 @@ function cleanGeneratedQuestion(questionText, focusArea = '', roleModel = {}){
     if (!focusWords.length) return false;
 
     const matchCount = focusWords.filter(word => text.includes(word)).length;
-
-    // Do not over-flag strong domain-specific questions
-    if (/\bapi|integration|webflow|cms|customer|denial|reconciliation|reporting|javascript|react|vue|angular|sql|python\b/.test(text)) {
-      return false;
-    }
-
     return matchCount === 0;
   }
 
   function rewriteKnockoutQuestion(focusArea, roleModel = {}){
     const cleanFocus = stripImportanceLabel(focusArea);
     const lower = tbLower(cleanFocus);
-    const localDomain = detectRoleDomain(roleModel);
+    const domain = detectRoleDomain(roleModel);
 
     if (!cleanFocus) return '';
 
@@ -1541,10 +1536,6 @@ function cleanGeneratedQuestion(questionText, focusArea = '', roleModel = {}){
       return `Describe one real project where you handled ${cleanFocus}. What systems were connected, what data or trigger moved between them, and what issue did you personally solve during the integration?`;
     }
 
-    if (/\bjavascript\b|\bes6\b|\breact\b|\bvue\b|\bangular\b|\bframework\b/.test(lower)) {
-      return `Confirm your ${cleanFocus} by citing one specific real project. State what you personally built, where this skill was used, and one concrete implementation detail that makes the claim easy to verify.`;
-    }
-
     if (/\bexperience\b|\byears\b|\bmonths\b|\brequired\b|\blicense\b|\bcertified\b|\bcredential\b/.test(lower)) {
       return `Confirm your ${cleanFocus} by citing one specific real role or project. State where you used it, what you personally handled, and one concrete detail that makes the claim easy to verify.`;
     }
@@ -1553,11 +1544,11 @@ function cleanGeneratedQuestion(questionText, focusArea = '', roleModel = {}){
       return `This role depends on ${cleanFocus}. Confirm whether you can meet that consistently, and explain what in your current setup makes that realistic long term.`;
     }
 
-    if (localDomain === 'technical') {
+    if (domain === 'technical') {
       return `Describe one real project that proves your ${cleanFocus}. What did you personally own, what technical decisions did you make, and what live output, system behavior, or shipped result would verify that work?`;
     }
 
-    if (localDomain === 'customer') {
+    if (domain === 'customer') {
       return `Describe one real role or case that proves your ${cleanFocus}. What kind of customer issue did you handle, what did you personally do, and what result or metric would confirm the work was real?`;
     }
 
@@ -1567,11 +1558,11 @@ function cleanGeneratedQuestion(questionText, focusArea = '', roleModel = {}){
   function rewriteGenericProofQuestion(focusArea, roleModel = {}){
     const cleanFocus = stripImportanceLabel(focusArea);
     const lower = tbLower(cleanFocus);
-    const localDomain = detectRoleDomain(roleModel);
+    const domain = detectRoleDomain(roleModel);
 
     if (!cleanFocus) return '';
 
-    if (localDomain === 'technical') {
+    if (domain === 'technical') {
       if (/\bwebflow\b/.test(lower)) {
         return `Describe one real Webflow project where ${cleanFocus} mattered. What was the build goal, what became difficult, what did you inspect first, and what did you change to get the site working as expected?`;
       }
@@ -1587,21 +1578,18 @@ function cleanGeneratedQuestion(questionText, focusArea = '', roleModel = {}){
       if (/\bownership\b|\bclient-facing\b|\btroubleshoot\b|\bproblems independently\b/.test(lower)) {
         return `Describe one real project where ${cleanFocus} clearly showed up in your work. What problem landed on you, what did you do before asking for help, and what outcome proved your judgment was right?`;
       }
-      if (/\breact\b|\bvue\b|\bangular\b|\bframework\b/.test(lower)) {
-        return `Describe one real project where ${cleanFocus} mattered. What feature or component were you responsible for, what technical issue showed up, and how did you resolve it?`;
-      }
       return `Describe one real project where ${cleanFocus} directly mattered. What was the actual problem, what did you inspect first, and what decision or change did you personally make?`;
     }
 
-    if (localDomain === 'customer') {
+    if (domain === 'customer') {
       return `Describe one real customer case where ${cleanFocus} mattered. What was happening, what did you do first, and what outcome showed that your handling worked?`;
     }
 
-    if (localDomain === 'healthcare') {
+    if (domain === 'healthcare') {
       return `Describe one real case where ${cleanFocus} mattered. What did you review first, what judgment did you make, and what outcome followed from your action?`;
     }
 
-    if (localDomain === 'finance') {
+    if (domain === 'finance') {
       return `Describe one real case where ${cleanFocus} mattered. What issue showed up first, what records or signals did you check, and what action did you take to resolve it?`;
     }
 
@@ -1614,7 +1602,6 @@ function cleanGeneratedQuestion(questionText, focusArea = '', roleModel = {}){
 
     if (!text) return null;
 
-    // Preserve special-purpose questions
     if (q.category === 'red_flag' || q.category === 'simulation') {
       text = cleanGeneratedQuestionV11(text, focus, roleModel);
     } else if (looksGenericKnockout(text)) {
@@ -1628,14 +1615,8 @@ function cleanGeneratedQuestion(questionText, focusArea = '', roleModel = {}){
     }
 
     const signalBasis = q.focus_area || focus;
-    const category = q.category === 'red_flag' || q.category === 'simulation'
-      ? q.category
-      : chooseQuestionCategoryV11(signalBasis, text, roleModel);
-
-    const response_type = q.category === 'red_flag' || q.category === 'simulation'
-      ? (q.response_type || 'Open Text')
-      : chooseResponseTypeV11(signalBasis, text, roleModel);
-
+    const category = chooseQuestionCategoryV11(signalBasis, text, roleModel);
+    const response_type = chooseResponseTypeV11(signalBasis, text, roleModel);
     const weight = q.weight || chooseQuestionWeightV11(signalBasis, roleModel);
     const quality = evaluateQuestionQualityV11(text, focus, roleModel);
 
@@ -1681,8 +1662,23 @@ function cleanGeneratedQuestion(questionText, focusArea = '', roleModel = {}){
     .map(improveQuestion)
     .filter(Boolean)
     .sort((a, b) => {
+      const aCat = a.category || '';
+      const bCat = b.category || '';
       const aScore = Number(a.quality_score || 0);
       const bScore = Number(b.quality_score || 0);
+
+      const catPriority = {
+        knockout: 4,
+        technical: 3,
+        proof: 2,
+        red_flag: 1,
+        simulation: 1
+      };
+
+      const aPriority = catPriority[aCat] || 0;
+      const bPriority = catPriority[bCat] || 0;
+
+      if (aPriority !== bPriority) return bPriority - aPriority;
       return bScore - aScore;
     });
 
@@ -1692,27 +1688,19 @@ function cleanGeneratedQuestion(questionText, focusArea = '', roleModel = {}){
   const redFlagPool = improved.filter(q => q.category === 'red_flag');
   const simulationPool = improved.filter(q => q.category === 'simulation');
 
-  // Max 2 knockouts
   knockoutPool.slice(0, 2).forEach(addQuestion);
 
-  // Ensure one strong role-execution question
   if (domain === 'technical') {
     technicalPool.slice(0, 1).forEach(addQuestion);
     proofPool.slice(0, 1).forEach(addQuestion);
   } else {
     proofPool.slice(0, 2).forEach(addQuestion);
-    technicalPool.slice(0, 1).forEach(addQuestion);
   }
 
-  // Keep one fraud / reality check
   redFlagPool.slice(0, 1).forEach(addQuestion);
-
-  // Keep one real simulation
   simulationPool.slice(0, 1).forEach(addQuestion);
 
-  // Fill any remaining slots by pure quality
   improved
-    .filter(q => !finalQuestions.some(fq => normalizeQuestionKey(getQuestionText(fq)) === normalizeQuestionKey(getQuestionText(q))))
     .sort((a, b) => Number(b.quality_score || 0) - Number(a.quality_score || 0))
     .forEach(addQuestion);
 
