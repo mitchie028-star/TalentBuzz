@@ -517,6 +517,10 @@ function getSignalVerificationTail(meta){
   if (meta.type === 'setup' || meta.type === 'eligibility') return '';
 
   const domain = meta.domain;
+  
+  if (domain === 'bpo_qa') {
+    return ` Include at least one concrete detail that would have existed in the real QA workflow, such as a scorecard, calibration note, audit finding, KPI trend, stakeholder dispute, or coaching record.`;
+  }
   if (domain === 'technical') {
     return ` Include at least one concrete detail that would have existed in the real environment, such as a system, endpoint, log, payload, table, dashboard, or deployment signal.`;
   }
@@ -687,7 +691,9 @@ function buildExecutionSimulationV11(roleModel = {}){
   const domain = detectRoleDomain(roleModel);
   let question = '';
 
-  if (domain === 'customer') {
+  if (domain === 'bpo_qa') {
+    question = `A senior operations leader says QA scoring is too harsh, while your QA team insists the scorecard is being applied correctly. CSAT is slipping and calibration trust is breaking down. What would you review first, what possible causes would you try to confirm or rule out, and how would you decide whether the issue is scorer inconsistency, scorecard design, or operational performance?`;
+  } else if (domain === 'customer') {
     question = `A customer needs an urgent rebooking, but the first option does not meet policy, the next option is more expensive, and the customer is already frustrated. What do you check first, which option would you reject, and how would you move the case forward? Include the specific tool or information you would rely on.`;
   } else if (domain === 'technical') {
     question = `A critical workflow is about to go live, but one part of the system starts failing in testing and the root cause is not obvious. What do you inspect first, what possible causes would you try to rule out, and how would you decide whether to block the release or proceed?`;
@@ -714,7 +720,9 @@ function buildFraudCheckQuestionV11(roleModel = {}){
   const domain = detectRoleDomain(roleModel);
   let question = '';
 
-  if (domain === 'technical') {
+  if (domain === 'bpo_qa') {
+    question = `Choose one real QA program, scorecard, calibration process, or audit workflow you personally handled that is most relevant to this role. Name the quality standard involved, one recurring issue you encountered, and one concrete output or document that would prove the work was real.`;
+  } else if (domain === 'technical') {
     question = `Choose one project or workflow you personally handled that is most relevant to this role. Name the tool stack or systems involved, one issue you ran into, and one concrete output that proves the work was real.`;
   } else if (domain === 'customer') {
     question = `Choose one customer-facing case that best shows your fit for this role. Name the tool you used, the exact type of issue you handled, and one detail that would have appeared in the actual case.`;
@@ -741,6 +749,18 @@ Build a QA Manager-specific question generator block
 ✅ Upgrade your system so each role type gets specialized questions automatically    
 
 function generateQuestionsV11(roleModel = {}){
+  const domain = detectRoleDomain(roleModel);
+  const senior = isSeniorRole(roleModel);
+  const title = tbLower(roleModel.jobTitle || '');
+
+  // Specialized QA Manager / BPO Quality path
+  if (
+    domain === 'bpo_qa' &&
+    /\b(manager|lead|supervisor|head)\b/.test(title)
+  ) {
+    return buildQAManagerQuestionSetV11(roleModel);
+  }
+
   const selectedSignals = pickTopSignalsV11(roleModel, 3);
   const questions = [];
   const seen = new Set();
