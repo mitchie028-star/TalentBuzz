@@ -592,32 +592,39 @@
     }
 
     async function createClientInvite(payload) {
-      const { data, error } = await supabaseClient.functions.invoke("create-client-login", {
-        body: payload
-      });
+  try {
+    const { data, error } = await supabaseClient.functions.invoke("create-client-login", {
+      body: payload
+    });
 
-      console.log("create-client-login payload:", payload);
-      console.log("create-client-login data:", data);
-      console.log("create-client-login error:", error);
+    console.log("create-client-login payload:", payload);
+    console.log("create-client-login data:", data);
+    console.log("create-client-login error:", error);
 
-      if (error) {
-        const details = await readInvokeErrorDetails(error);
-        console.error("create-client-login error details:", details);
+    if (error) {
+      const details = await readInvokeErrorDetails(error);
+      console.error("create-client-login error details:", details);
+      console.error("create-client-login raw error object:", error);
 
-        throw new Error(
-          details?.error ||
-          details?.message ||
-          normalizeErrorText(error) ||
-          "Edge Function returned a non-2xx status code"
-        );
-      }
-
-      if (data?.error) {
-        throw new Error(data.error);
-      }
-
-      return data || {};
+      throw new Error(
+        details?.error ||
+        details?.message ||
+        error.message ||
+        normalizeErrorText(error) ||
+        "Failed to send a request to the Edge Function"
+      );
     }
+
+    if (data?.error) {
+      throw new Error(data.error);
+    }
+
+    return data || {};
+  } catch (err) {
+    console.error("createClientInvite transport error:", err);
+    throw err;
+  }
+}
 
     function updateResults(payload, result) {
       latestInviteLink = result?.invite_link || "";
