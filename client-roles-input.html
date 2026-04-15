@@ -2235,281 +2235,24 @@ function clearRoleForm(){
   refreshPreview();
 }
 
-function hydrateQuestionItems(list){
-  const roleModel = deriveRoleModel();
+function attachEvents(){
+  els.newRoleBtn?.addEventListener('click', openNewRole);
+  els.newRoleBtnHero?.addEventListener('click', openNewRole);
+  els.closeRoleModalBtn?.addEventListener('click', () => setModalOpen(false));
+  els.refreshRolesBtn?.addEventListener('click', loadRoles);
+  els.clearRoleBtn?.addEventListener('click', clearRoleForm);
+  els.buildSignalBtn?.addEventListener('click', buildSignalSummary);
 
-  questionItems = normalizeArray(list)
-    .map(item => createEmptyQuestion(item))
-    .map(q => ({
-      ...q,
-      quality_evaluation: q.quality_evaluation || evaluateQuestionQualityV11(
-        q.question,
-        q.focus_area,
-        roleModel
-      )
-    }));
-
-  renderQuestions();
-  updateQuestionQualitySummary();
-  generateScreeningSummary();
-  refreshPreview();
-}
-
-window.editRole = function(id){
-  try {
-    const role = rolesCache.find(r => r.id === id);
-    if(!role){
-      showNotice('Role not found.','error');
-      return;
-    }
-
-    clearRoleForm();
-    els.roleModalTitle.textContent = 'Edit Role';
-    els.roleId.value = role.id || '';
-
-    const safeAiConfig =
-      (role.ai_screening_config &&
-        typeof role.ai_screening_config === 'object' &&
-        !Array.isArray(role.ai_screening_config))
-        ? role.ai_screening_config
-        : {};
-
-    const signal =
-      (safeAiConfig.signal_intelligence &&
-        typeof safeAiConfig.signal_intelligence === 'object' &&
-        !Array.isArray(safeAiConfig.signal_intelligence))
-        ? safeAiConfig.signal_intelligence
-        : safeAiConfig;
-
-    const screeningConfig = Array.isArray(role.screening_config) ? role.screening_config : [];
-    const requiredSkills = Array.isArray(role.required_skills) ? role.required_skills : [];
-    const niceToHaveSkills = Array.isArray(role.nice_to_have_skills) ? role.nice_to_have_skills : [];
-
-    const clientMatch =
-      clientsCache.find(c => c.id === role.client_id) ||
-      clientsCache.find(c => safeText(c.client_name).toLowerCase() === safeText(role.client_name).toLowerCase());
-
-    if (clientMatch) setClientSelectionById(clientMatch.id);
-    else {
-      els.clientId.value = role.client_id || '';
-      els.clientName.value = role.client_name || '';
-    }
-
-    els.jobTitle.value = role.title || '';
-    els.roleFamily.value = role.role_family || '';
-    els.location.value = role.location || '';
-    els.workSetup.value = role.work_setup || '';
-    els.employmentType.value = role.employment_type || '';
-    els.seniority.value = role.seniority_level || '';
-    els.roleStatus.value = role.status || 'Open';
-    els.salaryCurrency.value = role.salary_currency || 'PHP';
-    els.salaryPeriod.value = role.salary_period || 'Monthly';
-    els.salaryMin.value = role.salary_min ?? '';
-    els.salaryMax.value = role.salary_max ?? '';
-    els.salaryNotes.value = '';
-    els.jobDescription.value = role.job_description || '';
-    els.jdRawText.value = role.jd_raw_text || '';
-    els.requirements.value = role.requirements_text || role.requirements || '';
-    els.prioritySkills.value = requiredSkills.join('\n');
-    els.niceToHaveSkills.value = niceToHaveSkills.join('\n');
-    els.languageRequirement.value = role.language_requirement || safeAiConfig.language_requirement || 'None';
-    els.voiceScreeningMode.value = role.voice_screening_mode || safeAiConfig.voice_screening_mode || 'auto';
-
-    els.signalNonNegotiables.value = normalizeArray(signal.non_negotiables).join('\n');
-    els.signalRedFlags.value = normalizeArray(signal.red_flags).join('\n');
-    els.signalMustHaveSkills.value = normalizeArray(signal.must_have_skills).join('\n');
-    els.signalSuccessSignals.value = normalizeArray(signal.success_signals).join('\n');
-    els.signalSetupCriticality.value = signal.setup_criticality || '';
-    els.signalEnvironmentNotes.value = signal.environment_notes || '';
-    els.signalCommunicationWeight.value = signal.communication_weight || '';
-    els.signalStakeholderWeight.value = signal.stakeholder_weight || '';
-    els.signalAutonomyLevel.value = signal.autonomy_level || '';
-    els.signalDecisionMaking.value = signal.decision_making || '';
-    els.signalBusinessPriorities.value = normalizeArray(signal.business_priorities).join('\n');
-
-    const roleModel = deriveRoleModel();
-
-    questionItems = screeningConfig.map(q => createEmptyQuestion({
-      ...q,
-      quality_evaluation: q?.quality_evaluation || evaluateQuestionQualityV11(
-        q?.question || '',
-        q?.focus_area || '',
-        roleModel
-      ),
-      evaluation: q?.evaluation || null
-    }));
-
-    buildSignalSummary();
-    renderQuestions();
-    refreshPreview();
-    setModalOpen(true);
-    switchTab('basics');
-  } catch (error) {
-    console.error('editRole failed:', error);
-    showNotice(`Failed to open workspace: ${error.message || error}`,'error');
-  }
-};
-
-window.toggleHoldRole = async function(id, nextValue){
-  const { error } = await supabaseClient
-    .from('jobs')
-    .update({ is_on_hold: nextValue === true || nextValue === 'true' })
-    .eq('id', id);
-
-  if(error){
-    showNotice(`Failed to update hold status: ${error.message}`,'error');
-    return;
-  }
-
-  showNotice('Role status updated.');
-  await loadRoles();
-};
-
-    async function saveRole(){
-      if(!validateClientSelection(true)) return;
-      if(!safeText(els.jobTitle.value)){ showNotice('Job title is required.','error'); return; }
-      const signalPayload = getSignalCalibrationPayload();
-      const roleModel = deriveRoleModel();
-      const aiScreeningConfig = {
-        language_requirement: safeText(els.languageRequirement.value) || 'None',
-        voice_screening_mode: safeText(els.voiceScreeningMode.value) || 'auto',
-        signal_intelligence: signalPayload,
-        role_model_snapshot: {
-          primary_domain: roleModel.primaryDomain,
-          complexity_score: roleModel.complexityScore,
-          risk_level: roleModel.riskLevel,
-          ambiguity_level: roleModel.ambiguityLevel,
-          stakeholder_intensity: roleModel.stakeholderIntensity
-        },
-        screening_feedback_log: questionItems.map(q => ({
-          id: q.id,
-          original_question: q.ai_original_question,
-          final_question: q.question,
-          action_taken: q.feedback_action,
-          feedback_tags: normalizeArray(q.feedback_tags),
-          feedback_note: q.feedback_note,
-          category: q.category,
-          weight: q.weight,
-          focus_area: q.focus_area,
-          quality_evaluation: q.quality_evaluation
-        }))
-      };
-
-      const basePayload = {
-        client_id: els.clientId.value || null,
-        client_name: safeText(els.clientName.value) || null,
-        title: safeText(els.jobTitle.value) || null,
-        role_family: safeText(els.roleFamily.value) || null,
-        location: safeText(els.location.value) || null,
-        work_setup: safeText(els.workSetup.value) || null,
-        employment_type: safeText(els.employmentType.value) || null,
-        seniority_level: safeText(els.seniority.value) || null,
-        status: safeText(els.roleStatus.value) || 'Open',
-        salary_currency: safeText(els.salaryCurrency.value) || 'PHP',
-        salary_min: parseBudgetNumber(els.salaryMin.value),
-        salary_max: parseBudgetNumber(els.salaryMax.value),
-        job_description: safeText(els.jobDescription.value) || null,
-        required_skills: uniqueLines(normalizeLines(els.prioritySkills.value)),
-        nice_to_have_skills: uniqueLines(normalizeLines(els.niceToHaveSkills.value)),
-        screening_config: questionItems,
-        screening_summary: safeText(els.screeningSummaryOutput.textContent) || null,
-        ai_screening_config: aiScreeningConfig,
-        slug: slugify(`${safeText(els.clientName.value)} ${safeText(els.jobTitle.value)}`),
-        updated_at: new Date().toISOString()
-      };
-
-      const optionalColumns = {
-        salary_period: safeText(els.salaryPeriod.value) || 'Monthly',
-        jd_raw_text: safeText(els.jdRawText.value) || null,
-        language_requirement: safeText(els.languageRequirement.value) || 'None',
-        voice_screening_mode: safeText(els.voiceScreeningMode.value) || 'auto'
-      };
-
-      let payload = { ...basePayload, ...optionalColumns };
-      const trySave = async currentPayload => {
-        return els.roleId.value
-          ? await supabaseClient.from('jobs').update(currentPayload).eq('id', els.roleId.value)
-          : await supabaseClient.from('jobs').insert({ ...currentPayload, created_at: new Date().toISOString() });
-      };
-
-      let result = await trySave(payload);
-      if(result.error){
-        const missingMatch = result.error.message && result.error.message.match(/Could not find the '([^']+)' column/);
-        if(missingMatch){
-          delete payload[missingMatch[1]];
-          result = await trySave(payload);
-        }
-      }
-      if(result.error){ showNotice(`Failed to save role: ${result.error.message}`,'error'); return; }
-      showNotice('Role saved successfully.');
-      setModalOpen(false);
-      await loadRoles();
-    }
-
-    function openNewRole(){
-      clearRoleForm();
-      els.roleModalTitle.textContent = 'Role Workspace';
-      setModalOpen(true); switchTab('basics');
-    }
-
-    function attachEvents(){
-      els.newRoleBtn?.addEventListener('click', openNewRole);
-      els.newRoleBtnHero?.addEventListener('click', openNewRole);
-      els.closeRoleModalBtn?.addEventListener('click', () => setModalOpen(false));
-      els.refreshRolesBtn?.addEventListener('click', loadRoles);
-      els.clearRoleBtn?.addEventListener('click', clearRoleForm);
-      els.buildSignalBtn?.addEventListener('click', buildSignalSummary);
-      els.generateAiQuestionsBtn?.addEventListener('click', generateAiQuestions);
-      els.evaluateQuestionQualityBtn?.addEventListener('click', evaluateAllQuestionQuality);
-      els.addQuestionBtn?.addEventListener('click', addQuestion);
-      els.generateSummaryBtn?.addEventListener('click', generateScreeningSummary);
-      els.scoreAnswersBtn?.addEventListener('click', evaluateAnswers);
-      els.clearAnswersBtn?.addEventListener('click', clearAnswers);
-      els.saveRoleBtn?.addEventListener('click', saveRole);
-      els.parseJDBtn?.addEventListener('click', parseJD);
-      els.clearJDBtn?.addEventListener('click', clearJD);
-      els.searchInput?.addEventListener('input', renderRolesTable);
-      els.holdFilter?.addEventListener('change', renderRolesTable);
-      els.clientName?.addEventListener('change', syncClientSelectionByName);
-      els.existingClientSelect?.addEventListener('change', e => setClientSelectionById(e.target.value));
-      els.tabButtons.forEach(btn => btn.addEventListener('click', () => switchTab(btn.dataset.tab)));
-      els.openHelpBtn?.addEventListener('click', () => showNotice('This version adds real-work grounding, rewrite-before-render validation, stronger question scoring, and a minimum-question safeguard.'));
-      ['jobTitle','roleFamily','location','workSetup','employmentType','seniority','salaryMin','salaryMax','salaryCurrency','salaryPeriod','jobDescription','requirements','prioritySkills','niceToHaveSkills','signalNonNegotiables','signalRedFlags','signalMustHaveSkills','signalSuccessSignals','signalSetupCriticality','signalEnvironmentNotes','signalCommunicationWeight','signalStakeholderWeight','signalAutonomyLevel','signalDecisionMaking','signalBusinessPriorities'].forEach(id => {
-        els[id]?.addEventListener('input', refreshPreview);
-        els[id]?.addEventListener('change', refreshPreview);
-      });
-    }
-
-    async function init(){
-      attachEvents();
-      clearRoleForm();
-      await loadClients();
-      await loadRoles();
-      refreshPreview();
-    }
-
-    init();
-
-
-// Bind AI question generation to the active V11 engine only
-function bindScreeningGenerator(){
-  if (!els.generateAiQuestionsBtn) return;
-
-  els.generateAiQuestionsBtn.onclick = () => {
+  els.generateAiQuestionsBtn?.addEventListener('click', () => {
     try {
       const roleModel = deriveRoleModel();
       const generated = generateQuestionsV11(roleModel);
 
-      questionItems = Array.isArray(generated) ? generated : [];
-
-      renderQuestions();
-      updateQuestionQualitySummary();
-      generateScreeningSummary();
-      refreshPreview();
+      hydrateQuestionItems(Array.isArray(generated) ? generated : []);
 
       showNotice(
         questionItems.length
-          ? 'AI Questions Generated (V11 Adaptive Execution Engine)'
+          ? 'AI Questions Generated (V12 Proof-First Engine)'
           : 'No AI questions were generated. Please check Signals and role setup.',
         questionItems.length ? 'success' : 'error'
       );
@@ -2517,8 +2260,50 @@ function bindScreeningGenerator(){
       console.error('AI question generation failed:', error);
       showNotice(`AI question generation failed: ${error.message || error}`, 'error');
     }
-  };
+  });
+
+  els.evaluateQuestionQualityBtn?.addEventListener('click', evaluateAllQuestionQuality);
+  els.addQuestionBtn?.addEventListener('click', addQuestion);
+  els.generateSummaryBtn?.addEventListener('click', generateScreeningSummary);
+  els.scoreAnswersBtn?.addEventListener('click', evaluateAnswers);
+  els.clearAnswersBtn?.addEventListener('click', clearAnswers);
+  els.saveRoleBtn?.addEventListener('click', saveRole);
+  els.parseJDBtn?.addEventListener('click', parseJD);
+  els.clearJDBtn?.addEventListener('click', clearJD);
+  els.searchInput?.addEventListener('input', renderRolesTable);
+  els.holdFilter?.addEventListener('change', renderRolesTable);
+  els.clientName?.addEventListener('change', syncClientSelectionByName);
+  els.existingClientSelect?.addEventListener('change', e => setClientSelectionById(e.target.value));
+  els.tabButtons.forEach(btn => btn.addEventListener('click', () => switchTab(btn.dataset.tab)));
+
+  els.openHelpBtn?.addEventListener(
+    'click',
+    () => showNotice('This version adds real-work grounding, rewrite-before-render validation, stronger question scoring, and a minimum-question safeguard.')
+  );
+
+  [
+    'jobTitle','roleFamily','location','workSetup','employmentType','seniority',
+    'salaryMin','salaryMax','salaryCurrency','salaryPeriod',
+    'jobDescription','requirements','prioritySkills','niceToHaveSkills',
+    'signalNonNegotiables','signalRedFlags','signalMustHaveSkills','signalSuccessSignals',
+    'signalSetupCriticality','signalEnvironmentNotes','signalCommunicationWeight',
+    'signalStakeholderWeight','signalAutonomyLevel','signalDecisionMaking',
+    'signalBusinessPriorities'
+  ].forEach(id => {
+    els[id]?.addEventListener('input', refreshPreview);
+    els[id]?.addEventListener('change', refreshPreview);
+  });
 }
+
+async function init(){
+  attachEvents();
+  clearRoleForm();
+  await loadClients();
+  await loadRoles();
+  refreshPreview();
+}
+
+init();
 
 </script>
 </body>
