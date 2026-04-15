@@ -952,7 +952,57 @@ function buildQAManagerQuestionSetV11(roleModel = {}){
   });
 
   return finalizeGeneratedQuestions(questions, roleModel);
-}    
+}
+
+function generateQuestionsV11(roleModel = {}){
+  const domain = detectRoleDomain(roleModel);
+  const title = tbLower(roleModel.jobTitle || '');
+
+  if (
+    domain === 'bpo_qa' &&
+    /\b(manager|lead|supervisor|head)\b/.test(title)
+  ) {
+    return buildQAManagerQuestionSetV11(roleModel);
+  }
+
+  const selectedSignals = pickTopSignalsV11(roleModel, 3);
+  const questions = [];
+  const seen = new Set();
+
+  selectedSignals.forEach(signal => {
+    const q = generateExecutionQuestionV11(signal, roleModel);
+    if (!q) return;
+
+    const cleanedQuestion = cleanGeneratedQuestionV11(q, stripImportanceLabel(signal), roleModel);
+    const key = tbLower(cleanedQuestion);
+    if (!cleanedQuestion || seen.has(key)) return;
+
+    seen.add(key);
+    questions.push(createEmptyQuestion({
+      question: cleanedQuestion,
+      ai_original_question: cleanedQuestion,
+      focus_area: stripImportanceLabel(signal),
+      response_type: chooseResponseTypeV11(signal, cleanedQuestion, roleModel),
+      category: chooseQuestionCategoryV11(signal, cleanedQuestion, roleModel),
+      weight: chooseQuestionWeightV11(signal, roleModel),
+      was_ai_generated: true
+    }));
+  });
+
+  const fraudCheck = buildFraudCheckQuestionV11(roleModel);
+  if (!seen.has(tbLower(fraudCheck.question))) {
+    seen.add(tbLower(fraudCheck.question));
+    questions.push(fraudCheck);
+  }
+
+  const sim = buildExecutionSimulationV11(roleModel);
+  if (!seen.has(tbLower(sim.question))) {
+    seen.add(tbLower(sim.question));
+    questions.push(sim);
+  }
+
+  return finalizeGeneratedQuestions(questions.slice(0, 5), roleModel);
+}
 function generateQuestionsV11(roleModel = {}){
   const domain = detectRoleDomain(roleModel);
   const senior = isSeniorRole(roleModel);
