@@ -1611,249 +1611,488 @@ function buildQuestionFromPlanItem(item, roleModel){
   });
 }
 
-    function isGenericQuestion(q){
-      const text = safeText(q).toLowerCase();
-      return /tell us about your experience|describe your experience|do you have experience|briefly confirm this must-have|briefly confirm this requirement/.test(text) || text.length < 80;
-    }
+   function isGenericQuestion(q){
+  const text = safeText(q).toLowerCase();
+  return (
+    /tell us about your experience|describe your experience|do you have experience|briefly confirm this must-have|briefly confirm this requirement/.test(text) ||
+    text.length < 80
+  );
+}
 
-    function evaluateQuestionQuality(item) {
-      const question = safeText(item?.question);
-      const q = question.toLowerCase();
+function evaluateQuestionQualityV11(questionText, focusArea = '', roleModel = {}){
+  const question = safeText(questionText);
+  const q = question.toLowerCase();
+  const focus = safeText(focusArea).toLowerCase();
+  const domain = safeText(roleModel?.primaryDomain).toLowerCase();
 
-      let score = 72;
-      let roleRelevance = 4;
-      let scenarioGrounding = 3;
-      let pressureConstraint = 2;
-      let proofStrength = 3;
-      let fraudResistance = 3;
-      let evaluationClarity = 4;
-      let signalAlignment = 4;
+  let score = 72;
+  let roleRelevance = 4;
+  let scenarioGrounding = 3;
+  let pressureConstraint = 2;
+  let proofStrength = 3;
+  let fraudResistance = 3;
+  let evaluationClarity = 4;
+  let signalAlignment = 4;
 
-      const strengths = [];
-      const issues = [];
+  const strengths = [];
+  const issues = [];
 
-      if (/tell me about your most recent role where this applied/i.test(question)) {
-        score -= 35; scenarioGrounding -= 2; proofStrength -= 2; fraudResistance -= 2; issues.push('leaks requirement wording');
-      }
-      if (/walk me through a real situation where this was required/i.test(question)) {
-        score -= 35; scenarioGrounding -= 2; proofStrength -= 2; fraudResistance -= 2; issues.push('template phrasing feels generic');
-      }
-      if (/because of .* under /i.test(question)) {
-        score -= 15; evaluationClarity -= 1; issues.push('overloaded pressure clause');
-      }
-      if (question.length > 220) {
-        score -= 10; evaluationClarity -= 1; issues.push('question is too long');
-      }
+  if (!question) {
+    return {
+      score: 0,
+      verdict: 'Needs Rewrite',
+      label: 'Needs Rewrite',
+      role_relevance: 1,
+      scenario_grounding: 1,
+      pressure_constraint: 1,
+      proof_strength: 1,
+      fraud_resistance: 1,
+      evaluation_clarity: 1,
+      signal_alignment: 1,
+      strengths: [],
+      issues: ['empty question']
+    };
+  }
 
-      if (/what happened|what did you do|what did you check first|what was the outcome|how did you resolve/i.test(question)) {
-        score += 10; proofStrength += 1; strengths.push('asks for action and outcome');
-      }
-      if (/booking|rebooking|pnr|fare|customer|call|conversation|kpi|csat|aht/i.test(question)) {
-        score += 8; roleRelevance += 1; signalAlignment += 1; strengths.push('anchored to real work context');
-      }
-      if (/tell me about a time|walk me through/i.test(question)) {
-        score += 6; scenarioGrounding += 1; strengths.push('scenario-led framing');
-      }
-      if (/what did you check first|what did you investigate first/i.test(question)) {
-        score += 6; fraudResistance += 1; strengths.push('harder to fake');
-      }
+  if (/tell me about your most recent role where this applied/i.test(question)) {
+    score -= 35;
+    scenarioGrounding -= 2;
+    proofStrength -= 2;
+    fraudResistance -= 2;
+    issues.push('leaks requirement wording');
+  }
 
-      roleRelevance = Math.max(1, Math.min(5, roleRelevance));
-      scenarioGrounding = Math.max(1, Math.min(5, scenarioGrounding));
-      pressureConstraint = Math.max(1, Math.min(5, pressureConstraint));
-      proofStrength = Math.max(1, Math.min(5, proofStrength));
-      fraudResistance = Math.max(1, Math.min(5, fraudResistance));
-      evaluationClarity = Math.max(1, Math.min(5, evaluationClarity));
-      signalAlignment = Math.max(1, Math.min(5, signalAlignment));
-      score = Math.max(0, Math.min(100, score));
+  if (/walk me through a real situation where this was required/i.test(question)) {
+    score -= 35;
+    scenarioGrounding -= 2;
+    proofStrength -= 2;
+    fraudResistance -= 2;
+    issues.push('generic template phrasing');
+  }
 
-      return {
-        score,
-        label: score >= 90 ? 'Elite' : score >= 80 ? 'Strong' : score >= 68 ? 'Usable' : 'Needs Rewrite',
-        role_relevance: roleRelevance,
-        scenario_grounding: scenarioGrounding,
-        pressure_constraint: pressureConstraint,
-        proof_strength: proofStrength,
-        fraud_resistance: fraudResistance,
-        evaluation_clarity: evaluationClarity,
-        signal_alignment: signalAlignment,
-        strengths,
-        issues
-      };
-    }
+  if (/because of .* under /i.test(question)) {
+    score -= 15;
+    evaluationClarity -= 1;
+    issues.push('overloaded pressure clause');
+  }
 
-    function evaluateCandidateAnswer(item){
-      const answer = safeText(item?.candidate_answer).toLowerCase();
-      if(!answer) return null;
-      let relevance = 1, proof = 1, depth = 1, outcome = 1, riskPenalty = 0;
-      if (answer.length > 80) relevance += 1;
-      if (/i |my |we |personally|handled|built|implemented|resolved|fixed|configured/.test(answer)) proof += 1;
-      if (/because|when|after|during|under|while/.test(answer)) depth += 1;
-      if (/result|outcome|improved|reduced|increased|closed|completed|delivered/.test(answer)) outcome += 1;
-      if (/maybe|probably|familiar|knowledge|exposed|aware/.test(answer)) riskPenalty += 1;
-      if (answer.length > 180) { relevance += 1; depth += 1; }
-      if (/metric|kpi|sla|%|percent|hours|minutes|calls|tickets|cases/.test(answer)) { proof += 1; outcome += 1; }
-      relevance = Math.min(5, relevance); proof = Math.min(5, proof); depth = Math.min(5, depth); outcome = Math.min(5, outcome); riskPenalty = Math.min(5, riskPenalty);
-      let score = Math.round(((relevance + proof + depth + outcome) / 20) * 100 - riskPenalty * 4);
-      score = Math.max(0, Math.min(100, score));
-      const verdict = score >= 80 ? 'Strong' : score >= 60 ? 'Usable' : score >= 40 ? 'Weak' : 'Poor';
-      return { score, verdict, dimensions: { relevance, proof, depth, outcome, riskPenalty } };
-    }
+  if (question.length > 220) {
+    score -= 10;
+    evaluationClarity -= 1;
+    issues.push('question is too long');
+  }
 
-    function updateQuestionQualitySummary(){
-      if(!questionItems.length){ els.questionQualitySummaryOutput.textContent = 'No question quality evaluation yet.'; return; }
-      const reviewed = questionItems.filter(x => x.quality_evaluation?.score !== undefined);
-      if(!reviewed.length){ els.questionQualitySummaryOutput.textContent = 'No question quality evaluation yet.'; return; }
-      const avg = Math.round(reviewed.reduce((sum, q) => sum + q.quality_evaluation.score, 0) / reviewed.length);
-      const elite = reviewed.filter(q => q.quality_evaluation.score >= 85).length;
-      const weak = reviewed.filter(q => q.quality_evaluation.score < 60).length;
-      const generic = reviewed.filter(q => (q.quality_evaluation.issues || []).includes('generic template phrasing')).length;
-      els.questionQualitySummaryOutput.textContent = `Average quality score: ${avg}/100\nElite questions: ${elite}\nNeeds rewrite: ${weak}\nGeneric-pattern issues detected: ${generic}`;
-    }
+  if (isGenericQuestion(question)) {
+    score -= 18;
+    scenarioGrounding -= 1;
+    proofStrength -= 1;
+    fraudResistance -= 1;
+    issues.push('generic template phrasing');
+  }
 
-    function updateLearningSnapshot(){
-      if(!questionItems.length){ els.learningSnapshotOutput.textContent = 'No recruiter feedback captured yet.'; return; }
-      const rewrites = questionItems.filter(q => q.feedback_action === 'rewrite').length;
-      const replacements = questionItems.filter(q => q.feedback_action === 'replace').length;
-      const removals = questionItems.filter(q => q.feedback_action === 'remove').length;
-      const tagCounts = {};
-      questionItems.forEach(q => normalizeArray(q.feedback_tags).forEach(tag => tagCounts[tag] = (tagCounts[tag] || 0) + 1));
-      const topTags = Object.entries(tagCounts).sort((a,b) => b[1]-a[1]).slice(0,4).map(([tag,count]) => `${tag}: ${count}`);
-      els.learningSnapshotOutput.textContent = `Questions in builder: ${questionItems.length}\nMarked rewrite: ${rewrites}\nMarked replace: ${replacements}\nMarked remove: ${removals}\nTop feedback tags: ${topTags.length ? topTags.join(', ') : 'none yet'}`;
-    }
+  if (/what happened|what did you do|what did you check first|what was the outcome|how did you resolve/i.test(question)) {
+    score += 10;
+    proofStrength += 1;
+    strengths.push('asks for action and outcome');
+  }
 
-    function generateScreeningSummary(){
-      if(!questionItems.length){ els.screeningSummaryOutput.textContent = 'No summary generated yet.'; return; }
-      const counts = {};
-      questionItems.forEach(q => { counts[q.category] = (counts[q.category] || 0) + 1; });
-      const avgQ = questionItems.filter(q => q.quality_evaluation?.score !== undefined).length
-        ? Math.round(questionItems.reduce((sum, q) => sum + (q.quality_evaluation?.score || 0), 0) / questionItems.length)
-        : 0;
-      els.screeningSummaryOutput.textContent = `Question count: ${questionItems.length}\nCategory mix: ${Object.entries(counts).map(([k,v]) => `${k}=${v}`).join(', ')}\nAverage quality score: ${avgQ || 'not evaluated'}\nApproach: scenario-based, pressure-aware, proof-seeking questions.`;
-    }
+  if (/tell me about a time|walk me through|describe a real situation|describe one real/i.test(question)) {
+    score += 6;
+    scenarioGrounding += 1;
+    strengths.push('scenario-led framing');
+  }
 
-    function refreshPreview(){
-      const salaryLine = formatSalaryBudgetLine({ salary_min: els.salaryMin.value, salary_max: els.salaryMax.value, salary_currency: els.salaryCurrency.value, salary_period: els.salaryPeriod.value });
-      const lines = [
-        `Title: ${safeText(els.jobTitle.value) || 'Not set'}`,
-        `Client: ${safeText(els.clientName.value) || 'Not set'}`,
-        `Role Family: ${safeText(els.roleFamily.value) || 'Not set'}`,
-        `Location: ${safeText(els.location.value) || 'Not set'}`,
-        `Work Setup: ${safeText(els.workSetup.value) || 'Not set'}`,
-        `Employment Type: ${safeText(els.employmentType.value) || 'Not set'}`,
-        `Seniority: ${safeText(els.seniority.value) || 'Not set'}`,
-        salaryLine ? `Salary: ${salaryLine}` : 'Salary: Not set',
-        '', 'Role Overview:', safeText(els.jobDescription.value) || 'Not set', '',
-        'Signal Summary:', safeText(els.signalSummaryOutput.textContent) || 'Not generated', '',
-        'Questions Preview:', ...(questionItems.length ? questionItems.map((q,i) => `${i+1}. ${q.question}`) : ['No questions generated yet.'])
-      ];
-      els.jdPreview.textContent = lines.join('\n');
-    }
+  if (/what did you check first|what did you investigate first|what did you review first/i.test(question)) {
+    score += 6;
+    fraudResistance += 1;
+    strengths.push('harder to fake');
+  }
 
-    function renderQuestions(){
-      if(!questionItems.length){
-        els.questionsWrap.innerHTML = '<div class="empty-state">No screening questions yet. Click <strong>Generate AI Questions</strong> or add one manually.</div>';
-        updateLearningSnapshot();
-        return;
-      }
-      els.questionsWrap.innerHTML = questionItems.map((item,i) => {
-        const answerScore = Number.isFinite(item?.evaluation?.score) ? item.evaluation.score : null;
-        const answerVerdict = safeText(item?.evaluation?.verdict);
-        const answerDims = item?.evaluation?.dimensions || {};
-        const quality = item?.quality_evaluation || {};
-        const qScore = Number.isFinite(quality.score) ? quality.score : null;
-        const qVerdict = safeText(quality.verdict);
-        const issues = normalizeArray(quality.issues);
-        const strengths = normalizeArray(quality.strengths);
-        return `
-          <div class="question-card">
-            <div class="question-top">
-              <div class="question-top-left">
-                <span class="question-index">${i+1}</span>
-                <span class="chip">${escapeHtml(item.focus_area || 'General')}</span>
-                <span class="chip">${escapeHtml(item.weight || 'Medium')}</span>
-                ${item.category ? `<span class="chip">${escapeHtml(item.category)}</span>` : ''}
-                ${item.knockout ? '<span class="chip">Knockout</span>' : ''}
-                ${qScore !== null ? `<span class="chip">Quality ${qScore}</span>` : ''}
-                ${qVerdict ? `<span class="chip">${escapeHtml(qVerdict)}</span>` : ''}
-                ${safeText(item.feedback_action) ? `<span class="chip">Action: ${escapeHtml(item.feedback_action)}</span>` : ''}
-              </div>
-              <div class="question-actions">
-                <button class="small-btn" type="button" onclick="evaluateSingleQuestionQuality(${i})">Re-score Quality</button>
-                <button class="small-btn" type="button" onclick="duplicateQuestion(${i})">Duplicate</button>
-                <button class="small-btn danger-btn" type="button" onclick="removeQuestion(${i})">Remove</button>
-              </div>
+  if (/what was the result|what was the outcome|what changed|how did it end/i.test(question)) {
+    score += 6;
+    evaluationClarity += 1;
+    strengths.push('clear outcome requested');
+  }
+
+  if (focus && q.includes(focus)) {
+    score += 8;
+    roleRelevance += 1;
+    signalAlignment += 1;
+    strengths.push('aligned to focus area');
+  } else if (focus) {
+    score -= 6;
+    signalAlignment -= 1;
+    issues.push('focus area not visible');
+  }
+
+  if (domain === 'customer' && /booking|rebooking|pnr|fare|customer|call|conversation|kpi|csat|aht/i.test(question)) {
+    score += 8;
+    roleRelevance += 1;
+    signalAlignment += 1;
+    strengths.push('anchored to real work context');
+  }
+
+  if (domain === 'technical' && /api|system|endpoint|payload|log|deployment|bug|release|module|feature|architecture/i.test(question)) {
+    score += 8;
+    roleRelevance += 1;
+    fraudResistance += 1;
+    strengths.push('technical realism');
+  }
+
+  if (domain === 'healthcare' && /denial|appeal|payer|documentation|coding|clinical|drg/i.test(question)) {
+    score += 8;
+    roleRelevance += 1;
+    strengths.push('healthcare realism');
+  }
+
+  if (domain === 'finance' && /reconciliation|variance|audit|reporting|ledger|accuracy|transaction/i.test(question)) {
+    score += 8;
+    roleRelevance += 1;
+    strengths.push('finance realism');
+  }
+
+  roleRelevance = Math.max(1, Math.min(5, roleRelevance));
+  scenarioGrounding = Math.max(1, Math.min(5, scenarioGrounding));
+  pressureConstraint = Math.max(1, Math.min(5, pressureConstraint));
+  proofStrength = Math.max(1, Math.min(5, proofStrength));
+  fraudResistance = Math.max(1, Math.min(5, fraudResistance));
+  evaluationClarity = Math.max(1, Math.min(5, evaluationClarity));
+  signalAlignment = Math.max(1, Math.min(5, signalAlignment));
+  score = Math.max(0, Math.min(100, score));
+
+  const verdict =
+    score >= 90 ? 'Elite' :
+    score >= 80 ? 'Strong' :
+    score >= 68 ? 'Usable' :
+    'Needs Rewrite';
+
+  return {
+    score,
+    verdict,
+    label: verdict,
+    role_relevance: roleRelevance,
+    scenario_grounding: scenarioGrounding,
+    pressure_constraint: pressureConstraint,
+    proof_strength: proofStrength,
+    fraud_resistance: fraudResistance,
+    evaluation_clarity: evaluationClarity,
+    signal_alignment: signalAlignment,
+    strengths,
+    issues
+  };
+}
+
+function evaluateCandidateAnswer(item){
+  const answer = safeText(item?.candidate_answer).toLowerCase();
+  if (!answer) return null;
+
+  let relevance = 1;
+  let proof = 1;
+  let depth = 1;
+  let outcome = 1;
+  let riskPenalty = 0;
+
+  if (answer.length > 80) relevance += 1;
+  if (/i |my |we |personally|handled|built|implemented|resolved|fixed|configured/.test(answer)) proof += 1;
+  if (/because|when|after|during|under|while/.test(answer)) depth += 1;
+  if (/result|outcome|improved|reduced|increased|closed|completed|delivered/.test(answer)) outcome += 1;
+  if (/maybe|probably|familiar|knowledge|exposed|aware/.test(answer)) riskPenalty += 1;
+  if (answer.length > 180) {
+    relevance += 1;
+    depth += 1;
+  }
+  if (/metric|kpi|sla|%|percent|hours|minutes|calls|tickets|cases/.test(answer)) {
+    proof += 1;
+    outcome += 1;
+  }
+
+  relevance = Math.min(5, relevance);
+  proof = Math.min(5, proof);
+  depth = Math.min(5, depth);
+  outcome = Math.min(5, outcome);
+  riskPenalty = Math.min(5, riskPenalty);
+
+  let score = Math.round(((relevance + proof + depth + outcome) / 20) * 100 - riskPenalty * 4);
+  score = Math.max(0, Math.min(100, score));
+
+  const verdict =
+    score >= 80 ? 'Strong' :
+    score >= 60 ? 'Usable' :
+    score >= 40 ? 'Weak' :
+    'Poor';
+
+  return {
+    score,
+    verdict,
+    dimensions: { relevance, proof, depth, outcome, riskPenalty }
+  };
+}
+
+function updateQuestionQualitySummary(){
+  if (!questionItems.length) {
+    els.questionQualitySummaryOutput.textContent = 'No question quality evaluation yet.';
+    return;
+  }
+
+  const reviewed = questionItems.filter(x => x.quality_evaluation?.score !== undefined);
+  if (!reviewed.length) {
+    els.questionQualitySummaryOutput.textContent = 'No question quality evaluation yet.';
+    return;
+  }
+
+  const avg = Math.round(
+    reviewed.reduce((sum, q) => sum + q.quality_evaluation.score, 0) / reviewed.length
+  );
+
+  const elite = reviewed.filter(q => q.quality_evaluation.score >= 85).length;
+  const weak = reviewed.filter(q => q.quality_evaluation.score < 60).length;
+  const generic = reviewed.filter(q =>
+    normalizeArray(q.quality_evaluation.issues).includes('generic template phrasing')
+  ).length;
+
+  els.questionQualitySummaryOutput.textContent =
+    `Average quality score: ${avg}/100\n` +
+    `Elite questions: ${elite}\n` +
+    `Needs rewrite: ${weak}\n` +
+    `Generic-pattern issues detected: ${generic}`;
+}
+
+function updateLearningSnapshot(){
+  if (!questionItems.length) {
+    els.learningSnapshotOutput.textContent = 'No recruiter feedback captured yet.';
+    return;
+  }
+
+  const rewrites = questionItems.filter(q => q.feedback_action === 'rewrite').length;
+  const replacements = questionItems.filter(q => q.feedback_action === 'replace').length;
+  const removals = questionItems.filter(q => q.feedback_action === 'remove').length;
+
+  const tagCounts = {};
+  questionItems.forEach(q => {
+    normalizeArray(q.feedback_tags).forEach(tag => {
+      tagCounts[tag] = (tagCounts[tag] || 0) + 1;
+    });
+  });
+
+  const topTags = Object.entries(tagCounts)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 4)
+    .map(([tag, count]) => `${tag}: ${count}`);
+
+  els.learningSnapshotOutput.textContent =
+    `Questions in builder: ${questionItems.length}\n` +
+    `Marked rewrite: ${rewrites}\n` +
+    `Marked replace: ${replacements}\n` +
+    `Marked remove: ${removals}\n` +
+    `Top feedback tags: ${topTags.length ? topTags.join(', ') : 'none yet'}`;
+}
+
+function generateScreeningSummary(){
+  if (!questionItems.length) {
+    els.screeningSummaryOutput.textContent = 'No summary generated yet.';
+    return;
+  }
+
+  const counts = {};
+  questionItems.forEach(q => {
+    counts[q.category] = (counts[q.category] || 0) + 1;
+  });
+
+  const reviewed = questionItems.filter(q => q.quality_evaluation?.score !== undefined);
+  const avgQ = reviewed.length
+    ? Math.round(reviewed.reduce((sum, q) => sum + q.quality_evaluation.score, 0) / reviewed.length)
+    : 0;
+
+  els.screeningSummaryOutput.textContent =
+    `Question count: ${questionItems.length}\n` +
+    `Category mix: ${Object.entries(counts).map(([k, v]) => `${k}=${v}`).join(', ')}\n` +
+    `Average quality score: ${avgQ || 'not evaluated'}\n` +
+    `Approach: scenario-based, pressure-aware, proof-seeking questions.`;
+}
+
+function refreshPreview(){
+  const salaryLine = formatSalaryBudgetLine({
+    salary_min: els.salaryMin?.value,
+    salary_max: els.salaryMax?.value,
+    salary_currency: els.salaryCurrency?.value,
+    salary_period: els.salaryPeriod?.value
+  });
+
+  const lines = [
+    `Title: ${safeText(els.jobTitle?.value) || 'Not set'}`,
+    `Client: ${safeText(els.clientName?.value) || 'Not set'}`,
+    `Role Family: ${safeText(els.roleFamily?.value) || 'Not set'}`,
+    `Location: ${safeText(els.location?.value) || 'Not set'}`,
+    `Work Setup: ${safeText(els.workSetup?.value) || 'Not set'}`,
+    `Employment Type: ${safeText(els.employmentType?.value) || 'Not set'}`,
+    `Seniority: ${safeText(els.seniority?.value) || 'Not set'}`,
+    salaryLine ? `Salary: ${salaryLine}` : 'Salary: Not set',
+    '',
+    'Role Overview:',
+    safeText(els.jobDescription?.value) || 'Not set',
+    '',
+    'Signal Summary:',
+    safeText(els.signalSummaryOutput?.textContent) || 'Not generated',
+    '',
+    'Questions Preview:',
+    ...(questionItems.length
+      ? questionItems.map((q, i) => `${i + 1}. ${q.question}`)
+      : ['No questions generated yet.'])
+  ];
+
+  els.jdPreview.textContent = lines.join('\n');
+}
+
+function renderQuestions(){
+  if (!questionItems.length) {
+    els.questionsWrap.innerHTML = '<div class="empty-state">No screening questions yet. Click <strong>Generate AI Questions</strong> or add one manually.</div>';
+    updateLearningSnapshot();
+    return;
+  }
+
+  els.questionsWrap.innerHTML = questionItems.map((item, i) => {
+    const answerScore = Number.isFinite(item?.evaluation?.score) ? item.evaluation.score : null;
+    const answerVerdict = safeText(item?.evaluation?.verdict);
+    const answerDims = item?.evaluation?.dimensions || {};
+
+    const quality = item?.quality_evaluation || {};
+    const qScore = Number.isFinite(quality.score) ? quality.score : null;
+    const qVerdict = safeText(quality.verdict || quality.label);
+    const issues = normalizeArray(quality.issues);
+    const strengths = normalizeArray(quality.strengths);
+
+    return `
+      <div class="question-card">
+        <div class="question-top">
+          <div class="question-top-left">
+            <span class="question-index">${i + 1}</span>
+            <span class="chip">${escapeHtml(item.focus_area || 'General')}</span>
+            <span class="chip">${escapeHtml(item.weight || 'Medium')}</span>
+            ${item.category ? `<span class="chip">${escapeHtml(item.category)}</span>` : ''}
+            ${item.knockout ? '<span class="chip">Knockout</span>' : ''}
+            ${qScore !== null ? `<span class="chip">Quality ${qScore}</span>` : ''}
+            ${qVerdict ? `<span class="chip">${escapeHtml(qVerdict)}</span>` : ''}
+            ${safeText(item.feedback_action) ? `<span class="chip">Action: ${escapeHtml(item.feedback_action)}</span>` : ''}
+          </div>
+          <div class="question-actions">
+            <button class="small-btn" type="button" onclick="evaluateSingleQuestionQuality(${i})">Re-score Quality</button>
+            <button class="small-btn" type="button" onclick="duplicateQuestion(${i})">Duplicate</button>
+            <button class="small-btn danger-btn" type="button" onclick="removeQuestion(${i})">Remove</button>
+          </div>
+        </div>
+
+        <div class="field field-full" style="margin-top:12px;">
+          <label>Question</label>
+          <textarea onchange="updateQuestionField(${i}, 'question', this.value)">${escapeHtml(item.question || '')}</textarea>
+        </div>
+
+        <div class="question-grid">
+          <div class="field">
+            <label>Focus Area</label>
+            <input type="text" value="${escapeHtml(item.focus_area || '')}" onchange="updateQuestionField(${i}, 'focus_area', this.value)" />
+          </div>
+          <div class="field">
+            <label>Response Type</label>
+            <select onchange="updateQuestionField(${i}, 'response_type', this.value)">
+              <option ${item.response_type === 'Open Text' ? 'selected' : ''}>Open Text</option>
+              <option ${item.response_type === 'Yes/No' ? 'selected' : ''}>Yes/No</option>
+              <option ${item.response_type === 'Short Answer' ? 'selected' : ''}>Short Answer</option>
+              <option ${item.response_type === 'Multiple Choice' ? 'selected' : ''}>Multiple Choice</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>Weight</label>
+            <select onchange="updateQuestionField(${i}, 'weight', this.value)">
+              <option ${item.weight === 'Low' ? 'selected' : ''}>Low</option>
+              <option ${item.weight === 'Medium' ? 'selected' : ''}>Medium</option>
+              <option ${item.weight === 'High' ? 'selected' : ''}>High</option>
+              <option ${item.weight === 'Critical' ? 'selected' : ''}>Critical</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>Category</label>
+            <select onchange="updateQuestionField(${i}, 'category', this.value)">
+              ${['general','knockout','proof','technical','simulation','leadership','red_flag','setup','business']
+                .map(v => `<option value="${v}" ${item.category === v ? 'selected' : ''}>${v}</option>`)
+                .join('')}
+            </select>
+          </div>
+        </div>
+
+        <div class="quality-head">
+          <div>
+            <label>Question Quality Review</label>
+            <div class="helper">This scores the quality of the question itself, not the candidate answer.</div>
+          </div>
+          <div class="quality-score">${qScore !== null ? `Score ${qScore} · ${escapeHtml(qVerdict || 'Reviewed')}` : 'Not evaluated yet'}</div>
+        </div>
+
+        <div class="quality-grid">
+          <div class="quality-box"><div class="mini-label">Role Relevance</div><div class="mini-value">${quality.role_relevance ?? '-'}</div></div>
+          <div class="quality-box"><div class="mini-label">Scenario Grounding</div><div class="mini-value">${quality.scenario_grounding ?? '-'}</div></div>
+          <div class="quality-box"><div class="mini-label">Pressure / Constraint</div><div class="mini-value">${quality.pressure_constraint ?? '-'}</div></div>
+          <div class="quality-box"><div class="mini-label">Proof Strength</div><div class="mini-value">${quality.proof_strength ?? '-'}</div></div>
+        </div>
+
+        <div class="meta-grid">
+          <div class="quality-box"><div class="mini-label">Fraud Resistance</div><div class="mini-value">${quality.fraud_resistance ?? '-'}</div></div>
+          <div class="quality-box"><div class="mini-label">Evaluation Clarity</div><div class="mini-value">${quality.evaluation_clarity ?? '-'}</div></div>
+          <div class="quality-box"><div class="mini-label">Signal Alignment</div><div class="mini-value">${quality.signal_alignment ?? '-'}</div></div>
+          <div class="quality-box"><div class="mini-label">Original AI Base</div><div class="mini-value">${item.was_ai_generated ? 'AI-generated' : 'Manual'}</div></div>
+        </div>
+
+        <div class="meta-grid">
+          <div class="quality-box"><div class="mini-label">Key Strengths</div><div class="mini-value">${escapeHtml(strengths.slice(0, 2).join(', ') || '-')}</div></div>
+          <div class="quality-box"><div class="mini-label">Main Issues</div><div class="mini-value">${escapeHtml(issues.slice(0, 2).join(', ') || '-')}</div></div>
+          <div class="quality-box"><div class="mini-label">AI Original</div><div class="mini-value">${escapeHtml((item.ai_original_question || '').slice(0, 60) || '-')}</div></div>
+          <div class="quality-box"><div class="mini-label">Feedback Tags</div><div class="mini-value">${escapeHtml(normalizeArray(item.feedback_tags).slice(0, 2).join(', ') || '-')}</div></div>
+        </div>
+
+        <div class="feedback-panel">
+          <div class="feedback-grid">
+            <div class="field">
+              <label>Recruiter Action</label>
+              <select onchange="updateQuestionField(${i}, 'feedback_action', this.value)">
+                ${['keep','rewrite','replace','remove']
+                  .map(v => `<option value="${v}" ${item.feedback_action === v ? 'selected' : ''}>${v}</option>`)
+                  .join('')}
+              </select>
             </div>
-
-            <div class="field field-full" style="margin-top:12px;">
-              <label>Question</label>
-              <textarea onchange="updateQuestionField(${i}, 'question', this.value)">${escapeHtml(item.question || '')}</textarea>
+            <div class="field">
+              <label>AI Original Question</label>
+              <input type="text" value="${escapeHtml(item.ai_original_question || '')}" onchange="updateQuestionField(${i}, 'ai_original_question', this.value)" />
             </div>
-
-            <div class="question-grid">
-              <div class="field"><label>Focus Area</label><input type="text" value="${escapeHtml(item.focus_area || '')}" onchange="updateQuestionField(${i}, 'focus_area', this.value)" /></div>
-              <div class="field"><label>Response Type</label><select onchange="updateQuestionField(${i}, 'response_type', this.value)">
-                <option ${item.response_type==='Open Text'?'selected':''}>Open Text</option>
-                <option ${item.response_type==='Yes/No'?'selected':''}>Yes/No</option>
-                <option ${item.response_type==='Short Answer'?'selected':''}>Short Answer</option>
-                <option ${item.response_type==='Multiple Choice'?'selected':''}>Multiple Choice</option>
-              </select></div>
-              <div class="field"><label>Weight</label><select onchange="updateQuestionField(${i}, 'weight', this.value)">
-                <option ${item.weight==='Low'?'selected':''}>Low</option>
-                <option ${item.weight==='Medium'?'selected':''}>Medium</option>
-                <option ${item.weight==='High'?'selected':''}>High</option>
-                <option ${item.weight==='Critical'?'selected':''}>Critical</option>
-              </select></div>
-              <div class="field"><label>Category</label><select onchange="updateQuestionField(${i}, 'category', this.value)">
-                ${['general','knockout','proof','technical','simulation','leadership','red_flag','setup','business'].map(v => `<option value="${v}" ${item.category===v?'selected':''}>${v}</option>`).join('')}
-              </select></div>
+            <div class="field" style="grid-column: span 2;">
+              <label>Why this feedback matters</label>
+              <input type="text" value="${escapeHtml(item.feedback_note || '')}" onchange="updateQuestionField(${i}, 'feedback_note', this.value)" placeholder="Optional recruiter note about why this question was changed." />
             </div>
+          </div>
+          <div class="feedback-tags">${renderFeedbackTags(i, item)}</div>
+        </div>
 
-            <div class="quality-head">
-              <div><label>Question Quality Review</label><div class="helper">This scores the quality of the question itself, not the candidate answer.</div></div>
-              <div class="quality-score">${qScore !== null ? `Score ${qScore} · ${escapeHtml(qVerdict || 'Reviewed')}` : 'Not evaluated yet'}</div>
-            </div>
+        <div class="field field-full" style="margin-top:14px;">
+          <label>Candidate Answer</label>
+          <textarea onchange="updateQuestionField(${i}, 'candidate_answer', this.value)" placeholder="Paste the candidate's answer here to run TalentBuzz scoring.">${escapeHtml(item.candidate_answer || '')}</textarea>
+        </div>
 
-            <div class="quality-grid">
-              <div class="quality-box"><div class="mini-label">Role Relevance</div><div class="mini-value">${quality.role_relevance ?? '-'}</div></div>
-              <div class="quality-box"><div class="mini-label">Scenario Grounding</div><div class="mini-value">${quality.scenario_grounding ?? '-'}</div></div>
-              <div class="quality-box"><div class="mini-label">Pressure / Constraint</div><div class="mini-value">${quality.pressure_constraint ?? '-'}</div></div>
-              <div class="quality-box"><div class="mini-label">Proof Strength</div><div class="mini-value">${quality.proof_strength ?? '-'}</div></div>
-            </div>
-            <div class="meta-grid">
-              <div class="quality-box"><div class="mini-label">Fraud Resistance</div><div class="mini-value">${quality.fraud_resistance ?? '-'}</div></div>
-              <div class="quality-box"><div class="mini-label">Evaluation Clarity</div><div class="mini-value">${quality.evaluation_clarity ?? '-'}</div></div>
-              <div class="quality-box"><div class="mini-label">Signal Alignment</div><div class="mini-value">${quality.signal_alignment ?? '-'}</div></div>
-              <div class="quality-box"><div class="mini-label">Original AI Base</div><div class="mini-value">${item.was_ai_generated ? 'AI-generated' : 'Manual'}</div></div>
-            </div>
-            <div class="meta-grid">
-              <div class="quality-box"><div class="mini-label">Key Strengths</div><div class="mini-value">${escapeHtml(strengths.slice(0,2).join(', ') || '-')}</div></div>
-              <div class="quality-box"><div class="mini-label">Main Issues</div><div class="mini-value">${escapeHtml(issues.slice(0,2).join(', ') || '-')}</div></div>
-              <div class="quality-box"><div class="mini-label">AI Original</div><div class="mini-value">${escapeHtml((item.ai_original_question || '').slice(0,60) || '-')}</div></div>
-              <div class="quality-box"><div class="mini-label">Feedback Tags</div><div class="mini-value">${escapeHtml(normalizeArray(item.feedback_tags).slice(0,2).join(', ') || '-')}</div></div>
-            </div>
+        ${answerScore !== null ? `
+          <div class="summary-box">
+            <h4>Answer Evaluation</h4>
+            <p>Relevance: ${answerDims.relevance ?? 0}/5
+Proof: ${answerDims.proof ?? 0}/5
+Depth: ${answerDims.depth ?? 0}/5
+Outcome: ${answerDims.outcome ?? 0}/5
+Risk Penalty: ${answerDims.riskPenalty ?? 0}/5
+Overall Answer Score: ${answerScore}
+Verdict: ${escapeHtml(answerVerdict || 'Not scored')}</p>
+          </div>` : ''}
+      </div>`;
+  }).join('');
 
-            <div class="feedback-panel">
-              <div class="feedback-grid">
-                <div class="field"><label>Recruiter Action</label><select onchange="updateQuestionField(${i}, 'feedback_action', this.value)">${['keep','rewrite','replace','remove'].map(v => `<option value="${v}" ${item.feedback_action===v?'selected':''}>${v}</option>`).join('')}</select></div>
-                <div class="field"><label>AI Original Question</label><input type="text" value="${escapeHtml(item.ai_original_question || '')}" onchange="updateQuestionField(${i}, 'ai_original_question', this.value)" /></div>
-                <div class="field" style="grid-column: span 2;"><label>Why this feedback matters</label><input type="text" value="${escapeHtml(item.feedback_note || '')}" onchange="updateQuestionField(${i}, 'feedback_note', this.value)" placeholder="Optional recruiter note about why this question was changed." /></div>
-              </div>
-              <div class="feedback-tags">${renderFeedbackTags(i, item)}</div>
-            </div>
+  updateLearningSnapshot();
+}
 
-            <div class="field field-full" style="margin-top:14px;">
-              <label>Candidate Answer</label>
-              <textarea onchange="updateQuestionField(${i}, 'candidate_answer', this.value)" placeholder="Paste the candidate's answer here to run TalentBuzz scoring.">${escapeHtml(item.candidate_answer || '')}</textarea>
-            </div>
-
-            ${answerScore !== null ? `<div class="summary-box"><h4>Answer Evaluation</h4><p>Relevance: ${answerDims.relevance ?? 0}/5\nProof: ${answerDims.proof ?? 0}/5\nDepth: ${answerDims.depth ?? 0}/5\nOutcome: ${answerDims.outcome ?? 0}/5\nRisk Penalty: ${answerDims.riskPenalty ?? 0}/5\nOverall Answer Score: ${answerScore}\nVerdict: ${escapeHtml(answerVerdict || 'Not scored')}</p></div>` : ''}
-          </div>`;
-      }).join('');
-      updateLearningSnapshot();
-    }
-
-    window.updateQuestionField = (i, f, v) => {
+window.updateQuestionField = (i, f, v) => {
   if (!questionItems[i]) return;
 
   questionItems[i][f] = v;
@@ -1879,6 +2118,12 @@ function buildQuestionFromPlanItem(item, roleModel){
 
     updateQuestionQualitySummary();
     generateScreeningSummary();
+  }
+
+  if (f === 'candidate_answer') {
+    questionItems[i].evaluation = evaluateCandidateAnswer(questionItems[i]);
+    renderQuestions();
+    return;
   }
 
   refreshPreview();
