@@ -111,6 +111,7 @@
         </div>
       </div>
       <div class="top-actions">
+        <button id="chatBtn" class="btn btn-soft" type="button">💬 Chat <span id="chatBadge" style="display:none;min-width:20px;height:20px;padding:0 6px;border-radius:999px;background:#dc2626;color:#fff;font-size:.72rem;font-weight:800;align-items:center;justify-content:center;">0</span></button>
         <button id="refreshBtn" class="btn btn-outline" type="button">Refresh</button>
         <button id="logoutBtn" class="btn btn-primary" type="button">Logout</button>
       </div>
@@ -277,6 +278,31 @@
   </div>
 
 
+  <div id="chatModal" class="modal" aria-hidden="true">
+    <div class="modal-backdrop" data-close-chat-modal="true"></div>
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="chatModalTitle" style="width:min(760px,100%);">
+      <div class="modal-header">
+        <div>
+          <h2 id="chatModalTitle" class="modal-title">TalentBuzz Chat</h2>
+          <div id="chatModalSubtitle" class="modal-subtitle">Chat with the TalentBuzz team about endorsed candidates and next steps.</div>
+        </div>
+        <button id="closeChatBtn" class="icon-btn" type="button" aria-label="Close">×</button>
+      </div>
+      <div class="modal-body" style="padding:0;display:flex;flex-direction:column;min-height:72vh;">
+        <div id="chatMessages" style="flex:1;overflow:auto;padding:18px 18px 8px;background:#f8fafc;display:flex;flex-direction:column;gap:12px;">
+          <div class="empty">Loading chat...</div>
+        </div>
+        <div style="border-top:1px solid var(--line);padding:18px;background:#fff;">
+          <textarea id="chatInput" rows="5" placeholder="Type your message to TalentBuzz..."></textarea>
+          <div style="display:flex;justify-content:flex-end;gap:10px;flex-wrap:wrap;margin-top:12px;">
+            <button id="chatEmailBtn" class="btn btn-outline" type="button">Email Instead</button>
+            <button id="chatSendBtn" class="btn btn-primary" type="button">Send Message</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <script>
     const SUPABASE_URL = "https://dilalntcxmvdcmwxjcct.supabase.co";
     const SUPABASE_ANON_KEY = "sb_publishable_HrLVIUwnaRo54yijtrbWBQ_1aeb4ezs";
@@ -284,13 +310,13 @@
     const PREVIEW_ALLOWED_EMAILS = ["eric.se@talentbuzz.pro","eric.s@talentbuzz.pro","michelle.giray@talentbuzz.pro","mitchie028@gmail.com","angel.n@talentbuzz.pro","jercey.cayetano@talentbuzz.pro","jayson.c@talentbuzz.pro","xyrene.e@talentbuzz.pro"];
     const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-    const state = { rows: [], currentClientUser: null, currentSessionUser: null, selectedRow: null, modalDraft: { status: "", rating: null, notes: "" } };
+    const state = { rows: [], currentClientUser: null, currentSessionUser: null, selectedRow: null, modalDraft: { status: "", rating: null, notes: "" }, chatMessages: [], chatUnreadCount: 0, chatChannel: null, chatSeenAt: null };
 
     const els = {
       notice: document.getElementById("notice"), previewBanner: document.getElementById("previewBanner"), table: document.getElementById("endorsementsTable"),
       searchInput: document.getElementById("searchInput"), roleFilter: document.getElementById("roleFilter"), statusFilter: document.getElementById("statusFilter"),
       ratingFilter: document.getElementById("ratingFilter"), dateFilter: document.getElementById("dateFilter"), pendingOnlyToggle: document.getElementById("pendingOnlyToggle"),
-      logoutBtn: document.getElementById("logoutBtn"), refreshBtn: document.getElementById("refreshBtn"),
+      logoutBtn: document.getElementById("logoutBtn"), refreshBtn: document.getElementById("refreshBtn"), chatBtn: document.getElementById("chatBtn"), chatBadge: document.getElementById("chatBadge"),
       statEndorsed: document.getElementById("statEndorsed"), statPending: document.getElementById("statPending"), statPassedApplication: document.getElementById("statPassedApplication"),
       statShortlisted: document.getElementById("statShortlisted"), statOfferedJo: document.getElementById("statOfferedJo"), statOnboarded: document.getElementById("statOnboarded"),
       statRejected: document.getElementById("statRejected"), statAvgRating: document.getElementById("statAvgRating"),
@@ -301,7 +327,7 @@
       modalJobLocation: document.getElementById("modalJobLocation"), modalEmploymentType: document.getElementById("modalEmploymentType"), modalSummary: document.getElementById("modalSummary"), modalResumeBtn: document.getElementById("modalResumeBtn"),
       modalNoResume: document.getElementById("modalNoResume"), modalNotes: document.getElementById("modalNotes"), modalLastUpdated: document.getElementById("modalLastUpdated"), modalRatingGroup: document.getElementById("modalRatingGroup"),
       saveModalBtn: document.getElementById("saveModalBtn"), clearModalBtn: document.getElementById("clearModalBtn"),
-      resumePreviewModal: document.getElementById("resumePreviewModal"), closeResumePreviewBtn: document.getElementById("closeResumePreviewBtn"), resumePreviewFrame: document.getElementById("resumePreviewFrame"), resumePreviewTitle: document.getElementById("resumePreviewTitle")
+      resumePreviewModal: document.getElementById("resumePreviewModal"), closeResumePreviewBtn: document.getElementById("closeResumePreviewBtn"), resumePreviewFrame: document.getElementById("resumePreviewFrame"), resumePreviewTitle: document.getElementById("resumePreviewTitle"), chatModal: document.getElementById("chatModal"), closeChatBtn: document.getElementById("closeChatBtn"), chatMessages: document.getElementById("chatMessages"), chatInput: document.getElementById("chatInput"), chatSendBtn: document.getElementById("chatSendBtn"), chatEmailBtn: document.getElementById("chatEmailBtn"), chatModalSubtitle: document.getElementById("chatModalSubtitle")
     };
 
     const normalize = (value) => String(value || "").trim().toLowerCase();
@@ -328,6 +354,178 @@
 
     function showNotice(message, type="info"){ els.notice.textContent=message; els.notice.className=`notice show ${type}`; }
     function clearNotice(){ els.notice.textContent=""; els.notice.className="notice"; }
+
+    function showPreviewBanner(message){
+      if(!els.previewBanner) return;
+      els.previewBanner.textContent = message || "";
+      els.previewBanner.className = "notice info show";
+      els.previewBanner.style.display = message ? "block" : "none";
+    }
+    function hidePreviewBanner(){
+      if(!els.previewBanner) return;
+      els.previewBanner.textContent = "";
+      els.previewBanner.className = "notice info";
+      els.previewBanner.style.display = "none";
+    }
+    function setPreviewBanner(clientName){
+      showPreviewBanner(`Preview mode is active for ${clientName || "this client"}. Changes will still save to the live database.`);
+    }
+    function getChatSeenStorageKey(){
+      const email = normalize(state.currentClientUser?.email || state.currentSessionUser?.email || '');
+      return `talentbuzz_client_chat_seen_${email || 'guest'}`;
+    }
+    function getChatSeenAt(){
+      try { return localStorage.getItem(getChatSeenStorageKey()) || ''; } catch (_) { return ''; }
+    }
+    function setChatSeenAt(value){
+      try { localStorage.setItem(getChatSeenStorageKey(), value || ''); } catch (_) {}
+      state.chatSeenAt = value || '';
+    }
+    function updateChatBadge(){
+      if(!els.chatBadge) return;
+      const count = Number(state.chatUnreadCount || 0);
+      els.chatBadge.textContent = String(count);
+      els.chatBadge.style.display = count > 0 ? 'inline-flex' : 'none';
+    }
+    function getClientChatEmail(){
+      return normalize(state.currentClientUser?.email || state.currentSessionUser?.email || '');
+    }
+    async function loadClientChatMessages(){
+      const email = getClientChatEmail();
+      if(!email){
+        state.chatMessages = [];
+        state.chatUnreadCount = 0;
+        updateChatBadge();
+        return;
+      }
+      const { data, error } = await supabaseClient
+        .from('client_messages')
+        .select('id, client_email, email, sender_type, message, created_at')
+        .order('created_at', { ascending: true })
+        .or(`client_email.eq.${email},email.eq.${email}`);
+
+      if(error) throw error;
+
+      state.chatMessages = Array.isArray(data) ? data : [];
+      const seenAt = getChatSeenAt();
+      const seenTs = seenAt ? new Date(seenAt).getTime() : 0;
+      state.chatUnreadCount = state.chatMessages.filter((row) => {
+        const sender = normalize(row.sender_type);
+        const ts = new Date(row.created_at || 0).getTime();
+        return sender !== 'client' && ts > seenTs;
+      }).length;
+      updateChatBadge();
+    }
+    function renderClientChatMessages(){
+      if(!els.chatMessages) return;
+      if(!state.chatMessages.length){
+        els.chatMessages.innerHTML = '<div class="empty">No messages yet. Start a conversation with TalentBuzz.</div>';
+        return;
+      }
+      els.chatMessages.innerHTML = state.chatMessages.map((row) => {
+        const outbound = normalize(row.sender_type) === 'client';
+        return `
+          <div style="display:flex;justify-content:${outbound ? 'flex-end' : 'flex-start'};">
+            <div style="max-width:min(78%,460px);padding:16px 18px;border-radius:24px;${outbound ? 'background:#dce8fb;color:#334155;' : 'background:#fff;border:1px solid var(--line);color:#0f172a;'}box-shadow:0 8px 18px rgba(15,23,42,.05);">
+              <div style="white-space:pre-wrap;word-break:break-word;line-height:1.55;margin-bottom:8px;">${escapeHtml(row.message || '')}</div>
+              <div class="small">${escapeHtml(formatDateTime(row.created_at))}</div>
+            </div>
+          </div>
+        `;
+      }).join('');
+      els.chatMessages.scrollTop = els.chatMessages.scrollHeight;
+    }
+    async function openChatModal(){
+      try{
+        await loadClientChatMessages();
+        renderClientChatMessages();
+        if(els.chatModalSubtitle){
+          const company = state.currentClientUser?.clients?.client_name || 'your company';
+          els.chatModalSubtitle.textContent = `Chat with the TalentBuzz team for ${company}.`;
+        }
+        els.chatModal.classList.add('show');
+        els.chatModal.setAttribute('aria-hidden', 'false');
+        document.body.classList.add('modal-open');
+        setChatSeenAt(new Date().toISOString());
+        state.chatUnreadCount = 0;
+        updateChatBadge();
+      }catch(error){
+        console.error('Open chat failed:', error);
+        showNotice(error.message || 'Unable to load chat.', 'error');
+      }
+    }
+    function closeChatModal(){
+      els.chatModal.classList.remove('show');
+      els.chatModal.setAttribute('aria-hidden', 'true');
+      if (els.chatInput) els.chatInput.value = '';
+      if(!els.modal.classList.contains('show') && !els.resumePreviewModal.classList.contains('show')) document.body.classList.remove('modal-open');
+    }
+    async function sendChatMessage(){
+      const email = getClientChatEmail();
+      const message = String(els.chatInput?.value || '').trim();
+      if(!email || !message) return;
+
+      els.chatSendBtn.disabled = true;
+      els.chatSendBtn.textContent = 'Sending...';
+      try{
+        const payload = {
+          client_email: email,
+          email: email,
+          sender_type: 'client',
+          message
+        };
+        const { error } = await supabaseClient.from('client_messages').insert(payload);
+        if(error) throw error;
+
+        if(els.chatInput) els.chatInput.value = '';
+        await loadClientChatMessages();
+        renderClientChatMessages();
+        setChatSeenAt(new Date().toISOString());
+        state.chatUnreadCount = 0;
+        updateChatBadge();
+        showNotice('Chat message sent.', 'success');
+      }catch(error){
+        console.error('Send chat failed:', error);
+        showNotice(error.message || 'Unable to send chat message.', 'error');
+      }finally{
+        els.chatSendBtn.disabled = false;
+        els.chatSendBtn.textContent = 'Send Message';
+      }
+    }
+    function emailInsteadForChat(){
+      const email = getClientChatEmail();
+      if(!email) return;
+      const subject = encodeURIComponent('TalentBuzz client follow-up');
+      const body = encodeURIComponent(els.chatInput?.value || '');
+      window.location.href = `mailto:${email}?subject=${subject}&body=${body}`;
+    }
+    function teardownChatRealtime(){
+      try{
+        if(state.chatChannel){
+          supabaseClient.removeChannel(state.chatChannel);
+          state.chatChannel = null;
+        }
+      }catch(_){}
+    }
+    function setupChatRealtime(){
+      teardownChatRealtime();
+      state.chatChannel = supabaseClient
+        .channel('client-dashboard-live-client-messages')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'client_messages' }, async () => {
+          try{
+            await loadClientChatMessages();
+            if(els.chatModal?.classList.contains('show')) {
+              renderClientChatMessages();
+              setChatSeenAt(new Date().toISOString());
+              state.chatUnreadCount = 0;
+            }
+            updateChatBadge();
+          }catch(err){
+            console.warn('Unable to refresh client chat:', err?.message || err);
+          }
+        })
+        .subscribe();
+    }
 
     function normalizeEmailFolder(email){
       return String(email || "")
@@ -475,20 +673,6 @@
         showNotice(`Preview access granted for ${previewClient.client_name}.`, "info");
         return true;
       }
-
-    function hidePreviewBanner(){
-      if (!els.previewBanner) return;
-      els.previewBanner.style.display = "none";
-      els.previewBanner.textContent = "";
-      els.previewBanner.className = "notice info";
-    }
-
-    function showPreviewBanner(message){
-      if (!els.previewBanner) return;
-      els.previewBanner.textContent = message || "";
-      els.previewBanner.className = "notice info show";
-      els.previewBanner.style.display = message ? "block" : "none";
-    }
 
       hidePreviewBanner();
       const clientUser = await getAuthorizedClientUser(session.user.email);
@@ -691,7 +875,7 @@
       await loadRows();
     }
 
-    async function logout(){ await supabaseClient.auth.signOut(); window.location.href = "client.html"; }
+    async function logout(){ teardownChatRealtime(); await supabaseClient.auth.signOut(); window.location.href = "client.html"; }
 
     els.searchInput.addEventListener("input", renderRows);
     els.roleFilter.addEventListener("change", renderRows);
@@ -730,8 +914,12 @@
     els.resumePreviewModal.addEventListener("click", (event) => {
       if(event.target.matches("[data-close-resume-modal='true']")) closeResumePreview();
     });
+    els.chatModal.addEventListener("click", (event) => {
+      if(event.target.matches("[data-close-chat-modal='true']")) closeChatModal();
+    });
 
     document.addEventListener("keydown", (event) => {
+      if(event.key === "Escape" && els.chatModal.classList.contains("show")) closeChatModal();
       if(event.key === "Escape" && els.resumePreviewModal.classList.contains("show")) closeResumePreview();
       if(event.key === "Escape" && els.modal.classList.contains("show")) closeModal();
     });
@@ -741,12 +929,19 @@
     els.clearModalBtn.addEventListener("click", clearModalFeedback);
     els.logoutBtn.addEventListener("click", logout);
     els.refreshBtn.addEventListener("click", loadRows);
+    els.chatBtn.addEventListener("click", openChatModal);
+    els.closeChatBtn.addEventListener("click", closeChatModal);
+    els.chatSendBtn.addEventListener("click", sendChatMessage);
+    els.chatEmailBtn.addEventListener("click", emailInsteadForChat);
 
     (async () => {
       try {
         const allowed = await protectPage();
         if(!allowed) return;
         await loadRows();
+        await loadClientChatMessages();
+        setupChatRealtime();
+        updateChatBadge();
       } catch (error) {
         console.error("Client dashboard initialization failed:", error);
         showNotice(error.message || "Failed to initialize client dashboard.", "error");
