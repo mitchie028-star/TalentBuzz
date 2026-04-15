@@ -2745,6 +2745,50 @@
       showNotice('Communication draft inserted into recruiter notes.', 'success');
     }
 
+
+    async function fetchClientRecipientEmails(clientId) {
+      const safeClientId = safeText(clientId);
+      if (!safeClientId) return [];
+
+      try {
+        const { data, error } = await supabaseClient
+          .from('client_users')
+          .select('email, active, receives_endorsements')
+          .eq('client_id', safeClientId)
+          .eq('active', true);
+
+        if (error) throw error;
+
+        const rows = Array.isArray(data) ? data : [];
+        const preferred = rows
+          .filter((item) => item?.receives_endorsements === true)
+          .map((item) => safeText(item?.email).toLowerCase())
+          .filter(Boolean);
+
+        const fallback = rows
+          .map((item) => safeText(item?.email).toLowerCase())
+          .filter(Boolean);
+
+        return uniq(preferred.length ? preferred : fallback);
+      } catch (error) {
+        console.warn('Unable to load client recipient emails:', error?.message || error);
+        return [];
+      }
+    }
+
+    function getProfileSkillSummary(profile) {
+      return [
+        safeText(profile?.skills),
+        safeText(profile?.extracted_skills),
+        Array.isArray(profile?.skill_tags) ? profile.skill_tags.join(', ') : safeText(profile?.skill_tags),
+        safeText(profile?.top_match_role),
+      ].filter(Boolean).join(', ');
+    }
+
+    function getProfileCurrentTitle(profile) {
+      return safeText(profile?.current_title || profile?.headline || profile?.target_role || '');
+    }
+
     async function sendGeneratedCommunication() {
       const row = state.allRows.find((item) => item.id === state.selectedId);
       if (!row) {
@@ -2762,16 +2806,36 @@
       }
 
       const data = getCommunicationInputs(row);
+      const profile = row.profile || {};
+      const selectedStatus = normalizeStatus(els.editStatus?.value || row.status || row.app?.status || '');
+      const now = new Date().toISOString();
 
       try {
-        if (els.sendCommBtn) els.sendCommBtn.disabled = true;
+        if (els.sendCommBtn) {
+          els.sendCommBtn.disabled = true;
+          els.sendCommBtn.textContent = 'Sending...';
+        }
 
         if (mode === 'endorsement') {
+          const clientId = safeText(row.job?.client_id || row.app?.client_id || '');
+          const recipients = await fetchClientRecipientEmails(clientId);
+
+          if (!recipients.length) {
+            throw new Error('No active client recipient emails found for this role. Add a client user or mark one as receives_endorsements.');
+          }
+
           const payload = {
+            to: recipients,
             application_id: row.id,
             applicant_profile_id: row.profile?.id || row.app?.applicant_profile_id || null,
+            job_id: row.job?.id || row.app?.job_id || null,
             candidate_name: data.candidateName,
             candidate_email: data.candidateEmail || null,
+            candidate_phone: safeText(profile?.phone || row.app?.phone || ''),
+            candidate_location: safeText(getLocation(profile)),
+            current_title: getProfileCurrentTitle(profile) || null,
+            years_of_experience: safeText(formatExperience(profile)),
+            skills: getProfileSkillSummary(profile) || null,
             job_title: data.jobTitle,
             client_name: data.clientName,
             recruiter_email: data.recruiterEmail || null,
@@ -2784,26 +2848,25 @@
             risk_signals: data.riskTags,
             ai_score: data.overallScore,
             recruiter_notes: data.recruiterNotes || null,
+            resume_url: safeText(profile?.resume_url || row.resumeUrl || ''),
           };
 
           const { error } = await supabaseClient.functions.invoke('send-endorsement-email', { body: payload });
           if (error) throw error;
 
-          await supabaseClient
-            .from('applications')
-            .update({
-              endorsement_status: 'sent',
-              endorsement_sent_at: new Date().toISOString(),
-              endorsement_sent_to: data.clientName || null,
-            })
-            .eq('id', row.id);
-
-          showNotice('Endorsement email sent.', 'success');
+          showNotice('Endorsement email sent and endorsement record persisted.', 'success');
+          await loadDashboard();
+          openRow(row.id);
           return;
         }
 
         if (mode === 'rejection') {
+          if (!data.candidateEmail) {
+            throw new Error('Candidate email is missing. Rejection email cannot be sent.');
+          }
+
           const payload = {
+            to: data.candidateEmail,
             application_id: row.id,
             applicant_profile_id: row.profile?.id || row.app?.applicant_profile_id || null,
             candidate_name: data.candidateName,
@@ -2819,16 +2882,38 @@
           const { error } = await supabaseClient.functions.invoke('send-rejection-email', { body: payload });
           if (error) throw error;
 
-          showNotice('Rejection email sent.', 'success');
+          const rejectionStatus = ['rejected', 'failed paper screening', 'withdrawn', 'no-show onboarding']
+            .includes(selectedStatus)
+              ? selectedStatus
+              : 'rejected';
+
+          const { error: updateError } = await supabaseClient
+            .from('applications')
+            .update({
+              status: rejectionStatus,
+              rejection_email_status: 'sent',
+              last_status_change_at: now,
+              updated_at: now,
+            })
+            .eq('id', row.id);
+
+          if (updateError) throw updateError;
+
+          showNotice('Rejection email sent and application status updated.', 'success');
+          await loadDashboard();
+          openRow(row.id);
           return;
         }
 
-        showNotice('Status update generated. No email was sent because this mode is draft-only.', 'info');
+        showNotice('Status update is currently draft-only. To send it by email, add a dedicated send-status-update-email edge function and wire this mode to it.', 'info');
       } catch (error) {
         console.error(error);
         showNotice(`Failed to send communication: ${error.message || error}`, 'error');
       } finally {
-        if (els.sendCommBtn) els.sendCommBtn.disabled = false;
+        if (els.sendCommBtn) {
+          els.sendCommBtn.disabled = false;
+          els.sendCommBtn.textContent = 'Send Email';
+        }
       }
     }
 
