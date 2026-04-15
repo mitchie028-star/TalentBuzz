@@ -54,7 +54,7 @@
     .brand-text h1{
       margin:0 0 6px;color:var(--primary);font-size:2rem;line-height:1.1;letter-spacing:-.03em;
     }
-    .subtitle{margin:0;color:var(--muted);font-size:.95rem;max-width:880px}
+    .subtitle{margin:0;color:var(--muted);font-size:.95rem;max-width:900px}
 
     .utility-nav{
       display:flex;align-items:center;justify-content:flex-end;gap:10px;flex-wrap:wrap;
@@ -92,7 +92,6 @@
     .btn-primary{background:linear-gradient(135deg,var(--primary),var(--primary-2));color:#fff}
     .btn-outline{background:#fff;color:var(--primary);border-color:var(--border)}
     .btn-soft{background:#eff6ff;color:var(--primary);border-color:#bfdbfe}
-    .btn-danger{background:#fff;color:var(--danger);border-color:#fecaca}
     .btn-xs{padding:7px 10px;font-size:.8rem;border-radius:10px}
 
     .notice{
@@ -121,7 +120,6 @@
     }
     .panel-head-row h2{margin:0;color:var(--primary);font-size:1.2rem;letter-spacing:-.02em}
     .small{color:var(--muted);font-size:.82rem;line-height:1.5}
-    .muted{color:var(--muted)}
     .metric{font-weight:800;color:var(--primary)}
 
     .filters-grid{display:grid;grid-template-columns:1.4fr 1fr 1fr auto;gap:14px;align-items:end}
@@ -216,7 +214,7 @@
           <div class="brand-logo-fallback">TB</div>
           <div class="brand-text">
             <h1>Client Management</h1>
-            <p class="subtitle">One workspace for client records, portal users, and invite status. This version is client-centric, so each company appears once and can contain multiple users.</p>
+            <p class="subtitle">One workspace for client records, portal users, and invite status. This version is client-centric, so each company appears once and can contain multiple users. Invite creation is routed through your existing <strong>create-client-login</strong> edge function instead of direct inserts into <strong>client_invites</strong>.</p>
           </div>
         </div>
 
@@ -311,7 +309,7 @@
     <div class="panel">
       <div class="panel-head-row">
         <h2>Client Records</h2>
-        <div class="small">Each row is one client. Expand a client to manage multiple users and invite records tied to that client.</div>
+        <div class="small">Each row is one client. Expand a client to manage multiple users and resend invite flows tied to that client.</div>
       </div>
 
       <div class="table-wrap">
@@ -634,9 +632,7 @@
         for(const invite of clientInvites){
           const key = normalizeEmail(invite.email);
           if(!key) continue;
-          if(!latestInviteByEmail.has(key)){
-            latestInviteByEmail.set(key, invite);
-          }
+          if(!latestInviteByEmail.has(key)) latestInviteByEmail.set(key, invite);
         }
 
         const combinedUserMap = new Map();
@@ -698,9 +694,7 @@
       const totalUsers = state.users.length;
 
       let pendingInviteCount = 0;
-      for(const row of state.clientRows){
-        pendingInviteCount += row.pendingInviteCount || 0;
-      }
+      for(const row of state.clientRows) pendingInviteCount += row.pendingInviteCount || 0;
 
       els.statTotalClients.textContent = String(totalClients);
       els.statActiveClients.textContent = String(activeClients);
@@ -749,7 +743,7 @@
       });
     }
 
-    function renderCombinedUserRows(clientId, combinedUsers){
+    function renderCombinedUserRows(combinedUsers){
       if(!combinedUsers.length){
         return `<tr><td colspan="6" class="empty">No portal users or invite records yet for this client.</td></tr>`;
       }
@@ -774,7 +768,7 @@
             <td>${escapeHtml(formatDateTime(invite?.expires_at))}</td>
             <td>
               <div class="row-actions">
-                ${item.displayEmail && item.displayEmail !== "-" && !item.client_user_active ? `<button class="btn btn-soft btn-xs resend-invite-btn" type="button" data-email="${escapeHtml(item.displayEmail)}">Resend Invite</button>` : ""}
+                ${item.displayEmail && item.displayEmail !== "-" && !item.client_user_active ? `<button class="btn btn-soft btn-xs resend-invite-btn" type="button" data-email="${escapeHtml(item.displayEmail)}" data-full-name="${escapeHtml(item.full_name || "")}">Resend Invite</button>` : ""}
                 <button class="btn btn-outline btn-xs copy-link-btn" type="button" data-link="${escapeHtml(link)}">Copy Link</button>
               </div>
             </td>
@@ -827,7 +821,7 @@
             <td>
               <div class="row-actions">
                 <button class="btn btn-soft btn-xs add-user-btn" type="button" data-client-id="${escapeHtml(client.id)}">Add User</button>
-                ${row.latestInvite?.email ? `<button class="btn btn-outline btn-xs resend-invite-btn" type="button" data-email="${escapeHtml(row.latestInvite.email)}">Resend Latest</button>` : ""}
+                ${row.latestInvite?.email ? `<button class="btn btn-outline btn-xs resend-invite-btn" type="button" data-email="${escapeHtml(row.latestInvite.email)}" data-client-id="${escapeHtml(client.id)}" data-full-name="${escapeHtml(row.latestInvite.full_name || "")}">Resend Latest</button>` : ""}
               </div>
             </td>
           </tr>
@@ -838,7 +832,7 @@
                 <div class="details-head">
                   <div>
                     <div style="font-weight:800;color:var(--primary);">${escapeHtml(client.client_name || "-")} — Portal Users</div>
-                    <div class="small">Create more invite records for this client, resend access links, and monitor existing users.</div>
+                    <div class="small">Create more invite records for this client and route them through the existing edge function.</div>
                   </div>
                   <div style="display:flex; gap:8px; flex-wrap:wrap;">
                     <span class="sub-pill">${escapeHtml(String(row.combinedUsers.length))} total contacts</span>
@@ -859,7 +853,7 @@
                       </tr>
                     </thead>
                     <tbody>
-                      ${renderCombinedUserRows(client.id, row.combinedUsers)}
+                      ${renderCombinedUserRows(row.combinedUsers)}
                     </tbody>
                   </table>
                 </div>
@@ -881,9 +875,9 @@
       return error?.message || "Request failed.";
     }
 
-    async function resendClientInvite(email){
-      const result = await supabaseClient.functions.invoke("resend-client-invite", {
-        body: { email }
+    async function invokeCreateClientLogin(payload){
+      const result = await supabaseClient.functions.invoke("create-client-login", {
+        body: payload
       });
 
       if(result.error){
@@ -896,6 +890,28 @@
       }
 
       return result.data;
+    }
+
+    async function sendClientInviteViaFunction({ clientId, clientName, fullName, email, mode = "create" }){
+      const normalizedEmail = normalizeEmail(email);
+      if(!normalizedEmail) throw new Error("Email is required.");
+
+      const payload = {
+        client_id: clientId,
+        clientId: clientId,
+        client_name: clientName,
+        clientName: clientName,
+        full_name: fullName || clientName || "",
+        fullName: fullName || clientName || "",
+        primary_contact_name: fullName || clientName || "",
+        email: normalizedEmail,
+        portal_email: normalizedEmail,
+        invite_email: normalizedEmail,
+        mode,
+        resend: mode === "resend"
+      };
+
+      return await invokeCreateClientLogin(payload);
     }
 
     async function loadClients(){
@@ -1000,23 +1016,16 @@
           if(existingPortalUserError) throw existingPortalUserError;
           if(existingPortalUser?.id) throw new Error("A client portal user with this email already exists.");
 
-          const { error: insertInviteError } = await supabaseClient
-            .from("client_invites")
-            .insert([{
-              client_id: newClient.id,
-              full_name: fullName || clientName,
-              email,
-              token: null,
-              used: false,
-              expires_at: null
-            }]);
-
-          if(insertInviteError) throw insertInviteError;
-
-          await resendClientInvite(email);
+          await sendClientInviteViaFunction({
+            clientId: newClient.id,
+            clientName: newClient.client_name,
+            fullName: fullName || newClient.client_name,
+            email,
+            mode: "create"
+          });
         }
 
-        showNotice(sendInviteAfter ? "Client created and first invite sent." : "Client created successfully.", "success");
+        showNotice(sendInviteAfter ? "Client created and first invite requested." : "Client created successfully.", "success");
         closeClientModal();
         await loadClients();
       }catch(error){
@@ -1069,23 +1078,17 @@
         }
 
         const selectedClient = state.clients.find(c => c.id === clientId);
+        if(!selectedClient) throw new Error("Selected client not found.");
 
-        const { error: insertInviteError } = await supabaseClient
-          .from("client_invites")
-          .insert([{
-            client_id: clientId,
-            full_name: fullName || selectedClient?.client_name || "",
-            email,
-            token: null,
-            used: false,
-            expires_at: null
-          }]);
+        await sendClientInviteViaFunction({
+          clientId,
+          clientName: selectedClient.client_name,
+          fullName: fullName || selectedClient.client_name,
+          email,
+          mode: "create"
+        });
 
-        if(insertInviteError) throw insertInviteError;
-
-        await resendClientInvite(email);
-
-        showNotice("Portal user invite created and sent.", "success");
+        showNotice("Portal user invite requested successfully.", "success");
         closeUserModal();
         await loadClients();
         state.expandedClients.add(clientId);
@@ -1096,6 +1099,20 @@
       }finally{
         els.saveUserInviteBtn.disabled = false;
       }
+    }
+
+    async function resendClientInvite(email, clientId = "", fullName = ""){
+      const selectedClient = state.clients.find(c => c.id === clientId)
+        || state.clientRows.find(r => r.combinedUsers.some(u => normalizeEmail(u.displayEmail) === normalizeEmail(email)))?.client
+        || null;
+
+      return await sendClientInviteViaFunction({
+        clientId: selectedClient?.id || clientId || null,
+        clientName: selectedClient?.client_name || "",
+        fullName: fullName || selectedClient?.client_name || "",
+        email,
+        mode: "resend"
+      });
     }
 
     async function copyInviteLink(link){
@@ -1167,6 +1184,8 @@
       const resendBtn = event.target.closest(".resend-invite-btn");
       if(resendBtn){
         const email = resendBtn.dataset.email;
+        const clientId = resendBtn.dataset.clientId || "";
+        const fullName = resendBtn.dataset.fullName || "";
         if(!email) return;
 
         const confirmed = window.confirm(`Resend invite to ${email}?`);
@@ -1177,12 +1196,12 @@
         resendBtn.textContent = "Sending...";
 
         try{
-          const data = await resendClientInvite(email);
-          showNotice(data?.message || "Invite resent successfully.", "success");
+          const data = await resendClientInvite(email, clientId, fullName);
+          showNotice(data?.message || "Invite request sent successfully.", "success");
           await loadClients();
         }catch(error){
           console.error(error);
-          showNotice(error.message || "Failed to resend invite.", "error");
+          showNotice(error.message || "Failed to send invite request.", "error");
         }finally{
           resendBtn.disabled = false;
           resendBtn.textContent = originalText;
