@@ -1416,6 +1416,9 @@
     };
 
     let supabaseClient = null;
+    let chatRealtimeChannels = [];
+    let chatPollingTimer = null;
+    let chatRefreshInFlight = false;
 
     function safeText(value) {
       return value == null ? '' : String(value).trim();
@@ -3702,7 +3705,10 @@ function renderLearningInsights(row) {
     function updateHeaderBadges() {
       const unreadTotal = state.chatThreads.reduce((sum, thread) => sum + Number(thread.unreadCount || 0), 0);
       const unassigned = state.allRows.filter((row) => !safeText(row.recruiterEmail) || safeText(row.recruiterEmail).toLowerCase() === 'unassigned').length;
-      if (els.chatUnreadBadge) els.chatUnreadBadge.textContent = String(unreadTotal);
+      if (els.chatUnreadBadge) {
+        els.chatUnreadBadge.textContent = String(unreadTotal);
+        els.chatUnreadBadge.style.display = unreadTotal > 0 ? 'inline-flex' : 'none';
+      }
       if (els.newApplicantsBadge) els.newApplicantsBadge.textContent = String(unassigned);
       if (els.chatWidgetLauncherBadge) {
         els.chatWidgetLauncherBadge.textContent = String(unreadTotal);
@@ -3858,6 +3864,66 @@ function renderLearningInsights(row) {
       renderChatWidget();
     }
 
+    async function refreshChatWidgetLive(preserveSelection = true) {
+      if (chatRefreshInFlight) return;
+      chatRefreshInFlight = true;
+      try {
+        await refreshChatWidget(preserveSelection);
+        if (els.chatConversationModal?.classList.contains('show') && state.chatSelectedThreadKey) {
+          await openChatConversationModal(state.chatSelectedThreadKey);
+        }
+      } catch (err) {
+        console.warn('Unable to refresh live chat widget:', err?.message || err);
+      } finally {
+        chatRefreshInFlight = false;
+      }
+    }
+
+    function teardownChatRealtime() {
+      try {
+        chatRealtimeChannels.forEach((channel) => {
+          try { supabaseClient?.removeChannel(channel); } catch (_) {}
+        });
+      } catch (_) {}
+      chatRealtimeChannels = [];
+
+      if (chatPollingTimer) {
+        clearInterval(chatPollingTimer);
+        chatPollingTimer = null;
+      }
+    }
+
+    function setupChatRealtime() {
+      if (!supabaseClient) return;
+
+      teardownChatRealtime();
+
+      try {
+        const applicantChannel = supabaseClient
+          .channel('buzzhire-live-applicant-messages')
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'applicant_messages' }, () => {
+            void refreshChatWidgetLive(true);
+          })
+          .subscribe();
+
+        const clientChannel = supabaseClient
+          .channel('buzzhire-live-client-messages')
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'client_messages' }, () => {
+            void refreshChatWidgetLive(true);
+          })
+          .subscribe();
+
+        chatRealtimeChannels.push(applicantChannel, clientChannel);
+      } catch (err) {
+        console.warn('Unable to start chat realtime:', err?.message || err);
+      }
+
+      chatPollingTimer = window.setInterval(() => {
+        if (document.hidden) return;
+        void refreshChatWidgetLive(true);
+      }, 15000);
+    }
+
     function bindEvents() {
       renderCheckboxList(els.positiveTagsList, POSITIVE_FEEDBACK_OPTIONS, 'positive');
       renderCheckboxList(els.riskTagsList, RISK_FEEDBACK_OPTIONS, 'risk');
@@ -3902,7 +3968,11 @@ function renderLearningInsights(row) {
         persistChatWidgetOpenState();
         renderChatWidget();
       });
-      els.chatWidgetRefreshBtn?.addEventListener('click', () => { void refreshChatWidget(true); });
+      els.chatWidgetRefreshBtn?.addEventListener('click', () => { void refreshChatWidgetLive(true); });
+      document.addEventListener('visibilitychange', () => {
+        if (!document.hidden) void refreshChatWidgetLive(true);
+      });
+      window.addEventListener('beforeunload', teardownChatRealtime);
       els.chatWidgetTabs?.querySelectorAll('.chat-tab').forEach((btn) => {
         btn.addEventListener('click', () => {
           state.chatSelectedTab = btn.dataset.chatTab || 'candidates';
@@ -3998,6 +4068,7 @@ function renderLearningInsights(row) {
       supabaseClient = window.supabase.createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_ANON_KEY);
       restoreChatWidgetOpenState();
       void initializeCurrentUser();
+      setupChatRealtime();
       return true;
     }
 
