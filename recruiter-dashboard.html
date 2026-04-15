@@ -3865,6 +3865,8 @@ function renderLearningInsights(row) {
     }
 
     async function refreshChatWidgetLive(preserveSelection = true) {
+      if (!supabaseClient) return;
+      if (state.loading) return;
       if (chatRefreshInFlight) return;
       chatRefreshInFlight = true;
       try {
@@ -4067,13 +4069,29 @@ function renderLearningInsights(row) {
       }
       supabaseClient = window.supabase.createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_ANON_KEY);
       restoreChatWidgetOpenState();
-      void initializeCurrentUser();
-      setupChatRealtime();
       return true;
     }
 
+    let dashboardLoadInFlight = false;
+
+    async function startDashboardApp() {
+      if (!initClient()) return;
+      if (dashboardLoadInFlight) return;
+      dashboardLoadInFlight = true;
+      try {
+        await initializeCurrentUser();
+        await loadDashboard();
+        setupChatRealtime();
+      } catch (error) {
+        console.error(error);
+        showNotice(`Unable to start dashboard: ${error?.message || error}`, 'error');
+      } finally {
+        dashboardLoadInFlight = false;
+      }
+    }
+
     bindEvents();
-    if (initClient()) loadDashboard();
+    void startDashboardApp();
   </script>
 </body>
 </html>
