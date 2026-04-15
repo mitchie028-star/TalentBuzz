@@ -139,6 +139,7 @@
       line-height:1.65;
       font-weight:700;
       border:1px solid transparent;
+      white-space:pre-wrap;
     }
 
     .notice.show{ display:block; }
@@ -250,6 +251,7 @@
       word-break:break-word;
       color:#0f172a;
       line-height:1.5;
+      white-space:pre-wrap;
     }
 
     .small{
@@ -422,7 +424,7 @@
     let latestInviteLink = "";
 
     function showNotice(message, type = "info") {
-      els.notice.textContent = message;
+      els.notice.textContent = String(message || "");
       els.notice.className = `notice show ${type}`;
     }
 
@@ -436,20 +438,72 @@
       els.createBtn.textContent = isBusy ? "Sending..." : "Send Client Invitation";
     }
 
+    function resetResults() {
+      latestInviteLink = "";
+      els.resultClient.textContent = "-";
+      els.resultEmail.textContent = "-";
+      els.resultInviteLink.textContent = "-";
+      els.resultLoginUrl.textContent = "https://talentbuzz.pro/client-login.html";
+      els.resultEmailStatus.textContent = "Not sent yet";
+      els.copyInviteBtn.style.display = "none";
+    }
+
+    function normalizeErrorText(value) {
+      if (!value) return "";
+      if (typeof value === "string") return value;
+      if (typeof value?.message === "string") return value.message;
+      if (typeof value?.error === "string") return value.error;
+      try {
+        return JSON.stringify(value);
+      } catch {
+        return String(value);
+      }
+    }
+
+    async function readInvokeErrorDetails(error) {
+      try {
+        if (error?.context?.json) {
+          const parsed = await error.context.json();
+          return parsed;
+        }
+      } catch (_) {}
+
+      try {
+        if (error?.context?.text) {
+          const text = await error.context.text();
+          return { error: text };
+        }
+      } catch (_) {}
+
+      return null;
+    }
+
     async function createClientInvite(payload) {
       const { data, error } = await supabaseClient.functions.invoke("create-client-login", {
         body: payload
       });
 
-      if (error) {
-        throw error;
-      }
+      console.log("create-client-login payload:", payload);
+      console.log("create-client-login data:", data);
+      console.log("create-client-login error:", error);
 
       if (data?.error) {
         throw new Error(data.error);
       }
 
-      return data;
+      if (error) {
+        const details = await readInvokeErrorDetails(error);
+        console.error("create-client-login error details:", details);
+
+        throw new Error(
+          details?.error ||
+          details?.message ||
+          normalizeErrorText(error) ||
+          "Edge Function returned a non-2xx status code"
+        );
+      }
+
+      return data || {};
     }
 
     function updateResults(payload, result) {
@@ -469,9 +523,11 @@
       if (result?.email_sent === true) {
         els.resultEmailStatus.textContent = "Invitation emailed successfully";
       } else if (result?.email_sent === false) {
-        els.resultEmailStatus.textContent = "Email failed — send link manually";
-      } else {
+        els.resultEmailStatus.textContent = result?.warning || "Email failed — send link manually";
+      } else if (latestInviteLink) {
         els.resultEmailStatus.textContent = "Invitation created";
+      } else {
+        els.resultEmailStatus.textContent = "No invite link returned";
       }
     }
 
@@ -490,6 +546,7 @@
     els.form.addEventListener("submit", async (event) => {
       event.preventDefault();
       clearNotice();
+      resetResults();
       setBusy(true);
 
       try {
@@ -498,6 +555,10 @@
           poc_name: els.pocName.value.trim(),
           poc_email: els.pocEmail.value.trim().toLowerCase()
         };
+
+        if (!payload.client_name || !payload.poc_name || !payload.poc_email) {
+          throw new Error("Client name, contact name, and contact email are required.");
+        }
 
         const result = await createClientInvite(payload);
 
@@ -510,14 +571,21 @@
             result?.warning || "Client invitation was created, but email delivery failed. Please send the invite link manually.",
             "warning"
           );
-        } else {
+        } else if (result?.invite_link) {
           showNotice("Client invitation created successfully.", "success");
+        } else {
+          showNotice("Client was processed, but no invite link was returned.", "warning");
         }
 
         els.form.reset();
       } catch (error) {
         console.error("Create client invite error:", error);
-        showNotice(error.message || "Failed to send client invitation.", "error");
+        const message =
+          error?.message ||
+          "Failed to send client invitation.";
+
+        els.resultEmailStatus.textContent = "Failed";
+        showNotice(message, "error");
       } finally {
         setBusy(false);
       }
