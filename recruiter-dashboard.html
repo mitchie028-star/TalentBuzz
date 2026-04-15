@@ -1435,6 +1435,18 @@
       els.notice.textContent = message;
     }
 
+
+    function isRlsError(error) {
+      const message = String(error?.message || error || '').toLowerCase();
+      return message.includes('row-level security') || message.includes('violates row-level security policy');
+    }
+
+    function buildChatRlsHelp(tableName, thread) {
+      const who = thread?.threadType === 'client' ? 'client' : 'candidate';
+      return `Chat send is blocked by Supabase RLS on ${tableName}. Your dashboard can read the ${who} thread, but insert is not allowed for the current logged-in user. Run the SQL policy fix for ${tableName}, then try again.`;
+    }
+
+
     function hideNotice() {
       els.notice.className = 'notice';
       els.notice.textContent = '';
@@ -3656,7 +3668,7 @@ function renderLearningInsights(row) {
       const thread = state.chatThreads.find((item) => item.threadKey === state.chatSelectedThreadKey) || null;
       const message = safeText(els.chatConversationInput?.value);
       if (!thread || !message) return;
-      const currentEmail = getCurrentUserEmail();
+
       try {
         if (thread.threadType === 'candidate') {
           const payload = {
@@ -3678,10 +3690,17 @@ function renderLearningInsights(row) {
           const { error } = await supabaseClient.from('client_messages').insert(payload);
           if (error) throw error;
         }
+
         if (els.chatConversationInput) els.chatConversationInput.value = '';
         await refreshChatWidget(true);
         await openChatConversationModal(thread.threadKey);
+        showNotice('Chat message sent.', 'success');
       } catch (err) {
+        if (isRlsError(err)) {
+          const tableName = thread.threadType === 'candidate' ? 'applicant_messages' : 'client_messages';
+          showNotice(buildChatRlsHelp(tableName, thread), 'error');
+          return;
+        }
         showNotice(`Unable to send chat message: ${err?.message || err}`, 'error');
       }
     }
