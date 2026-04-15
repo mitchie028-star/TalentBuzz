@@ -489,7 +489,33 @@
       font-size:24px;
       font-weight:800;
       z-index:1000;
+      position:fixed;
     }
+
+    .chat-fab.pulse{
+      animation:chatPulse 1.8s ease-in-out infinite;
+    }
+
+    .chat-fab-badge{
+      position:absolute;
+      top:-4px;
+      right:-2px;
+      min-width:24px;
+      height:24px;
+      padding:0 7px;
+      border-radius:999px;
+      display:none;
+      align-items:center;
+      justify-content:center;
+      background:#dc2626;
+      color:#fff;
+      font-size:.72rem;
+      font-weight:800;
+      border:2px solid #fff;
+      line-height:1;
+    }
+
+    .chat-fab-badge.show{ display:inline-flex; }
 
     .chat-popup{
       position:fixed;
@@ -719,7 +745,7 @@
     </div>
   </div>
 
-  <button id="chatFab" class="chat-fab" type="button" title="Open recruiter chat">💬</button>
+  <button id="chatFab" class="chat-fab" type="button" title="Open recruiter chat">💬<span id="chatFabBadge" class="chat-fab-badge">0</span></button>
 
   <div id="chatPopup" class="chat-popup">
     <div class="chat-popup-head">
@@ -766,12 +792,20 @@
         chatClose: document.getElementById('chatClose'),
         chatMessages: document.getElementById('chatMessages'),
         chatInput: document.getElementById('chatInput'),
-        sendMessageBtn: document.getElementById('sendMessageBtn')
+        sendMessageBtn: document.getElementById('sendMessageBtn'),
+        chatFabBadge: document.getElementById('chatFabBadge')
       };
 
+      const CHAT_SEEN_STORAGE_KEY = 'talentbuzz_applicant_chat_seen_v1';
       let currentProfile = null;
+      let currentUser = null;
       let applicationsCache = [];
       let recommendedCount = 0;
+      let chatMessagesCache = [];
+      let chatRealtimeChannel = null;
+      let chatPollingTimer = null;
+      let chatRefreshInFlight = false;
+      let startupComplete = false;
 
       function escapeHtml(value) {
         return String(value ?? '')
@@ -826,6 +860,104 @@
       function showNotice(message, type = 'success') {
         els.notice.textContent = message;
         els.notice.className = `notice show ${type}`;
+      }
+
+
+      function getChatSeenMap() {
+        try {
+          return JSON.parse(localStorage.getItem(CHAT_SEEN_STORAGE_KEY) || '{}') || {};
+        } catch (_) {
+          return {};
+        }
+      }
+
+      function setChatSeenMap(map) {
+        try {
+          localStorage.setItem(CHAT_SEEN_STORAGE_KEY, JSON.stringify(map || {}));
+        } catch (_) {}
+      }
+
+      function getChatSeenKey(email) {
+        return `applicant:${String(email || '').trim().toLowerCase()}`;
+      }
+
+      function getLastRecruiterMessageAt(messages) {
+        const recruiterMessages = (messages || []).filter(item => String(item?.sender_type || '').toLowerCase() === 'recruiter');
+        if (!recruiterMessages.length) return '';
+        return recruiterMessages[recruiterMessages.length - 1]?.created_at || '';
+      }
+
+      function markChatSeen(email, seenAt) {
+        const key = getChatSeenKey(email);
+        if (!key || !seenAt) return;
+        const map = getChatSeenMap();
+        map[key] = seenAt;
+        setChatSeenMap(map);
+        updateChatFabBadge();
+      }
+
+      function getUnreadRecruiterCount(email, messages) {
+        const key = getChatSeenKey(email);
+        const seenAt = getChatSeenMap()[key] || '';
+        return (messages || []).filter(item => {
+          const isRecruiter = String(item?.sender_type || '').toLowerCase() === 'recruiter';
+          if (!isRecruiter) return false;
+          if (!seenAt) return true;
+          return new Date(item.created_at || 0) > new Date(seenAt || 0);
+        }).length;
+      }
+
+      function updateChatFabBadge() {
+        const unreadCount = getUnreadRecruiterCount(currentUser?.email, chatMessagesCache);
+        if (els.chatFabBadge) {
+          els.chatFabBadge.textContent = String(unreadCount);
+          els.chatFabBadge.classList.toggle('show', unreadCount > 0);
+        }
+        if (els.chatFab) {
+          els.chatFab.classList.toggle('pulse', unreadCount > 0 && !els.chatPopup.classList.contains('open'));
+        }
+      }
+
+      async function refreshMessagesLive() {
+        if (!currentUser?.email || chatRefreshInFlight || !startupComplete) return;
+        chatRefreshInFlight = true;
+        try {
+          await loadMessages(currentUser, { preserveScroll: true, silent: true });
+        } finally {
+          chatRefreshInFlight = false;
+        }
+      }
+
+      function teardownChatLive() {
+        if (chatRealtimeChannel) {
+          try { supabaseClient.removeChannel(chatRealtimeChannel); } catch (_) {}
+          chatRealtimeChannel = null;
+        }
+        if (chatPollingTimer) {
+          clearInterval(chatPollingTimer);
+          chatPollingTimer = null;
+        }
+      }
+
+      function setupChatLive(user) {
+        if (!user?.email) return;
+        teardownChatLive();
+
+        chatRealtimeChannel = supabaseClient
+          .channel(`applicant-dashboard-chat-${user.id || user.email}`)
+          .on('postgres_changes', {
+            event: '*',
+            schema: 'public',
+            table: 'applicant_messages',
+            filter: `applicant_email=eq.${user.email}`
+          }, async () => {
+            await refreshMessagesLive();
+          })
+          .subscribe();
+
+        chatPollingTimer = setInterval(async () => {
+          await refreshMessagesLive();
+        }, 15000);
       }
 
       function getInitials(name) {
@@ -1192,7 +1324,11 @@
         return filtered;
       }
 
-      async function loadMessages(user) {
+      async function loadMessages(user, options = {}) {
+        const preserveScroll = !!options.preserveScroll;
+        const silent = !!options.silent;
+        const previousScrollBottom = els.chatMessages.scrollHeight - els.chatMessages.scrollTop;
+
         const { data, error } = await supabaseClient
           .from('applicant_messages')
           .select('id, sender_type, message, created_at')
@@ -1200,23 +1336,38 @@
           .order('created_at', { ascending: true });
 
         if (error) {
-          els.chatMessages.innerHTML = `<div class="empty">${escapeHtml(error.message)}</div>`;
+          if (!silent) {
+            els.chatMessages.innerHTML = `<div class="empty">${escapeHtml(error.message)}</div>`;
+          }
           return;
         }
 
-        if (!data || !data.length) {
+        chatMessagesCache = data || [];
+
+        if (!chatMessagesCache.length) {
           els.chatMessages.innerHTML = `<div class="empty">No messages yet. Start a conversation with our recruiters below.</div>`;
+          updateChatFabBadge();
           return;
         }
 
-        els.chatMessages.innerHTML = data.map(item => `
+        els.chatMessages.innerHTML = chatMessagesCache.map(item => `
           <div class="chat-message ${item.sender_type === 'recruiter' ? 'recruiter' : 'applicant'}">
             ${escapeHtml(item.message || '')}
             <span class="chat-time">${escapeHtml(formatDateTime(item.created_at))}</span>
           </div>
         `).join('');
 
-        els.chatMessages.scrollTop = els.chatMessages.scrollHeight;
+        if (els.chatPopup.classList.contains('open')) {
+          const lastRecruiterAt = getLastRecruiterMessageAt(chatMessagesCache);
+          if (lastRecruiterAt) markChatSeen(user.email, lastRecruiterAt);
+          els.chatMessages.scrollTop = els.chatMessages.scrollHeight;
+        } else if (preserveScroll) {
+          els.chatMessages.scrollTop = Math.max(0, els.chatMessages.scrollHeight - previousScrollBottom);
+        } else {
+          els.chatMessages.scrollTop = els.chatMessages.scrollHeight;
+        }
+
+        updateChatFabBadge();
       }
 
       async function sendMessage(user) {
@@ -1248,7 +1399,7 @@
           if (error) throw error;
 
           els.chatInput.value = '';
-          await loadMessages(user);
+          await loadMessages(user, { preserveScroll: false });
           showNotice('Message sent to the TalentBuzz recruitment team.', 'success');
         } catch (error) {
           showNotice(error?.message || 'Unable to send message.', 'error');
@@ -1260,10 +1411,18 @@
 
       function openChat() {
         els.chatPopup.classList.add('open');
+        const lastRecruiterAt = getLastRecruiterMessageAt(chatMessagesCache);
+        if (currentUser?.email && lastRecruiterAt) {
+          markChatSeen(currentUser.email, lastRecruiterAt);
+        } else {
+          updateChatFabBadge();
+        }
+        els.chatMessages.scrollTop = els.chatMessages.scrollHeight;
       }
 
       function closeChat() {
         els.chatPopup.classList.remove('open');
+        updateChatFabBadge();
       }
 
       window.withdrawApplication = async function (applicationId) {
@@ -1312,6 +1471,10 @@
       els.chatFab.addEventListener('click', openChat);
       els.chatClose.addEventListener('click', closeChat);
 
+      window.addEventListener('beforeunload', () => {
+        teardownChatLive();
+      });
+
       document.addEventListener('click', (e) => {
         if (!els.chatPopup.classList.contains('open')) return;
         const clickedInsidePopup = els.chatPopup.contains(e.target);
@@ -1325,14 +1488,20 @@
         }
       });
 
-      protectApplicantPage().then(async user => {
+      (async () => {
+        const user = await protectApplicantPage();
         if (!user) return;
+
+        currentUser = user;
         const profile = await loadProfile(user);
         const apps = await loadApplications(user);
         await loadRecommendedRoles(user);
-        await loadMessages(user);
+        await loadMessages(user, { preserveScroll: false });
         renderNextSteps(profile, apps);
-      });
+        startupComplete = true;
+        setupChatLive(user);
+        updateChatFabBadge();
+      })();
     });
   </script>
 </body>
