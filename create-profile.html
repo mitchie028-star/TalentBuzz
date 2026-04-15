@@ -554,6 +554,32 @@
       line-height: 1.55;
     }
 
+    .attribution-card {
+      margin-bottom: 18px;
+      border: 1px solid #c7d2fe;
+      background: linear-gradient(180deg, #f8fbff 0%, #eef2ff 100%);
+      border-radius: 16px;
+      padding: 14px 16px;
+    }
+
+    .attribution-card strong {
+      color: var(--blue);
+      display: block;
+      margin-bottom: 6px;
+    }
+
+    .attribution-card span {
+      color: var(--muted);
+      font-size: 0.9rem;
+      line-height: 1.55;
+    }
+
+    .chip.soft {
+      background: #eef2ff;
+      color: #3730a3;
+      border-color: #c7d2fe;
+    }
+
     .btn {
       min-height: 48px;
       padding: 0 18px;
@@ -660,6 +686,12 @@
       <div id="routeCard" class="route-card hidden">
         <strong>Application in progress</strong>
         <span id="routeCardText"></span>
+      </div>
+
+      <div id="attributionCard" class="attribution-card hidden">
+        <strong id="attributionTitle">Recruiter referral detected</strong>
+        <span id="attributionText"></span>
+        <div class="insight-row" id="attributionMeta" style="margin-top:10px;"></div>
       </div>
 
       <div id="authModeBanner" class="auth-mode-banner hidden"></div>
@@ -924,6 +956,8 @@
   const alertId = params.get('alert_id') || '';
   const fromApply = params.get('fromApply') || '';
   const redirect = params.get('redirect') || '';
+  const inviteToken = params.get('invite_token') || params.get('invite') || '';
+  const recruiterRef = params.get('ref') || params.get('recruiter') || params.get('recruiter_email') || '';
 
   const form = document.getElementById('profileForm');
   const message = document.getElementById('message');
@@ -936,6 +970,10 @@
   const photoPreview = document.getElementById('photoPreview');
   const profilePhotoInput = document.getElementById('profile_photo');
   const authModeBanner = document.getElementById('authModeBanner');
+  const attributionCard = document.getElementById('attributionCard');
+  const attributionTitle = document.getElementById('attributionTitle');
+  const attributionText = document.getElementById('attributionText');
+  const attributionMeta = document.getElementById('attributionMeta');
   const goToLoginBtn = document.getElementById('goToLoginBtn');
   const googleLoginBtn = document.getElementById('googleLoginBtn');
   const linkedinLoginBtn = document.getElementById('linkedinLoginBtn');
@@ -960,6 +998,7 @@
   let currentStep = 1;
   let currentUser = null;
   let existingProfile = null;
+  let recruiterAttribution = null;
   let pendingProfilePhotoDataUrl = null;
   let openJobs = [];
   let lastSignupAttempt = 0;
@@ -1088,6 +1127,125 @@
   }
 
 
+  function getAttributionParams() {
+    return {
+      invite_token: String(inviteToken || '').trim(),
+      ref: String(recruiterRef || '').trim()
+    };
+  }
+
+  function normalizeRecruiterIdentifier(value) {
+    const raw = decodeURIComponent(String(value || '').trim()).replace(/\s+/g, '');
+    if (!raw) return '';
+    if (isValidEmail(raw)) return raw.toLowerCase();
+    if (/^[a-z0-9._%+-]+$/i.test(raw) && !raw.includes('@')) return `${raw.toLowerCase()}@talentbuzz.pro`;
+    return raw.toLowerCase();
+  }
+
+  function getLockedRecruiterEmail() {
+    const existing = String(existingProfile?.recruiter_email || existingProfile?.sourced_by_recruiter || '').trim().toLowerCase();
+    return existing || '';
+  }
+
+  function setAttributionUI(model) {
+    if (!attributionCard || !attributionTitle || !attributionText || !attributionMeta) return;
+
+    if (!model || (!model.recruiter_email && !model.invite_token && !model.ref)) {
+      attributionCard.classList.add('hidden');
+      attributionMeta.innerHTML = '';
+      return;
+    }
+
+    attributionCard.classList.remove('hidden');
+
+    const lockedRecruiter = getLockedRecruiterEmail();
+    const displayRecruiter = lockedRecruiter || model.recruiter_email || normalizeRecruiterIdentifier(model.ref) || 'TalentBuzz recruiter';
+
+    attributionTitle.textContent = lockedRecruiter ? 'Recruiter ownership locked' : 'Recruiter referral detected';
+
+    if (lockedRecruiter) {
+      attributionText.textContent = `This profile is already attributed to ${displayRecruiter}. New referral links will not overwrite recruiter ownership.`;
+    } else if (model.source_type === 'buzzpool_invite') {
+      attributionText.textContent = `This profile will be attributed to ${displayRecruiter} through the recruiter invite link used by the candidate.`;
+    } else {
+      attributionText.textContent = `This profile will be attributed to ${displayRecruiter} through the recruiter's referral link.`;
+    }
+
+    const chips = [];
+    if (displayRecruiter) chips.push(`<span class="chip soft">Recruiter: ${escapeHtml(displayRecruiter)}</span>`);
+    if (model.source_type === 'buzzpool_invite') chips.push('<span class="chip soft">Source: BuzzPool invite</span>');
+    if (model.source_type === 'recruiter_link') chips.push('<span class="chip soft">Source: Recruiter link</span>');
+    if (model.invite_token) chips.push('<span class="chip soft">Invite token detected</span>');
+    attributionMeta.innerHTML = chips.join('');
+  }
+
+  async function resolveRecruiterAttribution(email) {
+    const lockedRecruiter = getLockedRecruiterEmail();
+    if (lockedRecruiter) {
+      recruiterAttribution = { recruiter_email: lockedRecruiter, source_type: 'locked_existing_profile' };
+      setAttributionUI(recruiterAttribution);
+      return recruiterAttribution;
+    }
+
+    const attribution = getAttributionParams();
+    const fallbackRecruiterEmail = normalizeRecruiterIdentifier(attribution.ref);
+    const model = {
+      invite_token: attribution.invite_token || null,
+      ref: attribution.ref || null,
+      recruiter_email: fallbackRecruiterEmail || null,
+      source_type: fallbackRecruiterEmail ? 'recruiter_link' : null,
+      buzzpool_invite_id: null,
+      prospect_id: null,
+      invite_status: null
+    };
+
+    if (attribution.invite_token) {
+      try {
+        const { data: inviteRow, error: inviteError } = await supabaseClient
+          .from('buzzpool_invites')
+          .select('*')
+          .eq('invite_token', attribution.invite_token)
+          .maybeSingle();
+
+        if (!inviteError && inviteRow) {
+          model.recruiter_email = String(inviteRow.recruiter_email || model.recruiter_email || '').trim().toLowerCase() || null;
+          model.source_type = 'buzzpool_invite';
+          model.buzzpool_invite_id = inviteRow.id || null;
+          model.prospect_id = inviteRow.prospect_id || null;
+          model.invite_status = inviteRow.invite_status || null;
+        }
+      } catch (inviteLookupErr) {
+        console.warn('Unable to resolve recruiter invite:', inviteLookupErr);
+      }
+    }
+
+    recruiterAttribution = model;
+    setAttributionUI(model);
+    return model;
+  }
+
+  async function markInviteProfileCompleted(attribution, savedProfile, email) {
+    if (!attribution?.invite_token) return;
+
+    const attemptedUpdates = [
+      { invite_status: 'completed', profile_created_at: new Date().toISOString(), applicant_email: email, applicant_profile_id: savedProfile?.id || null },
+      { invite_status: 'completed', completed_at: new Date().toISOString() },
+      { invite_status: 'completed' }
+    ];
+
+    for (const patch of attemptedUpdates) {
+      try {
+        const { error } = await supabaseClient
+          .from('buzzpool_invites')
+          .update(patch)
+          .eq('invite_token', attribution.invite_token);
+        if (!error) break;
+      } catch (err) {
+        console.warn('Unable to update buzzpool_invites completion state:', err);
+      }
+    }
+  }
+
   function getEmailInput() { return document.getElementById('email'); }
   function getFullNameInput() { return document.getElementById('full_name'); }
   function getTargetRoleInput() { return document.getElementById('target_role'); }
@@ -1112,6 +1270,9 @@
     if (slug) qp.set('slug', slug);
     if (source) qp.set('source', source);
     if (alertId) qp.set('alert_id', alertId);
+    const attribution = getAttributionParams();
+    if (attribution.invite_token) qp.set('invite_token', attribution.invite_token);
+    if (attribution.ref) qp.set('ref', attribution.ref);
     return qp;
   }
 
@@ -1436,7 +1597,9 @@
       'suggested_roles', 'top_match_role', 'resume_text', 'matched_open_roles',
       'profile_status', 'profile_completion_percent', 'profile_started_at',
       'profile_completed_at', 'headline', 'preferred_work_setup',
-      'experience_summary', 'portfolio_url'
+      'experience_summary', 'portfolio_url', 'recruiter_email',
+      'source', 'source_detail', 'sourced_by_recruiter', 'invite_token',
+      'buzzpool_invite_id', 'source_prospect_id'
     ];
 
     if (existingProfileRow) {
@@ -1726,6 +1889,7 @@
     };
 
     renderResumeInsights();
+    setAttributionUI(recruiterAttribution || { recruiter_email: profile.recruiter_email || profile.sourced_by_recruiter || null, source_type: 'locked_existing_profile' });
 
     if (profile.profile_photo_url) {
       photoPreview.innerHTML = `<img src="${profile.profile_photo_url}" alt="Profile preview">`;
@@ -1766,6 +1930,7 @@
 
     const emailFromUrl = (params.get('email') || '').trim();
     if (emailFromUrl) getEmailInput().value = emailFromUrl;
+    await resolveRecruiterAttribution(emailFromUrl || '');
 
     try {
       const { data, error } = await supabaseClient.auth.getUser();
@@ -1788,6 +1953,7 @@
           try {
             const profile = await findExistingProfileByEmail(emailFromUrl.toLowerCase());
             if (profile) await loadExistingProfileIntoForm(profile);
+            await resolveRecruiterAttribution(emailFromUrl.toLowerCase());
           } catch (profileErr) {
             console.warn('Unable to pre-load profile by email:', profileErr);
           }
@@ -1801,6 +1967,7 @@
 
       const profile = await findExistingProfileByEmail((user.email || '').toLowerCase());
       if (profile) await loadExistingProfileIntoForm(profile);
+      await resolveRecruiterAttribution((user.email || '').toLowerCase());
 
       if (currentStep === 1) {
         currentStep = 2;
@@ -1821,6 +1988,7 @@
       if (!email) throw new Error('Email is required.');
       if (!isValidEmail(email)) throw new Error('Please enter a valid email address.');
       emailMethodSelected = true;
+      resolveRecruiterAttribution(email).catch(err => console.warn('Unable to resolve recruiter attribution:', err));
       passwordWrap.classList.add('show');
       currentStep = 2;
       updateStepUI();
@@ -1884,6 +2052,18 @@
       await analyzeProfileAgainstOpenJobs(file);
     } catch (err) {
       showMessage(err.message || 'Unable to analyze resume.', 'error');
+    }
+  });
+
+  getEmailInput().addEventListener('blur', async () => {
+    const email = getEmailInput().value.trim().toLowerCase();
+    if (!email) return;
+    try {
+      const profile = await findExistingProfileByEmail(email);
+      if (profile && !existingProfile) await loadExistingProfileIntoForm(profile);
+      await resolveRecruiterAttribution(email);
+    } catch (err) {
+      console.warn('Unable to refresh recruiter attribution from email:', err);
     }
   });
 
@@ -2013,11 +2193,20 @@
         lastSignupAttempt = signupAttemptTs;
 
         const emailRedirectTo = `${window.location.origin}/create-profile.html?${buildCreateProfileQueryForEmail(email)}`;
+        const signUpAttribution = await resolveRecruiterAttribution(email);
 
         const { data: signUpData, error: signUpError } = await supabaseClient.auth.signUp({
           email,
           password,
-          options: { data: { full_name }, emailRedirectTo }
+          options: {
+            data: {
+              full_name,
+              recruiter_email: signUpAttribution?.recruiter_email || null,
+              invite_token: signUpAttribution?.invite_token || null,
+              attribution_source: signUpAttribution?.source_type || null
+            },
+            emailRedirectTo
+          }
         });
 
         if (signUpError) {
@@ -2052,6 +2241,7 @@
 
       await analyzeProfileAgainstOpenJobs(resumeFile || null);
 
+      const attribution = await resolveRecruiterAttribution(email);
       const expected_salary = salaryRaw ? Number(salaryRaw) : null;
 
       let resume_path = existingProfile?.resume_path || null;
@@ -2067,6 +2257,10 @@
       if (profilePhotoFile) {
         profile_photo_url = await uploadProfilePhoto(profilePhotoFile);
       }
+
+      const lockedRecruiterEmail = getLockedRecruiterEmail();
+      const recruiterEmailToSave = lockedRecruiterEmail || attribution?.recruiter_email || null;
+      const sourceLabel = hasApplicationRoute() ? 'application_profile' : 'talent_pool_profile';
 
       const basePayload = {
         full_name,
@@ -2090,6 +2284,13 @@
         top_match_role: resumeAnalysis.top_match_role || target_role,
         resume_text: resumeAnalysis.resume_text,
         matched_open_roles: resumeAnalysis.matched_open_roles || [],
+        recruiter_email: recruiterEmailToSave,
+        sourced_by_recruiter: recruiterEmailToSave,
+        source: recruiterEmailToSave ? (attribution?.source_type || sourceLabel) : sourceLabel,
+        source_detail: recruiterEmailToSave ? `Recruiter attribution locked to ${recruiterEmailToSave}` : null,
+        invite_token: attribution?.invite_token || null,
+        buzzpool_invite_id: attribution?.buzzpool_invite_id || null,
+        source_prospect_id: attribution?.prospect_id || null,
         updated_at: new Date().toISOString()
       };
 
@@ -2105,11 +2306,18 @@
 
       const savedProfile = await upsertProfileWithFallback(payload, email, existingProfile);
       existingProfile = savedProfile || payload;
+      await markInviteProfileCompleted(attribution, savedProfile, email);
+      recruiterAttribution = {
+        ...(attribution || {}),
+        recruiter_email: recruiterEmailToSave || attribution?.recruiter_email || null,
+        source_type: recruiterEmailToSave ? (attribution?.source_type || 'recruiter_link') : attribution?.source_type || null
+      };
+      setAttributionUI(recruiterAttribution);
 
       showMessage(
         hasApplicationRoute()
-          ? 'Profile saved successfully. Continuing your application...'
-          : 'Profile saved successfully. Your record is now stored in applicant_profiles for the TalentBuzz talent pool.',
+          ? `Profile saved successfully${recruiterEmailToSave ? ` under recruiter ${recruiterEmailToSave}` : ''}. Continuing your application...`
+          : `Profile saved successfully${recruiterEmailToSave ? ` and attributed to ${recruiterEmailToSave}` : ''}. Your record is now stored in applicant_profiles for the TalentBuzz talent pool.`,
         'success'
       );
 
