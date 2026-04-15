@@ -933,202 +933,286 @@ function evaluateQuestionQualityV11(q, focusArea = '', roleModel = {}){ return e
 /* ===== END TALENTBUZZ V12 ===== */
 
 
-    const SUPABASE_URL = "https://dilalntcxmvdcmwxjcct.supabase.co";
-    const SUPABASE_ANON_KEY = "sb_publishable_HrLVIUwnaRo54yijtrbWBQ_1aeb4ezs";
-    const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+const SUPABASE_URL = "https://dilalntcxmvdcmwxjcct.supabase.co";
+const SUPABASE_ANON_KEY = "sb_publishable_HrLVIUwnaRo54yijtrbWBQ_1aeb4ezs";
+const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-    const els = {};
-    [
-      "roleModal","roleModalTitle","closeRoleModalBtn","newRoleBtn","newRoleBtnHero","refreshRolesBtn","clearRoleBtn","roleId","clientId",
-      "clientName","clientSuggestions","existingClientSelect","jobTitle","roleFamily","location","workSetup","employmentType","seniority",
-      "roleStatus","salaryCurrency","salaryPeriod","salaryMin","salaryMax","salaryNotes","languageRequirement","voiceScreeningMode","jdUpload","jdRawText","parseJDBtn","clearJDBtn",
-      "jobDescription","requirements","prioritySkills","niceToHaveSkills","signalNonNegotiables","signalRedFlags","signalMustHaveSkills",
-      "signalSuccessSignals","signalSetupCriticality","signalEnvironmentNotes","signalCommunicationWeight","signalStakeholderWeight",
-      "signalAutonomyLevel","signalDecisionMaking","signalBusinessPriorities","signalSummaryOutput","buildSignalBtn","questionsWrap",
-      "screeningSummaryOutput","scoringSummaryOutput","jdPreview","addQuestionBtn","generateAiQuestionsBtn","generateSummaryBtn","scoreAnswersBtn","clearAnswersBtn","saveRoleBtn","rolesTableBody",
-      "searchInput","holdFilter","statRoles","statActive","statHold","statQuestions","notice","openHelpBtn","evaluateQuestionQualityBtn",
-      "questionQualitySummaryOutput","learningSnapshotOutput"
-    ].forEach(id => els[id] = document.getElementById(id));
+const els = {};
+[
+  "roleModal","roleModalTitle","closeRoleModalBtn","newRoleBtn","newRoleBtnHero","refreshRolesBtn","clearRoleBtn","roleId","clientId",
+  "clientName","clientSuggestions","existingClientSelect","jobTitle","roleFamily","location","workSetup","employmentType","seniority",
+  "roleStatus","salaryCurrency","salaryPeriod","salaryMin","salaryMax","salaryNotes","languageRequirement","voiceScreeningMode","jdUpload","jdRawText","parseJDBtn","clearJDBtn",
+  "jobDescription","requirements","prioritySkills","niceToHaveSkills","signalNonNegotiables","signalRedFlags","signalMustHaveSkills",
+  "signalSuccessSignals","signalSetupCriticality","signalEnvironmentNotes","signalCommunicationWeight","signalStakeholderWeight",
+  "signalAutonomyLevel","signalDecisionMaking","signalBusinessPriorities","signalSummaryOutput","buildSignalBtn","questionsWrap",
+  "screeningSummaryOutput","scoringSummaryOutput","jdPreview","addQuestionBtn","generateAiQuestionsBtn","generateSummaryBtn","scoreAnswersBtn","clearAnswersBtn","saveRoleBtn","rolesTableBody",
+  "searchInput","holdFilter","statRoles","statActive","statHold","statQuestions","notice","openHelpBtn","evaluateQuestionQualityBtn",
+  "questionQualitySummaryOutput","learningSnapshotOutput"
+].forEach(id => {
+  els[id] = document.getElementById(id);
+});
 
-    els.tabButtons = [...document.querySelectorAll('.tab-btn')];
-    els.tabPanels = [...document.querySelectorAll('.tab-panel')];
+els.tabButtons = [...document.querySelectorAll(".tab-btn")];
+els.tabPanels = [...document.querySelectorAll(".tab-panel")];
 
-    let clientsCache = [];
-    let rolesCache = [];
-    let questionItems = [];
+let clientsCache = [];
+let rolesCache = [];
+let questionItems = [];
 
-    const FEEDBACK_TAG_OPTIONS = [
-      'good_question','too_generic','not_role_aligned','easy_to_fake','weak_proof','weak_technical_depth',
-      'duplicate_focus','too_long','not_measurable','bad_knockout','needs_simulation','strong_proof_based'
-    ];
+const FEEDBACK_TAG_OPTIONS = [
+  "good_question","too_generic","not_role_aligned","easy_to_fake","weak_proof","weak_technical_depth",
+  "duplicate_focus","too_long","not_measurable","bad_knockout","needs_simulation","strong_proof_based"
+];
 
-    const safeText = v => String(v ?? '').trim();
-    const normalizeLines = v => safeText(v).split(/\r?\n/).map(x => x.trim()).filter(Boolean);
-    const uniqueLines = arr => [...new Set((arr || []).map(x => safeText(x).replace(/^[-•*]\s*/, '')).filter(Boolean))];
-    const normalizeArray = value => Array.isArray(value) ? value : [];
-    const slugify = v => safeText(v).toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'').slice(0,120);
+const safeText = v => String(v ?? "").trim();
+const normalizeLines = v => safeText(v).split(/\r?\n/).map(x => x.trim()).filter(Boolean);
+const uniqueLines = arr => [...new Set((arr || []).map(x => safeText(x).replace(/^[-•*]\s*/, "")).filter(Boolean))];
+const normalizeArray = value => Array.isArray(value) ? value : [];
+const slugify = v => safeText(v).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 120);
 
-    function showNotice(message, type='success'){
-      els.notice.textContent = message;
-      els.notice.className = `notice show ${type}`;
-      clearTimeout(showNotice._timer);
-      showNotice._timer = setTimeout(() => els.notice.className = 'notice', 4500);
-    }
+function showNotice(message, type = "success"){
+  if (!els.notice) return;
+  els.notice.textContent = message;
+  els.notice.className = `notice show ${type}`;
+  clearTimeout(showNotice._timer);
+  showNotice._timer = setTimeout(() => {
+    els.notice.className = "notice";
+  }, 4500);
+}
 
-    function escapeHtml(v){
-      return String(v ?? '').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
-    }
+function escapeHtml(v){
+  return String(v ?? "").replace(/[&<>"']/g, m => (
+    {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]
+  ));
+}
 
-    const parseBudgetNumber = v => {
-      const cleaned = String(v ?? '').replace(/[^\d.\-]/g, '').trim();
-      if (!cleaned) return null;
-      const num = Number(cleaned);
-      return Number.isFinite(num) ? num : null;
-    };
+const parseBudgetNumber = v => {
+  const cleaned = String(v ?? "").replace(/[^\d.\-]/g, "").trim();
+  if (!cleaned) return null;
+  const num = Number(cleaned);
+  return Number.isFinite(num) ? num : null;
+};
 
-    const getCurrencySymbol = c => ({PHP:'₱',USD:'$',HKD:'HK$',SGD:'S$',EUR:'€',GBP:'£',AUD:'A$',CAD:'C$',JPY:'¥'})[c] || c || 'PHP';
-    const formatBudgetValue = (v,c) => {
-      const n = parseBudgetNumber(v);
-      return n === null ? '' : `${getCurrencySymbol(c)}${n.toLocaleString(undefined,{minimumFractionDigits:n%1===0?0:2,maximumFractionDigits:2})}`;
-    };
-    const formatSalaryBudgetLine = obj => {
-      const min = formatBudgetValue(obj.salary_min,obj.salary_currency);
-      const max = formatBudgetValue(obj.salary_max,obj.salary_currency);
-      const period = obj.salary_period || 'Monthly';
-      if (min && max) return `${min} - ${max} (${period})`;
-      if (min) return `From ${min} (${period})`;
-      if (max) return `Up to ${max} (${period})`;
-      return '';
-    };
+const getCurrencySymbol = c => ({
+  PHP:"₱", USD:"$", HKD:"HK$", SGD:"S$", EUR:"€", GBP:"£", AUD:"A$", CAD:"C$", JPY:"¥"
+})[c] || c || "PHP";
 
-    function setModalOpen(open){
-      els.roleModal.classList.toggle('show', open);
-      els.roleModal.setAttribute('aria-hidden', open ? 'false' : 'true');
-    }
+const formatBudgetValue = (v, c) => {
+  const n = parseBudgetNumber(v);
+  return n === null
+    ? ""
+    : `${getCurrencySymbol(c)}${n.toLocaleString(undefined, {
+        minimumFractionDigits: n % 1 === 0 ? 0 : 2,
+        maximumFractionDigits: 2
+      })}`;
+};
 
-    function switchTab(name){
-      els.tabButtons.forEach(b => b.classList.toggle('active', b.dataset.tab === name));
-      els.tabPanels.forEach(p => p.classList.toggle('active', p.dataset.panel === name));
-    }
+const formatSalaryBudgetLine = obj => {
+  const min = formatBudgetValue(obj.salary_min, obj.salary_currency);
+  const max = formatBudgetValue(obj.salary_max, obj.salary_currency);
+  const period = obj.salary_period || "Monthly";
 
-    async function loadClients(){
-      const {data,error} = await supabaseClient.from('clients').select('id, client_name, active').order('client_name',{ascending:true});
-      if(error){ showNotice(`Failed to load clients: ${error.message}`,'error'); return; }
-      clientsCache = data || [];
-      els.existingClientSelect.innerHTML = '<option value="">Choose existing client</option>';
-      els.clientSuggestions.innerHTML = '';
-      clientsCache.forEach(c => {
-        const option = document.createElement('option');
-        option.value = c.id;
-        option.textContent = c.client_name || '';
-        els.existingClientSelect.appendChild(option);
-        const item = document.createElement('option');
-        item.value = c.client_name || '';
-        els.clientSuggestions.appendChild(item);
-      });
-    }
+  if (min && max) return `${min} - ${max} (${period})`;
+  if (min) return `From ${min} (${period})`;
+  if (max) return `Up to ${max} (${period})`;
+  return "";
+};
 
-    function setClientSelectionById(id){
-      const client = clientsCache.find(x => x.id === id);
-      if(!client) return;
-      els.clientId.value = client.id;
-      els.clientName.value = client.client_name || '';
-      els.existingClientSelect.value = client.id;
-    }
+function setModalOpen(open){
+  els.roleModal?.classList.toggle("show", open);
+  els.roleModal?.setAttribute("aria-hidden", open ? "false" : "true");
+}
 
-    function validateClientSelection(showToast = false){
-      const typed = safeText(els.clientName.value);
-      if(!typed) return false;
-      const match = clientsCache.find(c => safeText(c.client_name).toLowerCase() === typed.toLowerCase());
-      if(match){ setClientSelectionById(match.id); return true; }
-      if(showToast) showNotice('Client not found. Please choose an existing client from the list.', 'error');
-      return false;
-    }
+function switchTab(name){
+  els.tabButtons.forEach(b => b.classList.toggle("active", b.dataset.tab === name));
+  els.tabPanels.forEach(p => p.classList.toggle("active", p.dataset.panel === name));
+}
 
-    function syncClientSelectionByName(){
-      const typed = safeText(els.clientName.value).toLowerCase();
-      const match = clientsCache.find(c => safeText(c.client_name).toLowerCase() === typed);
-      if(match){
-        els.clientId.value = match.id;
-        els.existingClientSelect.value = match.id;
-        if(safeText(els.clientName.value) !== safeText(match.client_name)) els.clientName.value = match.client_name || els.clientName.value;
-      } else {
-        els.clientId.value = '';
-        els.existingClientSelect.value = '';
-      }
-    }
-
-    function normalizeStatus(v){
-      const x = safeText(v).toLowerCase();
-      if(x === 'closed') return {label:'Closed',cls:'pill pill-closed'};
-      if(x === 'draft') return {label:'Draft',cls:'pill pill-draft'};
-      return {label:'Open',cls:'pill pill-open'};
-    }
-
-    function renderStats(){
-      const total = rolesCache.length;
-      const active = rolesCache.filter(r => !r.is_on_hold && safeText(r.status).toLowerCase() === 'open').length;
-      const hold = rolesCache.filter(r => !!r.is_on_hold).length;
-      const avg = total ? Math.round(rolesCache.reduce((s,r) => s + (Array.isArray(r.screening_config) ? r.screening_config.length : 0), 0) / total) : 0;
-      els.statRoles.textContent = String(total);
-      els.statActive.textContent = String(active);
-      els.statHold.textContent = String(hold);
-      els.statQuestions.textContent = String(avg);
-    }
-
-    function getFilteredRoles(){
-      const q = safeText(els.searchInput.value).toLowerCase();
-      const f = els.holdFilter.value;
-      return rolesCache.filter(r => {
-        const haystack = `${r.title || ''} ${r.client_name || ''}`.toLowerCase();
-        const searchOk = !q || haystack.includes(q);
-        const holdOk = f === 'all' ? true : f === 'active' ? !r.is_on_hold : !!r.is_on_hold;
-        return searchOk && holdOk;
-      });
-    }
-
-    function renderRolesTable(){
-      const rows = getFilteredRoles();
-      if(!rows.length){
-        els.rolesTableBody.innerHTML = '<tr><td colspan="6" class="empty-state">No roles found.</td></tr>';
-        renderStats();
-        return;
-      }
-      els.rolesTableBody.innerHTML = rows.map(r => {
-        const st = normalizeStatus(r.status);
-        const budget = formatSalaryBudgetLine(r);
-        const qCount = Array.isArray(r.screening_config) ? r.screening_config.length : 0;
-        return `
-          <tr>
-            <td><div class="role-title">${escapeHtml(r.title || 'Untitled Role')}</div><div class="subtext">${escapeHtml(r.role_family || 'No role family')} · ${escapeHtml(r.seniority_level || 'No seniority')}</div></td>
-            <td><div>${escapeHtml(r.client_name || 'No client')}</div><div class="subtext">${escapeHtml(r.location || 'No location')}</div></td>
-            <td><div>${escapeHtml(r.work_setup || 'Not set')}</div><div class="subtext">${escapeHtml(r.employment_type || 'Not set')}</div>${budget ? `<div style="margin-top:8px;"><span class="budget-pill">${escapeHtml(budget)}</span></div>` : ''}</td>
-            <td><span class="${st.cls}">${st.label}</span>${r.is_on_hold ? '<div style="margin-top:8px;"><span class="pill pill-hold">On Hold</span></div>' : ''}</td>
-            <td><div>${qCount} question(s)</div><div class="subtext">${escapeHtml(r.screening_summary || 'No summary yet')}</div></td>
-            <td><div class="toolbar"><button class="small-btn" type="button" onclick="editRole('${r.id}')">Edit</button><button class="small-btn" type="button" onclick="toggleHoldRole('${r.id}', ${r.is_on_hold ? 'false' : 'true'})">${r.is_on_hold ? 'Resume' : 'Hold'}</button></div></td>
-          </tr>`;
-      }).join('');
-      renderStats();
-    }
-
-    async function loadRoles(){
+async function loadClients(){
   try {
-    els.rolesTableBody.innerHTML = '<tr><td colspan="6" class="empty-state">Loading roles...</td></tr>';
+    const { data, error } = await supabaseClient
+      .from("clients")
+      .select("id, client_name, active")
+      .order("client_name", { ascending: true });
+
+    if (error) throw error;
+
+    clientsCache = data || [];
+
+    if (els.existingClientSelect) {
+      els.existingClientSelect.innerHTML = '<option value="">Choose existing client</option>';
+    }
+    if (els.clientSuggestions) {
+      els.clientSuggestions.innerHTML = "";
+    }
+
+    clientsCache.forEach(c => {
+      if (els.existingClientSelect) {
+        const option = document.createElement("option");
+        option.value = c.id;
+        option.textContent = c.client_name || "";
+        els.existingClientSelect.appendChild(option);
+      }
+
+      if (els.clientSuggestions) {
+        const item = document.createElement("option");
+        item.value = c.client_name || "";
+        els.clientSuggestions.appendChild(item);
+      }
+    });
+  } catch (error) {
+    console.error("loadClients failed:", error);
+    showNotice(`Failed to load clients: ${error.message || error}`, "error");
+  }
+}
+
+function setClientSelectionById(id){
+  const client = clientsCache.find(x => x.id === id);
+  if (!client) return;
+
+  if (els.clientId) els.clientId.value = client.id;
+  if (els.clientName) els.clientName.value = client.client_name || "";
+  if (els.existingClientSelect) els.existingClientSelect.value = client.id;
+}
+
+function validateClientSelection(showToast = false){
+  const typed = safeText(els.clientName?.value);
+  if (!typed) return false;
+
+  const match = clientsCache.find(c => safeText(c.client_name).toLowerCase() === typed.toLowerCase());
+  if (match) {
+    setClientSelectionById(match.id);
+    return true;
+  }
+
+  if (showToast) {
+    showNotice("Client not found. Please choose an existing client from the list.", "error");
+  }
+  return false;
+}
+
+function syncClientSelectionByName(){
+  const typed = safeText(els.clientName?.value).toLowerCase();
+  const match = clientsCache.find(c => safeText(c.client_name).toLowerCase() === typed);
+
+  if (match) {
+    if (els.clientId) els.clientId.value = match.id;
+    if (els.existingClientSelect) els.existingClientSelect.value = match.id;
+    if (els.clientName && safeText(els.clientName.value) !== safeText(match.client_name)) {
+      els.clientName.value = match.client_name || els.clientName.value;
+    }
+  } else {
+    if (els.clientId) els.clientId.value = "";
+    if (els.existingClientSelect) els.existingClientSelect.value = "";
+  }
+}
+
+function normalizeStatus(v){
+  const x = safeText(v).toLowerCase();
+  if (x === "closed") return { label: "Closed", cls: "pill pill-closed" };
+  if (x === "draft") return { label: "Draft", cls: "pill pill-draft" };
+  return { label: "Open", cls: "pill pill-open" };
+}
+
+function renderStats(){
+  const total = rolesCache.length;
+  const active = rolesCache.filter(r => !r.is_on_hold && safeText(r.status).toLowerCase() === "open").length;
+  const hold = rolesCache.filter(r => !!r.is_on_hold).length;
+  const avg = total
+    ? Math.round(
+        rolesCache.reduce((sum, r) => sum + (Array.isArray(r.screening_config) ? r.screening_config.length : 0), 0) / total
+      )
+    : 0;
+
+  if (els.statRoles) els.statRoles.textContent = String(total);
+  if (els.statActive) els.statActive.textContent = String(active);
+  if (els.statHold) els.statHold.textContent = String(hold);
+  if (els.statQuestions) els.statQuestions.textContent = String(avg);
+}
+
+function getFilteredRoles(){
+  const q = safeText(els.searchInput?.value).toLowerCase();
+  const f = els.holdFilter?.value || "all";
+
+  return rolesCache.filter(r => {
+    const haystack = `${r.title || ""} ${r.client_name || ""}`.toLowerCase();
+    const searchOk = !q || haystack.includes(q);
+    const holdOk = f === "all" ? true : f === "active" ? !r.is_on_hold : !!r.is_on_hold;
+    return searchOk && holdOk;
+  });
+}
+
+function renderRolesTable(){
+  const rows = getFilteredRoles();
+
+  if (!els.rolesTableBody) return;
+
+  if (!rows.length) {
+    els.rolesTableBody.innerHTML = '<tr><td colspan="6" class="empty-state">No roles found.</td></tr>';
+    renderStats();
+    return;
+  }
+
+  els.rolesTableBody.innerHTML = rows.map(r => {
+    const st = normalizeStatus(r.status);
+    const budget = formatSalaryBudgetLine(r);
+    const qCount = Array.isArray(r.screening_config) ? r.screening_config.length : 0;
+
+    return `
+      <tr>
+        <td>
+          <div class="role-title">${escapeHtml(r.title || "Untitled Role")}</div>
+          <div class="subtext">${escapeHtml(r.role_family || "No role family")} · ${escapeHtml(r.seniority_level || "No seniority")}</div>
+        </td>
+        <td>
+          <div>${escapeHtml(r.client_name || "No client")}</div>
+          <div class="subtext">${escapeHtml(r.location || "No location")}</div>
+        </td>
+        <td>
+          <div>${escapeHtml(r.work_setup || "Not set")}</div>
+          <div class="subtext">${escapeHtml(r.employment_type || "Not set")}</div>
+          ${budget ? `<div style="margin-top:8px;"><span class="budget-pill">${escapeHtml(budget)}</span></div>` : ""}
+        </td>
+        <td>
+          <span class="${st.cls}">${st.label}</span>
+          ${r.is_on_hold ? '<div style="margin-top:8px;"><span class="pill pill-hold">On Hold</span></div>' : ""}
+        </td>
+        <td>
+          <div>${qCount} question(s)</div>
+          <div class="subtext">${escapeHtml(r.screening_summary || "No summary yet")}</div>
+        </td>
+        <td>
+          <div class="toolbar">
+            <button class="small-btn" type="button" onclick="editRole('${r.id}')">Edit</button>
+            <button class="small-btn" type="button" onclick="toggleHoldRole('${r.id}', ${r.is_on_hold ? "false" : "true"})">
+              ${r.is_on_hold ? "Resume" : "Hold"}
+            </button>
+          </div>
+        </td>
+      </tr>`;
+  }).join("");
+
+  renderStats();
+}
+
+async function loadRoles(){
+  try {
+    if (els.rolesTableBody) {
+      els.rolesTableBody.innerHTML = '<tr><td colspan="6" class="empty-state">Loading roles...</td></tr>';
+    }
 
     const { data, error } = await supabaseClient
-      .from('jobs')
-      .select('*')
-      .order('created_at', { ascending: false });
+      .from("jobs")
+      .select("*")
+      .order("created_at", { ascending: false });
 
-    if (error) {
-      throw error;
-    }
+    if (error) throw error;
 
     rolesCache = (data || []).map(r => {
       let screeningConfig = r.screening_config;
       let aiConfig = r.ai_screening_config;
 
-      if (typeof screeningConfig === 'string') {
+      if (typeof screeningConfig === "string") {
         try {
           screeningConfig = JSON.parse(screeningConfig);
         } catch {
@@ -1137,24 +1221,24 @@ function evaluateQuestionQualityV11(q, focusArea = '', roleModel = {}){ return e
       }
       if (!Array.isArray(screeningConfig)) screeningConfig = [];
 
-      if (typeof aiConfig === 'string') {
+      if (typeof aiConfig === "string") {
         try {
           aiConfig = JSON.parse(aiConfig);
         } catch {
           aiConfig = {};
         }
       }
-      if (!aiConfig || typeof aiConfig !== 'object' || Array.isArray(aiConfig)) {
+      if (!aiConfig || typeof aiConfig !== "object" || Array.isArray(aiConfig)) {
         aiConfig = {};
       }
 
       const requiredSkills = Array.isArray(r.required_skills)
         ? r.required_skills
-        : (typeof r.required_skills === 'string' ? [r.required_skills] : []);
+        : (typeof r.required_skills === "string" ? [r.required_skills] : []);
 
       const niceToHaveSkills = Array.isArray(r.nice_to_have_skills)
         ? r.nice_to_have_skills
-        : (typeof r.nice_to_have_skills === 'string' ? [r.nice_to_have_skills] : []);
+        : (typeof r.nice_to_have_skills === "string" ? [r.nice_to_have_skills] : []);
 
       return {
         ...r,
@@ -1167,68 +1251,72 @@ function evaluateQuestionQualityV11(q, focusArea = '', roleModel = {}){ return e
 
     renderRolesTable();
   } catch (error) {
-    console.error('loadRoles failed:', error);
-    els.rolesTableBody.innerHTML = '<tr><td colspan="6" class="empty-state">Failed to load roles.</td></tr>';
-    showNotice(`Failed to load roles: ${error.message || error}`, 'error');
+    console.error("loadRoles failed:", error);
+    if (els.rolesTableBody) {
+      els.rolesTableBody.innerHTML = '<tr><td colspan="6" class="empty-state">Failed to load roles.</td></tr>';
+    }
+    showNotice(`Failed to load roles: ${error.message || error}`, "error");
   }
 }
 
 function getSignalCalibrationPayload(){
   return {
-    non_negotiables: normalizeLines(els.signalNonNegotiables.value),
-    red_flags: normalizeLines(els.signalRedFlags.value),
-    must_have_skills: normalizeLines(els.signalMustHaveSkills.value),
-    success_signals: normalizeLines(els.signalSuccessSignals.value),
-    setup_criticality: safeText(els.signalSetupCriticality.value),
-    environment_notes: safeText(els.signalEnvironmentNotes.value),
-    communication_weight: safeText(els.signalCommunicationWeight.value),
-    stakeholder_weight: safeText(els.signalStakeholderWeight.value),
-    autonomy_level: safeText(els.signalAutonomyLevel.value),
-    decision_making: safeText(els.signalDecisionMaking.value),
-    business_priorities: normalizeLines(els.signalBusinessPriorities.value)
+    non_negotiables: normalizeLines(els.signalNonNegotiables?.value),
+    red_flags: normalizeLines(els.signalRedFlags?.value),
+    must_have_skills: normalizeLines(els.signalMustHaveSkills?.value),
+    success_signals: normalizeLines(els.signalSuccessSignals?.value),
+    setup_criticality: safeText(els.signalSetupCriticality?.value),
+    environment_notes: safeText(els.signalEnvironmentNotes?.value),
+    communication_weight: safeText(els.signalCommunicationWeight?.value),
+    stakeholder_weight: safeText(els.signalStakeholderWeight?.value),
+    autonomy_level: safeText(els.signalAutonomyLevel?.value),
+    decision_making: safeText(els.signalDecisionMaking?.value),
+    business_priorities: normalizeLines(els.signalBusinessPriorities?.value)
   };
 }
 
 function buildSignalSummaryText(s){
   return [
-    'TalentBuzz Signal Intelligence','',
-    'Non-Negotiables:',
-    ...(s.non_negotiables.length ? s.non_negotiables.map(x => `- ${x}`) : ['- None defined yet']),
-    '',
-    'Must-Have Skills + Importance:',
-    ...(s.must_have_skills.length ? s.must_have_skills.map(x => `- ${x}`) : ['- None defined yet']),
-    '',
-    'Success Signals:',
-    ...(s.success_signals.length ? s.success_signals.map(x => `- ${x}`) : ['- None defined yet']),
-    '',
-    'Red Flags / Deal Breakers:',
-    ...(s.red_flags.length ? s.red_flags.map(x => `- ${x}`) : ['- None defined yet']),
-    '',
-    `Setup Criticality: ${s.setup_criticality || 'Not set'}`,
-    `Communication Weight: ${s.communication_weight || 'Not set'}`,
-    `Stakeholder Weight: ${s.stakeholder_weight || 'Not set'}`,
-    `Autonomy Level: ${s.autonomy_level || 'Not set'}`,
-    '',
-    'Environment Notes:',
-    s.environment_notes || 'Not set',
-    '',
-    'Decision-Making Expectation:',
-    s.decision_making || 'Not set',
-    '',
-    'Business Priorities:',
-    ...(s.business_priorities.length ? s.business_priorities.map(x => `- ${x}`) : ['- None defined yet'])
-  ].join('\n');
+    "TalentBuzz Signal Intelligence","",
+    "Non-Negotiables:",
+    ...(s.non_negotiables.length ? s.non_negotiables.map(x => `- ${x}`) : ["- None defined yet"]),
+    "",
+    "Must-Have Skills + Importance:",
+    ...(s.must_have_skills.length ? s.must_have_skills.map(x => `- ${x}`) : ["- None defined yet"]),
+    "",
+    "Success Signals:",
+    ...(s.success_signals.length ? s.success_signals.map(x => `- ${x}`) : ["- None defined yet"]),
+    "",
+    "Red Flags / Deal Breakers:",
+    ...(s.red_flags.length ? s.red_flags.map(x => `- ${x}`) : ["- None defined yet"]),
+    "",
+    `Setup Criticality: ${s.setup_criticality || "Not set"}`,
+    `Communication Weight: ${s.communication_weight || "Not set"}`,
+    `Stakeholder Weight: ${s.stakeholder_weight || "Not set"}`,
+    `Autonomy Level: ${s.autonomy_level || "Not set"}`,
+    "",
+    "Environment Notes:",
+    s.environment_notes || "Not set",
+    "",
+    "Decision-Making Expectation:",
+    s.decision_making || "Not set",
+    "",
+    "Business Priorities:",
+    ...(s.business_priorities.length ? s.business_priorities.map(x => `- ${x}`) : ["- None defined yet"])
+  ].join("\n");
 }
 
 function buildSignalSummary(){
   const s = getSignalCalibrationPayload();
-  els.signalSummaryOutput.textContent = buildSignalSummaryText(s);
+  if (els.signalSummaryOutput) {
+    els.signalSummaryOutput.textContent = buildSignalSummaryText(s);
+  }
   refreshPreview();
-  showNotice('Signal Intelligence summary generated.');
+  showNotice("Signal Intelligence summary generated.");
 }
 
 function createEmptyQuestion(overrides = {}){
-  const question = overrides.question || '';
+  const question = overrides.question || "";
 
   return {
     id: overrides.id || (window.crypto?.randomUUID
@@ -1236,17 +1324,17 @@ function createEmptyQuestion(overrides = {}){
       : `q_${Date.now()}_${Math.random().toString(36).slice(2,8)}`),
     question,
     ai_original_question: overrides.ai_original_question ?? question,
-    focus_area: overrides.focus_area || '',
-    response_type: overrides.response_type || 'Open Text',
-    weight: overrides.weight || 'Medium',
-    category: overrides.category || 'general',
+    focus_area: overrides.focus_area || "",
+    response_type: overrides.response_type || "Open Text",
+    weight: overrides.weight || "Medium",
+    category: overrides.category || "general",
     knockout: !!overrides.knockout,
-    candidate_answer: overrides.candidate_answer || '',
+    candidate_answer: overrides.candidate_answer || "",
     evaluation: overrides.evaluation || null,
     quality_evaluation: overrides.quality_evaluation || null,
-    feedback_action: overrides.feedback_action || 'keep',
+    feedback_action: overrides.feedback_action || "keep",
     feedback_tags: normalizeArray(overrides.feedback_tags),
-    feedback_note: overrides.feedback_note || '',
+    feedback_note: overrides.feedback_note || "",
     options: normalizeArray(overrides.options),
     was_ai_generated: overrides.was_ai_generated ?? true
   };
@@ -1256,13 +1344,13 @@ function renderFeedbackTags(index, item){
   const current = new Set(normalizeArray(item.feedback_tags));
   return FEEDBACK_TAG_OPTIONS.map(tag => `
     <button
-      class="tag-chip ${current.has(tag) ? 'active' : ''}"
+      class="tag-chip ${current.has(tag) ? "active" : ""}"
       type="button"
       onclick="toggleFeedbackTag(${index}, '${tag}')"
     >
-      ${tag.replaceAll('_', ' ')}
+      ${tag.replaceAll("_", " ")}
     </button>
-  `).join('');
+  `).join("");
 }
 
 function countPatternMatches(text, patterns = []){
@@ -1284,12 +1372,12 @@ function parseWeightedSkills(lines = []){
     .map(line => {
       const parts = line.split(/[-—–:]/).map(x => safeText(x)).filter(Boolean);
       const skill = parts[0] || line;
-      const meta = safeText(parts.slice(1).join(' ')).toLowerCase();
+      const meta = safeText(parts.slice(1).join(" ")).toLowerCase();
 
-      let weight = 'Medium';
-      if (meta.includes('critical')) weight = 'Critical';
-      else if (meta.includes('high')) weight = 'High';
-      else if (meta.includes('low')) weight = 'Low';
+      let weight = "Medium";
+      if (meta.includes("critical")) weight = "Critical";
+      else if (meta.includes("high")) weight = "High";
+      else if (meta.includes("low")) weight = "Low";
 
       return { skill, weight };
     });
@@ -1297,20 +1385,20 @@ function parseWeightedSkills(lines = []){
 
 function deriveRoleModel(){
   try {
-    const title = safeText(els.jobTitle.value);
-    const family = safeText(els.roleFamily.value);
-    const seniority = safeText(els.seniority.value);
+    const title = safeText(els.jobTitle?.value);
+    const family = safeText(els.roleFamily?.value);
+    const seniority = safeText(els.seniority?.value);
 
     const familyLower = family.toLowerCase();
     const seniorityLower = seniority.toLowerCase();
 
-    const nonNeg = uniqueLines(normalizeLines(els.signalNonNegotiables.value));
-    const redFlags = uniqueLines(normalizeLines(els.signalRedFlags.value));
-    const successSignals = uniqueLines(normalizeLines(els.signalSuccessSignals.value));
-    const weightedSkills = parseWeightedSkills(normalizeLines(els.signalMustHaveSkills.value));
-    const prioritySkills = uniqueLines(normalizeLines(els.prioritySkills.value)).map(skill => ({ skill, weight: 'High' }));
-    const requirements = uniqueLines(normalizeLines(els.requirements.value));
-    const businessPriorities = uniqueLines(normalizeLines(els.signalBusinessPriorities.value));
+    const nonNeg = uniqueLines(normalizeLines(els.signalNonNegotiables?.value));
+    const redFlags = uniqueLines(normalizeLines(els.signalRedFlags?.value));
+    const successSignals = uniqueLines(normalizeLines(els.signalSuccessSignals?.value));
+    const weightedSkills = parseWeightedSkills(normalizeLines(els.signalMustHaveSkills?.value));
+    const prioritySkills = uniqueLines(normalizeLines(els.prioritySkills?.value)).map(skill => ({ skill, weight: "High" }));
+    const requirements = uniqueLines(normalizeLines(els.requirements?.value));
+    const businessPriorities = uniqueLines(normalizeLines(els.signalBusinessPriorities?.value));
 
     const combined = [
       title,
@@ -1327,7 +1415,7 @@ function deriveRoleModel(){
       safeText(els.signalDecisionMaking?.value),
       safeText(els.signalEnvironmentNotes?.value),
       safeText(els.signalSummaryOutput?.textContent)
-    ].join('\n').toLowerCase();
+    ].join("\n").toLowerCase();
 
     const technicalPatterns = [/\bdeveloper\b/i,/\bengineer\b/i,/\barchitect\b/i,/\bautomation\b/i,/\bqa\b/i,/\bapi\b/i,/\baws\b/i,/\bpython\b/i,/\bjava\b/i,/\bsql\b/i,/\bcloud\b/i,/\bllm\b/i,/\bprompt\b/i,/\bwebhook\b/i];
     const customerPatterns = [/\bcustomer\b/i,/\bclient\b/i,/\bcall center\b/i,/\bbpo\b/i,/\bvoice\b/i,/\bchat\b/i,/\bcsat\b/i,/\bsales\b/i,/\bretention\b/i,/\bservice\b/i];
@@ -1335,31 +1423,31 @@ function deriveRoleModel(){
     const financePatterns = [/\bfinance\b/i,/\baccounting\b/i,/\breconciliation\b/i,/\baudit\b/i,/\bbookkeeping\b/i,/\btax\b/i,/\bcompliance\b/i];
     const healthcarePatterns = [/\bhealthcare\b/i,/\bmedical\b/i,/\bcoder\b/i,/\bnurse\b/i,/\bclinical\b/i,/\bdrg\b/i,/\bdenials?\b/i,/\bappeals?\b/i];
 
-    const technicalScore = countPatternMatches(combined, technicalPatterns) + (familyLower.includes('technology') ? 2 : 0);
-    const customerScore = countPatternMatches(combined, customerPatterns) + (familyLower.includes('customer') ? 2 : 0);
-    const operationsScore = countPatternMatches(combined, opsPatterns) + (familyLower.includes('operations') ? 2 : 0);
-    const financeScore = countPatternMatches(combined, financePatterns) + (familyLower.includes('finance') ? 2 : 0);
-    const healthcareScore = countPatternMatches(combined, healthcarePatterns) + (familyLower.includes('healthcare') ? 2 : 0);
+    const technicalScore = countPatternMatches(combined, technicalPatterns) + (familyLower.includes("technology") ? 2 : 0);
+    const customerScore = countPatternMatches(combined, customerPatterns) + (familyLower.includes("customer") ? 2 : 0);
+    const operationsScore = countPatternMatches(combined, opsPatterns) + (familyLower.includes("operations") ? 2 : 0);
+    const financeScore = countPatternMatches(combined, financePatterns) + (familyLower.includes("finance") ? 2 : 0);
+    const healthcareScore = countPatternMatches(combined, healthcarePatterns) + (familyLower.includes("healthcare") ? 2 : 0);
 
     const domainScores = [
-      { name: 'technical', score: technicalScore },
-      { name: 'customer', score: customerScore },
-      { name: 'operations', score: operationsScore },
-      { name: 'finance', score: financeScore },
-      { name: 'healthcare', score: healthcareScore }
+      { name: "technical", score: technicalScore },
+      { name: "customer", score: customerScore },
+      { name: "operations", score: operationsScore },
+      { name: "finance", score: financeScore },
+      { name: "healthcare", score: healthcareScore }
     ].sort((a, b) => b.score - a.score);
 
-    const primaryDomain = domainScores[0]?.score > 0 ? domainScores[0].name : 'general';
+    const primaryDomain = domainScores[0]?.score > 0 ? domainScores[0].name : "general";
 
     const seniorityRank = ({
-      'entry-level':1,
-      'associate':2,
-      'mid-level':3,
-      'senior':4,
-      'lead':5,
-      'manager':5,
-      'director':6,
-      'executive':7
+      "entry-level": 1,
+      "associate": 2,
+      "mid-level": 3,
+      "senior": 4,
+      "lead": 5,
+      "manager": 5,
+      "director": 6,
+      "executive": 7
     })[seniorityLower] || 3;
 
     return {
@@ -1383,15 +1471,14 @@ function deriveRoleModel(){
       businessPriorities,
       combined
     };
-
   } catch (error) {
-    console.error('deriveRoleModel failed:', error);
+    console.error("deriveRoleModel failed:", error);
 
     return {
-      title: '',
-      family: '',
-      seniority: '',
-      primaryDomain: 'general',
+      title: "",
+      family: "",
+      seniority: "",
+      primaryDomain: "general",
       technicalDepth: 0,
       customerDepth: 0,
       operationsDepth: 0,
@@ -1406,85 +1493,123 @@ function deriveRoleModel(){
       skillPool: [],
       requirements: [],
       businessPriorities: [],
-      combined: ''
+      combined: ""
     };
   }
 }
-    function buildQuestionFromPlanItem(item, roleModel){
-      const source = safeText(item.source);
-      const focus = safeText(item.focus || source);
-      const tool = detectToolFromSkill(source || focus);
-      const trigger = detectTrigger(roleModel, focus);
-      const constraint = detectConstraint(roleModel, focus);
-      const envNotes = safeText(els.signalEnvironmentNotes.value);
 
-      if(item.category === 'knockout'){
-        if(item.focus === 'setup'){
-          return createEmptyQuestion({
-            question: `Are you willing and able to work in the required setup for this role${envNotes ? ` (${envNotes})` : ''}?`,
-            focus_area: 'Work Setup / Availability', response_type: 'Yes/No', weight: item.weight || 'Critical', category: 'knockout', knockout: true
-          });
-        }
-        return createEmptyQuestion({
-          question: `Walk us through the most recent time you had to prove ${source} in a real role${tool ? ` using ${tool}` : ''}. What company or environment was it in, what exactly did you handle, and what result shows you can do this at the level this role needs?`,
-          focus_area: source || 'Eligibility / Must-Have', response_type: item.response_type || 'Short Answer', weight: item.weight || 'Critical', category: 'knockout', knockout: true
+function buildQuestionFromPlanItem(item, roleModel){
+  const source = safeText(item?.source || item?.focus || "this requirement");
+  const focus = safeText(item?.focus || source);
+  const tool = typeof detectToolFromSkill === "function" ? detectToolFromSkill(source || focus) : "";
+  const trigger = typeof detectTrigger === "function" ? detectTrigger(roleModel, focus) : "";
+  const constraint = typeof detectConstraint === "function" ? detectConstraint(roleModel, focus) : "";
+  const envNotes = safeText(els.signalEnvironmentNotes?.value);
+
+  if (item?.category === "knockout") {
+    if (item?.focus === "setup") {
+      return createEmptyQuestion({
+        question: `Are you willing and able to work in the required setup for this role${envNotes ? ` (${envNotes})` : ""}?`,
+        focus_area: "Work Setup / Availability",
+        response_type: "Yes/No",
+        weight: item.weight || "Critical",
+        category: "knockout",
+        knockout: true
+      });
+    }
+
+    return createEmptyQuestion({
+      question: `Walk us through the most recent time you had to prove ${source} in a real role${tool ? ` using ${tool}` : ""}. What company or environment was it in, what exactly did you handle, and what result shows you can do this at the level this role needs?`,
+      focus_area: source || "Eligibility / Must-Have",
+      response_type: item.response_type || "Short Answer",
+      weight: item.weight || "Critical",
+      category: "knockout",
+      knockout: true
+    });
+  }
+
+  if (item?.category === "simulation") {
+    return typeof buildSimulation === "function"
+      ? buildSimulation(roleModel)
+      : createEmptyQuestion({
+          question: "Describe a real high-pressure situation similar to this role. What happened, what did you check first, and what was the outcome?",
+          focus_area: "Simulation",
+          response_type: "Open Text",
+          weight: item?.weight || "High",
+          category: "simulation"
         });
-      }
+  }
 
-      if(item.category === 'simulation'){
-        return buildSimulation(roleModel);
-      }
-
-      if(item.category === 'red_flag'){
-        return createEmptyQuestion({
-          question: buildScenarioQuestion({
+  if (item?.category === "red_flag") {
+    return createEmptyQuestion({
+      question: typeof buildScenarioQuestion === "function"
+        ? buildScenarioQuestion({
             task: `handle a situation related to ${source}`,
             tool,
             trigger,
             constraint,
-            proofPrompt: 'What did you do to prevent mistakes or risk, and what was the final outcome?'
-          }),
-          focus_area: 'Risk / Red Flag Check', response_type: 'Open Text', weight: item.weight || 'Medium', category: 'red_flag'
-        });
-      }
+            proofPrompt: "What did you do to prevent mistakes or risk, and what was the final outcome?"
+          })
+        : `Describe a real situation related to ${source}. What risk appeared, what did you do, and what was the final outcome?`,
+      focus_area: "Risk / Red Flag Check",
+      response_type: "Open Text",
+      weight: item.weight || "Medium",
+      category: "red_flag"
+    });
+  }
 
-      if(item.category === 'business'){
-        return createEmptyQuestion({
-          question: buildScenarioQuestion({
+  if (item?.category === "business") {
+    return createEmptyQuestion({
+      question: typeof buildScenarioQuestion === "function"
+        ? buildScenarioQuestion({
             task: `solve a business problem related to ${source}`,
             tool,
             trigger,
             constraint,
-            proofPrompt: 'What did you prioritize first, what tradeoff did you make, and what business result followed?'
-          }),
-          focus_area: 'Business Context', response_type: 'Open Text', weight: item.weight || 'High', category: 'business'
-        });
-      }
+            proofPrompt: "What did you prioritize first, what tradeoff did you make, and what business result followed?"
+          })
+        : `Describe a real business problem related to ${source}. What did you prioritize first, what tradeoff did you make, and what business result followed?`,
+      focus_area: "Business Context",
+      response_type: "Open Text",
+      weight: item.weight || "High",
+      category: "business"
+    });
+  }
 
-      if(item.category === 'success_signal'){
-        return createEmptyQuestion({
-          question: buildScenarioQuestion({
+  if (item?.category === "success_signal") {
+    return createEmptyQuestion({
+      question: typeof buildScenarioQuestion === "function"
+        ? buildScenarioQuestion({
             task: `demonstrate ${source}`,
             tool,
             trigger,
             constraint,
-            proofPrompt: 'What did you personally own, how did you execute it, and what measurable result came out of it?'
-          }),
-          focus_area: 'Success Signal', response_type: 'Open Text', weight: item.weight || 'High', category: 'proof'
-        });
-      }
+            proofPrompt: "What did you personally own, how did you execute it, and what measurable result came out of it?"
+          })
+        : `Describe a real situation where you demonstrated ${source}. What did you personally own, how did you execute it, and what measurable result came out of it?`,
+      focus_area: "Success Signal",
+      response_type: "Open Text",
+      weight: item.weight || "High",
+      category: "proof"
+    });
+  }
 
-      return createEmptyQuestion({
-        question: buildScenarioQuestion({
+  return createEmptyQuestion({
+    question: typeof buildScenarioQuestion === "function"
+      ? buildScenarioQuestion({
           task: `handle ${source || focus}`,
           tool,
           trigger,
           constraint,
-          proofPrompt: 'What did you personally do, what exact steps did you take, and what was the result?'
-        }),
-        focus_area: source || focus || 'Execution', response_type: 'Open Text', weight: item.weight || 'High', category: item.category === 'general' ? 'proof' : item.category
-      });
-    }
+          proofPrompt: "What did you personally do, what exact steps did you take, and what was the result?"
+        })
+      : `Describe a real situation where you had to handle ${source || focus}. What did you personally do, what exact steps did you take, and what was the result?`,
+    focus_area: source || focus || "Execution",
+    response_type: "Open Text",
+    weight: item?.weight || "High",
+    category: item?.category === "general" ? "proof" : (item?.category || "proof")
+  });
+}
 
     function isGenericQuestion(q){
       const text = safeText(q).toLowerCase();
