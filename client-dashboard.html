@@ -310,7 +310,7 @@
     const PREVIEW_ALLOWED_EMAILS = ["eric.se@talentbuzz.pro","eric.s@talentbuzz.pro","michelle.giray@talentbuzz.pro","mitchie028@gmail.com","angel.n@talentbuzz.pro","jercey.cayetano@talentbuzz.pro","jayson.c@talentbuzz.pro","xyrene.e@talentbuzz.pro"];
     const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-    const state = { rows: [], currentClientUser: null, currentSessionUser: null, selectedRow: null, modalDraft: { status: "", rating: null, notes: "" }, chatMessages: [], chatUnreadCount: 0, chatChannel: null, chatSeenAt: null };
+    const state = { rows: [], currentClientUser: null, currentSessionUser: null, selectedRow: null, modalDraft: { status: "", rating: null, notes: "" }, chatMessages: [], chatUnreadCount: 0, chatChannel: null, chatSeenAt: null, chatEnabled: true };
 
     const els = {
       notice: document.getElementById("notice"), previewBanner: document.getElementById("previewBanner"), table: document.getElementById("endorsementsTable"),
@@ -387,10 +387,53 @@
       els.chatBadge.textContent = String(count);
       els.chatBadge.style.display = count > 0 ? 'inline-flex' : 'none';
     }
+
+    function disableChat(message){
+      state.chatEnabled = false;
+      state.chatMessages = [];
+      state.chatUnreadCount = 0;
+      updateChatBadge();
+      if(els.chatBtn){
+        els.chatBtn.disabled = true;
+        els.chatBtn.title = message || 'Chat is not available yet.';
+        els.chatBtn.style.opacity = '0.65';
+        els.chatBtn.style.cursor = 'not-allowed';
+      }
+    }
+    function isMissingTableError(error){
+      const msg = String(error?.message || error || '').toLowerCase();
+      return msg.includes("could not find the table") || msg.includes("relation") && msg.includes("does not exist");
+    }
+    async function detectChatAvailability(){
+      try{
+        const { error } = await supabaseClient
+          .from('client_messages')
+          .select('id', { head: false, count: 'exact' })
+          .limit(1);
+        if(error){
+          if(isMissingTableError(error)){
+            disableChat('Client chat is not set up yet.');
+            return false;
+          }
+          throw error;
+        }
+        state.chatEnabled = true;
+        return true;
+      }catch(error){
+        if(isMissingTableError(error)){
+          disableChat('Client chat is not set up yet.');
+          return false;
+        }
+        console.warn('Chat availability check failed:', error?.message || error);
+        disableChat('Client chat is temporarily unavailable.');
+        return false;
+      }
+    }
     function getClientChatEmail(){
       return normalize(state.currentClientUser?.email || state.currentSessionUser?.email || '');
     }
     async function loadClientChatMessages(){
+      if(!state.chatEnabled) return;
       const email = getClientChatEmail();
       if(!email){
         state.chatMessages = [];
@@ -404,7 +447,13 @@
         .order('created_at', { ascending: true })
         .or(`client_email.eq.${email},email.eq.${email}`);
 
-      if(error) throw error;
+      if(error){
+        if(isMissingTableError(error)){
+          disableChat('Client chat is not set up yet.');
+          return;
+        }
+        throw error;
+      }
 
       state.chatMessages = Array.isArray(data) ? data : [];
       const seenAt = getChatSeenAt();
@@ -436,6 +485,10 @@
       els.chatMessages.scrollTop = els.chatMessages.scrollHeight;
     }
     async function openChatModal(){
+      if(!state.chatEnabled){
+        showNotice('Client chat is not available yet. Create the client_messages table first.', 'info');
+        return;
+      }
       try{
         await loadClientChatMessages();
         renderClientChatMessages();
@@ -461,6 +514,10 @@
       if(!els.modal.classList.contains('show') && !els.resumePreviewModal.classList.contains('show')) document.body.classList.remove('modal-open');
     }
     async function sendChatMessage(){
+      if(!state.chatEnabled){
+        showNotice('Client chat is not available yet.', 'info');
+        return;
+      }
       const email = getClientChatEmail();
       const message = String(els.chatInput?.value || '').trim();
       if(!email || !message) return;
@@ -508,6 +565,7 @@
       }catch(_){}
     }
     function setupChatRealtime(){
+      if(!state.chatEnabled) return;
       teardownChatRealtime();
       state.chatChannel = supabaseClient
         .channel('client-dashboard-live-client-messages')
@@ -939,9 +997,13 @@
         const allowed = await protectPage();
         if(!allowed) return;
         await loadRows();
-        await loadClientChatMessages();
-        setupChatRealtime();
-        updateChatBadge();
+
+        const chatAvailable = await detectChatAvailability();
+        if(chatAvailable){
+          await loadClientChatMessages();
+          setupChatRealtime();
+          updateChatBadge();
+        }
       } catch (error) {
         console.error("Client dashboard initialization failed:", error);
         showNotice(error.message || "Failed to initialize client dashboard.", "error");
