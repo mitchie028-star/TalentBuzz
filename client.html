@@ -18,11 +18,9 @@
       --text:#0f172a;
       --muted:#64748b;
       --border:#e2e8f0;
-      --bg:#f8fbff;
       --white:#ffffff;
       --success:#166534;
       --danger:#b91c1c;
-      --warning:#b45309;
       --info:#4338ca;
       --shadow:0 12px 30px rgba(30,58,138,.06),0 2px 10px rgba(15,23,42,.04);
       --radius-lg:18px;
@@ -54,7 +52,7 @@
     .brand-text h1{
       margin:0 0 6px;color:var(--primary);font-size:2rem;line-height:1.1;letter-spacing:-.03em;
     }
-    .subtitle{margin:0;color:var(--muted);font-size:.95rem;max-width:900px}
+    .subtitle{margin:0;color:var(--muted);font-size:.95rem;max-width:930px}
 
     .utility-nav{
       display:flex;align-items:center;justify-content:flex-end;gap:10px;flex-wrap:wrap;
@@ -214,7 +212,7 @@
           <div class="brand-logo-fallback">TB</div>
           <div class="brand-text">
             <h1>Client Management</h1>
-            <p class="subtitle">One workspace for client records, portal users, and invite status. This version is client-centric, so each company appears once and can contain multiple users. Invite creation is routed through your existing <strong>create-client-login</strong> edge function instead of direct inserts into <strong>client_invites</strong>.</p>
+            <p class="subtitle">One workspace for client records, portal users, and invite status. This version adds a proper auth gate before the page loads and before any invite action calls your existing <strong>create-client-login</strong> edge function.</p>
           </div>
         </div>
 
@@ -326,7 +324,7 @@
             </tr>
           </thead>
           <tbody id="clientTable">
-            <tr><td colspan="7" class="empty">Loading clients...</td></tr>
+            <tr><td colspan="7" class="empty">Checking session...</td></tr>
           </tbody>
         </table>
       </div>
@@ -417,6 +415,7 @@
     const SUPABASE_URL = "https://dilalntcxmvdcmwxjcct.supabase.co";
     const SUPABASE_ANON_KEY = "sb_publishable_HrLVIUwnaRo54yijtrbWBQ_1aeb4ezs";
     const APP_BASE_URL = "https://talentbuzz.pro";
+    const LOGIN_PAGE = "login.html";
     const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
     const els = {
@@ -470,7 +469,9 @@
       invites: [],
       clientRows: [],
       expandedClients: new Set(),
-      selectedClientIdForUserModal: ""
+      selectedClientIdForUserModal: "",
+      session: null,
+      user: null
     };
 
     function normalizeText(value){ return String(value || "").trim().toLowerCase(); }
@@ -517,6 +518,60 @@
     function clearModalNotice(targetEl){
       targetEl.textContent = "";
       targetEl.className = "notice";
+    }
+
+    function setControlsDisabled(disabled){
+      [
+        els.openAddClientBtn,
+        els.openAddUserFromFiltersBtn,
+        els.refreshBtn,
+        els.refreshFromMenuBtn,
+        els.clearFiltersBtn,
+        els.searchInput,
+        els.statusFilter,
+        els.clientFilter
+      ].forEach(el => {
+        if(el) el.disabled = disabled;
+      });
+    }
+
+    function redirectToLogin(message = ""){
+      if(message){
+        try{
+          sessionStorage.setItem("talentbuzz_auth_notice", message);
+        }catch(_){}
+      }
+      window.location.href = LOGIN_PAGE;
+    }
+
+    async function requireAuth({ redirect = true } = {}){
+      const [{ data: sessionData, error: sessionError }, { data: userData, error: userError }] = await Promise.all([
+        supabaseClient.auth.getSession(),
+        supabaseClient.auth.getUser()
+      ]);
+
+      if(sessionError) throw sessionError;
+      if(userError) throw userError;
+
+      const session = sessionData?.session || null;
+      const user = userData?.user || null;
+
+      state.session = session;
+      state.user = user;
+
+      if(!session?.access_token || !user){
+        if(redirect){
+          redirectToLogin("Your login session expired. Please log in again.");
+          return null;
+        }
+        throw new Error("Your login session expired. Please log in again.");
+      }
+
+      return session;
+    }
+
+    async function requireActiveSessionForAction(){
+      return await requireAuth({ redirect: false });
     }
 
     function toggleMenu(forceClose=false){
@@ -876,6 +931,8 @@
     }
 
     async function invokeCreateClientLogin(payload){
+      await requireActiveSessionForAction();
+
       const result = await supabaseClient.functions.invoke("create-client-login", {
         body: payload
       });
@@ -915,8 +972,6 @@
     }
 
     async function loadClients(){
-      els.clientTable.innerHTML = `<tr><td colspan="7" class="empty">Loading clients...</td></tr>`;
-
       const [clientsResult, clientUsersResult, invitesResult] = await Promise.all([
         supabaseClient
           .from("clients")
@@ -985,6 +1040,8 @@
       els.saveAndInviteBtn.disabled = true;
 
       try{
+        await requireActiveSessionForAction();
+
         const { data: existingClientByName, error: existingClientByNameError } = await supabaseClient
           .from("clients")
           .select("id, client_name")
@@ -1055,6 +1112,8 @@
       els.saveUserInviteBtn.disabled = true;
 
       try{
+        await requireActiveSessionForAction();
+
         const { data: existingPortalUser, error: existingPortalUserError } = await supabaseClient
           .from("client_users")
           .select("id, client_id, email")
@@ -1102,6 +1161,8 @@
     }
 
     async function resendClientInvite(email, clientId = "", fullName = ""){
+      await requireActiveSessionForAction();
+
       const selectedClient = state.clients.find(c => c.id === clientId)
         || state.clientRows.find(r => r.combinedUsers.some(u => normalizeEmail(u.displayEmail) === normalizeEmail(email)))?.client
         || null;
@@ -1130,14 +1191,48 @@
 
     async function logout(){
       try{ await supabaseClient.auth.signOut(); }catch(_){}
-      window.location.href = "login.html";
+      redirectToLogin("");
     }
 
+    async function init(){
+      setControlsDisabled(true);
+      els.clientTable.innerHTML = `<tr><td colspan="7" class="empty">Checking session...</td></tr>`;
+
+      try{
+        await requireAuth({ redirect: true });
+        setControlsDisabled(false);
+        await loadClients();
+      }catch(error){
+        console.error("init failed:", error);
+        els.clientTable.innerHTML = `<tr><td colspan="7" class="empty">Session expired. Redirecting to login...</td></tr>`;
+        showNotice(error.message || "Unable to initialize page.", "error");
+      }
+    }
+
+    supabaseClient.auth.onAuthStateChange((event, session) => {
+      state.session = session || null;
+      if((event === "SIGNED_OUT" || !session?.access_token) && document.visibilityState === "visible"){
+        redirectToLogin("Your login session expired. Please log in again.");
+      }
+    });
+
     els.menuToggleBtn.addEventListener("click", () => toggleMenu());
-    els.refreshBtn.addEventListener("click", loadClients);
-    els.refreshFromMenuBtn.addEventListener("click", () => {
+    els.refreshBtn.addEventListener("click", async () => {
+      try{
+        await requireActiveSessionForAction();
+        await loadClients();
+      }catch(error){
+        showNotice(error.message || "Unable to refresh records.", "error");
+      }
+    });
+    els.refreshFromMenuBtn.addEventListener("click", async () => {
       toggleMenu(true);
-      loadClients();
+      try{
+        await requireActiveSessionForAction();
+        await loadClients();
+      }catch(error){
+        showNotice(error.message || "Unable to refresh records.", "error");
+      }
     });
 
     els.clearFiltersBtn.addEventListener("click", () => {
@@ -1152,8 +1247,24 @@
     els.statusFilter.addEventListener("change", renderTable);
     els.clientFilter.addEventListener("change", renderTable);
 
-    els.openAddClientBtn.addEventListener("click", openClientModal);
-    els.openAddUserFromFiltersBtn.addEventListener("click", () => openUserModal());
+    els.openAddClientBtn.addEventListener("click", async () => {
+      try{
+        await requireActiveSessionForAction();
+        openClientModal();
+      }catch(error){
+        showNotice(error.message || "Please log in again.", "error");
+      }
+    });
+
+    els.openAddUserFromFiltersBtn.addEventListener("click", async () => {
+      try{
+        await requireActiveSessionForAction();
+        openUserModal();
+      }catch(error){
+        showNotice(error.message || "Please log in again.", "error");
+      }
+    });
+
     els.closeClientModalBtn.addEventListener("click", closeClientModal);
     els.closeUserModalBtn.addEventListener("click", closeUserModal);
     els.saveClientBtn.addEventListener("click", () => saveClientRecord(false));
@@ -1177,7 +1288,12 @@
       if(addUserBtn){
         const clientId = addUserBtn.dataset.clientId || "";
         state.selectedClientIdForUserModal = clientId;
-        openUserModal(clientId);
+        try{
+          await requireActiveSessionForAction();
+          openUserModal(clientId);
+        }catch(error){
+          showNotice(error.message || "Please log in again.", "error");
+        }
         return;
       }
 
@@ -1227,7 +1343,7 @@
       }
     });
 
-    loadClients();
+    init();
   </script>
 </body>
 </html>
