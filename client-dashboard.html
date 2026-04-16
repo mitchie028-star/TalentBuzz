@@ -107,6 +107,19 @@
     .preview-box{background:#f8fafc;border:1px solid #e2e8f0;border-radius:14px;padding:12px}
     .preview-box.full{grid-column:1 / -1}
     .preview-text{white-space:pre-wrap;line-height:1.65;color:#334155}
+    .intel-block{margin-top:16px;padding-top:14px;border-top:1px solid #e2e8f0}
+    .intel-title{font-size:.82rem;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);font-weight:800;margin-bottom:10px}
+    .intel-subtitle{font-size:.84rem;color:var(--muted);line-height:1.55;margin:-2px 0 12px}
+    .intel-reasons{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-bottom:12px}
+    .intel-reason-btn{min-height:42px;border-radius:14px;border:1px solid #cbd5e1;background:#fff;font:inherit;font-weight:800;cursor:pointer;padding:10px 12px;color:#334155}
+    .intel-reason-btn.active{background:linear-gradient(135deg,var(--blue),var(--blue-light));color:#fff;border-color:transparent}
+    .intel-label{display:block;font-size:.8rem;font-weight:800;color:#475569;margin:0 0 8px}
+    .signal-checklist{display:flex;flex-direction:column;gap:8px;margin-top:4px}
+    .signal-check{display:flex;align-items:flex-start;gap:10px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:14px;padding:10px 12px;color:#334155}
+    .signal-check input{margin-top:2px;width:16px;height:16px;accent-color:var(--blue-light)}
+    .signal-check span{line-height:1.5;font-size:.92rem}
+    .intel-hint{margin-top:10px;font-size:.82rem;color:#64748b;line-height:1.5}
+
 
     .floating-chat-wrap{position:fixed;right:24px;bottom:24px;z-index:220;display:flex;flex-direction:column;align-items:flex-end;gap:10px}
     .floating-chat-tooltip{max-width:240px;padding:10px 12px;border-radius:14px;background:rgba(15,23,42,.94);color:#fff;font-size:.8rem;font-weight:700;line-height:1.45;box-shadow:0 18px 40px rgba(15,23,42,.22);opacity:0;transform:translateY(8px);pointer-events:none;transition:opacity .18s ease,transform .18s ease}
@@ -827,6 +840,29 @@
                 <button type="button" class="rating-btn" data-score="4">4</button>
                 <button type="button" class="rating-btn" data-score="5">5</button>
               </div>
+              <div class="intel-block">
+                <div class="intel-title">Improve Future Matches</div>
+                <div class="intel-subtitle">Help TalentBuzz improve the next shortlist in 30 seconds.</div>
+
+                <label class="intel-label">Why this decision?</label>
+                <div id="modalDecisionReasonGroup" class="intel-reasons">
+                  <button type="button" class="intel-reason-btn" data-reason="skill_gap">Skill gap</button>
+                  <button type="button" class="intel-reason-btn" data-reason="experience_level">Experience level</button>
+                  <button type="button" class="intel-reason-btn" data-reason="culture_fit">Culture fit</button>
+                  <button type="button" class="intel-reason-btn" data-reason="communication">Communication</button>
+                  <button type="button" class="intel-reason-btn" data-reason="compensation">Compensation</button>
+                  <button type="button" class="intel-reason-btn" data-reason="strong_fit">Strong fit</button>
+                </div>
+
+                <label for="clientMissingInput" class="intel-label">What was missing? <span class="small">(optional)</span></label>
+                <input id="clientMissingInput" type="text" placeholder="e.g. stronger React architecture depth" />
+
+                <div style="height:12px;"></div>
+                <label class="intel-label">Do you agree with our signals?</label>
+                <div id="signalChecklist" class="signal-checklist"></div>
+                <div class="intel-hint">These confirmations help improve future candidate matching and screening.</div>
+              </div>
+
               <div style="height:14px;"></div>
               <label for="modalNotes" class="small" style="display:block; margin-bottom:8px;">Notes</label>
               <textarea id="modalNotes" rows="6" placeholder="Add interview feedback, concerns, shortlist notes, or next steps"></textarea>
@@ -966,7 +1002,7 @@
     const PREVIEW_ALLOWED_EMAILS = ["eric.se@talentbuzz.pro","eric.s@talentbuzz.pro","michelle.giray@talentbuzz.pro","mitchie028@gmail.com","angel.n@talentbuzz.pro","jercey.cayetano@talentbuzz.pro","jayson.c@talentbuzz.pro","xyrene.e@talentbuzz.pro"];
     const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-    const state = { rows: [], currentClientUser: null, currentSessionUser: null, selectedRow: null, modalDraft: { status: "", rating: null, notes: "" }, chatMessages: [], chatThreads: [], selectedChatThreadKey: 'general', chatFilter: 'all', chatUnreadCount: 0, chatUnreadByThread: {}, chatChannel: null, chatSeenAt: null, chatEnabled: true };
+    const state = { rows: [], currentClientUser: null, currentSessionUser: null, selectedRow: null, modalDraft: { status: "", rating: null, notes: "", decisionReason: "", missing: "", confirmedSignals: [] }, chatMessages: [], chatThreads: [], selectedChatThreadKey: 'general', chatFilter: 'all', chatUnreadCount: 0, chatUnreadByThread: {}, chatChannel: null, chatSeenAt: null, chatEnabled: true };
 
     const els = {
       notice: document.getElementById("notice"), previewBanner: document.getElementById("previewBanner"), table: document.getElementById("endorsementsTable"),
@@ -984,6 +1020,7 @@
       modalAiScoreRing: document.getElementById("modalAiScoreRing"), modalAiScoreValue: document.getElementById("modalAiScoreValue"), modalAiConfidence: document.getElementById("modalAiConfidence"), modalAiDecision: document.getElementById("modalAiDecision"), modalAiSummary: document.getElementById("modalAiSummary"),
       modalPreviewStrengths: document.getElementById("modalPreviewStrengths"), modalPreviewRisks: document.getElementById("modalPreviewRisks"), modalPreviewRecruiterSummary: document.getElementById("modalPreviewRecruiterSummary"), modalPreviewDecision: document.getElementById("modalPreviewDecision"),
       modalResumeBtn: document.getElementById("modalResumeBtn"), modalNoResume: document.getElementById("modalNoResume"), modalNotes: document.getElementById("modalNotes"), modalLastUpdated: document.getElementById("modalLastUpdated"), modalRatingGroup: document.getElementById("modalRatingGroup"),
+      modalDecisionReasonGroup: document.getElementById("modalDecisionReasonGroup"), clientMissingInput: document.getElementById("clientMissingInput"), signalChecklist: document.getElementById("signalChecklist"),
       saveModalBtn: document.getElementById("saveModalBtn"), clearModalBtn: document.getElementById("clearModalBtn"),
       resumePreviewModal: document.getElementById("resumePreviewModal"), closeResumePreviewBtn: document.getElementById("closeResumePreviewBtn"), resumePreviewFrame: document.getElementById("resumePreviewFrame"), resumePreviewTitle: document.getElementById("resumePreviewTitle"), chatModal: document.getElementById("chatModal"), closeChatBtn: document.getElementById("closeChatBtn"), chatMessages: document.getElementById("chatMessages"), chatInput: document.getElementById("chatInput"), chatSendBtn: document.getElementById("chatSendBtn"), chatEmailBtn: document.getElementById("chatEmailBtn"), chatModalSubtitle: document.getElementById("chatModalSubtitle"), chatThreadSections: document.getElementById("chatThreadSections"), chatThreadSearch: document.getElementById("chatThreadSearch"), chatThreadSelect: document.getElementById("chatThreadSelect"), chatThreadTitle: document.getElementById("chatThreadTitle"), chatThreadSubtitle: document.getElementById("chatThreadSubtitle"), chatThreadContext: document.getElementById("chatThreadContext"), chatFilterTabs: document.getElementById("chatFilterTabs"), chatComposerHint: document.getElementById("chatComposerHint"), chatJumpToCandidateBtn: document.getElementById("chatJumpToCandidateBtn"), chatTooltip: document.getElementById("chatTooltip"), chatTypingIndicator: document.getElementById("chatTypingIndicator"), chatEmojiToggleBtn: document.getElementById("chatEmojiToggleBtn"), chatEmojiPicker: document.getElementById("chatEmojiPicker"), chatEmojiRow: document.getElementById("chatEmojiRow"), chatEmojiGrid: document.getElementById("chatEmojiGrid")
     };
@@ -1189,6 +1226,50 @@ ${cleanMessage}`;
     function formatDateTime(value){ if(!value) return "-"; const date=new Date(value); if(Number.isNaN(date.getTime())) return "-"; return date.toLocaleString(); }
     function formatDateOnly(value){ if(!value) return "-"; const date=new Date(value); if(Number.isNaN(date.getTime())) return "-"; return date.toLocaleDateString(); }
     function isRecentEndorsement(value){ if(!value) return false; const ts=new Date(value).getTime(); if(Number.isNaN(ts)) return false; return (Date.now()-ts) <= (48*60*60*1000); }
+
+    function setDecisionReasonSelection(reason){
+      state.modalDraft.decisionReason = reason || "";
+      document.querySelectorAll('#modalDecisionReasonGroup .intel-reason-btn').forEach((btn) => {
+        btn.classList.toggle('active', (btn.dataset.reason || '') === state.modalDraft.decisionReason);
+      });
+    }
+
+    function extractSignalsFromText(value){
+      const raw = String(value || '').trim();
+      if (!raw || /^no recruiter /i.test(raw) || /^no /i.test(raw)) return [];
+      return raw
+        .split(/\n|•|\u2022|;|\|/)
+        .map(part => part.trim())
+        .filter(Boolean);
+    }
+
+    function renderSignalChecklist(signals){
+      if (!els.signalChecklist) return;
+      const uniqueSignals = [...new Set((signals || []).map(item => String(item || '').trim()).filter(Boolean))];
+      if (!uniqueSignals.length){
+        els.signalChecklist.innerHTML = '<div class="small">No recruiter signals available to confirm yet.</div>';
+        return;
+      }
+      const selected = new Set((state.modalDraft.confirmedSignals || []).map(item => String(item)));
+      els.signalChecklist.innerHTML = uniqueSignals.map((signal, index) => {
+        const checked = selected.has(signal) ? 'checked' : '';
+        return `<label class="signal-check"><input type="checkbox" data-signal-index="${index}" value="${escapeHtml(signal)}" ${checked}><span>${escapeHtml(signal)}</span></label>`;
+      }).join('');
+    }
+
+    function collectConfirmedSignals(){
+      return [...document.querySelectorAll('#signalChecklist input[type="checkbox"]:checked')].map((el) => el.value);
+    }
+
+    function getModalIntelColumns(row){
+      return {
+        decisionReason: row?.client_decision_reason || row?.client_feedback_reason || '',
+        missing: row?.client_missing || row?.client_missing_requirements || row?.client_whats_missing || '',
+        confirmedSignals: Array.isArray(row?.client_confirmed_signals) ? row.client_confirmed_signals : []
+      };
+    }
+
+
     function matchesDateFilter(value, selected){
       if(!selected) return true; if(!value) return false; const endorsedAt=new Date(value); if(Number.isNaN(endorsedAt.getTime())) return false; const now=new Date();
       if(selected==="today") return endorsedAt.toDateString()===now.toDateString();
@@ -2020,14 +2101,49 @@ ${cleanMessage}`;
       if(!state.selectedRow) return;
       const endorsementId = state.selectedRow.endorsement_id || state.selectedRow.id;
       const notes = els.modalNotes.value.trim();
-      const payload = { client_response_status: state.modalDraft.status || null, client_response_notes: notes || null, client_rating: state.modalDraft.rating ? Number(state.modalDraft.rating) : null, client_responded_at: new Date().toISOString() };
+      state.modalDraft.missing = els.clientMissingInput?.value.trim() || "";
+      state.modalDraft.confirmedSignals = collectConfirmedSignals();
+
+      const basePayload = {
+        client_response_status: state.modalDraft.status || null,
+        client_response_notes: notes || null,
+        client_rating: state.modalDraft.rating ? Number(state.modalDraft.rating) : null,
+        client_responded_at: new Date().toISOString()
+      };
+
+      const extendedPayload = {
+        ...basePayload,
+        client_decision_reason: state.modalDraft.decisionReason || null,
+        client_missing: state.modalDraft.missing || null,
+        client_confirmed_signals: state.modalDraft.confirmedSignals.length ? state.modalDraft.confirmedSignals : []
+      };
 
       els.saveModalBtn.disabled = true; els.saveModalBtn.textContent = "Saving...";
-      const { error } = await supabaseClient.from("application_endorsements").update(payload).eq("id", endorsementId);
+      let error = null;
+      let usedFallback = false;
+
+      let result = await supabaseClient.from("application_endorsements").update(extendedPayload).eq("id", endorsementId);
+      error = result.error || null;
+
+      if(error){
+        const msg = String(error.message || '').toLowerCase();
+        const missingColumn = msg.includes('client_decision_reason') || msg.includes('client_missing') || msg.includes('client_confirmed_signals') || msg.includes('schema cache');
+        if(missingColumn){
+          usedFallback = true;
+          result = await supabaseClient.from("application_endorsements").update(basePayload).eq("id", endorsementId);
+          error = result.error || null;
+        }
+      }
+
       els.saveModalBtn.disabled = false; els.saveModalBtn.textContent = "Save Feedback";
 
       if(error){ console.error("Save feedback error:", error); showNotice(error.message || "Failed to save feedback.", "error"); return; }
-      showNotice("Feedback saved successfully.", "success");
+
+      if(usedFallback){
+        showNotice("Feedback saved. Add the new hiring intelligence columns to store decision reason, missing skills, and confirmed signals.", "info");
+      } else {
+        showNotice("Feedback saved successfully.", "success");
+      }
       closeModal();
       await loadRows();
     }
@@ -2039,7 +2155,25 @@ ${cleanMessage}`;
 
       const endorsementId = state.selectedRow.endorsement_id || state.selectedRow.id;
       els.clearModalBtn.disabled = true; els.clearModalBtn.textContent = "Clearing...";
-      const { error } = await supabaseClient.from("application_endorsements").update({ client_response_status:null, client_response_notes:null, client_rating:null, client_responded_at:new Date().toISOString() }).eq("id", endorsementId);
+
+      const extendedPayload = {
+        client_response_status:null,
+        client_response_notes:null,
+        client_rating:null,
+        client_decision_reason:null,
+        client_missing:null,
+        client_confirmed_signals:[],
+        client_responded_at:new Date().toISOString()
+      };
+
+      let result = await supabaseClient.from("application_endorsements").update(extendedPayload).eq("id", endorsementId);
+      let error = result.error || null;
+      if(error){
+        const basePayload = { client_response_status:null, client_response_notes:null, client_rating:null, client_responded_at:new Date().toISOString() };
+        result = await supabaseClient.from("application_endorsements").update(basePayload).eq("id", endorsementId);
+        error = result.error || null;
+      }
+
       els.clearModalBtn.disabled = false; els.clearModalBtn.textContent = "Clear Feedback";
 
       if(error){ console.error("Clear feedback error:", error); showNotice(error.message || "Failed to clear feedback.", "error"); return; }
@@ -2082,6 +2216,15 @@ ${cleanMessage}`;
       if(statusBtn) setStatusSelection(statusBtn.dataset.status);
       const ratingBtn = event.target.closest("#modalRatingGroup .rating-btn");
       if(ratingBtn) setRatingSelection(ratingBtn.dataset.score);
+      const reasonBtn = event.target.closest("#modalDecisionReasonGroup .intel-reason-btn");
+      if(reasonBtn) setDecisionReasonSelection(reasonBtn.dataset.reason);
+    });
+
+    els.signalChecklist?.addEventListener('change', () => {
+      state.modalDraft.confirmedSignals = collectConfirmedSignals();
+    });
+    els.clientMissingInput?.addEventListener('input', () => {
+      state.modalDraft.missing = els.clientMissingInput.value.trim();
     });
 
     els.modalResumeBtn.addEventListener("click", (event) => {
@@ -2155,5 +2298,14 @@ ${cleanMessage}`;
       }
     })();
   </script>
+
+<!--
+DB columns recommended for full Hiring Intelligence persistence:
+alter table public.application_endorsements
+  add column if not exists client_decision_reason text,
+  add column if not exists client_missing text,
+  add column if not exists client_confirmed_signals jsonb default '[]'::jsonb;
+-->
+
 </body>
 </html>
