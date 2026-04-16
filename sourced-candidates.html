@@ -167,6 +167,7 @@
             <button id="menuUploadLinkedInPdfBtn" class="menu-item" type="button">Upload LinkedIn PDF</button>
             <button id="menuUploadCsvBtn" class="menu-item" type="button">Upload CSV</button>
             <button id="menuComposeOutreachBtn" class="menu-item" type="button">Compose Outreach</button>
+            <button id="menuCopyRecruiterLinkBtn" class="menu-item" type="button">Copy My Recruiter Link</button>
             <button id="menuRefreshBtn" class="menu-item" type="button">Refresh</button>
             <button id="menuLogoutBtn" class="menu-item danger" type="button">Logout</button>
           </div>
@@ -447,7 +448,7 @@
         <div class="field composer-wide">
           <label for="outreachInviteLink">Invite Link</label>
           <input id="outreachInviteLink" type="text" placeholder="https://talentbuzz.pro/create-profile.html?..." />
-          <div class="helper-note">If left blank, TalentBuzz will generate a default create-profile link using the candidate email.</div>
+          <div class="helper-note">If left blank, TalentBuzz will generate a recruiter-attributed TalentBuzz link automatically.</div>
         </div>
         <div class="field composer-wide">
           <label for="outreachCustomMessage">Custom Message</label>
@@ -484,7 +485,7 @@
       const $ = (id) => document.getElementById(id);
       const els = {
         notice:$('notice'), helloRecruiter:$('helloRecruiter'), menuToggleBtn:$('menuToggleBtn'), actionMenu:$('actionMenu'),
-        menuUploadLinkedInPdfBtn:$('menuUploadLinkedInPdfBtn'), menuUploadCsvBtn:$('menuUploadCsvBtn'), menuComposeOutreachBtn:$('menuComposeOutreachBtn'), menuRefreshBtn:$('menuRefreshBtn'), menuLogoutBtn:$('menuLogoutBtn'),
+        menuUploadLinkedInPdfBtn:$('menuUploadLinkedInPdfBtn'), menuUploadCsvBtn:$('menuUploadCsvBtn'), menuComposeOutreachBtn:$('menuComposeOutreachBtn'), menuCopyRecruiterLinkBtn:$('menuCopyRecruiterLinkBtn'), menuRefreshBtn:$('menuRefreshBtn'), menuLogoutBtn:$('menuLogoutBtn'),
         fProspects:$('fProspects'), fInvites:$('fInvites'), fProfiles:$('fProfiles'), fApplications:$('fApplications'), fVoice:$('fVoice'),
         mInvites:$('mInvites'), mProfiles:$('mProfiles'), mApplications:$('mApplications'), mVoice:$('mVoice'),
         barProspects:$('barProspects'), barInvites:$('barInvites'), barProfiles:$('barProfiles'), barApplications:$('barApplications'), barVoice:$('barVoice'),
@@ -1087,21 +1088,72 @@
         els.outreachResult.style.color = type === 'error' ? 'var(--danger)' : type === 'success' ? 'var(--success)' : 'var(--muted)';
       }
 
-      function getDefaultInviteLink(email=''){
-        const base = (window.location.origin && window.location.origin !== 'null')
+      function getBaseAppUrl(){
+        return (window.location.origin && window.location.origin !== 'null')
           ? window.location.origin
           : 'https://talentbuzz.pro';
-        const cleanEmail = encodeURIComponent(String(email || '').trim().toLowerCase());
-        return `${base}/create-profile.html?email=${cleanEmail}`;
+      }
+
+      function getRecruiterIdentity(){
+        return String(state.sessionUser?.email || '').trim().toLowerCase();
+      }
+
+      function getRecruiterShareLink(){
+        const recruiterEmail = getRecruiterIdentity();
+        if (!recruiterEmail) return '';
+        const qp = new URLSearchParams();
+        qp.set('ref', recruiterEmail);
+        return `${getBaseAppUrl()}/create-profile.html?${qp.toString()}`;
+      }
+
+      function getDefaultInviteLink(email='', options = {}){
+        const recruiterEmail = String(options.recruiterEmail || getRecruiterIdentity()).trim().toLowerCase();
+        const cleanEmail = String(email || '').trim().toLowerCase();
+        const qp = new URLSearchParams();
+
+        if (cleanEmail) qp.set('email', cleanEmail);
+        if (recruiterEmail) qp.set('ref', recruiterEmail);
+        if (options.jobId) qp.set('job_id', String(options.jobId));
+        if (options.slug) qp.set('slug', String(options.slug));
+        if (options.source) qp.set('source', String(options.source));
+        if (options.fromApply) qp.set('fromApply', String(options.fromApply));
+        if (options.redirect) qp.set('redirect', String(options.redirect));
+
+        return `${getBaseAppUrl()}/create-profile.html?${qp.toString()}`;
+      }
+
+      async function copyToClipboard(value, successMessage='Copied to clipboard.'){
+        if (!value) throw new Error('Nothing to copy yet.');
+        if (navigator.clipboard?.writeText) {
+          await navigator.clipboard.writeText(value);
+        } else {
+          const temp = document.createElement('textarea');
+          temp.value = value;
+          temp.setAttribute('readonly', '');
+          temp.style.position = 'absolute';
+          temp.style.left = '-9999px';
+          document.body.appendChild(temp);
+          temp.select();
+          document.execCommand('copy');
+          document.body.removeChild(temp);
+        }
+        showNotice(successMessage, 'success');
       }
 
       function openOutreachComposer(seed = {}){
         const seededEmail = seed.email || seed.invite_email || '';
         const mode = seed.mode || 'invite';
+        const recruiterEmail = getRecruiterIdentity();
         if (els.outreachMode) els.outreachMode.value = mode;
         if (els.outreachFullName) els.outreachFullName.value = seed.full_name || seed.display_name || '';
         if (els.outreachEmail) els.outreachEmail.value = seededEmail;
-        if (els.outreachInviteLink) els.outreachInviteLink.value = seed.invite_link || (seededEmail ? getDefaultInviteLink(seededEmail) : '');
+        if (els.outreachInviteLink) {
+          els.outreachInviteLink.value = seed.invite_link || getDefaultInviteLink(seededEmail, {
+            recruiterEmail,
+            jobId: seed.offered_job_id || '',
+            source: mode === 'job_offer' ? 'buzzpool_job_offer' : 'buzzpool_invite'
+          });
+        }
         populateJobSelect(seed.offered_job_id || '');
         if (els.outreachCustomMessage) {
           if (seed.message) {
@@ -1115,9 +1167,11 @@
           }
         }
         if (seededEmail) {
-          showOutreachResult('Review the recipient details, then send the tracked outreach.', 'info');
+          showOutreachResult('Review the recruiter-attributed link, then send the tracked outreach.', 'info');
+        } else if (recruiterEmail) {
+          showOutreachResult('No recipient email yet. You can still copy your recruiter link for direct sourcing.', 'info');
         } else {
-          showOutreachResult('This record does not have an email yet. Add an email first before sending outreach.', 'error');
+          showOutreachResult('Unable to detect recruiter identity. Sign in again before sending outreach.', 'error');
         }
         openModal(els.outreachComposerModal);
       }
@@ -1137,6 +1191,7 @@
         if (state.activeTab === 'sourcing') {
           html = `
             <button id="contextComposeInviteBtn" class="btn btn-primary" type="button">Send Invite</button>
+            <button id="contextCopyRecruiterLinkBtn" class="btn btn-outline" type="button">Copy My Recruiter Link</button>
             <button id="contextRefreshSourcingBtn" class="btn btn-outline" type="button">Refresh Sourcing</button>
           `;
         } else if (state.activeTab === 'outreach') {
@@ -1148,6 +1203,7 @@
             <span class="tag-pill">Started: ${startedCount}</span>
             <span class="tag-pill">Completed: ${completedCount}</span>
             <button id="contextComposeInviteBtn" class="btn btn-primary" type="button">New Invite</button>
+            <button id="contextCopyRecruiterLinkBtn" class="btn btn-outline" type="button">Copy My Recruiter Link</button>
             <button id="contextRefreshOutreachBtn" class="btn btn-outline" type="button">Refresh Outreach</button>
           `;
         }
@@ -1155,6 +1211,18 @@
 
         const composeBtn = document.getElementById('contextComposeInviteBtn');
         if (composeBtn) composeBtn.addEventListener('click', () => openOutreachComposer());
+
+        const copyRecruiterLinkBtn = document.getElementById('contextCopyRecruiterLinkBtn');
+        if (copyRecruiterLinkBtn) {
+          copyRecruiterLinkBtn.addEventListener('click', async () => {
+            try {
+              const link = getRecruiterShareLink();
+              await copyToClipboard(link, 'Your recruiter sourcing link was copied.');
+            } catch (error) {
+              showNotice(error?.message || 'Unable to copy recruiter link.', 'error');
+            }
+          });
+        }
 
         const refreshBtn = document.getElementById('contextRefreshSourcingBtn') || document.getElementById('contextRefreshOutreachBtn');
         if (refreshBtn) refreshBtn.addEventListener('click', async () => {
@@ -2002,6 +2070,17 @@
           els.menuComposeOutreachBtn.addEventListener('click', () => openOutreachComposer());
         }
 
+        if (els.menuCopyRecruiterLinkBtn) {
+          els.menuCopyRecruiterLinkBtn.addEventListener('click', async () => {
+            try {
+              const link = getRecruiterShareLink();
+              await copyToClipboard(link, 'Your recruiter sourcing link was copied.');
+            } catch (error) {
+              showNotice(error?.message || 'Unable to copy recruiter link.', 'error');
+            }
+          });
+        }
+
         if (els.closeOutreachComposerBtn) {
           els.closeOutreachComposerBtn.addEventListener('click', () => closeModal(els.outreachComposerModal));
         }
@@ -2021,7 +2100,12 @@
               showOutreachResult('Enter the recipient email first so TalentBuzz can generate the invite link.', 'error');
               return;
             }
-            const generated = getDefaultInviteLink(email);
+            const selectedJob = (state.jobs || []).find(j => String(j.id) === String(els.outreachJobId?.value || ''));
+            const generated = getDefaultInviteLink(email, {
+              recruiterEmail: getRecruiterIdentity(),
+              jobId: selectedJob?.id || '',
+              source: (els.outreachMode?.value || 'invite') === 'job_offer' ? 'buzzpool_job_offer' : 'buzzpool_invite'
+            });
             if (els.outreachInviteLink) els.outreachInviteLink.value = generated;
             const mode = els.outreachMode?.value || 'invite';
             if (mode === 'job_offer') {
@@ -2068,8 +2152,17 @@
               const customMessage = (els.outreachCustomMessage?.value || '').trim();
               const selectedJob = (state.jobs || []).find(job => String(job.id) === String(els.outreachJobId?.value || ''));
 
+              const recruiterEmail = getRecruiterIdentity();
+
+              if (!recruiterEmail) throw new Error('Recruiter identity is missing. Sign in again before sending outreach.');
               if (!email) throw new Error('Recipient email is required.');
-              if (!inviteLink) inviteLink = getDefaultInviteLink(email);
+              if (!inviteLink) {
+                inviteLink = getDefaultInviteLink(email, {
+                  recruiterEmail,
+                  jobId: selectedJob?.id || '',
+                  source: mode === 'job_offer' ? 'buzzpool_job_offer' : 'buzzpool_invite'
+                });
+              }
               if (mode === 'job_offer' && !selectedJob) throw new Error('Choose an opening before sending a job offer.');
 
               showOutreachResult('Sending tracked BuzzPool outreach...', 'info');
@@ -2078,7 +2171,7 @@
                 full_name: fullName,
                 email,
                 invite_link: inviteLink,
-                recruiter_email: state.sessionUser?.email || '',
+                recruiter_email: recruiterEmail,
                 outreach_mode: mode,
                 notes: customMessage || null,
                 offered_job_id: selectedJob?.id || null,
@@ -2095,7 +2188,7 @@
                 invite_link: inviteLink,
                 sent_at: result.invite?.sent_at || null,
                 invite_status: result.invite?.invite_status || (mode === 'follow_up' ? 'follow_up_sent' : mode === 'job_offer' ? 'job_offer_sent' : 'invite_sent'),
-                recruiter_email: state.sessionUser?.email || '',
+                recruiter_email: recruiterEmail,
                 offered_job_id: selectedJob?.id || null,
                 offered_job_title: selectedJob?.title || null,
                 notes: customMessage || ''
