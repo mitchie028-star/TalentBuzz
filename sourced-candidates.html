@@ -1144,35 +1144,55 @@
         const seededEmail = seed.email || seed.invite_email || '';
         const mode = seed.mode || 'invite';
         const recruiterEmail = getRecruiterIdentity();
+        const selectedJobId = seed.offered_job_id || '';
+
         if (els.outreachMode) els.outreachMode.value = mode;
         if (els.outreachFullName) els.outreachFullName.value = seed.full_name || seed.display_name || '';
         if (els.outreachEmail) els.outreachEmail.value = seededEmail;
+
+        populateJobSelect(selectedJobId);
+
+        const selectedJob = (state.jobs || []).find(job => String(job.id) === String(selectedJobId || ''));
+        const defaultLink = getDefaultInviteLink(seededEmail, {
+          recruiterEmail,
+          jobId: selectedJob?.id || '',
+          source: mode === 'job_offer' ? 'buzzpool_job_offer' : mode === 'follow_up' ? 'buzzpool_follow_up' : 'buzzpool_invite'
+        });
+
         if (els.outreachInviteLink) {
-          els.outreachInviteLink.value = seed.invite_link || getDefaultInviteLink(seededEmail, {
-            recruiterEmail,
-            jobId: seed.offered_job_id || '',
-            source: mode === 'job_offer' ? 'buzzpool_job_offer' : 'buzzpool_invite'
-          });
+          els.outreachInviteLink.value = seed.invite_link || defaultLink;
         }
-        populateJobSelect(seed.offered_job_id || '');
+
         if (els.outreachCustomMessage) {
           if (seed.message) {
             els.outreachCustomMessage.value = seed.message;
           } else if (mode === 'follow_up') {
-            els.outreachCustomMessage.value = `Hi ${seed.full_name || ''}, just following up on the TalentBuzz profile invite I sent earlier.`;
-          } else if (mode === 'job_offer' && seed.offered_job_title) {
-            els.outreachCustomMessage.value = `Hi ${seed.full_name || ''}, I wanted to share a specific opening that may match your background: ${seed.offered_job_title}.`;
+            els.outreachCustomMessage.value = `Hi ${seed.full_name || seed.display_name || ''}, just following up on the TalentBuzz profile invite I sent earlier.`;
+          } else if (mode === 'job_offer' && (seed.offered_job_title || selectedJob?.title)) {
+            els.outreachCustomMessage.value = `Hi ${seed.full_name || seed.display_name || ''}, I wanted to share a specific opening that may match your background: ${seed.offered_job_title || selectedJob?.title || 'Open role'}.`;
           } else {
             els.outreachCustomMessage.value = '';
           }
         }
+
+        if (els.outreachJobId) {
+          const field = els.outreachJobId.closest('.field');
+          if (field) field.classList.toggle('hidden', mode !== 'job_offer');
+        }
+        if (els.sendOutreachBtn) {
+          els.sendOutreachBtn.textContent = mode === 'follow_up' ? 'Send Follow-Up' : mode === 'job_offer' ? 'Send Job Offer' : 'Send Outreach';
+        }
+
         if (seededEmail) {
-          showOutreachResult('Review the recruiter-attributed link, then send the tracked outreach.', 'info');
+          showOutreachResult(mode === 'follow_up'
+            ? 'Follow-up mode is ready. Review the link and message, then send.'
+            : 'Review the recruiter-attributed link, then send the tracked outreach.', 'info');
         } else if (recruiterEmail) {
           showOutreachResult('No recipient email yet. You can still copy your recruiter link for direct sourcing.', 'info');
         } else {
           showOutreachResult('Unable to detect recruiter identity. Sign in again before sending outreach.', 'error');
         }
+
         openModal(els.outreachComposerModal);
       }
 
@@ -2151,21 +2171,25 @@
               let inviteLink = (els.outreachInviteLink?.value || '').trim();
               const customMessage = (els.outreachCustomMessage?.value || '').trim();
               const selectedJob = (state.jobs || []).find(job => String(job.id) === String(els.outreachJobId?.value || ''));
-
               const recruiterEmail = getRecruiterIdentity();
 
               if (!recruiterEmail) throw new Error('Recruiter identity is missing. Sign in again before sending outreach.');
               if (!email) throw new Error('Recipient email is required.');
+              if (mode === 'job_offer' && !selectedJob) throw new Error('Choose an opening before sending a job offer.');
+
               if (!inviteLink) {
                 inviteLink = getDefaultInviteLink(email, {
                   recruiterEmail,
                   jobId: selectedJob?.id || '',
-                  source: mode === 'job_offer' ? 'buzzpool_job_offer' : 'buzzpool_invite'
+                  source: mode === 'job_offer' ? 'buzzpool_job_offer' : mode === 'follow_up' ? 'buzzpool_follow_up' : 'buzzpool_invite'
                 });
+                if (els.outreachInviteLink) els.outreachInviteLink.value = inviteLink;
               }
-              if (mode === 'job_offer' && !selectedJob) throw new Error('Choose an opening before sending a job offer.');
 
-              showOutreachResult('Sending tracked BuzzPool outreach...', 'info');
+              showOutreachResult(mode === 'follow_up' ? 'Sending follow-up...' : 'Sending tracked BuzzPool outreach...', 'info');
+              if (els.sendOutreachBtn) {
+                els.sendOutreachBtn.disabled = true;
+              }
 
               const payload = {
                 full_name: fullName,
@@ -2180,21 +2204,30 @@
               };
 
               const result = await sendBuzzpoolInvite(payload);
+              const returnedInviteId = result.invite_id || result.invite?.id || email;
+              const returnedInviteToken = result.invite_token || result.invite?.invite_token || null;
+              const returnedLink = result.invite_link || inviteLink;
+              const returnedStatus = result.invite_status || result.invite?.invite_status || (mode === 'follow_up' ? 'follow_up_sent' : mode === 'job_offer' ? 'job_offer_sent' : 'invite_sent');
+              const returnedSentAt = result.sent_at || result.invite?.sent_at || new Date().toISOString();
+              const returnedFollowUpCount = result.follow_up_count ?? result.invite?.follow_up_count ?? (mode === 'follow_up' ? 1 : 0);
 
               insertOutreachRecordOptimistically({
-                id: result.invite?.id || email,
+                id: returnedInviteId,
+                invite_token: returnedInviteToken,
                 full_name: fullName,
                 invite_email: email,
-                invite_link: inviteLink,
-                sent_at: result.invite?.sent_at || null,
-                invite_status: result.invite?.invite_status || (mode === 'follow_up' ? 'follow_up_sent' : mode === 'job_offer' ? 'job_offer_sent' : 'invite_sent'),
+                invite_link: returnedLink,
+                sent_at: returnedSentAt,
+                invite_status: returnedStatus,
                 recruiter_email: recruiterEmail,
+                follow_up_count: returnedFollowUpCount,
+                last_follow_up_at: mode === 'follow_up' ? new Date().toISOString() : null,
                 offered_job_id: selectedJob?.id || null,
                 offered_job_title: selectedJob?.title || null,
                 notes: customMessage || ''
               });
 
-              showOutreachResult(`${mode === 'follow_up' ? 'Follow-up' : mode === 'job_offer' ? 'Job offer' : 'Invite'} sent to ${result.sent_to || email}.`, 'success');
+              showOutreachResult(`${mode === 'follow_up' ? 'Follow-up' : mode === 'job_offer' ? 'Job offer' : 'Invite'} sent to ${email}.`, 'success');
 
               try {
                 await loadAllData();
@@ -2212,12 +2245,16 @@
               if (!state.data.outreach.length) {
                 showNotice('Outreach sent, but the browser could not read buzzpool_invites. Check your SELECT policy or RLS for that table.', 'warning');
               } else {
-                showNotice('Tracked BuzzPool outreach sent.', 'success');
+                showNotice(mode === 'follow_up' ? 'Tracked BuzzPool follow-up sent.' : 'Tracked BuzzPool outreach sent.', 'success');
               }
             } catch (error) {
               console.error('[OUTREACH_SEND_ERROR]', error);
               showOutreachResult(error?.message || 'Failed to send outreach.', 'error');
               showNotice(error?.message || 'Failed to send outreach.', 'error');
+            } finally {
+              if (els.sendOutreachBtn) {
+                els.sendOutreachBtn.disabled = false;
+              }
             }
           });
         }
