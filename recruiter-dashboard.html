@@ -172,6 +172,74 @@
       line-height: 1;
     }
 
+    .sourcing-card {
+      padding: 18px;
+      margin-bottom: 14px;
+      border: 1px solid #c7d2fe;
+      background: linear-gradient(135deg, rgba(239,246,255,0.95) 0%, rgba(255,255,255,0.98) 100%);
+    }
+    .sourcing-card-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 14px;
+      flex-wrap: wrap;
+      margin-bottom: 14px;
+    }
+    .sourcing-card h2 {
+      margin: 0 0 6px;
+      color: var(--primary);
+      font-size: 1.08rem;
+    }
+    .sourcing-card p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 0.9rem;
+      line-height: 1.55;
+      max-width: 880px;
+    }
+    .sourcing-link-wrap {
+      display: grid;
+      grid-template-columns: minmax(0,1fr) auto;
+      gap: 12px;
+      align-items: center;
+    }
+    .sourcing-link-box {
+      min-width: 0;
+      border: 1px solid var(--border);
+      background: #fff;
+      border-radius: 16px;
+      padding: 14px 16px;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.85);
+    }
+    .sourcing-link-label {
+      color: var(--muted);
+      font-size: 0.74rem;
+      text-transform: uppercase;
+      letter-spacing: .06em;
+      font-weight: 800;
+      margin-bottom: 8px;
+    }
+    .sourcing-link-value {
+      color: var(--primary);
+      font-size: 0.92rem;
+      font-weight: 800;
+      line-height: 1.5;
+      word-break: break-all;
+    }
+    .sourcing-card-actions {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+    .sourcing-card-note {
+      margin-top: 12px;
+      color: var(--muted);
+      font-size: 0.82rem;
+      line-height: 1.5;
+    }
+
     .filters {
       padding: 18px;
       margin-bottom: 14px;
@@ -888,6 +956,7 @@
             <a href="client-roles-input.html" class="menu-link">📋 Open Roles</a>
             <a href="client.html" class="menu-link">🏢 Add Client</a>
             <a href="recruiter-recruiter-add-candidate.html" class="menu-link">➕ Add Candidate</a>
+            <button class="menu-action" id="copySourcingLinkMenuBtn" type="button">🔗 Copy My Sourcing Link</button>
             <div class="menu-divider"></div>
             <button class="menu-action" id="refreshFromMenuBtn" type="button">🔄 Refresh Dashboard</button>
             <button class="menu-action" id="clearFromMenuBtn" type="button">🧹 Clear Filters</button>
@@ -901,6 +970,26 @@
     </div>
 
     <div class="notice" id="notice"></div>
+
+    <section class="panel sourcing-card" id="sourcingCard">
+      <div class="sourcing-card-head">
+        <div>
+          <h2>My Sourcing Link</h2>
+          <p>Share this personal TalentBuzz link in LinkedIn messages, email signatures, and outreach. Any candidate who creates a profile from this link will be attributed to you as the source recruiter.</p>
+        </div>
+        <div class="sourcing-card-actions">
+          <button class="btn btn-soft" id="copySourcingLinkBtn" type="button">Copy Link</button>
+          <button class="btn" id="openSourcingLinkBtn" type="button">Open Link</button>
+        </div>
+      </div>
+      <div class="sourcing-link-wrap">
+        <div class="sourcing-link-box">
+          <div class="sourcing-link-label">Recruiter personal link</div>
+          <div class="sourcing-link-value" id="sourcingLinkValue">Sign in to generate your sourcing link.</div>
+        </div>
+      </div>
+      <div class="sourcing-card-note" id="sourcingLinkNote">Use this for passive sourcing. For tracked outreach with open/start/complete analytics, use BuzzPool invites.</div>
+    </section>
 
     <section class="kpis" id="kpis">
       <div class="kpi panel"><div class="kpi-label">Applications</div><div class="kpi-value" id="kpiApplications">0</div></div>
@@ -1305,6 +1394,11 @@
 
     const els = {
       notice: document.getElementById('notice'),
+      sourcingCard: document.getElementById('sourcingCard'),
+      sourcingLinkValue: document.getElementById('sourcingLinkValue'),
+      sourcingLinkNote: document.getElementById('sourcingLinkNote'),
+      copySourcingLinkBtn: document.getElementById('copySourcingLinkBtn'),
+      openSourcingLinkBtn: document.getElementById('openSourcingLinkBtn'),
       searchInput: document.getElementById('searchInput'),
       statusFilter: document.getElementById('statusFilter'),
       recruiterFilter: document.getElementById('recruiterFilter'),
@@ -1391,6 +1485,7 @@
       newApplicantsBadge: document.getElementById('newApplicantsBadge'),
       menuToggleBtn: document.getElementById('menuToggleBtn'),
       menuDropdown: document.getElementById('menuDropdown'),
+      copySourcingLinkMenuBtn: document.getElementById('copySourcingLinkMenuBtn'),
       refreshFromMenuBtn: document.getElementById('refreshFromMenuBtn'),
       clearFromMenuBtn: document.getElementById('clearFromMenuBtn'),
       chatWidgetLauncher: document.getElementById('chatWidgetLauncher'),
@@ -1453,6 +1548,55 @@
     function hideNotice() {
       els.notice.className = 'notice';
       els.notice.textContent = '';
+    }
+
+    function getBaseAppUrl() {
+      return (window.location.origin && window.location.origin !== 'null')
+        ? window.location.origin
+        : 'https://talentbuzz.pro';
+    }
+
+    function normalizeEmail(value) {
+      return safeText(value).toLowerCase();
+    }
+
+    function getRecruiterSourcingLink() {
+      const recruiterEmail = normalizeEmail(state.currentUser?.email || '');
+      if (!recruiterEmail) return '';
+      const qp = new URLSearchParams();
+      qp.set('ref', recruiterEmail);
+      return `${getBaseAppUrl()}/create-profile.html?${qp.toString()}`;
+    }
+
+    async function copyToClipboard(value) {
+      if (!value) throw new Error('Sign in first so TalentBuzz can generate your recruiter link.');
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(value);
+        return;
+      }
+      const temp = document.createElement('textarea');
+      temp.value = value;
+      temp.setAttribute('readonly', '');
+      temp.style.position = 'absolute';
+      temp.style.left = '-9999px';
+      document.body.appendChild(temp);
+      temp.select();
+      document.execCommand('copy');
+      document.body.removeChild(temp);
+    }
+
+    function renderSourcingLinkCard() {
+      if (!els.sourcingLinkValue) return;
+      const recruiterEmail = normalizeEmail(state.currentUser?.email || '');
+      const link = getRecruiterSourcingLink();
+      els.sourcingLinkValue.textContent = link || 'Sign in to generate your sourcing link.';
+      if (els.sourcingLinkNote) {
+        els.sourcingLinkNote.textContent = recruiterEmail
+          ? `This link is mapped to ${recruiterEmail}. Share it anywhere for passive sourcing, or use BuzzPool for tracked invites.`
+          : 'Use this for passive sourcing. For tracked outreach with open/start/complete analytics, use BuzzPool invites.';
+      }
+      if (els.copySourcingLinkBtn) els.copySourcingLinkBtn.disabled = !link;
+      if (els.openSourcingLinkBtn) els.openSourcingLinkBtn.disabled = !link;
     }
 
     function clamp(n, min, max) { return Math.max(min, Math.min(max, n)); }
@@ -3580,6 +3724,8 @@ function renderLearningInsights(row) {
         state.currentUser = data?.user || null;
       } catch (err) {
         console.warn('Unable to read current user:', err?.message || err);
+      } finally {
+        renderSourcingLinkCard();
       }
     }
     async function loadChatIndexes() {
@@ -4067,6 +4213,15 @@ function renderLearningInsights(row) {
       });
       els.refreshFromMenuBtn?.addEventListener('click', () => els.refreshBtn?.click());
       els.clearFromMenuBtn?.addEventListener('click', () => els.clearFiltersBtn?.click());
+      els.copySourcingLinkMenuBtn?.addEventListener('click', async () => {
+        try {
+          const link = getRecruiterSourcingLink();
+          await copyToClipboard(link);
+          showNotice('Your recruiter sourcing link was copied.', 'success');
+        } catch (error) {
+          showNotice(error?.message || 'Unable to copy your sourcing link.', 'error');
+        }
+      });
       document.addEventListener('click', (event) => {
         if (!event.target.closest('.menu-wrap') && els.menuDropdown?.classList.contains('show')) {
           els.menuDropdown.classList.remove('show');
@@ -4125,6 +4280,23 @@ function renderLearningInsights(row) {
       [els.statusFilter, els.recruiterFilter, els.sourceFilter, els.jobFilter, els.clientFilter, els.scoreFilter]
         .forEach((el) => el.addEventListener('change', applyFilters));
 
+      els.copySourcingLinkBtn?.addEventListener('click', async () => {
+        try {
+          const link = getRecruiterSourcingLink();
+          await copyToClipboard(link);
+          showNotice('Your recruiter sourcing link was copied.', 'success');
+        } catch (error) {
+          showNotice(error?.message || 'Unable to copy your sourcing link.', 'error');
+        }
+      });
+      els.openSourcingLinkBtn?.addEventListener('click', () => {
+        const link = getRecruiterSourcingLink();
+        if (!link) {
+          showNotice('Sign in first so TalentBuzz can generate your recruiter link.', 'error');
+          return;
+        }
+        window.open(link, '_blank', 'noopener');
+      });
       els.refreshBtn.addEventListener('click', loadDashboard);
       els.clearFiltersBtn.addEventListener('click', clearFilters);
       els.closeDrawerBtn.addEventListener('click', closeDrawer);
