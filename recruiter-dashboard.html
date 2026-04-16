@@ -862,19 +862,113 @@
     }
     .chat-conversation-body {
       flex: 1; min-height: 0; overflow: auto; padding: 28px 28px 18px; background: #f8fafc;
-      display: flex; flex-direction: column; gap: 14px;
+      display: flex; flex-direction: column; gap: 16px;
     }
     .chat-conversation-empty { margin: auto; color: var(--muted); text-align: center; font-size: 0.96rem; }
-    .chat-bubble-row { display: flex; width: 100%; }
+    .chat-bubble-row {
+      display: flex;
+      width: 100%;
+      align-items: flex-end;
+      gap: 12px;
+    }
     .chat-bubble-row.outbound { justify-content: flex-end; }
     .chat-bubble-row.inbound { justify-content: flex-start; }
-    .chat-bubble {
-      max-width: min(78%, 420px); border-radius: 30px; padding: 20px 24px; background: #dce8fb; color: #334155;
+    .chat-bubble-row.outbound .chat-bubble-avatar { order: 2; }
+    .chat-bubble-row.outbound .chat-bubble-stack { align-items: flex-end; }
+    .chat-bubble-row.inbound .chat-bubble-stack { align-items: flex-start; }
+    .chat-bubble-avatar {
+      width: 42px;
+      height: 42px;
+      border-radius: 999px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      flex: 0 0 42px;
+      font-size: .78rem;
+      font-weight: 800;
+      border: 1px solid var(--border);
       box-shadow: 0 8px 18px rgba(15,23,42,0.05);
     }
-    .chat-bubble-row.inbound .chat-bubble { background: #ffffff; border: 1px solid var(--border); color: var(--text); }
-    .chat-bubble-message { font-size: 1rem; line-height: 1.55; white-space: pre-wrap; word-break: break-word; margin-bottom: 10px; }
-    .chat-bubble-time { font-size: 0.88rem; color: #64748b; }
+    .chat-bubble-row.outbound .chat-bubble-avatar {
+      background: linear-gradient(135deg, #dbeafe, #bfdbfe);
+      color: var(--primary);
+    }
+    .chat-bubble-row.inbound .chat-bubble-avatar {
+      background: #fff;
+      color: #334155;
+    }
+    .chat-bubble-stack {
+      max-width: min(82%, 540px);
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .chat-bubble-meta {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+      padding: 0 4px;
+    }
+    .chat-bubble-sender {
+      font-size: 0.82rem;
+      font-weight: 800;
+      color: var(--text);
+      line-height: 1;
+    }
+    .chat-bubble-secondary {
+      font-size: 0.74rem;
+      color: var(--muted);
+      line-height: 1;
+    }
+    .chat-bubble {
+      width: fit-content;
+      max-width: 100%;
+      border-radius: 30px;
+      padding: 18px 22px;
+      background: #dce8fb;
+      color: #334155;
+      box-shadow: 0 8px 18px rgba(15,23,42,0.05);
+    }
+    .chat-bubble-row.inbound .chat-bubble {
+      background: #ffffff;
+      border: 1px solid var(--border);
+      color: var(--text);
+    }
+    .chat-bubble-message {
+      font-size: 1rem;
+      line-height: 1.55;
+      white-space: pre-wrap;
+      word-break: break-word;
+      margin-bottom: 10px;
+    }
+    .chat-bubble-footer {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      justify-content: flex-end;
+      flex-wrap: wrap;
+    }
+    .chat-bubble-time {
+      font-size: 0.82rem;
+      color: #64748b;
+    }
+    .chat-bubble-read {
+      font-size: 0.78rem;
+      font-weight: 800;
+      color: #94a3b8;
+      letter-spacing: .01em;
+    }
+    .chat-bubble-read.is-read {
+      color: #2563eb;
+    }
+    .chat-typing-indicator {
+      min-height: 24px;
+      padding: 0 30px 8px;
+      color: var(--muted);
+      font-size: 0.82rem;
+      font-weight: 700;
+    }
     .chat-conversation-composer { border-top: 1px solid var(--border); background: #fff; padding: 28px; }
     .chat-conversation-composer textarea {
       width: 100%; min-height: 160px; resize: vertical; padding: 24px 28px; border-radius: 28px;
@@ -1312,6 +1406,8 @@
         <div class="chat-conversation-empty">Select a thread to start chatting.</div>
       </div>
 
+      <div class="chat-typing-indicator" id="chatTypingIndicator"></div>
+
       <div class="chat-conversation-composer">
         <textarea id="chatConversationInput" placeholder="Type your message..."></textarea>
         <div class="chat-conversation-actions">
@@ -1390,6 +1486,9 @@
       chatSelectedFilter: 'all',
       chatSearchQuery: '',
       chatSelectedThreadKey: null,
+      chatTypingByThread: {},
+      chatTypingTimer: null,
+      chatDraftByThread: {},
     };
 
     const els = {
@@ -1504,6 +1603,7 @@
       chatConversationModal: document.getElementById('chatConversationModal'),
       chatConversationSubtitle: document.getElementById('chatConversationSubtitle'),
       chatConversationBody: document.getElementById('chatConversationBody'),
+      chatTypingIndicator: document.getElementById('chatTypingIndicator'),
       chatConversationInput: document.getElementById('chatConversationInput'),
       chatConversationSendBtn: document.getElementById('chatConversationSendBtn'),
       chatConversationEmailBtn: document.getElementById('chatConversationEmailBtn'),
@@ -3985,6 +4085,87 @@ function renderLearningInsights(row) {
       }
       if (els.chatWidgetLauncher) els.chatWidgetLauncher.classList.toggle('pulse', unreadTotal > 0);
     }
+    function getThreadDisplayName(thread) {
+      return safeText(thread?.name || thread?.email || (thread?.threadType === 'client' ? 'Client' : 'Candidate'));
+    }
+    function getInitials(value) {
+      const raw = safeText(value).replace(/@.*$/, '');
+      if (!raw) return 'TB';
+      const parts = raw.split(/[\s._-]+/).filter(Boolean);
+      if (!parts.length) return 'TB';
+      if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+      return `${parts[0][0] || ''}${parts[1][0] || ''}`.toUpperCase();
+    }
+    function formatMessageReceipt(row) {
+      if (!row) return '';
+      if (row.read_at || row.seen_at || row.is_read === true) return '<span class="chat-bubble-read is-read">Seen</span>';
+      return '<span class="chat-bubble-read">Sent</span>';
+    }
+    function buildMessageMeta(row, thread) {
+      const senderType = normalizeText(row?.sender_type || '');
+      const outbound = ['recruiter','admin','system'].includes(senderType);
+      const currentEmail = getCurrentUserEmail();
+      const otherName = getThreadDisplayName(thread);
+      const otherEmail = safeText(thread?.email || '');
+      return {
+        outbound,
+        avatar: outbound ? getInitials(currentEmail || 'You') : getInitials(otherName || otherEmail),
+        senderLabel: outbound ? 'You' : otherName,
+        secondary: outbound ? safeText(state.currentUser?.email || '') : otherEmail,
+      };
+    }
+    function renderTypingIndicator() {
+      if (!els.chatTypingIndicator) return;
+      const threadKey = state.chatSelectedThreadKey;
+      const value = safeText(state.chatTypingByThread?.[threadKey] || '');
+      els.chatTypingIndicator.textContent = value;
+    }
+    function setLocalTyping(threadKey, isTyping) {
+      if (!threadKey) return;
+      state.chatTypingByThread = { ...state.chatTypingByThread, [threadKey]: isTyping ? 'You are typing…' : '' };
+      renderTypingIndicator();
+    }
+    function handleConversationTyping() {
+      const threadKey = state.chatSelectedThreadKey;
+      if (!threadKey) return;
+      const draft = safeText(els.chatConversationInput?.value || '');
+      state.chatDraftByThread = { ...state.chatDraftByThread, [threadKey]: els.chatConversationInput?.value || '' };
+      setLocalTyping(threadKey, !!draft);
+      if (state.chatTypingTimer) window.clearTimeout(state.chatTypingTimer);
+      state.chatTypingTimer = window.setTimeout(() => setLocalTyping(threadKey, false), 1100);
+    }
+    function renderConversationMessages(thread, messages) {
+      if (!els.chatConversationBody) return;
+      if (!messages.length) {
+        els.chatConversationBody.innerHTML = '<div class="chat-conversation-empty">No messages yet in this thread.</div>';
+        renderTypingIndicator();
+        return;
+      }
+      els.chatConversationBody.innerHTML = messages.map((row) => {
+        const meta = buildMessageMeta(row, thread);
+        return `
+          <div class="chat-bubble-row ${meta.outbound ? 'outbound' : 'inbound'}">
+            <div class="chat-bubble-avatar ${meta.outbound ? 'outbound' : 'inbound'}">${escapeHtml(meta.avatar)}</div>
+            <div class="chat-bubble-stack">
+              <div class="chat-bubble-meta">
+                <span class="chat-bubble-sender">${escapeHtml(meta.senderLabel)}</span>
+                ${meta.secondary ? `<span class="chat-bubble-secondary">${escapeHtml(meta.secondary)}</span>` : ''}
+              </div>
+              <div class="chat-bubble">
+                <div class="chat-bubble-message">${escapeHtml(row?.message || '')}</div>
+                <div class="chat-bubble-footer">
+                  <span class="chat-bubble-time">${escapeHtml(formatDateTime(row?.created_at))}</span>
+                  ${meta.outbound ? formatMessageReceipt(row) : ''}
+                </div>
+              </div>
+            </div>
+          </div>
+        `;
+      }).join('');
+      els.chatConversationBody.scrollTop = els.chatConversationBody.scrollHeight;
+      renderTypingIndicator();
+    }
+
     function renderChatWidget() {
       if (!els.chatWidgetPanel) return;
       els.chatWidgetPanel.classList.toggle('show', !!state.chatPanelOpen);
@@ -4011,15 +4192,19 @@ function renderLearningInsights(row) {
 
       els.chatWidgetList.innerHTML = visibleThreads.map((thread) => {
         const unread = Number(thread.unreadCount || 0) > 0;
+        const avatar = getInitials(thread.name || thread.email || thread.typeLabel);
         return `
           <div class="chat-thread ${state.chatSelectedThreadKey === thread.threadKey ? 'is-active' : ''}" data-chat-thread-key="${escapeHtml(thread.threadKey)}">
             <div class="chat-thread-head">
-              <div class="chat-thread-name">${escapeHtml(thread.name || 'Thread')}</div>
+              <div style="display:flex;align-items:center;gap:10px;min-width:0;">
+                <div class="chat-bubble-avatar ${thread.threadType === 'client' ? 'inbound' : 'outbound'}" style="width:34px;height:34px;flex-basis:34px;font-size:.72rem;">${escapeHtml(avatar)}</div>
+                <div class="chat-thread-name">${escapeHtml(thread.name || 'Thread')}</div>
+              </div>
               <div class="chat-thread-time">${escapeHtml(formatRelativeTime(thread.lastMessageAt))}</div>
             </div>
             <div class="chat-thread-meta">
               <span class="chat-thread-type ${thread.threadType === 'client' ? 'client' : ''}">${escapeHtml(thread.typeLabel || 'Chat')}</span>
-              ${unread ? '<span class="chat-thread-unread-dot" title="Unread"></span>' : ''}
+              ${unread ? `<span class="chat-tab-count">${escapeHtml(String(thread.unreadCount || 0))}</span>` : ''}
             </div>
             <div class="chat-thread-preview">${escapeHtml(truncateText(thread.preview || 'No messages yet.', 140))}</div>
             <div class="chat-thread-sub">${escapeHtml(truncateText(thread.subtitle || thread.email || '', 90))}</div>
@@ -4044,34 +4229,23 @@ function renderLearningInsights(row) {
       if (els.chatConversationSubtitle) {
         els.chatConversationSubtitle.textContent = `${thread.name} • ${thread.subtitle || thread.email || thread.typeLabel}`;
       }
+      if (els.chatConversationInput) {
+        els.chatConversationInput.value = state.chatDraftByThread?.[thread.threadKey] || '';
+      }
+      setLocalTyping(thread.threadKey, !!safeText(els.chatConversationInput?.value || ''));
       els.chatConversationBody.innerHTML = '<div class="chat-conversation-empty">Loading conversation…</div>';
       els.chatConversationModal.classList.add('show');
       els.chatConversationModal.setAttribute('aria-hidden', 'false');
 
       const messages = await loadThreadMessages(thread);
-      if (!messages.length) {
-        els.chatConversationBody.innerHTML = '<div class="chat-conversation-empty">No messages yet in this thread.</div>';
-        return;
-      }
-      els.chatConversationBody.innerHTML = messages.map((row) => {
-        const senderType = normalizeText(row?.sender_type || '');
-        const outbound = ['recruiter','admin','system'].includes(senderType);
-        return `
-          <div class="chat-bubble-row ${outbound ? 'outbound' : 'inbound'}">
-            <div class="chat-bubble">
-              <div class="chat-bubble-message">${escapeHtml(row?.message || '')}</div>
-              <div class="chat-bubble-time">${escapeHtml(formatDateTime(row?.created_at))}</div>
-            </div>
-          </div>
-        `;
-      }).join('');
-      els.chatConversationBody.scrollTop = els.chatConversationBody.scrollHeight;
+      renderConversationMessages(thread, messages);
     }
     function closeChatConversationModal() {
       if (!els.chatConversationModal) return;
       els.chatConversationModal.classList.remove('show');
       els.chatConversationModal.setAttribute('aria-hidden', 'true');
       if (els.chatConversationInput) els.chatConversationInput.value = '';
+      if (els.chatTypingIndicator) els.chatTypingIndicator.textContent = '';
     }
     async function sendChatConversationMessage() {
       const thread = state.chatThreads.find((item) => item.threadKey === state.chatSelectedThreadKey) || null;
@@ -4101,6 +4275,8 @@ function renderLearningInsights(row) {
         }
 
         if (els.chatConversationInput) els.chatConversationInput.value = '';
+        state.chatDraftByThread = { ...state.chatDraftByThread, [thread.threadKey]: '' };
+        setLocalTyping(thread.threadKey, false);
         await refreshChatWidget(true);
         await openChatConversationModal(thread.threadKey);
         showNotice('Chat message sent.', 'success');
@@ -4275,6 +4451,13 @@ function renderLearningInsights(row) {
       });
       els.chatConversationSendBtn?.addEventListener('click', () => { void sendChatConversationMessage(); });
       els.chatConversationEmailBtn?.addEventListener('click', emailInsteadForThread);
+      els.chatConversationInput?.addEventListener('input', handleConversationTyping);
+      els.chatConversationInput?.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter' && !event.shiftKey) {
+          event.preventDefault();
+          void sendChatConversationMessage();
+        }
+      });
       [els.searchInput, els.statusFilter, els.recruiterFilter, els.sourceFilter, els.jobFilter, els.clientFilter, els.scoreFilter]
         .forEach((el) => el.addEventListener('input', applyFilters));
       [els.statusFilter, els.recruiterFilter, els.sourceFilter, els.jobFilter, els.clientFilter, els.scoreFilter]
