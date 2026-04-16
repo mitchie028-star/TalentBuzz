@@ -1143,7 +1143,12 @@
   }
 
   function getLockedRecruiterEmail() {
-    const existing = String(existingProfile?.recruiter_email || existingProfile?.sourced_by_recruiter || '').trim().toLowerCase();
+    const existing = String(
+      existingProfile?.sourced_by_recruiter_email ||
+      existingProfile?.sourced_by_recruiter ||
+      existingProfile?.recruiter_email ||
+      ''
+    ).trim().toLowerCase();
     return existing || '';
   }
 
@@ -1224,13 +1229,67 @@
     return model;
   }
 
+  async function markInviteOpened(attribution) {
+    if (!attribution?.invite_token) return;
+
+    const attemptedUpdates = [
+      { opened_at: new Date().toISOString(), invite_status: 'invite_opened' },
+      { opened_at: new Date().toISOString() }
+    ];
+
+    for (const patch of attemptedUpdates) {
+      try {
+        const { error } = await supabaseClient
+          .from('buzzpool_invites')
+          .update(patch)
+          .eq('invite_token', attribution.invite_token)
+          .is('opened_at', null);
+        if (!error) break;
+      } catch (err) {
+        console.warn('Unable to update buzzpool_invites open state:', err);
+      }
+    }
+  }
+
+  async function markInviteProfileStarted(attribution) {
+    if (!attribution?.invite_token) return;
+
+    const attemptedUpdates = [
+      { profile_started_at: new Date().toISOString(), invite_status: 'profile_started' },
+      { profile_started_at: new Date().toISOString() }
+    ];
+
+    for (const patch of attemptedUpdates) {
+      try {
+        const { error } = await supabaseClient
+          .from('buzzpool_invites')
+          .update(patch)
+          .eq('invite_token', attribution.invite_token)
+          .is('profile_started_at', null);
+        if (!error) break;
+      } catch (err) {
+        console.warn('Unable to update buzzpool_invites profile started state:', err);
+      }
+    }
+  }
+
   async function markInviteProfileCompleted(attribution, savedProfile, email) {
     if (!attribution?.invite_token) return;
 
     const attemptedUpdates = [
-      { invite_status: 'completed', profile_created_at: new Date().toISOString(), applicant_email: email, applicant_profile_id: savedProfile?.id || null },
-      { invite_status: 'completed', completed_at: new Date().toISOString() },
-      { invite_status: 'completed' }
+      {
+        invite_status: 'completed',
+        completed_at: new Date().toISOString(),
+        applicant_email: email,
+        applicant_profile_id: savedProfile?.id || null
+      },
+      {
+        invite_status: 'completed',
+        completed_at: new Date().toISOString()
+      },
+      {
+        invite_status: 'completed'
+      }
     ];
 
     for (const patch of attemptedUpdates) {
@@ -1599,7 +1658,9 @@
       'profile_completed_at', 'headline', 'preferred_work_setup',
       'experience_summary', 'portfolio_url', 'recruiter_email',
       'source', 'source_detail', 'sourced_by_recruiter', 'invite_token',
-      'buzzpool_invite_id', 'source_prospect_id'
+      'buzzpool_invite_id', 'source_prospect_id', 'sourced_by_recruiter_email',
+      'attribution_source', 'attribution_invite_token', 'attribution_invite_id',
+      'sourced_at', 'ownership_locked', 'profile_created_via'
     ];
 
     if (existingProfileRow) {
@@ -1889,7 +1950,7 @@
     };
 
     renderResumeInsights();
-    setAttributionUI(recruiterAttribution || { recruiter_email: profile.recruiter_email || profile.sourced_by_recruiter || null, source_type: 'locked_existing_profile' });
+    setAttributionUI(recruiterAttribution || { recruiter_email: profile.sourced_by_recruiter_email || profile.recruiter_email || profile.sourced_by_recruiter || null, source_type: 'locked_existing_profile' });
 
     if (profile.profile_photo_url) {
       photoPreview.innerHTML = `<img src="${profile.profile_photo_url}" alt="Profile preview">`;
@@ -1931,6 +1992,7 @@
     const emailFromUrl = (params.get('email') || '').trim();
     if (emailFromUrl) getEmailInput().value = emailFromUrl;
     await resolveRecruiterAttribution(emailFromUrl || '');
+    await markInviteOpened(recruiterAttribution);
 
     try {
       const { data, error } = await supabaseClient.auth.getUser();
@@ -1968,6 +2030,7 @@
       const profile = await findExistingProfileByEmail((user.email || '').toLowerCase());
       if (profile) await loadExistingProfileIntoForm(profile);
       await resolveRecruiterAttribution((user.email || '').toLowerCase());
+      await markInviteOpened(recruiterAttribution);
 
       if (currentStep === 1) {
         currentStep = 2;
@@ -1988,10 +2051,11 @@
       if (!email) throw new Error('Email is required.');
       if (!isValidEmail(email)) throw new Error('Please enter a valid email address.');
       emailMethodSelected = true;
-      resolveRecruiterAttribution(email).catch(err => console.warn('Unable to resolve recruiter attribution:', err));
+      await resolveRecruiterAttribution(email);
       passwordWrap.classList.add('show');
       currentStep = 2;
       updateStepUI();
+      await markInviteProfileStarted(recruiterAttribution);
       showMessage('Email selected. Complete your profile, then set your password before saving.', 'info');
     } catch (err) {
       showMessage(err.message || 'Unable to continue with email.', 'error');
@@ -2008,6 +2072,9 @@
       if (currentStep < 3) {
         currentStep += 1;
         updateStepUI();
+        if (currentStep >= 2) {
+          await markInviteProfileStarted(recruiterAttribution);
+        }
       }
     } catch (err) {
       showMessage(err.message || 'Please check your details.', 'error');
@@ -2286,11 +2353,18 @@
         matched_open_roles: resumeAnalysis.matched_open_roles || [],
         recruiter_email: recruiterEmailToSave,
         sourced_by_recruiter: recruiterEmailToSave,
+        sourced_by_recruiter_email: recruiterEmailToSave,
         source: recruiterEmailToSave ? (attribution?.source_type || sourceLabel) : sourceLabel,
+        attribution_source: recruiterEmailToSave ? (attribution?.source_type || sourceLabel) : sourceLabel,
         source_detail: recruiterEmailToSave ? `Recruiter attribution locked to ${recruiterEmailToSave}` : null,
         invite_token: attribution?.invite_token || null,
+        attribution_invite_token: attribution?.invite_token || null,
         buzzpool_invite_id: attribution?.buzzpool_invite_id || null,
+        attribution_invite_id: attribution?.buzzpool_invite_id || null,
         source_prospect_id: attribution?.prospect_id || null,
+        sourced_at: recruiterEmailToSave ? (existingProfile?.sourced_at || new Date().toISOString()) : null,
+        ownership_locked: !!recruiterEmailToSave,
+        profile_created_via: currentUser?.app_metadata?.provider || (emailMethodSelected ? 'email_signup' : 'direct'),
         updated_at: new Date().toISOString()
       };
 
