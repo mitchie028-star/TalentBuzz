@@ -647,7 +647,7 @@
     <div class="top-shell">
       <div class="topbar">
         <div class="brand-wrap">
-          <img src="logo.png" alt="TalentBuzz Logo" class="brand-logo" onerror="this.style.display='none';this.nextElementSibling.style.display='flex';" />
+          <img src="logo.jpg" alt="TalentBuzz Logo" class="brand-logo" onerror="this.style.display='none';this.nextElementSibling.style.display='flex';" />
           <div class="brand-logo-fallback">TB</div>
           <div class="brand-text">
             <h1>BuzzHire</h1>
@@ -694,13 +694,13 @@
     </div>
 
     <div class="stats-grid">
-      <div class="stat-card"><div class="stat-label">Leads</div><div class="stat-value" id="statLeads">0</div><div class="stat-sub" id="statLeadsSub">Base funnel count</div></div>
-      <div class="stat-card"><div class="stat-label">Converted to Profiles</div><div class="stat-value" id="statProfiles">0</div><div class="stat-sub" id="statProfilesSub">0% of leads</div></div>
-      <div class="stat-card"><div class="stat-label">Applicants</div><div class="stat-value" id="statApplications">0</div><div class="stat-sub" id="statApplicationsSub">0% of leads</div></div>
-      <div class="stat-card"><div class="stat-label">Endorsed</div><div class="stat-value" id="statEndorsed">0</div><div class="stat-sub" id="statEndorsedSub">0% of applicants</div></div>
-      <div class="stat-card"><div class="stat-label">Rejected</div><div class="stat-value" id="statRejected">0</div><div class="stat-sub" id="statRejectedSub">0% of applicants</div></div>
-      <div class="stat-card"><div class="stat-label">Hired</div><div class="stat-value" id="statHired">0</div><div class="stat-sub" id="statHiredSub">0% of applicants</div></div>
-      <div class="stat-card"><div class="stat-label">Alert Conversion</div><div class="stat-value" id="statAlertConversion">0%</div><div class="stat-sub" id="statAlertConversionSub">Open 0% • Click 0% • Apply 0%</div></div>
+      <div class="stat-card"><div class="stat-label">Sourced Leads</div><div class="stat-value" id="statLeads">0</div><div class="stat-sub" id="statLeadsSub">Invite records in scope</div></div>
+      <div class="stat-card"><div class="stat-label">Opened</div><div class="stat-value" id="statProfiles">0</div><div class="stat-sub" id="statProfilesSub">0% open rate</div></div>
+      <div class="stat-card"><div class="stat-label">Started Profiles</div><div class="stat-value" id="statApplications">0</div><div class="stat-sub" id="statApplicationsSub">0% start rate</div></div>
+      <div class="stat-card"><div class="stat-label">Completed Profiles</div><div class="stat-value" id="statEndorsed">0</div><div class="stat-sub" id="statEndorsedSub">0% completion rate</div></div>
+      <div class="stat-card"><div class="stat-label">Applications</div><div class="stat-value" id="statRejected">0</div><div class="stat-sub" id="statRejectedSub">0% of completed profiles</div></div>
+      <div class="stat-card"><div class="stat-label">Endorsed</div><div class="stat-value" id="statHired">0</div><div class="stat-sub" id="statHiredSub">0% of applications</div></div>
+      <div class="stat-card"><div class="stat-label">Hired</div><div class="stat-value" id="statAlertConversion">0</div><div class="stat-sub" id="statAlertConversionSub">0% of applications</div></div>
     </div>
 
     <div class="panel">
@@ -1126,6 +1126,8 @@
         conversionRows: [],
         alertRowsByAppKey: new Map(),
         aiScoreMap: new Map(),
+        sourcingInvites: [],
+        currentUserEmail: "",
         selectedApplicationId: null,
         selectedEndorsementApp: null,
         selectedEditApp: null,
@@ -1850,6 +1852,36 @@
         }
       }
 
+      async function loadCurrentUserEmail() {
+        try {
+          const { data, error } = await supabaseClient.auth.getUser();
+          if (!error && data?.user?.email) {
+            state.currentUserEmail = normalizeEmail(data.user.email);
+            return;
+          }
+        } catch (err) {
+          console.warn("Current recruiter lookup failed:", err?.message || err);
+        }
+        state.currentUserEmail = "";
+      }
+
+      async function loadSourcingInvites() {
+        state.sourcingInvites = [];
+        try {
+          const { data, error } = await supabaseClient
+            .from("buzzpool_invites")
+            .select("id, prospect_id, invite_email, recruiter_email, invite_status, sent_at, opened_at, clicked_at, profile_started_at, completed_at, created_at, updated_at, follow_up_count")
+            .order("created_at", { ascending: false });
+          if (error) {
+            console.warn("BuzzPool invites unavailable:", error.message);
+            return;
+          }
+          state.sourcingInvites = Array.isArray(data) ? data : [];
+        } catch (err) {
+          console.warn("BuzzPool invites failed:", err?.message || err);
+        }
+      }
+
       async function loadLeadsCount() {
         let total = 0;
         try {
@@ -2043,45 +2075,50 @@
       }
 
       function renderStats() {
-        const alerts = Array.from(state.alertRowsByAppKey.values());
-        const sent = alerts.filter((row) => row.send_status === "sent").length;
-        const opened = alerts.filter((row) => Number(row.open_count || 0) > 0).length;
-        const clicked = alerts.filter((row) => Number(row.click_count || 0) > 0).length;
-        const appliedFromAlerts = alerts.filter((row) => row.applied_at).length;
+        const scopedRecruiter = normalizeEmail(getSafeValue(els.recruiterFilter)) || state.currentUserEmail || "";
+        const invites = (state.sourcingInvites || []).filter((row) => {
+          if (!scopedRecruiter) return true;
+          return normalizeEmail(row.recruiter_email) === scopedRecruiter || getRecruiterName(row.recruiter_email) === getSafeValue(els.recruiterFilter);
+        });
 
-        const leads = Number(state.totalLeads || 0);
-        const profiles = state.allProfiles.length;
-        const applicants = state.allApplications.length;
-        const endorsed = state.allApplications.filter((app) => normalizeText(app.status) === "endorsed").length;
-        const rejected = state.allApplications.filter((app) => ["failed paper screening", "withdrawn", "rejected", "no-show (onboarding)"].includes(normalizeText(app.status))).length;
-        const hired = state.allApplications.filter((app) => ["hired", "onboarded"].includes(normalizeText(app.status))).length;
+        const leads = invites.length;
+        const opened = invites.filter((row) => row.opened_at || row.clicked_at || ["invite_opened", "profile_started", "completed"].includes(normalizeText(row.invite_status))).length;
+        const started = invites.filter((row) => row.profile_started_at || ["profile_started", "completed"].includes(normalizeText(row.invite_status))).length;
+        const completed = invites.filter((row) => row.completed_at || normalizeText(row.invite_status) === "completed").length;
+
+        const scopedApplications = (state.allApplications || []).filter((app) => {
+          if (!scopedRecruiter) return true;
+          const appRecruiter = normalizeEmail(app.recruiter_email || "");
+          const sourceRecruiter = normalizeEmail(app.sourced_by_recruiter_email || app.source_recruiter_email || app?.applicant_profiles?.sourced_by_recruiter_email || "");
+          return appRecruiter === scopedRecruiter || sourceRecruiter === scopedRecruiter;
+        });
+
+        const applicants = scopedApplications.length;
+        const endorsed = scopedApplications.filter((app) => normalizeText(app.status) === "endorsed" || normalizeText(app.endorsement_status) === "sent").length;
+        const hired = scopedApplications.filter((app) => ["hired", "onboarded"].includes(normalizeText(app.status))).length;
 
         const pct = (count, base) => base > 0 ? Math.round((count / base) * 100) : 0;
 
-        const openRate = pct(opened, sent);
-        const clickRate = pct(clicked, sent);
-        const applyRate = pct(appliedFromAlerts, sent);
-
         els.statLeads.textContent = String(leads);
-        els.statLeadsSub.textContent = "Base funnel count";
+        els.statLeadsSub.textContent = scopedRecruiter ? `Scoped to ${scopedRecruiter}` : "All recruiter invite records";
 
-        els.statProfiles.textContent = String(profiles);
-        els.statProfilesSub.textContent = `${pct(profiles, leads)}% of leads`;
+        els.statProfiles.textContent = String(opened);
+        els.statProfilesSub.textContent = `${pct(opened, leads)}% open rate`;
 
-        els.statApplications.textContent = String(applicants);
-        els.statApplicationsSub.textContent = `${pct(applicants, leads)}% of leads`;
+        els.statApplications.textContent = String(started);
+        els.statApplicationsSub.textContent = `${pct(started, leads)}% start rate`;
 
-        els.statEndorsed.textContent = String(endorsed);
-        els.statEndorsedSub.textContent = `${pct(endorsed, applicants)}% of applicants`;
+        els.statEndorsed.textContent = String(completed);
+        els.statEndorsedSub.textContent = `${pct(completed, leads)}% completion rate`;
 
-        els.statRejected.textContent = String(rejected);
-        els.statRejectedSub.textContent = `${pct(rejected, applicants)}% of applicants`;
+        els.statRejected.textContent = String(applicants);
+        els.statRejectedSub.textContent = `${pct(applicants, completed)}% of completed profiles`;
 
-        els.statHired.textContent = String(hired);
-        els.statHiredSub.textContent = `${pct(hired, applicants)}% of applicants`;
+        els.statHired.textContent = String(endorsed);
+        els.statHiredSub.textContent = `${pct(endorsed, applicants)}% of applications`;
 
-        els.statAlertConversion.textContent = `${applyRate}%`;
-        els.statAlertConversionSub.textContent = `Open ${openRate}% • Click ${clickRate}% • Apply ${applyRate}%`;
+        els.statAlertConversion.textContent = String(hired);
+        els.statAlertConversionSub.textContent = `${pct(hired, applicants)}% of applications`;
       }
 
       function populateFilters() {
@@ -2324,9 +2361,11 @@
           els.refreshBtn.disabled = true;
           els.refreshBtn.textContent = "Refreshing...";
 
+          await loadCurrentUserEmail();
           await loadRecruitersMap();
           await loadProfiles();
           await loadLeadsCount();
+          await loadSourcingInvites();
           await loadAlertRows();
           await loadJobConversionMetrics();
           await loadApplications();
