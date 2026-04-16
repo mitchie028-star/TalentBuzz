@@ -2,26 +2,46 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>TalentBuzz | Recruiter Productivity Premium</title>
+<title>TalentBuzz | Recruiter Intelligence v3</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700;800&display=swap" rel="stylesheet">
 <style>
-body {font-family: Arial; background:#f5f7fb; margin:0; padding:20px;}
-.panel {background:#fff; padding:20px; border-radius:14px; margin-bottom:20px;}
-.grid {display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:16px;}
-.card {border:1px solid #e2e8f0; border-radius:12px; padding:14px;}
-.stat {font-size:26px; font-weight:bold;}
-.avatar {width:50px;height:50px;border-radius:50%;background:#ddd;display:flex;align-items:center;justify-content:center;font-weight:bold;}
-.progress {height:6px;background:#eee;border-radius:999px;margin:6px 0;}
-.progress span {display:block;height:100%;background:#4f46e5;}
+body{font-family:Manrope;background:#0f172a;color:#e2e8f0;margin:0;padding:20px}
+.panel{background:#111827;border-radius:16px;padding:20px;margin-bottom:20px;border:1px solid rgba(255,255,255,.08)}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:16px}
+.card{background:#020617;border-radius:14px;padding:16px;border:1px solid rgba(255,255,255,.08)}
+.stat{font-size:26px;font-weight:800}
+.avatar{width:50px;height:50px;border-radius:50%;background:#1e293b;display:flex;align-items:center;justify-content:center;font-weight:800;overflow:hidden}
+.avatar img{width:100%;height:100%;object-fit:cover}
+.progress{height:6px;background:#1e293b;border-radius:999px;margin:6px 0}
+.progress span{display:block;height:100%;background:linear-gradient(90deg,#22c55e,#3b82f6)}
+.insight{padding:12px;border-radius:10px;background:#020617;margin-bottom:10px}
+.filter-bar{display:flex;gap:10px;margin-bottom:20px}
+select{padding:10px;border-radius:10px;background:#020617;color:white;border:1px solid #1e293b}
 </style>
 </head>
 <body>
 
+<h1>🚀 TalentBuzz Recruiter Intelligence v3</h1>
+
+<div class="filter-bar">
+<select id="timeFilter">
+<option value="all">All Time</option>
+<option value="7">Last 7 Days</option>
+<option value="30">Last 30 Days</option>
+</select>
+</div>
+
 <div class="panel">
 <h2>📈 Hiring Trends</h2>
-<canvas id="trendChart"></canvas>
+<canvas id="trend"></canvas>
+</div>
+
+<div class="panel">
+<h2>🔁 Funnel</h2>
+<div id="funnel" class="grid"></div>
 </div>
 
 <div class="panel">
@@ -45,73 +65,91 @@ const supabase = window.supabase.createClient(
   "sb_publishable_HrLVIUwnaRo54yijtrbWBQ_1aeb4ezs"
 );
 
-function initials(name){return name.split(" ").map(x=>x[0]).join("").slice(0,2)}
+function initials(n){return n.split(" ").map(x=>x[0]).join("").slice(0,2)}
+
+function filterByDate(data,days){
+  if(days==='all') return data;
+  const now=new Date();
+  return data.filter(r=>{
+    const d=new Date(r.created_at);
+    return (now-d)/(1000*60*60*24)<=days;
+  });
+}
 
 async function load(){
-  const {data} = await supabase.from("recruiter_productivity_summary").select("*");
-
+  const {data}=await supabase.from('recruiter_productivity_summary').select('*');
   if(!data) return;
 
-  // TREND
-  const trend = {};
-  data.forEach(r=>{
-    const d = new Date().toISOString().slice(0,10);
-    trend[d] = (trend[d]||0) + r.hired_count;
+  const days=document.getElementById('timeFilter').value;
+  const rows=filterByDate(data,days);
+
+  // Funnel
+  const total=rows.reduce((a,r)=>{
+    a.s+=r.sourced_count;
+    a.e+=r.endorsed_count;
+    a.h+=r.hired_count;
+    return a;
+  },{s:0,e:0,h:0});
+
+  document.getElementById('funnel').innerHTML=`
+  <div class='card'><div>Sourced</div><div class='stat'>${total.s}</div></div>
+  <div class='card'><div>Endorsed</div><div class='stat'>${total.e}</div></div>
+  <div class='card'><div>Hired</div><div class='stat'>${total.h}</div></div>`;
+
+  // Trend
+  const trendMap={};
+  rows.forEach(r=>{
+    const d=new Date().toISOString().slice(0,10);
+    trendMap[d]=(trendMap[d]||0)+r.hired_count;
   });
 
-  new Chart(document.getElementById("trendChart"),{
-    type:"line",
-    data:{
-      labels:Object.keys(trend),
-      datasets:[{label:"Hires",data:Object.values(trend)}]
-    }
+  new Chart(document.getElementById('trend'),{
+    type:'line',
+    data:{labels:Object.keys(trendMap),datasets:[{label:'Hires',data:Object.values(trendMap)}]}
   });
 
-  // LEADERBOARD
-  const sorted = [...data].sort((a,b)=>b.hired_count - a.hired_count);
+  // Leaderboard
+  const sorted=[...rows].sort((a,b)=>b.hired_count-a.hired_count);
 
-  document.getElementById("leaderboard").innerHTML = sorted.map((r,i)=>`
-    <div class="card">
-      <b>#${i+1} ${r.full_name || r.recruiter_email}</b><br>
-      Hires: ${r.hired_count}<br>
-      Endorsements: ${r.endorsed_count}
+  document.getElementById('leaderboard').innerHTML=sorted.map((r,i)=>`
+    <div class='card'>
+    <b>#${i+1} ${r.full_name||r.recruiter_email}</b><br>
+    Hires: ${r.hired_count}<br>
+    Score: ${r.hired_count*5 + r.endorsed_count*2}
     </div>
-  `).join("");
+  `).join('');
 
-  // RECRUITER CARDS
-  document.getElementById("recruiters").innerHTML = data.map(r=>{
-    return `
-    <div class="card">
-      <div style="display:flex;gap:10px;">
-        <div class="avatar">${r.profile_photo_url ? `<img src="${r.profile_photo_url}" style="width:100%;height:100%;object-fit:cover;">` : initials(r.full_name||r.recruiter_email)}</div>
-        <div>
-          <b>${r.full_name || r.recruiter_email}</b><br>
-          <small>${r.recruiter_email}</small>
-        </div>
+  // Recruiters
+  document.getElementById('recruiters').innerHTML=rows.map(r=>`
+    <div class='card'>
+      <div style='display:flex;gap:10px'>
+        <div class='avatar'>${r.profile_photo_url?`<img src='${r.profile_photo_url}'>`:initials(r.full_name||r.recruiter_email)}</div>
+        <div><b>${r.full_name||r.recruiter_email}</b></div>
       </div>
-
-      <div>Sourced: ${r.sourced_count}</div>
-      <div>Endorsed: ${r.endorsed_count}</div>
-      <div>Hired: ${r.hired_count}</div>
+      <div>Sourced ${r.sourced_count}</div>
+      <div>Endorsed ${r.endorsed_count}</div>
+      <div>Hired ${r.hired_count}</div>
 
       <div>Endorsement ${r.endorsement_rate}%</div>
-      <div class="progress"><span style="width:${r.endorsement_rate}%"></span></div>
+      <div class='progress'><span style='width:${r.endorsement_rate}%'></span></div>
 
       <div>Hiring ${r.hiring_rate}%</div>
-      <div class="progress"><span style="width:${r.hiring_rate}%"></span></div>
-    </div>`;
-  }).join("");
+      <div class='progress'><span style='width:${r.hiring_rate}%'></span></div>
+    </div>
+  `).join('');
 
   // AI INSIGHTS
-  const top = sorted[0];
-  const weak = sorted[sorted.length-1];
+  const top=sorted[0];
+  const worst=sorted[sorted.length-1];
 
-  document.getElementById("insights").innerHTML = `
-    <div class="card">🏆 Top Performer: ${top.full_name}</div>
-    <div class="card">⚠️ Needs Improvement: ${weak.full_name}</div>
+  document.getElementById('insights').innerHTML=`
+    <div class='insight'>🏆 Top performer: ${top.full_name}</div>
+    <div class='insight'>⚠️ Needs improvement: ${worst.full_name}</div>
+    <div class='insight'>💡 Insight: Focus on increasing endorsements to boost hires.</div>
   `;
 }
 
+document.getElementById('timeFilter').addEventListener('change',load);
 load();
 </script>
 
