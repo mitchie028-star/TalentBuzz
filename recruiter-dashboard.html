@@ -42,6 +42,39 @@
       color: var(--text);
       font-family: "Manrope", sans-serif;
     }
+    body.auth-pending .page { display: none; }
+    .auth-screen {
+      min-height: 100vh;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      background: linear-gradient(180deg, #f8fbff 0%, #f2f7ff 100%);
+    }
+    body.auth-pending .auth-screen {
+      display: flex;
+    }
+    .auth-card {
+      width: min(520px, 100%);
+      background: rgba(255,255,255,0.96);
+      border: 1px solid rgba(191, 219, 254, 0.95);
+      border-radius: 28px;
+      box-shadow: 0 30px 70px rgba(15, 23, 42, 0.12);
+      padding: 30px;
+      text-align: center;
+    }
+    .auth-card h2 {
+      margin: 0 0 10px;
+      color: var(--primary);
+      font-size: 1.5rem;
+      letter-spacing: -0.03em;
+    }
+    .auth-card p {
+      margin: 0;
+      color: var(--muted);
+      line-height: 1.6;
+      font-size: 0.95rem;
+    }
     .page {
       max-width: 1720px;
       margin: 0 auto;
@@ -1109,7 +1142,13 @@
     }
   </style>
 </head>
-<body>
+<body class="auth-pending">
+  <div class="auth-screen" id="authScreen">
+    <div class="auth-card">
+      <h2>Checking recruiter access…</h2>
+      <p id="authMessage">Please wait while TalentBuzz verifies your login and recruiter permissions.</p>
+    </div>
+  </div>
   <div class="page">
     <div class="topbar">
       <div class="brand">
@@ -1592,6 +1631,7 @@
       learningEnabled: false,
       loading: false,
       currentUser: null,
+      recruiterProfile: null,
       chatThreads: [],
       chatPanelOpen: false,
       chatSelectedTab: 'candidates',
@@ -1605,6 +1645,7 @@
 
     const els = {
       notice: document.getElementById('notice'),
+      authMessage: document.getElementById('authMessage'),
       headerAccountChip: document.getElementById('headerAccountChip'),
       headerAccountAvatar: document.getElementById('headerAccountAvatar'),
       headerAccountName: document.getElementById('headerAccountName'),
@@ -3955,6 +3996,71 @@ function renderLearningInsights(row) {
       return parts.map((part) => part.charAt(0).toUpperCase()).join('');
     }
 
+    function setAuthMessage(message) {
+      if (els.authMessage) els.authMessage.textContent = message;
+    }
+
+    function setProtectedUiState(isReady) {
+      document.body.classList.toggle('auth-pending', !isReady);
+    }
+
+    async function requireRecruiterAccess() {
+      setAuthMessage('Checking your TalentBuzz session...');
+      const { data: sessionData, error: sessionError } = await supabaseClient.auth.getSession();
+      if (sessionError) throw sessionError;
+      const session = sessionData?.session || null;
+      if (!session?.user) {
+        setAuthMessage('No active recruiter session found. Redirecting to login...');
+        window.location.replace('login.html');
+        return false;
+      }
+
+      state.currentUser = session.user;
+      renderHeaderIdentity();
+      renderSourcingLinkCard();
+
+      const recruiterEmail = normalizeEmail(session.user.email || '');
+      if (!recruiterEmail) {
+        setAuthMessage('Your account does not have a valid email address. Redirecting to login...');
+        await supabaseClient.auth.signOut();
+        window.location.replace('login.html');
+        return false;
+      }
+
+      setAuthMessage('Validating recruiter access...');
+      const { data: recruiterRows, error: recruiterError } = await supabaseClient
+        .from('recruiters')
+        .select('id,email,full_name,active')
+        .eq('email', recruiterEmail)
+        .eq('active', true)
+        .limit(1);
+
+      if (recruiterError) throw recruiterError;
+
+      const recruiter = Array.isArray(recruiterRows) ? recruiterRows[0] : recruiterRows;
+      if (!recruiter) {
+        setAuthMessage('This account is signed in but is not authorized for recruiter access. Redirecting to login...');
+        await supabaseClient.auth.signOut();
+        window.location.replace('login.html');
+        return false;
+      }
+
+      state.recruiterProfile = recruiter;
+      if (!safeText(state.currentUser.user_metadata?.full_name) && recruiter.full_name) {
+        state.currentUser = {
+          ...state.currentUser,
+          user_metadata: {
+            ...(state.currentUser.user_metadata || {}),
+            full_name: recruiter.full_name,
+          },
+        };
+      }
+      renderHeaderIdentity();
+      renderSourcingLinkCard();
+      setProtectedUiState(true);
+      return true;
+    }
+
     function renderHeaderIdentity() {
       const user = state.currentUser;
       const displayName = getDisplayNameFromUser(user);
@@ -3979,6 +4085,11 @@ function renderLearningInsights(row) {
     }
 
     async function initializeCurrentUser() {
+      if (state.currentUser) {
+        renderHeaderIdentity();
+        renderSourcingLinkCard();
+        return;
+      }
       try {
         const { data } = await supabaseClient.auth.getUser();
         state.currentUser = data?.user || null;
@@ -4706,9 +4817,16 @@ function renderLearningInsights(row) {
       if (!CONFIG.SUPABASE_URL || !CONFIG.SUPABASE_ANON_KEY) {
         showNotice('Missing Supabase config. Set window.TALENTBUZZ_SUPABASE_URL and window.TALENTBUZZ_SUPABASE_ANON_KEY, or store them in localStorage under the same keys.', 'error');
         els.applicationsTable.innerHTML = '<tr><td colspan="8" class="small">Missing Supabase config.</td></tr>';
+        setAuthMessage('Missing Supabase configuration for recruiter login.');
         return false;
       }
       supabaseClient = window.supabase.createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_ANON_KEY);
+      supabaseClient.auth.onAuthStateChange((event) => {
+        if (event === 'SIGNED_OUT') {
+          setProtectedUiState(false);
+          window.location.replace('login.html');
+        }
+      });
       restoreChatWidgetOpenState();
       return true;
     }
@@ -4719,12 +4837,16 @@ function renderLearningInsights(row) {
       if (!initClient()) return;
       if (dashboardLoadInFlight) return;
       dashboardLoadInFlight = true;
+      setProtectedUiState(false);
       try {
+        const allowed = await requireRecruiterAccess();
+        if (!allowed) return;
         await initializeCurrentUser();
         await loadDashboard();
         setupChatRealtime();
       } catch (error) {
         console.error(error);
+        setAuthMessage(error?.message || 'Unable to verify recruiter access.');
         showNotice(`Unable to start dashboard: ${error?.message || error}`, 'error');
       } finally {
         dashboardLoadInFlight = false;
