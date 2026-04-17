@@ -1242,6 +1242,10 @@
           <div class="header-greeting-eyebrow">Welcome back</div>
           <div class="header-account-name" id="headerAccountName">Hi there!</div>
         </div>
+        <div class="utility-pill glass" id="liveStatusPill" title="Dashboard sync status">
+          <span class="utility-icon">🟢</span>
+          <span class="utility-label" id="liveStatusText">Live</span>
+        </div>
         <a href="recruiter-inbox.html" class="utility-pill glass" id="newApplicantsBtn" title="New Applications">
           <span class="utility-icon">👥</span>
           <span class="utility-label">Applications</span>
@@ -1268,7 +1272,6 @@
             <a href="recruiter-add-candidate.html" class="menu-link">➕ Add Candidate</a>
             <button class="menu-action" id="copySourcingLinkMenuBtn" type="button">🔗 My Sourcing Link</button>
             <div class="menu-divider"></div>
-            <button class="menu-action" id="refreshFromMenuBtn" type="button">🔄 Refresh Dashboard</button>
             <button class="menu-action" id="clearFromMenuBtn" type="button">🧹 Clear Filters</button>
             <div class="menu-divider"></div>
             <button class="menu-action logout" id="logoutBtn" type="button">🚪 Logout</button>
@@ -1276,7 +1279,6 @@
         </div>
         <div class="top-actions">
           <button class="btn btn-soft" id="openSourcingModalBtn" type="button">My Sourcing Link</button>
-          <button class="btn btn-soft" id="refreshBtn" type="button">Refresh</button>
           <button class="btn" id="clearFiltersBtn" type="button">Clear Filters</button>
         </div>
       </div>
@@ -1797,7 +1799,6 @@
       editNotes: document.getElementById('editNotes'),
       editResumeFile: document.getElementById('editResumeFile'),
       saveBtn: document.getElementById('saveBtn'),
-      refreshBtn: document.getElementById('refreshBtn'),
       clearFiltersBtn: document.getElementById('clearFiltersBtn'),
       resumeModal: document.getElementById('resumeModal'),
       resumeModalTitle: document.getElementById('resumeModalTitle'),
@@ -1814,7 +1815,6 @@
       menuToggleBtn: document.getElementById('menuToggleBtn'),
       menuDropdown: document.getElementById('menuDropdown'),
       copySourcingLinkMenuBtn: document.getElementById('copySourcingLinkMenuBtn'),
-      refreshFromMenuBtn: document.getElementById('refreshFromMenuBtn'),
       clearFromMenuBtn: document.getElementById('clearFromMenuBtn'),
       chatWidgetLauncher: document.getElementById('chatWidgetLauncher'),
       chatWidgetLauncherBadge: document.getElementById('chatWidgetLauncherBadge'),
@@ -4730,7 +4730,6 @@ function renderLearningInsights(row) {
         event.stopPropagation();
         els.menuDropdown?.classList.toggle('show');
       });
-      els.refreshFromMenuBtn?.addEventListener('click', () => els.refreshBtn?.click());
       els.clearFromMenuBtn?.addEventListener('click', () => els.clearFiltersBtn?.click());
       els.headerLogoutBtn?.addEventListener('click', () => { void handleLogout(); });
       els.logoutBtn?.addEventListener('click', () => { void handleLogout(); });
@@ -4757,9 +4756,16 @@ function renderLearningInsights(row) {
       });
       els.chatWidgetRefreshBtn?.addEventListener('click', () => { void refreshChatWidgetLive(true); });
       document.addEventListener('visibilitychange', () => {
-        if (!document.hidden) void refreshChatWidgetLive(true);
+        if (!document.hidden) {
+          void refreshChatWidgetLive(true);
+          queueDashboardRefresh(0);
+        }
       });
-      window.addEventListener('beforeunload', teardownChatRealtime);
+      window.addEventListener('beforeunload', () => {
+        teardownChatRealtime();
+        teardownDashboardRealtime();
+        stopDashboardAutoRefresh();
+      });
       els.chatWidgetTabs?.querySelectorAll('.chat-tab').forEach((btn) => {
         btn.addEventListener('click', () => {
           state.chatSelectedTab = btn.dataset.chatTab || 'candidates';
@@ -4825,7 +4831,6 @@ function renderLearningInsights(row) {
         }
         window.open(link, '_blank', 'noopener');
       });
-      els.refreshBtn.addEventListener('click', loadDashboard);
       els.clearFiltersBtn.addEventListener('click', clearFilters);
       els.closeDrawerBtn.addEventListener('click', closeDrawer);
       els.prevBtn.addEventListener('click', () => openSelectedOffset(-1));
@@ -4894,6 +4899,9 @@ function renderLearningInsights(row) {
       supabaseClient = window.supabase.createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_ANON_KEY);
       supabaseClient.auth.onAuthStateChange((event) => {
         if (event === 'SIGNED_OUT') {
+          teardownChatRealtime();
+          teardownDashboardRealtime();
+          stopDashboardAutoRefresh();
           setProtectedUiState(false);
           window.location.replace('login.html');
         }
@@ -4903,6 +4911,95 @@ function renderLearningInsights(row) {
     }
 
     let dashboardLoadInFlight = false;
+    let dashboardAutoRefreshTimer = null;
+    let dashboardRealtimeChannel = null;
+    let dashboardRefreshQueued = false;
+    let dashboardRefreshTimeout = null;
+    let dashboardLastSyncedAt = null;
+
+
+    function updateLiveStatusLabel() {
+      const el = document.getElementById('liveStatusText');
+      if (!el) return;
+      if (!dashboardLastSyncedAt) {
+        el.textContent = 'Live';
+        return;
+      }
+      const seconds = Math.max(0, Math.floor((Date.now() - dashboardLastSyncedAt.getTime()) / 1000));
+      el.textContent = seconds < 10 ? 'Live' : `Synced ${seconds}s ago`;
+    }
+
+    function markDashboardSynced() {
+      dashboardLastSyncedAt = new Date();
+      updateLiveStatusLabel();
+    }
+
+    function queueDashboardRefresh(delay = 450) {
+      if (dashboardRefreshQueued) return;
+      dashboardRefreshQueued = true;
+
+      if (dashboardRefreshTimeout) window.clearTimeout(dashboardRefreshTimeout);
+      dashboardRefreshTimeout = window.setTimeout(async () => {
+        dashboardRefreshQueued = false;
+        dashboardRefreshTimeout = null;
+
+        if (document.hidden) return;
+        if (state.loading) return;
+
+        try {
+          await loadDashboard();
+          markDashboardSynced();
+        } catch (error) {
+          console.error('Auto refresh failed:', error);
+        }
+      }, delay);
+    }
+
+    function teardownDashboardRealtime() {
+      if (dashboardRealtimeChannel) {
+        try { supabaseClient?.removeChannel(dashboardRealtimeChannel); } catch (_) {}
+        dashboardRealtimeChannel = null;
+      }
+    }
+
+    function setupDashboardRealtime() {
+      if (!supabaseClient) return;
+      teardownDashboardRealtime();
+
+      try {
+        dashboardRealtimeChannel = supabaseClient
+          .channel('buzzhire-dashboard-live')
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'applications' }, () => queueDashboardRefresh(250))
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'applicant_profiles' }, () => queueDashboardRefresh(350))
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'jobs' }, () => queueDashboardRefresh(350))
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'application_feedback' }, () => queueDashboardRefresh(250))
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'hiring_outcomes' }, () => queueDashboardRefresh(250))
+          .subscribe((status) => {
+            console.log('Dashboard realtime status:', status);
+          });
+      } catch (error) {
+        console.warn('Unable to start dashboard realtime:', error?.message || error);
+      }
+    }
+
+    function stopDashboardAutoRefresh() {
+      if (dashboardAutoRefreshTimer) {
+        window.clearInterval(dashboardAutoRefreshTimer);
+        dashboardAutoRefreshTimer = null;
+      }
+      if (dashboardRefreshTimeout) {
+        window.clearTimeout(dashboardRefreshTimeout);
+        dashboardRefreshTimeout = null;
+      }
+    }
+
+    function startDashboardAutoRefresh() {
+      stopDashboardAutoRefresh();
+      dashboardAutoRefreshTimer = window.setInterval(() => {
+        if (document.hidden) return;
+        queueDashboardRefresh(0);
+      }, 90000);
+    }
 
     async function startDashboardApp() {
       if (!initClient()) return;
@@ -4914,7 +5011,11 @@ function renderLearningInsights(row) {
         if (!allowed) return;
         await initializeCurrentUser();
         await loadDashboard();
+        markDashboardSynced();
+        setupDashboardRealtime();
+        startDashboardAutoRefresh();
         setupChatRealtime();
+        window.setInterval(updateLiveStatusLabel, 5000);
       } catch (error) {
         console.error(error);
         setAuthMessage(error?.message || 'Unable to verify recruiter access.');
