@@ -110,6 +110,7 @@
     }
 
     .auth-mode-banner {
+      display:none !important;
       margin-bottom: 18px;
       border: 1px solid #bfdbfe;
       background: #eff6ff;
@@ -582,7 +583,7 @@
 <div class="sift-float-wrap" id="siftWrap">
   <div class="sift-intro-pop" id="siftIntroPop">
     <strong>Meet Sift.</strong>
-    <span>I’ll guide you through your TalentBuzz profile.</span>
+    <span>I’ll guide you through your TalentBuzz profile step by step.</span>
   </div>
 
   <button class="sift-float-btn" id="siftToggle" type="button" aria-label="Open Sift assistant" aria-expanded="false">
@@ -882,7 +883,7 @@
   function getFullNameInput() { return document.getElementById('full_name'); }
   function getTargetRoleInput() { return document.getElementById('target_role'); }
   function updatePhotoPreviewFromName() { const fullName = getFullNameInput().value.trim(); photoPreview.innerHTML = getInitials(fullName || currentUser?.email || 'TalentBuzz'); }
-  function setAuthModeBanner(text, isVisible) { authModeBanner.textContent = text || ''; authModeBanner.classList.toggle('hidden', !isVisible); }
+  function setAuthModeBanner(text, isVisible) { if (!authModeBanner) return; authModeBanner.textContent = ''; authModeBanner.classList.add('hidden'); }
   function hasApplicationRoute() { return fromApply === '1' && !!(jobId || slug); }
   function buildSharedRouteParams() {
     const qp = new URLSearchParams();
@@ -1129,7 +1130,7 @@
       }
       resetIdle();
     }
-    function renderStepState(){ if (currentStep === 1) renderChoice('step1'); if (currentStep === 2) renderChoice('step2'); if (currentStep === 3) renderChoice('step3'); }
+    function renderStepState(){ if (currentStep === 1) renderChoice('step1'); if (currentStep === 2) renderChoice('step2'); if (currentStep === 3) renderChoice('step3'); if (typeof queueProactivePrompt === 'function') queueProactivePrompt(); }
     function handleError(text){ openPanel(); modeLabel.textContent = 'Rescue mode'; titleEl.textContent = 'I noticed something blocked your progress.'; textEl.textContent = text; choicesEl.innerHTML = ''; linksEl.innerHTML = ''; [
       { label:'Show me the fix', primary:true, action:()=>renderStepState() },
       { label:'Try again', action:()=>clearMessage() },
@@ -1157,8 +1158,38 @@
       document.addEventListener('click', (e)=>{ if (!wrap.contains(e.target)) closePanel(); userInteracted = true; resetIdle(); });
       document.addEventListener('keydown', (e)=>{ userInteracted = true; if (e.key === 'Escape') closePanel(); resetIdle(); });
       document.addEventListener('input', ()=>{ userInteracted = true; resetIdle(); });
+      const fieldPrompts = [
+        { el: getEmailInput(), text: 'Prefer email? No problem — use the address you check most often.' },
+        { el: document.getElementById('password'), text: 'Use at least 8 characters so your TalentBuzz profile stays secure.' },
+        { el: document.getElementById('full_name'), text: 'Use the full name you want recruiters and clients to see.' },
+        { el: document.getElementById('phone'), text: 'Add a reachable number so recruiters can contact you faster.' },
+        { el: document.getElementById('target_role'), text: 'Pick the closest role you want next. That improves matching quality.' },
+        { el: document.getElementById('resume'), text: 'A PDF resume is usually the safest upload option.' },
+        { el: document.getElementById('experience'), text: 'Keep your summary short: years of experience, strengths, and target role.' }
+      ];
+      fieldPrompts.forEach(({ el, text }) => {
+        if (!el) return;
+        el.addEventListener('focus', () => {
+          userInteracted = true;
+          if (!panel.classList.contains('show')) openPanel();
+          handleInfo(text);
+          resetIdle();
+        });
+      });
+      let proactiveTimer = null;
+      function queueProactivePrompt(){
+        clearTimeout(proactiveTimer);
+        proactiveTimer = setTimeout(() => {
+          if (panel.classList.contains('show')) return;
+          openPanel();
+          renderStepState();
+          if (currentStep === 1) handleInfo('Fastest way to begin is usually Google or LinkedIn, but email works too.');
+          else if (currentStep === 2) handleInfo('You are doing well. Your name, target role, and contact details are the most important here.');
+          else handleInfo('You can save without a resume, but uploading one improves your TalentBuzz match preview.');
+        }, 4000);
+      }
       voiceBtn.addEventListener('click', ()=>{ voiceEnabled = !voiceEnabled; localStorage.setItem('tb_sift_voice', voiceEnabled ? 'on' : 'off'); voiceBtn.textContent = voiceEnabled ? '🔈' : '🔊'; showMessage(voiceEnabled ? 'Sift voice guidance is on.' : 'Sift voice guidance is off.', 'info'); });
-      renderStepState(); resetIdle();
+      renderStepState(); resetIdle(); queueProactivePrompt();
     }
     return { init, renderStepState, handleError, handleSuccess, handleInfo, openPanel };
   })();
