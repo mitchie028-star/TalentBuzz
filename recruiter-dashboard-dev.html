@@ -1626,7 +1626,7 @@
       <div class="chat-panel-header">
         <div>
           <h3 class="chat-panel-title">Sift</h3>
-          <p class="chat-panel-subtitle">Sift brings together applicant, profile-creation, and client conversations for recruiters.</p>
+          <p class="chat-panel-subtitle">Sift brings together applicant support, profile-creation, and client conversations for recruiters.</p>
         </div>
         <div class="chat-panel-actions">
           <button class="chat-icon-btn" id="chatWidgetRefreshBtn" type="button" title="Refresh Sift inbox">↻</button>
@@ -1635,7 +1635,7 @@
       </div>
 
       <div class="chat-tab-row" id="chatWidgetTabs">
-        <button class="chat-tab is-active" type="button" data-chat-tab="candidates">Applicants <span class="chat-tab-count" id="chatCandidatesTabCount">0</span></button>
+        <button class="chat-tab is-active" type="button" data-chat-tab="candidates">Support <span class="chat-tab-count" id="chatCandidatesTabCount">0</span></button>
         <button class="chat-tab" type="button" data-chat-tab="clients">Clients <span class="chat-tab-count" id="chatClientsTabCount">0</span></button>
       </div>
 
@@ -1655,7 +1655,7 @@
       </div>
     </div>
 
-    <div class="sift-intro-bubble" id="siftIntroBubble"><strong>Sift</strong>New applicant, profile, and client messages appear here.</div>
+    <div class="sift-intro-bubble" id="siftIntroBubble"><strong>Sift</strong>New applicant support, profile, and client messages appear here.</div>
     <button class="chat-launcher pulse" id="chatWidgetLauncher" type="button" aria-label="Open Sift">
       <svg class="sift-mascot" viewBox="0 0 120 120" aria-hidden="true">
         <defs>
@@ -1681,7 +1681,7 @@
       <div class="chat-conversation-header">
         <div>
           <h3 class="chat-conversation-title">Sift</h3>
-          <div class="chat-conversation-subtitle" id="chatConversationSubtitle">Open and reply to applicant, profile-creation, and client conversations without leaving the dashboard.</div>
+          <div class="chat-conversation-subtitle" id="chatConversationSubtitle">Open and reply to applicant support, profile-creation, and client conversations without leaving the dashboard.</div>
         </div>
         <button class="chat-conversation-close" id="chatConversationCloseBtn" type="button" aria-label="Close Sift">×</button>
       </div>
@@ -1797,6 +1797,7 @@
       chatTypingByThread: {},
       chatTypingTimer: null,
       chatDraftByThread: {},
+      chatHelpRequests: [],
     };
 
     const els = {
@@ -4254,15 +4255,20 @@ function renderLearningInsights(row) {
     }
     async function loadChatIndexes() {
       try {
-        const [{ data: candidateMessages, error: candidateError }, { data: clientMessages, error: clientError }] = await Promise.all([
+        const [{ data: candidateMessages, error: candidateError }, { data: clientMessages, error: clientError }, { data: helpRequests, error: helpError }] = await Promise.all([
           supabaseClient
             .from('applicant_messages')
-            .select('id, applicant_email, applicant_profile_id, application_id, sender_type, message, created_at')
+            .select('id, applicant_email, applicant_profile_id, application_id, sender_type, sender_name, full_name, issue_type, page, step, phone, channel, message, created_at')
             .order('created_at', { ascending: false })
             .limit(500),
           supabaseClient
             .from('client_messages')
             .select('id, client_email, email, sender_type, message, created_at')
+            .order('created_at', { ascending: false })
+            .limit(300),
+          supabaseClient
+            .from('recruiter_help_requests')
+            .select('id, full_name, email, phone, applicant_profile_id, issue_type, message, page, step, channel, status, created_at')
             .order('created_at', { ascending: false })
             .limit(300)
         ]);
@@ -4280,10 +4286,20 @@ function renderLearningInsights(row) {
         } else {
           state.chatClientMessages = Array.isArray(clientMessages) ? clientMessages : [];
         }
+
+        if (helpError) {
+          if (!/relation .*recruiter_help_requests.* does not exist/i.test(helpError?.message || '')) {
+            console.warn('Unable to load recruiter help requests:', helpError?.message || helpError);
+          }
+          state.chatHelpRequests = [];
+        } else {
+          state.chatHelpRequests = Array.isArray(helpRequests) ? helpRequests : [];
+        }
       } catch (err) {
         console.warn('Unable to load chat indexes:', err?.message || err);
         state.chatCandidateMessages = [];
         state.chatClientMessages = [];
+        state.chatHelpRequests = [];
       }
     }
     async function loadThreadMessages(thread) {
@@ -4293,17 +4309,59 @@ function renderLearningInsights(row) {
           const clauses = [];
           if (thread.applicantProfileId) clauses.push(`applicant_profile_id.eq.${thread.applicantProfileId}`);
           if (thread.email) clauses.push(`applicant_email.eq.${thread.email}`);
-          if (!clauses.length) return [];
+          if (!clauses.length && !thread.email) return [];
 
-          const { data, error } = await supabaseClient
-            .from('applicant_messages')
-            .select('id, applicant_email, applicant_profile_id, application_id, sender_type, message, created_at')
-            .order('created_at', { ascending: false })
-            .limit(100)
-            .or(clauses.join(','));
+          const [applicantResult, helpResult] = await Promise.all([
+            clauses.length
+              ? supabaseClient
+                  .from('applicant_messages')
+                  .select('id, applicant_email, applicant_profile_id, application_id, sender_type, sender_name, full_name, issue_type, page, step, phone, channel, message, created_at')
+                  .order('created_at', { ascending: false })
+                  .limit(100)
+                  .or(clauses.join(','))
+              : Promise.resolve({ data: [], error: null }),
+            supabaseClient
+              .from('recruiter_help_requests')
+              .select('id, full_name, email, phone, applicant_profile_id, issue_type, message, page, step, channel, status, created_at')
+              .order('created_at', { ascending: false })
+              .limit(100)
+              .or([
+                thread.applicantProfileId ? `applicant_profile_id.eq.${thread.applicantProfileId}` : null,
+                thread.email ? `email.eq.${thread.email}` : null
+              ].filter(Boolean).join(','))
+          ]);
 
-          if (error) throw error;
-          return (data || []).sort((a, b) => new Date(a.created_at || 0) - new Date(b.created_at || 0));
+          if (applicantResult?.error) throw applicantResult.error;
+          if (helpResult?.error && !/relation .*recruiter_help_requests.* does not exist/i.test(helpResult.error?.message || '')) {
+            throw helpResult.error;
+          }
+
+          const applicantRows = (applicantResult?.data || []).map((item) => ({ ...item, _source: 'applicant_messages' }));
+          const helpRows = (helpResult?.data || []).map((item) => ({
+            id: item.id,
+            applicant_email: item.email,
+            applicant_profile_id: item.applicant_profile_id,
+            application_id: null,
+            sender_type: 'applicant',
+            sender_name: item.full_name,
+            full_name: item.full_name,
+            issue_type: item.issue_type,
+            page: item.page,
+            step: item.step,
+            phone: item.phone,
+            channel: item.channel || 'offline_help',
+            message: item.message,
+            created_at: item.created_at,
+            _source: 'recruiter_help_requests'
+          }));
+
+          const deduped = new Map();
+          [...applicantRows, ...helpRows].forEach((row) => {
+            const key = [row._source || 'message', row.id || '', row.created_at || '', row.message || ''].join(':');
+            deduped.set(key, row);
+          });
+
+          return [...deduped.values()].sort((a, b) => new Date(a.created_at || 0) - new Date(b.created_at || 0));
         } else {
           const clauses = [];
           if (thread.email) {
@@ -4339,6 +4397,7 @@ function renderLearningInsights(row) {
     function buildChatThreads() {
       const rows = state.allRows || [];
       const candidateMessages = Array.isArray(state.chatCandidateMessages) ? state.chatCandidateMessages : [];
+      const helpRequests = Array.isArray(state.chatHelpRequests) ? state.chatHelpRequests : [];
       const clientMessages = Array.isArray(state.chatClientMessages) ? state.chatClientMessages : [];
       const candidateMap = new Map();
       const clientMap = new Map();
@@ -4393,12 +4452,17 @@ function renderLearningInsights(row) {
         if (!key) return;
         const senderType = normalizeText(message?.sender_type || '');
         const isInbound = !['recruiter', 'admin', 'system'].includes(senderType);
+        const supportMeta = uniq([
+          formatStatusLabel(message?.issue_type || ''),
+          safeText(message?.step || ''),
+          safeText(message?.page || '')
+        ].filter(Boolean)).join(' • ');
         const existing = candidateMap.get(key) || {
           threadKey: key,
           threadType: 'candidate',
-          typeLabel: 'Candidate',
-          name: normalizeEmail(message?.applicant_email || '') || 'Candidate',
-          subtitle: 'Candidate conversation',
+          typeLabel: 'Support',
+          name: safeText(message?.sender_name || message?.full_name || '') || normalizeEmail(message?.applicant_email || '') || 'Candidate',
+          subtitle: supportMeta || 'Candidate support conversation',
           preview: 'No messages yet.',
           lastMessageAt: null,
           email: normalizeEmail(message?.applicant_email || ''),
@@ -4411,12 +4475,54 @@ function renderLearningInsights(row) {
         const messageAt = message?.created_at || null;
         if (!existing.email && message?.applicant_email) existing.email = normalizeEmail(message.applicant_email);
         if (!existing.applicantProfileId && message?.applicant_profile_id) existing.applicantProfileId = message.applicant_profile_id;
-        if (!existing.name || existing.name === existing.email) existing.name = existing.name || existing.email || 'Candidate';
+        if ((!existing.name || existing.name === existing.email) && (message?.sender_name || message?.full_name)) {
+          existing.name = safeText(message?.sender_name || message?.full_name || '') || existing.email || 'Candidate';
+        }
+        if (supportMeta) existing.subtitle = supportMeta;
         if (!existing.lastMessageAt || new Date(messageAt || 0) > new Date(existing.lastMessageAt || 0)) {
           existing.lastMessageAt = messageAt;
           existing.preview = safeText(message?.message || '') || 'No messages yet.';
         }
         if (isInbound && messageAt) existing.inboundMessageAts.push(messageAt);
+        candidateMap.set(key, existing);
+      });
+
+      helpRequests.forEach((request) => {
+        const key = candidateKey(request?.email, request?.applicant_profile_id);
+        if (!key) return;
+        const supportMeta = uniq([
+          'Guest support',
+          formatStatusLabel(request?.issue_type || ''),
+          safeText(request?.step || ''),
+          safeText(request?.page || '')
+        ].filter(Boolean)).join(' • ');
+        const existing = candidateMap.get(key) || {
+          threadKey: key,
+          threadType: 'candidate',
+          typeLabel: 'Support',
+          name: safeText(request?.full_name || '') || normalizeEmail(request?.email || '') || 'Candidate',
+          subtitle: supportMeta || 'Guest support conversation',
+          preview: 'No messages yet.',
+          lastMessageAt: null,
+          email: normalizeEmail(request?.email || ''),
+          applicantProfileId: request?.applicant_profile_id || null,
+          applicationId: null,
+          status: formatStatusLabel(request?.status || ''),
+          inboundMessageAts: [],
+          relatedJobs: [],
+        };
+        const messageAt = request?.created_at || null;
+        if (!existing.email && request?.email) existing.email = normalizeEmail(request.email);
+        if (!existing.applicantProfileId && request?.applicant_profile_id) existing.applicantProfileId = request.applicant_profile_id;
+        if ((!existing.name || existing.name === existing.email) && request?.full_name) {
+          existing.name = safeText(request.full_name) || existing.email || 'Candidate';
+        }
+        if (supportMeta) existing.subtitle = supportMeta;
+        if (!existing.lastMessageAt || new Date(messageAt || 0) > new Date(existing.lastMessageAt || 0)) {
+          existing.lastMessageAt = messageAt;
+          existing.preview = safeText(request?.message || '') || 'No messages yet.';
+        }
+        if (messageAt) existing.inboundMessageAts.push(messageAt);
         candidateMap.set(key, existing);
       });
 
@@ -4680,11 +4786,16 @@ function renderLearningInsights(row) {
 
       try {
         if (thread.threadType === 'candidate') {
+          if (!thread.email && !thread.applicantProfileId) {
+            showNotice('This guest support thread does not have a linked email or profile yet, so it cannot receive a recruiter reply.', 'error');
+            return;
+          }
           const payload = {
             applicant_email: thread.email || null,
             applicant_profile_id: thread.applicantProfileId || null,
             application_id: thread.applicationId || null,
             sender_type: 'recruiter',
+            sender_name: safeText(state.recruiterProfile?.full_name || state.currentUser?.email || 'Recruiter'),
             message,
           };
           const { error } = await supabaseClient.from('applicant_messages').insert(payload);
@@ -4786,7 +4897,14 @@ function renderLearningInsights(row) {
           })
           .subscribe();
 
-        chatRealtimeChannels.push(applicantChannel, clientChannel);
+        const helpChannel = supabaseClient
+          .channel('buzzhire-live-recruiter-help-requests')
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'recruiter_help_requests' }, () => {
+            void refreshChatWidgetLive(true);
+          })
+          .subscribe();
+
+        chatRealtimeChannels.push(applicantChannel, clientChannel, helpChannel);
       } catch (err) {
         console.warn('Unable to start chat realtime:', err?.message || err);
       }
