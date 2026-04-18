@@ -980,6 +980,9 @@ const tbOfflineHelpForm = document.getElementById('tbOfflineHelpForm');
 const tbOfflineHelpStatus = document.getElementById('tbOfflineHelpStatus');
 
   let currentStep = 1;
+  let draftSaveTimer = null;
+  let draftSaveInFlight = false;
+  let lastDraftFingerprint = '';
   let currentUser = null;
   let existingProfile = null;
   let recruiterAttribution = null;
@@ -1340,6 +1343,182 @@ function getRecruiterOnlineStatus(){
     else if (pendingProfilePhotoDataUrl) photoPreview.innerHTML = `<img src="${pendingProfilePhotoDataUrl}" alt="Profile preview">`;
     else updatePhotoPreviewFromName();
   }
+
+  function getDraftFingerprint(payload) {
+    return JSON.stringify({
+      email: payload.email || '',
+      full_name: payload.full_name || '',
+      phone: payload.phone || '',
+      location: payload.location || '',
+      target_role: payload.target_role || '',
+      preferred_work_setup: payload.preferred_work_setup || '',
+      linkedin: payload.linkedin || '',
+      portfolio_url: payload.portfolio_url || '',
+      experience_summary: payload.experience_summary || '',
+      profile_status: payload.profile_status || '',
+      profile_completion_percent: Number(payload.profile_completion_percent || 0),
+      profile_started_at: payload.profile_started_at || '',
+      profile_completed_at: payload.profile_completed_at || ''
+    });
+  }
+
+  function buildDraftPayload(attribution) {
+    const email = getEmailInput().value.trim().toLowerCase();
+    const full_name = getFullNameInput().value.trim();
+    const phone = normalizePhone(document.getElementById('phone').value);
+    const location = document.getElementById('location').value.trim();
+    const target_role = getTargetRoleInput().value.trim();
+    const salaryRaw = document.getElementById('salary').value.trim();
+    const preferred_work_setup = document.getElementById('work_setup').value.trim();
+    const linkedin = document.getElementById('linkedin').value.trim();
+    const portfolio_url = document.getElementById('portfolio').value.trim();
+    const experience_summary = document.getElementById('experience').value.trim();
+    const profile_started_at = existingProfile?.profile_started_at || new Date().toISOString();
+    const draftPayload = {
+      full_name: full_name || null,
+      email,
+      phone: phone || null,
+      location: location || null,
+      target_role: target_role || null,
+      expected_salary: salaryRaw ? Number(salaryRaw) : null,
+      preferred_work_setup: preferred_work_setup || null,
+      linkedin: linkedin || null,
+      portfolio_url: portfolio_url || null,
+      experience_summary: experience_summary || null,
+      headline: target_role || existingProfile?.headline || null,
+      profile_status: 'in_progress',
+      profile_started_at,
+      profile_completed_at: null,
+      profile_completion_percent: computeProfileCompletion({
+        full_name,
+        email,
+        phone,
+        location,
+        target_role,
+        preferred_work_setup,
+        expected_salary: salaryRaw,
+        linkedin,
+        portfolio_url,
+        experience_summary,
+        resume_path: existingProfile?.resume_path || null,
+        profile_photo_url: existingProfile?.profile_photo_url || null
+      }),
+      recruiter_email: attribution?.recruiter_email || existingProfile?.recruiter_email || existingProfile?.sourced_by_recruiter_email || null,
+      sourced_by_recruiter: attribution?.recruiter_email || existingProfile?.sourced_by_recruiter || null,
+      sourced_by_recruiter_email: attribution?.recruiter_email || existingProfile?.sourced_by_recruiter_email || null,
+      attribution_source: attribution?.source_type || existingProfile?.attribution_source || source || 'create_profile',
+      attribution_invite_token: attribution?.invite_token || existingProfile?.attribution_invite_token || null,
+      attribution_invite_id: attribution?.buzzpool_invite_id || existingProfile?.attribution_invite_id || null,
+      invite_token: attribution?.invite_token || existingProfile?.invite_token || null,
+      buzzpool_invite_id: attribution?.buzzpool_invite_id || existingProfile?.buzzpool_invite_id || null,
+      source: source || attribution?.source_type || existingProfile?.source || 'create_profile',
+      source_detail: hasApplicationRoute() ? 'application_route' : 'profile_draft',
+      ownership_locked: !!(attribution?.recruiter_email || existingProfile?.ownership_locked),
+      profile_created_via: 'create-profile.html',
+      sourced_at: existingProfile?.sourced_at || new Date().toISOString()
+    };
+    return draftPayload;
+  }
+
+  async function persistProfileDraft(options = {}) {
+    const silent = options.silent !== false;
+    const force = !!options.force;
+    if (!supabaseClient || draftSaveInFlight || isSaving) return null;
+    const email = getEmailInput().value.trim().toLowerCase();
+    if (!email || !isValidEmail(email)) return null;
+
+    const hasMeaningfulInput = [
+      getFullNameInput().value,
+      document.getElementById('phone').value,
+      document.getElementById('location').value,
+      getTargetRoleInput().value,
+      document.getElementById('salary').value,
+      document.getElementById('work_setup').value,
+      document.getElementById('linkedin').value,
+      document.getElementById('portfolio').value,
+      document.getElementById('experience').value,
+      resumeInput?.files?.[0]?.name,
+      profilePhotoInput?.files?.[0]?.name
+    ].some(value => String(value || '').trim());
+
+    if (!force && !hasMeaningfulInput && currentStep === 1) return null;
+
+    const attribution = await resolveRecruiterAttribution(email);
+    const payload = buildDraftPayload(attribution);
+    const fingerprint = getDraftFingerprint(payload);
+    if (!force && fingerprint === lastDraftFingerprint) return existingProfile || null;
+
+    draftSaveInFlight = true;
+    try {
+      await markInviteProfileStarted(attribution);
+      const savedDraft = await upsertProfileWithFallback(payload, email, existingProfile);
+      existingProfile = savedDraft || existingProfile;
+      lastDraftFingerprint = fingerprint;
+      if (!silent) showMessage('Progress saved. You can continue later.', 'info');
+      return savedDraft;
+    } catch (err) {
+      console.warn('Unable to save draft profile progress:', err);
+      if (!silent) showMessage(err.message || 'Unable to save progress right now.', 'error');
+      return null;
+    } finally {
+      draftSaveInFlight = false;
+    }
+  }
+
+  function queueDraftSave(force = false) {
+    clearTimeout(draftSaveTimer);
+    draftSaveTimer = setTimeout(() => { persistProfileDraft({ silent: true, force }); }, force ? 60 : 500);
+  }
+
+  async function hydrateProfileByEmail(email) {
+    if (!email || !isValidEmail(email)) return;
+    try {
+      const profile = await findExistingProfileByEmail(email);
+      if (profile) await loadExistingProfileIntoForm(profile);
+      await resolveRecruiterAttribution(email);
+    } catch (err) {
+      console.warn('Unable to hydrate profile by email:', err);
+    }
+  }
+
+  function wireDraftTracking() {
+    const trackedIds = ['email','full_name','phone','location','target_role','salary','work_setup','linkedin','portfolio','experience'];
+    trackedIds.forEach(id => {
+      const field = document.getElementById(id);
+      if (!field) return;
+      field.addEventListener('input', () => {
+        if (id === 'full_name') updatePhotoPreviewFromName();
+        if (id === 'email') return;
+        queueDraftSave(false);
+      });
+      field.addEventListener('change', async () => {
+        if (id === 'email') {
+          const cleanEmail = getEmailInput().value.trim().toLowerCase();
+          await hydrateProfileByEmail(cleanEmail);
+          queueDraftSave(true);
+          return;
+        }
+        queueDraftSave(true);
+      });
+      if (id === 'email') {
+        field.addEventListener('blur', async () => {
+          const cleanEmail = getEmailInput().value.trim().toLowerCase();
+          await hydrateProfileByEmail(cleanEmail);
+          queueDraftSave(true);
+        });
+      }
+    });
+
+    profilePhotoInput?.addEventListener('change', () => queueDraftSave(true));
+    resumeInput?.addEventListener('change', () => queueDraftSave(true));
+    window.addEventListener('beforeunload', () => {
+      if (draftSaveTimer) {
+        clearTimeout(draftSaveTimer);
+        persistProfileDraft({ silent: true, force: true });
+      }
+    });
+  }
+
   function applyOAuthDefaults(user) {
     const defaults = getOAuthProfileDefaults(user);
     if (!getEmailInput().value && defaults.email) getEmailInput().value = defaults.email; else if (defaults.email) getEmailInput().value = defaults.email;
@@ -1788,8 +1967,24 @@ function getRecruiterOnlineStatus(){
   goToLoginBtn.addEventListener('click', () => { window.location.href = buildLoginUrl(getEmailInput().value.trim().toLowerCase()); });
   googleLoginBtn.addEventListener('click', async () => { try { await signInWithProvider('google'); } catch (err) { showMessage(err.message || 'Unable to continue with Google.', 'error'); } });
   linkedinLoginBtn.addEventListener('click', async () => { try { await signInWithProvider('linkedin_oidc'); } catch (err) { showMessage(err.message || 'Unable to continue with LinkedIn.', 'error'); } });
-  githubLoginBtn.addEventListener('click', async () => { try { await signInWithProvider('github'); } catch (err) { showMessage(err.message || 'Unable to continue with GitHub.', 'error'); } });  nextBtn.addEventListener('click', () => { try { validateCurrentStep(); currentStep = Math.min(3, currentStep + 1); updateStepUI(); clearMessage(); } catch (err) { showMessage(err.message || 'Please check the highlighted fields.', 'error'); } });
-  backBtn.addEventListener('click', () => { currentStep = Math.max(1, currentStep - 1); updateStepUI(); clearMessage(); });
+  githubLoginBtn.addEventListener('click', async () => { try { await signInWithProvider('github'); } catch (err) { showMessage(err.message || 'Unable to continue with GitHub.', 'error'); } });
+  nextBtn.addEventListener('click', async () => {
+    try {
+      validateCurrentStep();
+      await persistProfileDraft({ silent: true, force: currentStep >= 1 });
+      currentStep = Math.min(3, currentStep + 1);
+      updateStepUI();
+      clearMessage();
+    } catch (err) {
+      showMessage(err.message || 'Please check the highlighted fields.', 'error');
+    }
+  });
+  backBtn.addEventListener('click', async () => {
+    await persistProfileDraft({ silent: true, force: false });
+    currentStep = Math.max(1, currentStep - 1);
+    updateStepUI();
+    clearMessage();
+  });
   getFullNameInput().addEventListener('input', updatePhotoPreviewFromName);
   resumeInput.addEventListener('change', async (e) => { clearMessage(); const file = e.target.files[0]; if (!file) { renderResumeInsights(); return; } try { validateResumeFile(file); await analyzeProfileAgainstOpenJobs(file); showMessage('Resume attached. TalentBuzz match preview updated.', 'info'); } catch (err) { showMessage(err.message || 'Invalid resume file.', 'error'); e.target.value = ''; renderResumeInsights(); } });
   profilePhotoInput.addEventListener('change', (e) => {
@@ -1849,9 +2044,11 @@ function getRecruiterOnlineStatus(){
 
   async function initPage() {
     updateRouteUI(); syncAuthModeUI(); updateStepUI(); updatePhotoPreviewFromName(); await fetchOpenJobs();
+    wireDraftTracking();
     const emailFromUrl = params.get('email') || ''; if (emailFromUrl && !getEmailInput().value) getEmailInput().value = emailFromUrl;
     if (getEmailInput().value) { try { existingProfile = await findExistingProfileByEmail(getEmailInput().value.trim().toLowerCase()); if (existingProfile) await loadExistingProfileIntoForm(existingProfile); } catch (err) { console.warn('Unable to pre-load existing profile:', err); } }
     const attribution = await resolveRecruiterAttribution(getEmailInput().value.trim().toLowerCase()); await markInviteOpened(attribution);
+    if (getEmailInput().value || getFullNameInput().value || getTargetRoleInput().value) queueDraftSave(true);
     if (supabaseClient) {
       try {
         const { data: { session } } = await supabaseClient.auth.getSession(); currentUser = session?.user || null; if (currentUser) { applyOAuthDefaults(currentUser); syncAuthModeUI(); }
