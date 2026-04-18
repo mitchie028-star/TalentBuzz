@@ -927,6 +927,7 @@ h1 {
   const fromApply = params.get('fromApply') || '';
   const redirect = params.get('redirect') || '';
   const inviteToken = params.get('invite_token') || params.get('invite') || '';
+  const prefillToken = params.get('token') || params.get('prefill_token') || '';
   const recruiterRef = params.get('ref') || params.get('recruiter') || params.get('recruiter_email') || '';
 
   const form = document.getElementById('profileForm');
@@ -990,6 +991,7 @@ const tbOfflineHelpStatus = document.getElementById('tbOfflineHelpStatus');
   let currentUser = null;
   let existingProfile = null;
   let recruiterAttribution = null;
+  let prefillLeadData = null;
   let pendingProfilePhotoDataUrl = null;
   let openJobs = [];
   let lastSignupAttempt = 0;
@@ -1253,6 +1255,93 @@ function getRecruiterOnlineStatus(){
     const avatarUrl = meta.avatar_url || meta.picture || "";
     const profileUrl = meta.profile_url || (provider === 'github' && meta.user_name ? `https://github.com/${meta.user_name}` : '') || '';
     return { email, fullName, avatarUrl, profileUrl, provider };
+  }
+
+
+  async function loadPrefillLead(token) {
+    if (!token) return null;
+    if (!supabaseClient) throw new Error('Supabase is not available in this build.');
+
+    const { data: tokenRow, error: tokenError } = await supabaseClient
+      .from('profile_prefill_tokens')
+      .select('id, token, used, expires_at, lead_id')
+      .eq('token', token)
+      .maybeSingle();
+
+    if (tokenError) throw tokenError;
+    if (!tokenRow?.lead_id) throw new Error('This Sift profile link is invalid or no longer available.');
+    if (tokenRow.expires_at && new Date(tokenRow.expires_at).getTime() < Date.now()) {
+      throw new Error('This Sift profile link has expired. Please request a new link from Sift.');
+    }
+
+    const { data: leadRow, error: leadError } = await supabaseClient
+      .from('lead_intakes')
+      .select('*')
+      .eq('id', tokenRow.lead_id)
+      .maybeSingle();
+
+    if (leadError) throw leadError;
+    if (!leadRow) throw new Error('We could not find your saved Sift details right now.');
+
+    prefillLeadData = leadRow;
+    return { tokenRow, leadRow };
+  }
+
+  function applyPrefillLeadToForm(leadRow) {
+    if (!leadRow) return;
+    prefillLeadData = leadRow;
+
+    const emailInput = getEmailInput();
+    const fullNameInput = getFullNameInput();
+    const phoneInput = document.getElementById('phone');
+    const locationInput = document.getElementById('location');
+    const targetRoleInput = getTargetRoleInput();
+    const workSetupInput = document.getElementById('work_setup');
+    const linkedinInput = document.getElementById('linkedin');
+    const portfolioInput = document.getElementById('portfolio');
+    const experienceInput = document.getElementById('experience');
+    const salaryInput = document.getElementById('salary');
+
+    const firstTargetRole = Array.isArray(leadRow.target_roles) ? String(leadRow.target_roles[0] || '').trim() : '';
+    const preferredRole = String(leadRow.target_role || firstTargetRole || leadRow.current_title || '').trim();
+    const summaryBits = [
+      leadRow.current_title ? `Current title: ${leadRow.current_title}` : '',
+      leadRow.years_experience ? `Experience: ${leadRow.years_experience}` : '',
+      leadRow.location ? `Location: ${leadRow.location}` : ''
+    ].filter(Boolean);
+    const generatedSummary = summaryBits.join(' • ');
+
+    if (emailInput && !emailInput.value && leadRow.email) {
+      emailInput.value = String(leadRow.email).trim().toLowerCase();
+      emailMethodSelected = true;
+      passwordWrap.classList.add('show');
+    }
+    if (fullNameInput && !fullNameInput.value && leadRow.full_name) fullNameInput.value = String(leadRow.full_name).trim();
+    if (phoneInput && !phoneInput.value && leadRow.phone) phoneInput.value = normalizePhone(String(leadRow.phone));
+    if (locationInput && !locationInput.value && leadRow.location) locationInput.value = String(leadRow.location).trim();
+    if (targetRoleInput && !targetRoleInput.value && preferredRole) targetRoleInput.value = preferredRole;
+    if (workSetupInput && !workSetupInput.value && leadRow.preferred_work_setup) workSetupInput.value = String(leadRow.preferred_work_setup).trim();
+    if (linkedinInput && !linkedinInput.value && leadRow.linkedin_url) linkedinInput.value = String(leadRow.linkedin_url).trim();
+    if (portfolioInput && !portfolioInput.value && leadRow.portfolio_url) portfolioInput.value = String(leadRow.portfolio_url).trim();
+    if (salaryInput && !salaryInput.value && leadRow.expected_salary != null) salaryInput.value = String(leadRow.expected_salary);
+    if (experienceInput && !experienceInput.value) {
+      experienceInput.value = String(leadRow.experience_summary || generatedSummary || '').trim();
+    }
+
+    updatePhotoPreviewFromName();
+    syncAuthModeUI();
+  }
+
+  async function markPrefillTokenUsed(token) {
+    if (!token || !supabaseClient) return;
+    try {
+      await supabaseClient
+        .from('profile_prefill_tokens')
+        .update({ used: true })
+        .eq('token', token);
+    } catch (err) {
+      console.warn('Unable to mark prefill token used:', err);
+    }
   }
 
   async function sendMagicLink(email, fullName) {
@@ -1858,6 +1947,7 @@ function getRecruiterOnlineStatus(){
       };
       const savedProfile = await upsertProfileWithFallback(payload, email, existingProfile);
       existingProfile = savedProfile; await markInviteProfileCompleted(attribution, savedProfile, email);
+      if (prefillToken) await markPrefillTokenUsed(prefillToken);
       showMessage(hasApplicationRoute() ? 'Profile saved. We will continue your application now.' : 'Profile saved successfully.', 'success');
       setTimeout(() => redirectAfterSave(), 900);
     } catch (err) {
