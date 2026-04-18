@@ -1480,15 +1480,32 @@ function getRecruiterOnlineStatus(){
       created_at: payload.created_at || new Date().toISOString()
     };
 
+    const hasApplicantProfile = !!payload.applicant_profile_id;
+
+    if (!hasApplicantProfile) {
+      const helpInsert = await supabaseClient.from('recruiter_help_requests').insert([helpPayload]);
+      if (!helpInsert.error) {
+        return { ok: true, threadId, mode: 'guest_support' };
+      }
+      const helpMissingRelation = /relation .*recruiter_help_requests.* does not exist/i.test(helpInsert.error?.message || '');
+      if (!helpMissingRelation) {
+        throw helpInsert.error;
+      }
+
+      const applicantFallbackInsert = await supabaseClient.from('applicant_messages').insert([inboxPayload]);
+      if (applicantFallbackInsert.error) throw applicantFallbackInsert.error;
+      return { ok: true, threadId, mode: 'guest_fallback' };
+    }
+
     const applicantInsert = await supabaseClient.from('applicant_messages').insert([inboxPayload]);
     if (applicantInsert.error) throw applicantInsert.error;
 
     const helpInsert = await supabaseClient.from('recruiter_help_requests').insert([helpPayload]);
     if (helpInsert.error && !/relation .*recruiter_help_requests.* does not exist/i.test(helpInsert.error.message || '')) {
-      throw helpInsert.error;
+      console.warn('Unable to mirror applicant support request to recruiter_help_requests:', helpInsert.error.message || helpInsert.error);
     }
 
-    return { ok: true, threadId };
+    return { ok: true, threadId, mode: 'applicant_thread' };
   }
 
   async function submitLiveSupportMessage(messageText, issueType = 'general_help'){
@@ -1541,11 +1558,11 @@ function getRecruiterOnlineStatus(){
       try {
         await submitLiveSupportMessage(text, 'live_chat');
         setTimeout(() => {
-          appendChatMessage('recruiter', 'Thanks — Sift sent your message to the recruiter inbox. The team can now see it in BuzzHire.', 'TalentBuzz Recruiter');
+          appendChatMessage('recruiter', 'Thanks — your message was sent successfully. Sift has notified the recruiter team in BuzzHire.', 'TalentBuzz Recruiter');
         }, 450);
       } catch (error) {
         console.error('Unable to send live support message:', error);
-        appendChatMessage('recruiter', 'We could not send your message right now. Please try again in a moment.', 'TalentBuzz Recruiter');
+        appendChatMessage('recruiter', 'We could not send your message right now. Please check your details and try again in a moment.', 'TalentBuzz Recruiter');
       } finally {
         setTimeout(() => {
           tbSendSupportChatBtn.disabled = false;
@@ -1580,7 +1597,7 @@ function getRecruiterOnlineStatus(){
       if (tbOfflineHelpStatus) tbOfflineHelpStatus.textContent = 'Sending message...';
       try {
         await submitSupportPayload(payload);
-        if (tbOfflineHelpStatus) tbOfflineHelpStatus.textContent = 'Message sent. Sift has notified the recruiter team.';
+        if (tbOfflineHelpStatus) tbOfflineHelpStatus.textContent = 'Message sent. Sift has notified the recruiter team in BuzzHire.';
         tbOfflineHelpForm.reset();
         prefillSupportFields(payload.issue_type || 'general_help', '');
       } catch (error) {
