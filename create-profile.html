@@ -1450,6 +1450,120 @@ Step: ${ctx.step}`;
     return { ok: true };
   }
 
+  async function submitLiveSupportMessage(messageText, issueType = 'general_help'){
+    const ctx = getSupportContext();
+    const payload = {
+      full_name: ctx.full_name || null,
+      email: ctx.email || null,
+      phone: ctx.phone || null,
+      applicant_profile_id: ctx.applicant_profile_id || null,
+      issue_type: issueType,
+      message: messageText,
+      page: ctx.page,
+      step: ctx.step,
+      channel: 'live_chat',
+      status: 'new',
+      created_at: new Date().toISOString()
+    };
+    try {
+      await submitOfflineHelpRequest(payload);
+      return { ok: true };
+    } catch (error) {
+      console.warn('Live support fallback used:', error);
+      const queue = JSON.parse(localStorage.getItem('tb_live_support_queue') || '[]');
+      queue.push(payload);
+      localStorage.setItem('tb_live_support_queue', JSON.stringify(queue));
+      return { ok: true, localOnly: true };
+    }
+  }
+
+  function wireRecruiterSupportUI(){
+    openRecruiterSupportTopBtn?.addEventListener('click', () => openRecruiterSupport('general_help'));
+    openRecruiterSupportHeroBtn?.addEventListener('click', () => openRecruiterSupport('general_help'));
+    closeRecruiterSupportBtn?.addEventListener('click', closeRecruiterSupport);
+    supportBackdrop?.addEventListener('click', closeRecruiterSupport);
+    tbContinueProfileBtn?.addEventListener('click', closeRecruiterSupport);
+
+    recruiterSupportModal?.addEventListener('click', (e) => {
+      if (e.target === recruiterSupportModal) closeRecruiterSupport();
+    });
+
+    document.querySelectorAll('[data-help-topic]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const topic = btn.getAttribute('data-help-topic') || 'General question';
+        if (tbSupportChatInput) {
+          tbSupportChatInput.value = topic;
+          tbSupportChatInput.focus();
+          tbSupportChatInput.setSelectionRange(tbSupportChatInput.value.length, tbSupportChatInput.value.length);
+        }
+      });
+    });
+
+    tbSendSupportChatBtn?.addEventListener('click', async () => {
+      const text = (tbSupportChatInput?.value || '').trim();
+      if (!text) return;
+      appendChatMessage('user', text, 'You');
+      tbSupportChatInput.value = '';
+      tbSendSupportChatBtn.disabled = true;
+      tbSendSupportChatBtn.textContent = 'Sending...';
+      try {
+        await submitLiveSupportMessage(text, 'live_chat');
+        setTimeout(() => {
+          appendChatMessage('recruiter', 'Thanks — we received your message. A recruiter will reply here or follow up using your profile details.', 'TalentBuzz Recruiter');
+        }, 450);
+      } catch (error) {
+        appendChatMessage('recruiter', 'Your message was saved locally. Please continue your profile and we will still review your request.', 'TalentBuzz Recruiter');
+      } finally {
+        setTimeout(() => {
+          tbSendSupportChatBtn.disabled = false;
+          tbSendSupportChatBtn.textContent = 'Send';
+        }, 500);
+      }
+    });
+
+    tbSupportChatInput?.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        tbSendSupportChatBtn?.click();
+      }
+    });
+
+    tbOfflineHelpForm?.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const payload = {
+        full_name: tbHelpFullName?.value.trim() || null,
+        email: (tbHelpEmail?.value || '').trim().toLowerCase() || null,
+        phone: tbHelpPhone?.value.trim() || null,
+        applicant_profile_id: existingProfile?.id || null,
+        issue_type: tbHelpIssueType?.value || 'general_help',
+        message: tbHelpMessage?.value.trim() || null,
+        page: 'create-profile',
+        step: tbHelpStep?.value || getCurrentProfileStepLabel(),
+        channel: 'offline_help',
+        status: 'new',
+        created_at: new Date().toISOString()
+      };
+      if (tbOfflineHelpStatus) tbOfflineHelpStatus.textContent = 'Sending request...';
+      try {
+        await submitOfflineHelpRequest(payload);
+        if (tbOfflineHelpStatus) tbOfflineHelpStatus.textContent = 'Request sent. A recruiter will follow up soon.';
+        tbOfflineHelpForm.reset();
+        prefillSupportFields();
+      } catch (error) {
+        if (tbOfflineHelpStatus) tbOfflineHelpStatus.textContent = 'Could not send right now. Your request was saved locally.';
+        const queue = JSON.parse(localStorage.getItem('tb_offline_help_queue') || '[]');
+        queue.push(payload);
+        localStorage.setItem('tb_offline_help_queue', JSON.stringify(queue));
+      }
+    });
+
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && recruiterSupportModal && !recruiterSupportModal.classList.contains('hidden')) {
+        closeRecruiterSupport();
+      }
+    });
+  }
+
 
   // Sift guide
   window.SiftGuide = (function(){
@@ -1693,6 +1807,7 @@ Step: ${ctx.step}`;
         supabaseClient.auth.onAuthStateChange((_event, session) => { currentUser = session?.user || null; if (currentUser) applyOAuthDefaults(currentUser); syncAuthModeUI(); });
       } catch (err) { console.warn('Supabase auth init skipped:', err); }
     }
+    wireRecruiterSupportUI();
     window.SiftGuide.init();
   }
 
