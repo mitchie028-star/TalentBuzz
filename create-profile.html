@@ -1452,9 +1452,35 @@ Step: ${ctx.step}`;
 
   async function submitLiveSupportMessage(messageText, issueType = 'general_help'){
     const ctx = getSupportContext();
-    const payload = {
-      full_name: ctx.full_name || null,
-      email: ctx.email || null,
+    const nowIso = new Date().toISOString();
+    const applicantName = ctx.full_name || getFullNameInput().value.trim() || 'Candidate';
+    const applicantEmail = (ctx.email || getEmailInput().value || '').trim().toLowerCase() || null;
+    const threadId = ctx.applicant_profile_id || applicantEmail || `guest-${Date.now()}`;
+    const inboxPayload = {
+      thread_id: threadId,
+      conversation_id: threadId,
+      applicant_profile_id: ctx.applicant_profile_id || null,
+      application_id: ctx.application_id || null,
+      email: applicantEmail,
+      applicant_email: applicantEmail,
+      sender_email: applicantEmail,
+      sender_name: applicantName,
+      full_name: applicantName,
+      applicant_name: applicantName,
+      sender_type: 'applicant',
+      issue_type: issueType,
+      page: ctx.page,
+      step: ctx.step,
+      status: 'new',
+      message: messageText,
+      body: messageText,
+      content: messageText,
+      channel: 'live_chat',
+      created_at: nowIso
+    };
+    const helpPayload = {
+      full_name: applicantName,
+      email: applicantEmail,
       phone: ctx.phone || null,
       applicant_profile_id: ctx.applicant_profile_id || null,
       issue_type: issueType,
@@ -1463,18 +1489,37 @@ Step: ${ctx.step}`;
       step: ctx.step,
       channel: 'live_chat',
       status: 'new',
-      created_at: new Date().toISOString()
+      created_at: nowIso
     };
-    try {
-      await submitOfflineHelpRequest(payload);
-      return { ok: true };
-    } catch (error) {
-      console.warn('Live support fallback used:', error);
+
+    if (!supabaseClient) {
       const queue = JSON.parse(localStorage.getItem('tb_live_support_queue') || '[]');
-      queue.push(payload);
+      queue.push(inboxPayload);
       localStorage.setItem('tb_live_support_queue', JSON.stringify(queue));
       return { ok: true, localOnly: true };
     }
+
+    let inboxError = null;
+    try {
+      const { error } = await supabaseClient.from('applicant_messages').insert([inboxPayload]);
+      if (error) inboxError = error;
+    } catch (error) {
+      inboxError = error;
+    }
+
+    try {
+      await submitOfflineHelpRequest(helpPayload);
+    } catch (error) {
+      console.warn('Recruiter help request mirror failed:', error);
+    }
+
+    if (!inboxError) return { ok: true };
+
+    console.warn('Live support fallback used:', inboxError);
+    const queue = JSON.parse(localStorage.getItem('tb_live_support_queue') || '[]');
+    queue.push(inboxPayload);
+    localStorage.setItem('tb_live_support_queue', JSON.stringify(queue));
+    return { ok: true, localOnly: true };
   }
 
   function wireRecruiterSupportUI(){
