@@ -927,7 +927,6 @@ h1 {
   const fromApply = params.get('fromApply') || '';
   const redirect = params.get('redirect') || '';
   const inviteToken = params.get('invite_token') || params.get('invite') || '';
-  const prefillToken = params.get('token') || params.get('prefill_token') || '';
   const recruiterRef = params.get('ref') || params.get('recruiter') || params.get('recruiter_email') || '';
 
   const form = document.getElementById('profileForm');
@@ -991,7 +990,6 @@ const tbOfflineHelpStatus = document.getElementById('tbOfflineHelpStatus');
   let currentUser = null;
   let existingProfile = null;
   let recruiterAttribution = null;
-  let prefillLeadData = null;
   let pendingProfilePhotoDataUrl = null;
   let openJobs = [];
   let lastSignupAttempt = 0;
@@ -1083,7 +1081,13 @@ function getRecruiterOnlineStatus(){
     const allowedTypes = ['image/jpeg', 'image/png', 'image/webp'];
     if (!allowedTypes.includes(file.type)) throw new Error('Please upload a JPG, PNG, or WEBP image for your profile photo.');
   }
-  function normalizePhone(phone) { return String(phone || '').replace(/\s+/g, '').trim(); }
+  function normalizePhone(phone) {
+    const raw = String(phone || '').replace(/\s+/g, '').trim();
+    if (!raw) return '';
+    if (/^\+639\d{9}$/.test(raw)) return `0${raw.slice(3)}`;
+    if (/^639\d{9}$/.test(raw)) return `0${raw.slice(2)}`;
+    return raw;
+  }
   function validatePhone(phone) { if (!phone) return true; return /^09\d{9}$/.test(phone); }
   function isValidEmail(email) { return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(email || '').trim()); }
   function sanitizeFileName(name) { return String(name || 'file').replace(/[^a-zA-Z0-9._-]/g, '_'); }
@@ -1094,91 +1098,6 @@ function getRecruiterOnlineStatus(){
     return Math.max(20, Math.min(100, Math.round((complete / checks.length) * 100)));
   }
   function getAttributionParams() { return { invite_token: String(inviteToken || '').trim(), ref: String(recruiterRef || '').trim() }; }
-
-  function parseJsonArray(value) {
-    if (Array.isArray(value)) return value;
-    if (!value) return [];
-    if (typeof value === 'string') {
-      try {
-        const parsed = JSON.parse(value);
-        return Array.isArray(parsed) ? parsed : [];
-      } catch (_err) {
-        return value.split(',').map(item => String(item || '').trim()).filter(Boolean);
-      }
-    }
-    return [];
-  }
-  function pickPrefillTargetRole(lead) {
-    const select = getTargetRoleInput();
-    if (!select) return '';
-    const options = Array.from(select.options || []).map(opt => opt.value).filter(Boolean);
-    const targetRoles = parseJsonArray(lead?.target_roles);
-    const candidates = [...targetRoles, lead?.current_title].map(value => String(value || '').trim()).filter(Boolean);
-    for (const candidate of candidates) {
-      const exact = options.find(opt => opt.toLowerCase() === candidate.toLowerCase());
-      if (exact) return exact;
-    }
-    return candidates.length ? 'Other' : '';
-  }
-  function buildPrefillSummary(lead) {
-    const parts = [];
-    if (lead?.current_title) parts.push(`Current title: ${lead.current_title}`);
-    if (lead?.years_experience) parts.push(`Experience: ${lead.years_experience}`);
-    const roles = parseJsonArray(lead?.target_roles);
-    if (roles.length) parts.push(`Interested roles: ${roles.join(', ')}`);
-    return parts.join(' · ');
-  }
-  async function loadPrefillLead(token) {
-    if (!token || !supabaseClient) return null;
-    const { data: tokenRow, error: tokenError } = await supabaseClient
-      .from('profile_prefill_tokens')
-      .select('token,lead_id,used,expires_at')
-      .eq('token', token)
-      .maybeSingle();
-    if (tokenError) throw tokenError;
-    if (!tokenRow) throw new Error('This TalentBuzz profile link is no longer valid. Please request a new link.');
-    if (tokenRow.expires_at && new Date(tokenRow.expires_at).getTime() < Date.now()) {
-      throw new Error('This TalentBuzz profile link has expired. Please request a new one.');
-    }
-    const { data: leadRow, error: leadError } = await supabaseClient
-      .from('lead_intakes')
-      .select('*')
-      .eq('id', tokenRow.lead_id)
-      .maybeSingle();
-    if (leadError) throw leadError;
-    if (!leadRow) throw new Error('We could not find your saved details. Please request a new link.');
-    return { tokenRow, leadRow };
-  }
-  function applyPrefillLeadToForm(lead) {
-    if (!lead) return;
-    prefillLeadData = lead;
-    if (lead.email && !getEmailInput().value) getEmailInput().value = String(lead.email).trim().toLowerCase();
-    if (lead.full_name && !getFullNameInput().value) getFullNameInput().value = lead.full_name;
-    if (lead.phone && !document.getElementById('phone').value) document.getElementById('phone').value = lead.phone;
-    if (lead.location && !document.getElementById('location').value) document.getElementById('location').value = lead.location;
-    const targetRole = pickPrefillTargetRole(lead);
-    if (targetRole && !getTargetRoleInput().value) getTargetRoleInput().value = targetRole;
-    if (lead.preferred_work_setup && !document.getElementById('work_setup').value) document.getElementById('work_setup').value = lead.preferred_work_setup;
-    if (lead.linkedin_url && !document.getElementById('linkedin').value) document.getElementById('linkedin').value = lead.linkedin_url;
-    const summary = buildPrefillSummary(lead);
-    if (summary && !document.getElementById('experience').value) document.getElementById('experience').value = summary;
-    updatePhotoPreviewFromName();
-    authModeBanner.textContent = 'Sift already captured your basic details. Review them, complete the rest of your TalentBuzz profile, and save.';
-    authModeBanner.classList.remove('hidden');
-    authModeBanner.style.display = 'block';
-    nextStepText.textContent = 'We already saved your basic details from Sift. Complete the remaining fields and save your TalentBuzz profile.';
-  }
-  async function markPrefillTokenUsed(token) {
-    if (!token || !supabaseClient) return;
-    try {
-      await supabaseClient
-        .from('profile_prefill_tokens')
-        .update({ used: true })
-        .eq('token', token);
-    } catch (err) {
-      console.warn('Unable to mark prefill token as used:', err);
-    }
-  }
   function normalizeRecruiterIdentifier(value) {
     const raw = decodeURIComponent(String(value || '').trim()).replace(/\s+/g, '');
     if (!raw) return '';
@@ -1934,11 +1853,11 @@ function getRecruiterOnlineStatus(){
         profile_started_at: existingProfile?.profile_started_at || new Date().toISOString(), profile_completed_at: new Date().toISOString(), profile_completion_percent: 100,
         recruiter_email: attribution?.recruiter_email || null, sourced_by_recruiter: attribution?.recruiter_email || null, sourced_by_recruiter_email: attribution?.recruiter_email || null,
         attribution_source: attribution?.source_type || null, attribution_invite_token: attribution?.invite_token || null, attribution_invite_id: attribution?.buzzpool_invite_id || null,
-        invite_token: attribution?.invite_token || null, buzzpool_invite_id: attribution?.buzzpool_invite_id || null, source: source || prefillLeadData?.source || attribution?.source_type || 'create_profile',
-        source_detail: prefillLeadData?.source ? `prefilled_${prefillLeadData.source}` : (hasApplicationRoute() ? 'application_route' : 'profile_creation'), ownership_locked: !!attribution?.recruiter_email, profile_created_via: 'create-profile.html', sourced_at: new Date().toISOString()
+        invite_token: attribution?.invite_token || null, buzzpool_invite_id: attribution?.buzzpool_invite_id || null, source: source || attribution?.source_type || 'create_profile',
+        source_detail: hasApplicationRoute() ? 'application_route' : 'profile_creation', ownership_locked: !!attribution?.recruiter_email, profile_created_via: 'create-profile.html', sourced_at: new Date().toISOString()
       };
       const savedProfile = await upsertProfileWithFallback(payload, email, existingProfile);
-      existingProfile = savedProfile; await markInviteProfileCompleted(attribution, savedProfile, email); await markPrefillTokenUsed(prefillToken);
+      existingProfile = savedProfile; await markInviteProfileCompleted(attribution, savedProfile, email);
       showMessage(hasApplicationRoute() ? 'Profile saved. We will continue your application now.' : 'Profile saved successfully.', 'success');
       setTimeout(() => redirectAfterSave(), 900);
     } catch (err) {
@@ -1948,24 +1867,46 @@ function getRecruiterOnlineStatus(){
 
   async function initPage() {
     updateRouteUI(); syncAuthModeUI(); updateStepUI(); updatePhotoPreviewFromName(); await fetchOpenJobs();
-    const emailFromUrl = params.get('email') || ''; if (emailFromUrl && !getEmailInput().value) getEmailInput().value = emailFromUrl;
+
     if (prefillToken) {
       try {
         const prefill = await loadPrefillLead(prefillToken);
         if (prefill?.leadRow) applyPrefillLeadToForm(prefill.leadRow);
       } catch (err) {
-        console.warn('Unable to load prefill token:', err);
-        showMessage(err.message || 'We could not load your prefilled details right now.', 'info');
+        console.warn('Unable to load Sift prefill:', err);
+        showMessage(err?.message || 'We could not load your saved Sift details right now.', 'info');
       }
     }
-    if (getEmailInput().value) { try { existingProfile = await findExistingProfileByEmail(getEmailInput().value.trim().toLowerCase()); if (existingProfile) await loadExistingProfileIntoForm(existingProfile); } catch (err) { console.warn('Unable to pre-load existing profile:', err); } }
-    const attribution = await resolveRecruiterAttribution(getEmailInput().value.trim().toLowerCase()); await markInviteOpened(attribution);
+
+    const emailFromUrl = params.get('email') || '';
+    if (emailFromUrl && !getEmailInput().value) getEmailInput().value = emailFromUrl;
+
     if (supabaseClient) {
       try {
-        const { data: { session } } = await supabaseClient.auth.getSession(); currentUser = session?.user || null; if (currentUser) { applyOAuthDefaults(currentUser); syncAuthModeUI(); }
-        supabaseClient.auth.onAuthStateChange((_event, session) => { currentUser = session?.user || null; if (currentUser) applyOAuthDefaults(currentUser); syncAuthModeUI(); });
+        const { data: { session } } = await supabaseClient.auth.getSession();
+        currentUser = session?.user || null;
+        if (currentUser) applyOAuthDefaults(currentUser);
+        syncAuthModeUI();
+        if (prefillLeadData) applyPrefillLeadToForm(prefillLeadData);
+        supabaseClient.auth.onAuthStateChange((_event, session) => {
+          currentUser = session?.user || null;
+          if (currentUser) applyOAuthDefaults(currentUser);
+          syncAuthModeUI();
+          if (prefillLeadData) applyPrefillLeadToForm(prefillLeadData);
+        });
       } catch (err) { console.warn('Supabase auth init skipped:', err); }
     }
+
+    if (getEmailInput().value) {
+      try {
+        existingProfile = await findExistingProfileByEmail(getEmailInput().value.trim().toLowerCase());
+        if (existingProfile) await loadExistingProfileIntoForm(existingProfile);
+        if (prefillLeadData) applyPrefillLeadToForm(prefillLeadData);
+      } catch (err) { console.warn('Unable to pre-load existing profile:', err); }
+    }
+
+    const attribution = await resolveRecruiterAttribution(getEmailInput().value.trim().toLowerCase());
+    await markInviteOpened(attribution);
     wireRecruiterSupportUI();
     window.SiftGuide.init();
   }
