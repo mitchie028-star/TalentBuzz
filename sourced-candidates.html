@@ -225,6 +225,7 @@
       <div class="tracker-card"><h3 id="countSourcing">0</h3><p>Sourced Leads</p></div>
       <div class="tracker-card"><h3 id="countInvited">0</h3><p>Invites Sent</p></div>
       <div class="tracker-card"><h3 id="countConverted">0</h3><p>Invite Conversions</p></div>
+      <div class="tracker-card"><h3 id="countIncomplete">0</h3><p>Started Not Completed</p><div class="mini">Abandoned profile setup</div></div>
       <div class="tracker-card"><h3 id="countPipeline">0</h3><p>Applications</p></div>
     </div>
 
@@ -479,6 +480,7 @@
         jobs:[],
         data:{ talent:[], sourcing:[], outreach:[], pipeline:[] },
         merged:{ prospects:[], invites:[], profiles:[], applications:[] },
+        metrics:{ incompleteProfiles:0 },
         selected:null
       };
 
@@ -490,7 +492,7 @@
         mInvites:$('mInvites'), mProfiles:$('mProfiles'), mApplications:$('mApplications'), mVoice:$('mVoice'),
         barProspects:$('barProspects'), barInvites:$('barInvites'), barProfiles:$('barProfiles'), barApplications:$('barApplications'), barVoice:$('barVoice'),
         countTalent:$('countTalent'), countCompleted:$('countCompleted'), countTalentOnly:$('countTalentOnly'),
-        countSourcing:$('countSourcing'), countInvited:$('countInvited'), countConverted:$('countConverted'), countPipeline:$('countPipeline'),
+        countSourcing:$('countSourcing'), countInvited:$('countInvited'), countConverted:$('countConverted'), countIncomplete:$('countIncomplete'), countPipeline:$('countPipeline'),
         oaSent:$('oaSent'), oaOpened:$('oaOpened'), oaClicked:$('oaClicked'), oaStarted:$('oaStarted'), oaConverted:$('oaConverted'),
         activeTitle:$('activeTitle'), activeCopy:$('activeCopy'),
         contextActions:$('contextActions'), quickFilters:$('quickFilters'),
@@ -1407,13 +1409,17 @@
           tags: mergeUnique([...(normalizeArray(p.skills)).slice(0,4), ...(normalizeArray(p.suggested_roles)).slice(0,2), p.top_match_role || '']).slice(0,6)
         }));
 
-        const profileEmails = new Set((profiles || []).map(p => normalizeText(p.email || '')));
+        const profilesByEmail = new Map((profiles || []).filter(p => normalizeText(p.email || '')).map(p => [normalizeText(p.email || ''), p]));
+        const profileEmails = new Set([...profilesByEmail.keys()]);
         state.data.outreach = (invites || []).map(i => {
           const email = i.invite_email || i.email || '';
+          const linkedProfile = profilesByEmail.get(normalizeText(email)) || null;
+          const derivedStartedAt = i.profile_started_at || linkedProfile?.profile_started_at || null;
+          const derivedCompletedAt = i.completed_at || i.profile_completed_at || linkedProfile?.profile_completed_at || null;
           const status = normalizeInviteStatus(
             i.invite_status ||
-            (i.completed_at ? 'completed' :
-            i.profile_started_at ? 'started' :
+            (derivedCompletedAt ? 'completed' :
+            derivedStartedAt ? 'started' :
             i.opened_at ? 'opened' : 'invite_sent')
           );
 
@@ -1421,20 +1427,27 @@
             ...i,
             email,
             invite_email: email,
-            full_name: i.full_name || '',
+            full_name: i.full_name || linkedProfile?.full_name || '',
             status,
-            recruiter_email: i.recruiter_email || '',
+            recruiter_email: i.recruiter_email || linkedProfile?.recruiter_email || linkedProfile?.sourced_by_recruiter_email || '',
             sent_at: i.sent_at || i.created_at || '',
-            converted: !!(i.completed_at || profileEmails.has(normalizeText(email))),
-            profile_started_at: i.profile_started_at || null,
-            profile_completed_at: i.completed_at || null,
+            converted: !!(derivedCompletedAt || profileEmails.has(normalizeText(email))),
+            incomplete: !!(derivedStartedAt && !derivedCompletedAt),
+            profile_started_at: derivedStartedAt,
+            profile_completed_at: derivedCompletedAt,
             opened_at: i.opened_at || null,
             clicked_at: i.clicked_at || null,
+            profile_completion_percent: Number(linkedProfile?.profile_completion_percent || 0),
+            profile_status: linkedProfile?.profile_status || null,
             offered_job_id: i.offered_job_id || null,
             offered_job_title: i.offered_job_title || '',
             notes: i.notes || ''
           };
         });
+
+        const incompleteTalentEmails = new Set((profiles || []).filter(p => p.profile_started_at && !p.profile_completed_at).map(p => normalizeText(p.email || '')).filter(Boolean));
+        const incompleteOutreachEmails = new Set(state.data.outreach.filter(r => r.incomplete).map(r => normalizeText(r.email || '')).filter(Boolean));
+        state.metrics.incompleteProfiles = new Set([...incompleteTalentEmails, ...incompleteOutreachEmails]).size;
 
         state.data.pipeline = (applications || []).map(app => ({
           ...app,
@@ -1487,6 +1500,7 @@
         els.countSourcing.textContent = String(prospects);
         els.countInvited.textContent = String(invites);
         els.countConverted.textContent = String(state.data.outreach.filter(r => r.converted).length);
+        if (els.countIncomplete) els.countIncomplete.textContent = String(state.metrics.incompleteProfiles || 0);
         els.countPipeline.textContent = String(apps);
         updateOutreachAnalytics();
       }
@@ -1507,8 +1521,8 @@
           },
           outreach: {
             title: 'Outreach',
-            copy: 'Track invites sent through send-buzzpool-invite, monitor conversion into profiles, resend outreach when needed, and keep a clean invite log.',
-            quicks: [['all','All'],['sent','Sent'],['started','Started'],['completed','Completed'],['converted','Converted'],['not_converted','Not Converted']],
+            copy: 'Track invites sent through send-buzzpool-invite, monitor open, start, incomplete, and completed profile states, resend outreach when needed, and keep a clean invite log.',
+            quicks: [['all','All'],['sent','Sent'],['opened','Opened'],['started','Started'],['incomplete','Incomplete'],['completed','Completed'],['converted','Converted'],['not_converted','Not Converted']],
             filters: [['status','Invite Status'],['recruiter','Recruiter'],['converted','Converted'],['domain','Email Domain']]
           },
           pipeline: {
@@ -1623,7 +1637,9 @@
 
           if (state.activeTab === 'outreach') {
             if (state.quickFilter === 'sent' && normalizeInviteStatus(row.status) !== 'sent') return false;
+            if (state.quickFilter === 'opened' && normalizeInviteStatus(row.status) !== 'opened') return false;
             if (state.quickFilter === 'started' && normalizeInviteStatus(row.status) !== 'started') return false;
+            if (state.quickFilter === 'incomplete' && !row.incomplete) return false;
             if (state.quickFilter === 'completed' && normalizeInviteStatus(row.status) !== 'completed') return false;
             if (state.quickFilter === 'converted' && !row.converted) return false;
             if (state.quickFilter === 'not_converted' && row.converted) return false;
@@ -1661,7 +1677,7 @@
         const heads = {
           talent: ['Candidate','Target Role / Headline','Location / Work Setup','AI Score','Profile Status','Applications','Resume','Tags','Updated','Actions'],
           sourcing: ['Lead','Current Role','Company','Location','Source Stage','Email','LinkedIn','Tags','Created','Actions'],
-          outreach: ['Invite Email','Status','Recruiter','Sent','Converted','Profile Match','Specific Opening','Actions'],
+          outreach: ['Invite Email','Status','Recruiter','Sent','Progress','Converted','Specific Opening','Actions'],
           pipeline: ['Applicant','Job','Status','Screening','Score','Created','Actions']
         };
         els.tableHeadRow.innerHTML = heads[state.activeTab].map(h => `<th>${escapeHtml(h)}</th>`).join('');
@@ -1708,8 +1724,8 @@
             <td><span class="stage-pill ${statusClass(row.status)}">${escapeHtml(displayInviteStatus(row.status))}</span></td>
             <td>${escapeHtml(row.recruiter_email || 'TalentBuzz')}</td>
             <td><div class="small">${escapeHtml(formatDate(row.sent_at || row.created_at))}</div></td>
-            <td>${row.converted ? '<span class="status-pill status-completed">Converted</span>' : '<span class="status-pill status-unknown">Not yet</span>'}</td>
-            <td><span class="small">${row.profile_completed_at ? 'Profile completed' : row.profile_started_at ? 'Profile started' : row.opened_at ? 'Invite opened' : 'Awaiting profile action'}</span></td>
+            <td><span class="small">${row.profile_completed_at ? 'Profile completed' : row.incomplete ? `Started • ${escapeHtml(String(row.profile_completion_percent || 0))}% complete` : row.profile_started_at ? 'Profile started' : row.opened_at ? 'Invite opened' : 'Awaiting profile action'}</span></td>
+            <td>${row.converted ? '<span class="status-pill status-completed">Converted</span>' : row.incomplete ? '<span class="status-pill stage-new">Incomplete</span>' : '<span class="status-pill status-unknown">Not yet</span>'}</td>
             <td><div class="small">${escapeHtml(row.offered_job_title || row.notes || 'No opening attached')}</div></td>
             <td><div class="row-actions"><button class="row-menu-btn" type="button" data-id="${escapeHtml(row.id || row.email)}">☰</button><div class="row-menu" id="menu-${escapeHtml(row.id || row.email)}"><button type="button" data-open="outreach" data-id="${escapeHtml(row.id || row.email)}">Open Invite</button><button type="button" data-compose-email="${escapeHtml(row.id || row.email)}" data-source-type="outreach" data-compose-mode="follow_up">Send Follow-Up</button><button type="button" data-compose-email="${escapeHtml(row.id || row.email)}" data-source-type="outreach" data-compose-mode="job_offer">Offer Opening</button><button type="button" data-compose-email="${escapeHtml(row.id || row.email)}" data-source-type="outreach" data-compose-mode="invite">Resend Invite</button></div></div></td>
           </tr>`).join('');
