@@ -830,9 +830,7 @@ h1 {
         <div class="tb-field"><label for="tbHelpIssueType">Issue type</label><select id="tbHelpIssueType"><option value="general_help">General help</option><option value="resume_upload">Resume upload</option><option value="email_cooldown">Email cooldown</option><option value="verification_issue">Verification issue</option><option value="profile_creation">Profile creation</option></select></div>
         <div class="tb-field"><label for="tbHelpMessage">Message</label><textarea id="tbHelpMessage" rows="4" placeholder="Tell us what you need help with..."></textarea></div>
         <div class="tb-offline-actions">
-          <button type="submit" class="tb-primary-btn">Request help</button>
-          <button type="button" id="tbContinueProfileBtn" class="tb-secondary-btn">Continue profile</button>
-          <a id="tbWhatsAppHelpBtn" class="tb-whatsapp-btn" href="#" target="_blank" rel="noopener noreferrer">Chat on WhatsApp instead</a>
+          <button type="submit" class="tb-primary-btn">Leave message</button>
         </div>
         <div id="tbOfflineHelpStatus" class="tb-form-status"></div>
       </form>
@@ -987,8 +985,6 @@ const tbHelpIssueType = document.getElementById('tbHelpIssueType');
 const tbHelpMessage = document.getElementById('tbHelpMessage');
 const tbOfflineHelpForm = document.getElementById('tbOfflineHelpForm');
 const tbOfflineHelpStatus = document.getElementById('tbOfflineHelpStatus');
-const tbContinueProfileBtn = document.getElementById('tbContinueProfileBtn');
-const tbWhatsAppHelpBtn = document.getElementById('tbWhatsAppHelpBtn');
 
   let currentStep = 1;
   let currentUser = null;
@@ -1002,7 +998,6 @@ const tbWhatsAppHelpBtn = document.getElementById('tbWhatsAppHelpBtn');
   const AUTH_EMAIL_COOLDOWN = 60000;
 
 
-const recruiterWhatsAppNumber = '639171234567';
 const supportOpenHour = 9;
 const supportCloseHour = 18;
 function getRecruiterOnlineStatus(){
@@ -1375,15 +1370,11 @@ function getRecruiterOnlineStatus(){
       step: getCurrentProfileStepLabel()
     };
   }
-  function buildSupportWhatsAppLink(){
-    const ctx = getSupportContext();
-    const prefill = `Hi TalentBuzz, I need help with my profile.
-Name: ${ctx.full_name || '-'}
-Email: ${ctx.email || '-'}
-Phone: ${ctx.phone || '-'}
-Page: ${ctx.page}
-Step: ${ctx.step}`;
-    return `https://wa.me/${recruiterWhatsAppNumber}?text=${encodeURIComponent(prefill)}`;
+  function buildSupportThreadId(ctx = getSupportContext()){
+    const email = (ctx.email || '').trim().toLowerCase();
+    if (ctx.applicant_profile_id) return `profile:${ctx.applicant_profile_id}`;
+    if (email) return `email:${email}`;
+    return `guest:${Date.now()}`;
   }
   function setSupportMode(){
     const recruiterOnline = getRecruiterOnlineStatus();
@@ -1391,16 +1382,16 @@ Step: ${ctx.step}`;
       tbRecruiterStatusBadge.textContent = 'Recruiter online now';
       tbRecruiterStatusBadge.style.background = 'rgba(54,211,153,.14)';
       tbRecruiterStatusBadge.style.color = '#8ef0c5';
-      tbSupportTitle.textContent = 'Talk to a TalentBuzz recruiter';
-      tbSupportSubtitle.textContent = 'A recruiter is online now. Send your question below.';
+      tbSupportTitle.textContent = 'Chat with a TalentBuzz recruiter';
+      tbSupportSubtitle.textContent = 'A recruiter is online now. Send your message below.';
       tbSupportOnlineState.classList.remove('hidden');
       tbSupportOfflineState.classList.add('hidden');
     } else {
       tbRecruiterStatusBadge.textContent = 'Recruiters currently offline';
       tbRecruiterStatusBadge.style.background = 'rgba(255,184,77,.16)';
       tbRecruiterStatusBadge.style.color = '#ffd48b';
-      tbSupportTitle.textContent = 'Leave your details and we’ll get back to you';
-      tbSupportSubtitle.textContent = 'Our recruiters are currently offline. Share your email and phone so we can assist you.';
+      tbSupportTitle.textContent = 'Leave a message for TalentBuzz';
+      tbSupportSubtitle.textContent = 'Our recruiters are currently offline. Leave your details and message so Sift can notify the team.';
       tbSupportOnlineState.classList.add('hidden');
       tbSupportOfflineState.classList.remove('hidden');
     }
@@ -1413,7 +1404,6 @@ Step: ${ctx.step}`;
     tbHelpStep.value = ctx.step || 'Step 1';
     tbHelpIssueType.value = issueType;
     if (!tbHelpMessage.value && issueMessage) tbHelpMessage.value = issueMessage;
-    tbWhatsAppHelpBtn.href = buildSupportWhatsAppLink();
   }
   function appendChatMessage(role, text, metaText = '') {
     if (!tbSupportChatMessages) return;
@@ -1440,86 +1430,84 @@ Step: ${ctx.step}`;
     recruiterSupportModal.classList.add('hidden');
     recruiterSupportModal.setAttribute('aria-hidden', 'true');
   }
-  async function submitOfflineHelpRequest(payload){
+  async function submitSupportPayload(payload){
     if (!supabaseClient) {
-      localStorage.setItem('tb_last_help_request', JSON.stringify(payload));
-      return { ok: true, localOnly: true };
+      throw new Error('Supabase is not configured.');
     }
-    const { error } = await supabaseClient.from('recruiter_help_requests').insert([payload]);
-    if (error) throw error;
-    return { ok: true };
+
+    const normalizedEmail = (payload.email || '').trim().toLowerCase() || null;
+    const normalizedName = (payload.full_name || '').trim() || 'Candidate';
+    const threadId = payload.thread_id || buildSupportThreadId({
+      email: normalizedEmail,
+      applicant_profile_id: payload.applicant_profile_id || null
+    });
+
+    const inboxPayload = {
+      thread_id: threadId,
+      conversation_id: threadId,
+      applicant_profile_id: payload.applicant_profile_id || null,
+      application_id: payload.application_id || null,
+      email: normalizedEmail,
+      applicant_email: normalizedEmail,
+      sender_email: normalizedEmail,
+      sender_name: normalizedName,
+      full_name: normalizedName,
+      applicant_name: normalizedName,
+      sender_type: payload.sender_type || 'applicant',
+      issue_type: payload.issue_type || 'general_help',
+      page: payload.page || 'create-profile',
+      step: payload.step || getCurrentProfileStepLabel(),
+      status: payload.status || 'new',
+      message: payload.message || '',
+      body: payload.message || '',
+      content: payload.message || '',
+      channel: payload.channel || 'support',
+      phone: payload.phone || null,
+      created_at: payload.created_at || new Date().toISOString()
+    };
+
+    const helpPayload = {
+      full_name: normalizedName,
+      email: normalizedEmail,
+      phone: payload.phone || null,
+      applicant_profile_id: payload.applicant_profile_id || null,
+      issue_type: payload.issue_type || 'general_help',
+      message: payload.message || '',
+      page: payload.page || 'create-profile',
+      step: payload.step || getCurrentProfileStepLabel(),
+      channel: payload.channel || 'support',
+      status: payload.status || 'new',
+      created_at: payload.created_at || new Date().toISOString()
+    };
+
+    const applicantInsert = await supabaseClient.from('applicant_messages').insert([inboxPayload]);
+    if (applicantInsert.error) throw applicantInsert.error;
+
+    const helpInsert = await supabaseClient.from('recruiter_help_requests').insert([helpPayload]);
+    if (helpInsert.error && !/relation .*recruiter_help_requests.* does not exist/i.test(helpInsert.error.message || '')) {
+      throw helpInsert.error;
+    }
+
+    return { ok: true, threadId };
   }
 
   async function submitLiveSupportMessage(messageText, issueType = 'general_help'){
     const ctx = getSupportContext();
-    const nowIso = new Date().toISOString();
-    const applicantName = ctx.full_name || getFullNameInput().value.trim() || 'Candidate';
-    const applicantEmail = (ctx.email || getEmailInput().value || '').trim().toLowerCase() || null;
-    const threadId = ctx.applicant_profile_id || applicantEmail || `guest-${Date.now()}`;
-    const inboxPayload = {
-      thread_id: threadId,
-      conversation_id: threadId,
-      applicant_profile_id: ctx.applicant_profile_id || null,
-      application_id: ctx.application_id || null,
-      email: applicantEmail,
-      applicant_email: applicantEmail,
-      sender_email: applicantEmail,
-      sender_name: applicantName,
-      full_name: applicantName,
-      applicant_name: applicantName,
-      sender_type: 'applicant',
-      issue_type: issueType,
-      page: ctx.page,
-      step: ctx.step,
-      status: 'new',
-      message: messageText,
-      body: messageText,
-      content: messageText,
-      channel: 'live_chat',
-      created_at: nowIso
-    };
-    const helpPayload = {
-      full_name: applicantName,
-      email: applicantEmail,
+    return submitSupportPayload({
+      full_name: ctx.full_name || getFullNameInput().value.trim() || 'Candidate',
+      email: (ctx.email || getEmailInput().value || '').trim().toLowerCase() || null,
       phone: ctx.phone || null,
       applicant_profile_id: ctx.applicant_profile_id || null,
+      application_id: ctx.application_id || null,
       issue_type: issueType,
       message: messageText,
       page: ctx.page,
       step: ctx.step,
       channel: 'live_chat',
+      sender_type: 'applicant',
       status: 'new',
-      created_at: nowIso
-    };
-
-    if (!supabaseClient) {
-      const queue = JSON.parse(localStorage.getItem('tb_live_support_queue') || '[]');
-      queue.push(inboxPayload);
-      localStorage.setItem('tb_live_support_queue', JSON.stringify(queue));
-      return { ok: true, localOnly: true };
-    }
-
-    let inboxError = null;
-    try {
-      const { error } = await supabaseClient.from('applicant_messages').insert([inboxPayload]);
-      if (error) inboxError = error;
-    } catch (error) {
-      inboxError = error;
-    }
-
-    try {
-      await submitOfflineHelpRequest(helpPayload);
-    } catch (error) {
-      console.warn('Recruiter help request mirror failed:', error);
-    }
-
-    if (!inboxError) return { ok: true };
-
-    console.warn('Live support fallback used:', inboxError);
-    const queue = JSON.parse(localStorage.getItem('tb_live_support_queue') || '[]');
-    queue.push(inboxPayload);
-    localStorage.setItem('tb_live_support_queue', JSON.stringify(queue));
-    return { ok: true, localOnly: true };
+      created_at: new Date().toISOString()
+    });
   }
 
   function wireRecruiterSupportUI(){
@@ -1527,7 +1515,6 @@ Step: ${ctx.step}`;
     openRecruiterSupportHeroBtn?.addEventListener('click', () => openRecruiterSupport('general_help'));
     closeRecruiterSupportBtn?.addEventListener('click', closeRecruiterSupport);
     supportBackdrop?.addEventListener('click', closeRecruiterSupport);
-    tbContinueProfileBtn?.addEventListener('click', closeRecruiterSupport);
 
     recruiterSupportModal?.addEventListener('click', (e) => {
       if (e.target === recruiterSupportModal) closeRecruiterSupport();
@@ -1554,10 +1541,11 @@ Step: ${ctx.step}`;
       try {
         await submitLiveSupportMessage(text, 'live_chat');
         setTimeout(() => {
-          appendChatMessage('recruiter', 'Thanks — we received your message. A recruiter will reply here or follow up using your profile details.', 'TalentBuzz Recruiter');
+          appendChatMessage('recruiter', 'Thanks — Sift sent your message to the recruiter inbox. The team can now see it in BuzzHire.', 'TalentBuzz Recruiter');
         }, 450);
       } catch (error) {
-        appendChatMessage('recruiter', 'Your message was saved locally. Please continue your profile and we will still review your request.', 'TalentBuzz Recruiter');
+        console.error('Unable to send live support message:', error);
+        appendChatMessage('recruiter', 'We could not send your message right now. Please try again in a moment.', 'TalentBuzz Recruiter');
       } finally {
         setTimeout(() => {
           tbSendSupportChatBtn.disabled = false;
@@ -1585,20 +1573,19 @@ Step: ${ctx.step}`;
         page: 'create-profile',
         step: tbHelpStep?.value || getCurrentProfileStepLabel(),
         channel: 'offline_help',
+        sender_type: 'applicant',
         status: 'new',
         created_at: new Date().toISOString()
       };
-      if (tbOfflineHelpStatus) tbOfflineHelpStatus.textContent = 'Sending request...';
+      if (tbOfflineHelpStatus) tbOfflineHelpStatus.textContent = 'Sending message...';
       try {
-        await submitOfflineHelpRequest(payload);
-        if (tbOfflineHelpStatus) tbOfflineHelpStatus.textContent = 'Request sent. A recruiter will follow up soon.';
+        await submitSupportPayload(payload);
+        if (tbOfflineHelpStatus) tbOfflineHelpStatus.textContent = 'Message sent. Sift has notified the recruiter team.';
         tbOfflineHelpForm.reset();
-        prefillSupportFields();
+        prefillSupportFields(payload.issue_type || 'general_help', '');
       } catch (error) {
-        if (tbOfflineHelpStatus) tbOfflineHelpStatus.textContent = 'Could not send right now. Your request was saved locally.';
-        const queue = JSON.parse(localStorage.getItem('tb_offline_help_queue') || '[]');
-        queue.push(payload);
-        localStorage.setItem('tb_offline_help_queue', JSON.stringify(queue));
+        console.error('Unable to send offline help request:', error);
+        if (tbOfflineHelpStatus) tbOfflineHelpStatus.textContent = 'We could not send your message right now. Please try again.';
       }
     });
 
