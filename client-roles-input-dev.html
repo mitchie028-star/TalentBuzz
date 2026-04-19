@@ -4,7 +4,320 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>TalentBuzz | Client Roles Workspace</title>
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2">
+/* ===== SIFT ROLE INTELLIGENCE OVERRIDES ===== */
+
+function getGeminiApiKeyHelp(){
+  return 'To enable Gemini, set window.TALENTBUZZ_GEMINI_API_KEY in the page or save localStorage.TALENTBUZZ_GEMINI_API_KEY in the browser.';
+}
+
+function pickLinesByKeywords(lines, keywords, limit = 5){
+  const out = [];
+  for (const line of lines) {
+    const lower = String(line || '').toLowerCase();
+    if (keywords.some(k => lower.includes(k)) && !out.includes(line)) out.push(line);
+    if (out.length >= limit) break;
+  }
+  return out;
+}
+
+function inferCommunicationWeight(roleModel){
+  const blob = [roleModel.jobTitle, roleModel.jobDescription, roleModel.requirements, roleModel.jdRawText].join('\n').toLowerCase();
+  if (/(voice|client|stakeholder|presentation|english|communication|customer|call)/i.test(blob)) return 'Critical';
+  if (/(collaborat|cross-functional|meeting|coordination)/i.test(blob)) return 'High';
+  return '';
+}
+
+function inferStakeholderWeight(roleModel){
+  const blob = [roleModel.jobTitle, roleModel.jobDescription, roleModel.requirements].join('\n').toLowerCase();
+  if (/(stakeholder|client|cross-functional|leadership|operations|business partner)/i.test(blob)) return 'High';
+  return '';
+}
+
+function inferAutonomy(roleModel){
+  const blob = [roleModel.jobTitle, roleModel.jobDescription, roleModel.requirements].join('\n').toLowerCase();
+  if (/(lead|manager|director|independent|ownership|own|drive|architect)/i.test(blob)) return 'Highly Independent';
+  if (/(team|collaborat|support)/i.test(blob)) return 'Collaborative / Team-Dependent';
+  return '';
+}
+
+function extractSkillCandidates(roleModel){
+  const lines = normalizeLines([roleModel.prioritySkills, roleModel.requirements, roleModel.jdRawText].join('\n'));
+  const seeded = [
+    ...pickLinesByKeywords(lines, ['sql','python','snowflake','power bi','tableau','qlik','salesforce','hubspot','braze','sfmc','crm','zendesk','gds','amadeus','sabre','denial','appeal','coding','drg','api','automation','webflow','javascript','react','aws','azure','etl'], 10)
+  ];
+  const short = seeded.map(s => s.replace(/^[-•*]\s*/, '').trim()).filter(Boolean);
+  return uniqueLines(short).slice(0, 8);
+}
+
+function buildStructuredFallbackSignal(roleModel = {}){
+  const lines = normalizeLines([roleModel.requirements, roleModel.prioritySkills, roleModel.jobDescription, roleModel.jdRawText].join('\n'));
+  const title = safeText(roleModel.jobTitle || 'Role');
+  const skillLines = extractSkillCandidates(roleModel);
+  const mustHave = uniqueLines([
+    ...skillLines.slice(0, 5).map((s, i) => `${s} - ${i < 2 ? 'Critical' : 'High'}`),
+    ...pickLinesByKeywords(lines, ['experience','required','must have','minimum','proficien'], 4).map(s => `${s} - High`)
+  ]).slice(0, 6);
+  const nonNeg = uniqueLines([
+    ...pickLinesByKeywords(lines, ['must','required','minimum','onsite','hybrid','remote','night shift','license','certified','years'], 5),
+    ...skillLines.slice(0, 3)
+  ]).slice(0, 5);
+  const success = uniqueLines([
+    ...pickLinesByKeywords(lines, ['improv','lead','manage','build','deliver','optimiz','analy','dashboard','report','calibration','coaching','client'], 5),
+    title ? `${title} fit with direct proof of execution` : ''
+  ]).filter(Boolean).slice(0, 5);
+  const redFlags = uniqueLines([
+    ...(/senior|lead|manager/i.test(title) ? ['No ownership or leadership examples'] : []),
+    ...(/stakeholder|client|voice|customer/i.test([roleModel.jobDescription, roleModel.jdRawText].join(' ')) ? ['Weak communication or stakeholder-facing examples'] : []),
+    ...(/onsite/i.test([roleModel.workSetup, roleModel.jdRawText].join(' ')) ? ['Cannot commit to required onsite setup'] : [])
+  ]).slice(0, 4);
+
+  const businessPriorities = uniqueLines([
+    ...pickLinesByKeywords(lines, ['kpi','delivery','quality','client','growth','report','efficiency','accuracy','conversion','retention'], 4)
+  ]);
+
+  const obj = {
+    non_negotiables: nonNeg,
+    red_flags: redFlags,
+    must_have_skills: mustHave,
+    success_signals: success,
+    setup_criticality: /onsite|hybrid|night shift|graveyard/i.test([roleModel.workSetup, roleModel.jdRawText].join(' ')) ? 'Critical' : '',
+    environment_notes: safeText(roleModel.workSetup) ? `Role setup currently marked as ${roleModel.workSetup}. Validate if this is flexible or fixed.` : '',
+    communication_weight: inferCommunicationWeight(roleModel),
+    stakeholder_weight: inferStakeholderWeight(roleModel),
+    autonomy_level: inferAutonomy(roleModel),
+    decision_making: /lead|manager|director|architect/i.test(title) ? 'Needs strong judgment, prioritization, and independent decision-making.' : '',
+    business_priorities: businessPriorities,
+    recruiter_summary: `Fallback draft for ${title}: prioritize proof of execution, confirm setup and must-have tools early, and strengthen any missing communication or ownership signals.`
+  };
+  return obj;
+}
+
+// Override earlier plain-text fallback with structured JSON output
+function buildFallbackSignalDraft(roleModel = {}){
+  return JSON.stringify(buildStructuredFallbackSignal(roleModel), null, 2);
+}
+
+function generateJDSuggestions(roleModel = {}){
+  const title = safeText(roleModel.jobTitle);
+  const desc = safeText(roleModel.jobDescription || roleModel.jdRawText);
+  const req = safeText(roleModel.requirements);
+  const skills = normalizeLines(roleModel.prioritySkills || '');
+  const all = [title, desc, req, roleModel.jdRawText].join('\n').toLowerCase();
+
+  const missing = [];
+  if (!/responsib|overview|about the role|you will/i.test(desc)) missing.push('Add a sharper role overview and day-to-day ownership.');
+  if (!/kpi|metric|target|sla|csat|accuracy|delivery|outcome/i.test(all)) missing.push('Add measurable success metrics or expected outcomes.');
+  if (!/benefit|growth|team|why join|impact/i.test(all)) missing.push('Add candidate-facing value: team, growth, or impact.');
+  if (!skills.length) missing.push('Add priority tools, platforms, or functional skills.');
+
+  const stronger = [];
+  if (/customer|voice|csr|support|sales/i.test(all)) stronger.push('Strengthen the JD with communication expectations, escalation handling, and KPI ownership.');
+  if (/sql|python|snowflake|dashboard|data|bi|developer|engineer/i.test(all)) stronger.push('Clarify the real tool stack, data sources, and expected ownership of delivery.');
+  if (/manager|lead|supervisor|head/i.test(all)) stronger.push('Add people leadership scope, stakeholder expectations, and decision-making ownership.');
+
+  let betterTitle = '';
+  if (title && !/(manager|lead|specialist|engineer|developer|analyst|representative|architect|supervisor)/i.test(title)) {
+    betterTitle = `Consider a more specific title than "${title}" so candidates immediately understand the function and level.`;
+  }
+
+  let voiceRec = '';
+  if (/voice|english|spoken|client|stakeholder|presentation|customer/i.test(all)) {
+    voiceRec = 'VoiceScreen recommendation: Yes. This role appears to rely on spoken communication or stakeholder-facing ability.';
+  } else {
+    voiceRec = 'VoiceScreen recommendation: Optional. Current JD looks more execution- or tool-led than spoken-communication-led.';
+  }
+
+  const blocks = [];
+  blocks.push(`Role Intelligence for ${title || 'this role'}`);
+  if (missing.length) blocks.push(`Missing or weak areas:\n- ${missing.join('\n- ')}`);
+  if (stronger.length) blocks.push(`Suggestions to strengthen the JD:\n- ${stronger.join('\n- ')}`);
+  if (betterTitle) blocks.push(`Title suggestion:\n- ${betterTitle}`);
+  blocks.push(voiceRec);
+  return blocks.join('\n\n');
+}
+
+function refreshJDSuggestions(){
+  if (!els.jdSuggestionsOutput) return;
+  const model = deriveRoleModel();
+  const content = generateJDSuggestions(model);
+  els.jdSuggestionsOutput.textContent = content || 'No JD suggestions yet.';
+  if (els.jdSuggestionsStatus) {
+    const apiKey = getGeminiApiKey();
+    els.jdSuggestionsStatus.textContent = apiKey
+      ? 'Sift can use Gemini plus TalentBuzz heuristics to strengthen this JD.'
+      : `Sift is using TalentBuzz Role Intelligence fallback suggestions. ${getGeminiApiKeyHelp()}`;
+  }
+}
+
+// Wrap existing parseJD so suggestions always refresh
+const __origParseJD = parseJD;
+parseJD = async function(){
+  const out = await __origParseJD.apply(this, arguments);
+  refreshJDSuggestions();
+  return out;
+};
+
+// Improve fillSignalsWithSift messaging and quality when Gemini is missing
+const __origFillSignalsWithSift = fillSignalsWithSift;
+fillSignalsWithSift = async function(options = {}){
+  const apiKey = getGeminiApiKey();
+  if (!apiKey) {
+    setSignalEngineStatus(`Gemini API key missing. Sift is using improved TalentBuzz fallback drafting. ${getGeminiApiKeyHelp()}`);
+  }
+  const result = await __origFillSignalsWithSift.apply(this, arguments);
+  refreshJDSuggestions();
+  if (!apiKey) {
+    showNotice('Gemini API key missing. Sift used improved TalentBuzz fallback drafting instead.', 'warning');
+  }
+  return result;
+};
+
+document.addEventListener('DOMContentLoaded', () => {
+  refreshJDSuggestions();
+  ['jobTitle','jdRawText','jobDescription','requirements','prioritySkills','niceToHaveSkills','workSetup','languageRequirement','voiceScreeningMode'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener('input', refreshJDSuggestions);
+    if (el) el.addEventListener('change', refreshJDSuggestions);
+  });
+});
+
+
+/* ===== GEMINI SETTINGS UI ===== */
+
+function getGeminiModelPreference(){
+  return localStorage.getItem('TALENTBUZZ_GEMINI_MODEL') || window.TALENTBUZZ_GEMINI_MODEL || GEMINI_PRIMARY_MODEL;
+}
+
+function setGeminiModelPreference(model){
+  localStorage.setItem('TALENTBUZZ_GEMINI_MODEL', model);
+  window.TALENTBUZZ_GEMINI_MODEL = model;
+}
+
+function getGeminiApiKey(){
+  return String(window.TALENTBUZZ_GEMINI_API_KEY || localStorage.getItem('TALENTBUZZ_GEMINI_API_KEY') || '').trim();
+}
+
+function syncGeminiSettingsUI(status = ''){
+  if (!els.geminiApiKeyInput) return;
+  const savedKey = localStorage.getItem('TALENTBUZZ_GEMINI_API_KEY') || '';
+  const model = getGeminiModelPreference();
+  els.geminiApiKeyInput.value = savedKey;
+  if (els.geminiModelSelect) els.geminiModelSelect.value = model;
+
+  const connected = !!getGeminiApiKey();
+  if (els.geminiStatusChip) {
+    els.geminiStatusChip.className = `ai-status-chip ${connected ? 'connected' : 'disconnected'}`;
+    els.geminiStatusChip.innerHTML = `<span class="ai-status-dot"></span><span>${connected ? 'Connected' : 'Not Connected'}</span>`;
+  }
+  if (els.geminiStatusText) {
+    els.geminiStatusText.textContent = connected
+      ? `Gemini key saved. Primary model: ${model}.`
+      : 'Gemini not connected yet.';
+  }
+  if (els.geminiSettingsNote) {
+    els.geminiSettingsNote.textContent = status || (
+      connected
+        ? 'Gemini is available for Sift enrichment, stronger Signal fill, and better question generation.'
+        : 'Once connected, Sift will use Gemini before falling back to TalentBuzz local drafting.'
+    );
+  }
+  refreshJDSuggestions();
+}
+
+function openAiSettingsModal(){
+  els.aiSettingsModal?.classList.add('show');
+  syncGeminiSettingsUI();
+}
+
+function closeAiSettingsModal(){
+  els.aiSettingsModal?.classList.remove('show');
+}
+
+async function testGeminiConnection(){
+  const key = String(els.geminiApiKeyInput?.value || '').trim();
+  const model = String(els.geminiModelSelect?.value || GEMINI_PRIMARY_MODEL).trim();
+  if (!key) {
+    syncGeminiSettingsUI('Please paste a Gemini API key first.');
+    showNotice('Please paste a Gemini API key first.', 'warning');
+    return;
+  }
+
+  try {
+    const url = `https://generativelanguage.googleapis.com/${GEMINI_API_VERSION}/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(key)}`;
+    const body = {
+      contents: [{ parts: [{ text: 'Reply with the single word: connected' }] }],
+      generationConfig: { temperature: 0.1 }
+    };
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+    const raw = await response.text();
+    let data = {};
+    try { data = raw ? JSON.parse(raw) : {}; } catch(e) { data = {}; }
+    if (!response.ok) {
+      const message = data?.error?.message || `Gemini test failed with status ${response.status}`;
+      syncGeminiSettingsUI(message);
+      showNotice(`Gemini test failed: ${message}`, 'error');
+      return;
+    }
+    syncGeminiSettingsUI(`Gemini connected successfully using ${model}.`);
+    showNotice(`Gemini connected successfully using ${model}.`, 'success');
+  } catch (error) {
+    syncGeminiSettingsUI(error?.message || 'Gemini test failed.');
+    showNotice(`Gemini test failed: ${error?.message || 'Unknown error'}`, 'error');
+  }
+}
+
+function saveGeminiSettings(){
+  const key = String(els.geminiApiKeyInput?.value || '').trim();
+  const model = String(els.geminiModelSelect?.value || GEMINI_PRIMARY_MODEL).trim();
+  if (!key) {
+    showNotice('Please paste a Gemini API key before saving.', 'warning');
+    return;
+  }
+  localStorage.setItem('TALENTBUZZ_GEMINI_API_KEY', key);
+  localStorage.setItem('TALENTBUZZ_GEMINI_MODEL', model);
+  window.TALENTBUZZ_GEMINI_API_KEY = key;
+  window.TALENTBUZZ_GEMINI_MODEL = model;
+  syncGeminiSettingsUI(`Gemini settings saved. Primary model: ${model}.`);
+  showNotice('Gemini settings saved.', 'success');
+}
+
+function removeGeminiSettings(){
+  localStorage.removeItem('TALENTBUZZ_GEMINI_API_KEY');
+  localStorage.removeItem('TALENTBUZZ_GEMINI_MODEL');
+  try { delete window.TALENTBUZZ_GEMINI_API_KEY; } catch(e) {}
+  try { delete window.TALENTBUZZ_GEMINI_MODEL; } catch(e) {}
+  if (els.geminiApiKeyInput) els.geminiApiKeyInput.value = '';
+  if (els.geminiModelSelect) els.geminiModelSelect.value = GEMINI_PRIMARY_MODEL;
+  syncGeminiSettingsUI('Gemini settings removed. Sift will use TalentBuzz fallback drafting until a new key is saved.');
+  showNotice('Gemini settings removed.', 'success');
+}
+
+function toggleGeminiKeyVisibility(){
+  if (!els.geminiApiKeyInput) return;
+  els.geminiApiKeyInput.type = els.geminiApiKeyInput.type === 'password' ? 'text' : 'password';
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  els.openAiSettingsBtn?.addEventListener('click', openAiSettingsModal);
+  els.closeAiSettingsBtn?.addEventListener('click', closeAiSettingsModal);
+  els.saveGeminiSettingsBtn?.addEventListener('click', saveGeminiSettings);
+  els.testGeminiConnectionBtn?.addEventListener('click', testGeminiConnection);
+  els.removeGeminiSettingsBtn?.addEventListener('click', removeGeminiSettings);
+  els.toggleGeminiKeyVisibilityBtn?.addEventListener('click', toggleGeminiKeyVisibility);
+  els.geminiModelSelect?.addEventListener('change', () => {
+    const model = String(els.geminiModelSelect.value || GEMINI_PRIMARY_MODEL).trim();
+    setGeminiModelPreference(model);
+    syncGeminiSettingsUI(`Primary Gemini model set to ${model}.`);
+  });
+  syncGeminiSettingsUI();
+});
+
+</script>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
@@ -184,11 +497,28 @@
     .sift-chip:hover{background:rgba(37,99,235,.18);border-color:rgba(59,130,246,.28)}
     .sift-mini-actions{display:flex;flex-wrap:wrap;gap:8px}
     .sift-mini-note{font-size:.8rem;color:#94a3b8;line-height:1.55}
+
+    .role-intel-grid{display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:16px;align-items:start}
+    @media (max-width:1180px){.role-intel-grid{grid-template-columns:1fr}}
+
     @keyframes siftPulse{
       0%{transform:scale(.92);opacity:.55}
       70%{transform:scale(1.16);opacity:0}
       100%{transform:scale(1.16);opacity:0}
     }
+
+    
+    .ai-status-chip{
+      display:inline-flex;align-items:center;gap:8px;padding:8px 12px;border-radius:999px;
+      font-weight:800;font-size:.82rem;background:rgba(255,255,255,.05);border:1px solid var(--soft-line);color:#dbeafe
+    }
+    .ai-status-dot{width:10px;height:10px;border-radius:999px;background:#94a3b8}
+    .ai-status-chip.connected .ai-status-dot{background:#10b981}
+    .ai-status-chip.disconnected .ai-status-dot{background:#f59e0b}
+    .ai-settings-grid{display:grid;grid-template-columns:1fr 220px;gap:14px}
+    .ai-settings-note{padding:14px;border-radius:18px;background:rgba(255,255,255,.04);border:1px solid rgba(148,163,184,.10);color:#cbd5e1;line-height:1.6}
+    .ai-settings-modal .modal-dialog{width:min(760px,96vw)}
+    @media (max-width:760px){.ai-settings-grid{grid-template-columns:1fr}}
 
     @media (max-width:1180px){.sift-screening-shell,.sift-grid{grid-template-columns:1fr}.sift-intelligence-kpis,.sift-mini-grid{grid-template-columns:1fr 1fr}}
     @media (max-width:760px){.sift-intelligence-bar,.sift-question-head,.sift-feedback-strip{flex-direction:column}.sift-intelligence-kpis,.sift-mini-grid{grid-template-columns:1fr}}
@@ -211,6 +541,7 @@
       <div class="top-actions">
         <a class="ghost-btn" href="recruiter-dashboard.html">Back to Dashboard</a>
         <button class="ghost-btn" id="refreshRolesBtn" type="button">Refresh Roles</button>
+        <button class="ghost-btn" id="openAiSettingsBtn" type="button">AI Settings</button>
         <button class="primary-btn" id="newRoleBtn" type="button">New Role</button>
       </div>
     </div>
@@ -321,7 +652,15 @@
             <div class="field-full"><label for="requirements">Core Requirements</label><textarea id="requirements" placeholder="Add role requirements. Use one line per item or paste your existing notes."></textarea></div>
             <div class="field"><label for="prioritySkills">Priority Skills</label><textarea id="prioritySkills" placeholder="e.g. Python automation&#10;API integration&#10;Prompt engineering"></textarea></div>
             <div class="field"><label for="niceToHaveSkills">Nice-to-Have Skills</label><textarea id="niceToHaveSkills" placeholder="e.g. Zapier&#10;Make&#10;Workflow QA"></textarea></div>
-          </div>
+          
+            <div class="field-full">
+              <div class="sift-card">
+                <h4>JD Suggestions from Sift</h4>
+                <p id="jdSuggestionsStatus">Sift will suggest stronger JD content, missing sections, and VoiceScreen direction after you parse or paste a JD.</p>
+                <div class="preview-box" id="jdSuggestionsOutput" style="min-height:160px;">No JD suggestions yet.</div>
+              </div>
+            </div>
+
         </div>
 
         <div class="tab-panel" data-panel="signals">
@@ -471,6 +810,60 @@
       <div class="sift-mini-note" id="siftMiniNote">Sift reacts to the current tab and the fields you’ve already filled in.</div>
     </div>
   </div>
+
+  
+  <div class="modal ai-settings-modal" id="aiSettingsModal" aria-hidden="true">
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <div class="modal-title">
+          <h3>TalentBuzz AI Settings</h3>
+          <p>Connect Gemini so Sift can enrich JDs, improve Signal quality, and draft stronger screening questions.</p>
+        </div>
+        <button class="ghost-btn" type="button" id="closeAiSettingsBtn">Close</button>
+      </div>
+      <div class="modal-body">
+        <div class="ai-settings-grid">
+          <div class="field">
+            <label for="geminiApiKeyInput">Gemini API Key</label>
+            <input id="geminiApiKeyInput" type="password" placeholder="Paste your Gemini API key" />
+            <div class="helper">Stored in this browser only via localStorage.</div>
+          </div>
+          <div class="field">
+            <label for="geminiModelSelect">Model</label>
+            <select id="geminiModelSelect">
+              <option value="gemini-2.5-flash">gemini-2.5-flash</option>
+              <option value="gemini-2.5-flash-lite">gemini-2.5-flash-lite</option>
+            </select>
+            <div class="helper">Primary model Sift should try first.</div>
+          </div>
+        </div>
+
+        <div class="section-title" style="margin-top:16px;">
+          <div>
+            <h3 style="font-size:1rem;">Connection Status</h3>
+            <p id="geminiStatusText">Gemini not connected yet.</p>
+          </div>
+          <div id="geminiStatusChip" class="ai-status-chip disconnected">
+            <span class="ai-status-dot"></span>
+            <span>Not Connected</span>
+          </div>
+        </div>
+
+        <div class="ai-settings-note" id="geminiSettingsNote">
+          Once connected, Sift will use Gemini before falling back to TalentBuzz local drafting.
+        </div>
+      </div>
+      <div class="modal-footer">
+        <div class="toolbar">
+          <button class="primary-btn" type="button" id="saveGeminiSettingsBtn">Save Key</button>
+          <button class="signal-btn" type="button" id="testGeminiConnectionBtn">Test Connection</button>
+          <button class="ghost-btn" type="button" id="toggleGeminiKeyVisibilityBtn">Show / Hide</button>
+          <button class="danger-btn" type="button" id="removeGeminiSettingsBtn">Remove</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
 
   <div id="notice" class="notice"></div>
 
@@ -3921,6 +4314,319 @@ function bindScreeningGenerator(){
     }
   };
 }
+
+
+/* ===== SIFT ROLE INTELLIGENCE OVERRIDES ===== */
+
+function getGeminiApiKeyHelp(){
+  return 'To enable Gemini, set window.TALENTBUZZ_GEMINI_API_KEY in the page or save localStorage.TALENTBUZZ_GEMINI_API_KEY in the browser.';
+}
+
+function pickLinesByKeywords(lines, keywords, limit = 5){
+  const out = [];
+  for (const line of lines) {
+    const lower = String(line || '').toLowerCase();
+    if (keywords.some(k => lower.includes(k)) && !out.includes(line)) out.push(line);
+    if (out.length >= limit) break;
+  }
+  return out;
+}
+
+function inferCommunicationWeight(roleModel){
+  const blob = [roleModel.jobTitle, roleModel.jobDescription, roleModel.requirements, roleModel.jdRawText].join('\n').toLowerCase();
+  if (/(voice|client|stakeholder|presentation|english|communication|customer|call)/i.test(blob)) return 'Critical';
+  if (/(collaborat|cross-functional|meeting|coordination)/i.test(blob)) return 'High';
+  return '';
+}
+
+function inferStakeholderWeight(roleModel){
+  const blob = [roleModel.jobTitle, roleModel.jobDescription, roleModel.requirements].join('\n').toLowerCase();
+  if (/(stakeholder|client|cross-functional|leadership|operations|business partner)/i.test(blob)) return 'High';
+  return '';
+}
+
+function inferAutonomy(roleModel){
+  const blob = [roleModel.jobTitle, roleModel.jobDescription, roleModel.requirements].join('\n').toLowerCase();
+  if (/(lead|manager|director|independent|ownership|own|drive|architect)/i.test(blob)) return 'Highly Independent';
+  if (/(team|collaborat|support)/i.test(blob)) return 'Collaborative / Team-Dependent';
+  return '';
+}
+
+function extractSkillCandidates(roleModel){
+  const lines = normalizeLines([roleModel.prioritySkills, roleModel.requirements, roleModel.jdRawText].join('\n'));
+  const seeded = [
+    ...pickLinesByKeywords(lines, ['sql','python','snowflake','power bi','tableau','qlik','salesforce','hubspot','braze','sfmc','crm','zendesk','gds','amadeus','sabre','denial','appeal','coding','drg','api','automation','webflow','javascript','react','aws','azure','etl'], 10)
+  ];
+  const short = seeded.map(s => s.replace(/^[-•*]\s*/, '').trim()).filter(Boolean);
+  return uniqueLines(short).slice(0, 8);
+}
+
+function buildStructuredFallbackSignal(roleModel = {}){
+  const lines = normalizeLines([roleModel.requirements, roleModel.prioritySkills, roleModel.jobDescription, roleModel.jdRawText].join('\n'));
+  const title = safeText(roleModel.jobTitle || 'Role');
+  const skillLines = extractSkillCandidates(roleModel);
+  const mustHave = uniqueLines([
+    ...skillLines.slice(0, 5).map((s, i) => `${s} - ${i < 2 ? 'Critical' : 'High'}`),
+    ...pickLinesByKeywords(lines, ['experience','required','must have','minimum','proficien'], 4).map(s => `${s} - High`)
+  ]).slice(0, 6);
+  const nonNeg = uniqueLines([
+    ...pickLinesByKeywords(lines, ['must','required','minimum','onsite','hybrid','remote','night shift','license','certified','years'], 5),
+    ...skillLines.slice(0, 3)
+  ]).slice(0, 5);
+  const success = uniqueLines([
+    ...pickLinesByKeywords(lines, ['improv','lead','manage','build','deliver','optimiz','analy','dashboard','report','calibration','coaching','client'], 5),
+    title ? `${title} fit with direct proof of execution` : ''
+  ]).filter(Boolean).slice(0, 5);
+  const redFlags = uniqueLines([
+    ...(/senior|lead|manager/i.test(title) ? ['No ownership or leadership examples'] : []),
+    ...(/stakeholder|client|voice|customer/i.test([roleModel.jobDescription, roleModel.jdRawText].join(' ')) ? ['Weak communication or stakeholder-facing examples'] : []),
+    ...(/onsite/i.test([roleModel.workSetup, roleModel.jdRawText].join(' ')) ? ['Cannot commit to required onsite setup'] : [])
+  ]).slice(0, 4);
+
+  const businessPriorities = uniqueLines([
+    ...pickLinesByKeywords(lines, ['kpi','delivery','quality','client','growth','report','efficiency','accuracy','conversion','retention'], 4)
+  ]);
+
+  const obj = {
+    non_negotiables: nonNeg,
+    red_flags: redFlags,
+    must_have_skills: mustHave,
+    success_signals: success,
+    setup_criticality: /onsite|hybrid|night shift|graveyard/i.test([roleModel.workSetup, roleModel.jdRawText].join(' ')) ? 'Critical' : '',
+    environment_notes: safeText(roleModel.workSetup) ? `Role setup currently marked as ${roleModel.workSetup}. Validate if this is flexible or fixed.` : '',
+    communication_weight: inferCommunicationWeight(roleModel),
+    stakeholder_weight: inferStakeholderWeight(roleModel),
+    autonomy_level: inferAutonomy(roleModel),
+    decision_making: /lead|manager|director|architect/i.test(title) ? 'Needs strong judgment, prioritization, and independent decision-making.' : '',
+    business_priorities: businessPriorities,
+    recruiter_summary: `Fallback draft for ${title}: prioritize proof of execution, confirm setup and must-have tools early, and strengthen any missing communication or ownership signals.`
+  };
+  return obj;
+}
+
+// Override earlier plain-text fallback with structured JSON output
+function buildFallbackSignalDraft(roleModel = {}){
+  return JSON.stringify(buildStructuredFallbackSignal(roleModel), null, 2);
+}
+
+function generateJDSuggestions(roleModel = {}){
+  const title = safeText(roleModel.jobTitle);
+  const desc = safeText(roleModel.jobDescription || roleModel.jdRawText);
+  const req = safeText(roleModel.requirements);
+  const skills = normalizeLines(roleModel.prioritySkills || '');
+  const all = [title, desc, req, roleModel.jdRawText].join('\n').toLowerCase();
+
+  const missing = [];
+  if (!/responsib|overview|about the role|you will/i.test(desc)) missing.push('Add a sharper role overview and day-to-day ownership.');
+  if (!/kpi|metric|target|sla|csat|accuracy|delivery|outcome/i.test(all)) missing.push('Add measurable success metrics or expected outcomes.');
+  if (!/benefit|growth|team|why join|impact/i.test(all)) missing.push('Add candidate-facing value: team, growth, or impact.');
+  if (!skills.length) missing.push('Add priority tools, platforms, or functional skills.');
+
+  const stronger = [];
+  if (/customer|voice|csr|support|sales/i.test(all)) stronger.push('Strengthen the JD with communication expectations, escalation handling, and KPI ownership.');
+  if (/sql|python|snowflake|dashboard|data|bi|developer|engineer/i.test(all)) stronger.push('Clarify the real tool stack, data sources, and expected ownership of delivery.');
+  if (/manager|lead|supervisor|head/i.test(all)) stronger.push('Add people leadership scope, stakeholder expectations, and decision-making ownership.');
+
+  let betterTitle = '';
+  if (title && !/(manager|lead|specialist|engineer|developer|analyst|representative|architect|supervisor)/i.test(title)) {
+    betterTitle = `Consider a more specific title than "${title}" so candidates immediately understand the function and level.`;
+  }
+
+  let voiceRec = '';
+  if (/voice|english|spoken|client|stakeholder|presentation|customer/i.test(all)) {
+    voiceRec = 'VoiceScreen recommendation: Yes. This role appears to rely on spoken communication or stakeholder-facing ability.';
+  } else {
+    voiceRec = 'VoiceScreen recommendation: Optional. Current JD looks more execution- or tool-led than spoken-communication-led.';
+  }
+
+  const blocks = [];
+  blocks.push(`Role Intelligence for ${title || 'this role'}`);
+  if (missing.length) blocks.push(`Missing or weak areas:\n- ${missing.join('\n- ')}`);
+  if (stronger.length) blocks.push(`Suggestions to strengthen the JD:\n- ${stronger.join('\n- ')}`);
+  if (betterTitle) blocks.push(`Title suggestion:\n- ${betterTitle}`);
+  blocks.push(voiceRec);
+  return blocks.join('\n\n');
+}
+
+function refreshJDSuggestions(){
+  if (!els.jdSuggestionsOutput) return;
+  const model = deriveRoleModel();
+  const content = generateJDSuggestions(model);
+  els.jdSuggestionsOutput.textContent = content || 'No JD suggestions yet.';
+  if (els.jdSuggestionsStatus) {
+    const apiKey = getGeminiApiKey();
+    els.jdSuggestionsStatus.textContent = apiKey
+      ? 'Sift can use Gemini plus TalentBuzz heuristics to strengthen this JD.'
+      : `Sift is using TalentBuzz Role Intelligence fallback suggestions. ${getGeminiApiKeyHelp()}`;
+  }
+}
+
+// Wrap existing parseJD so suggestions always refresh
+const __origParseJD = parseJD;
+parseJD = async function(){
+  const out = await __origParseJD.apply(this, arguments);
+  refreshJDSuggestions();
+  return out;
+};
+
+// Improve fillSignalsWithSift messaging and quality when Gemini is missing
+const __origFillSignalsWithSift = fillSignalsWithSift;
+fillSignalsWithSift = async function(options = {}){
+  const apiKey = getGeminiApiKey();
+  if (!apiKey) {
+    setSignalEngineStatus(`Gemini API key missing. Sift is using improved TalentBuzz fallback drafting. ${getGeminiApiKeyHelp()}`);
+  }
+  const result = await __origFillSignalsWithSift.apply(this, arguments);
+  refreshJDSuggestions();
+  if (!apiKey) {
+    showNotice('Gemini API key missing. Sift used improved TalentBuzz fallback drafting instead.', 'warning');
+  }
+  return result;
+};
+
+document.addEventListener('DOMContentLoaded', () => {
+  refreshJDSuggestions();
+  ['jobTitle','jdRawText','jobDescription','requirements','prioritySkills','niceToHaveSkills','workSetup','languageRequirement','voiceScreeningMode'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener('input', refreshJDSuggestions);
+    if (el) el.addEventListener('change', refreshJDSuggestions);
+  });
+});
+
+
+/* ===== GEMINI SETTINGS UI ===== */
+
+function getGeminiModelPreference(){
+  return localStorage.getItem('TALENTBUZZ_GEMINI_MODEL') || window.TALENTBUZZ_GEMINI_MODEL || GEMINI_PRIMARY_MODEL;
+}
+
+function setGeminiModelPreference(model){
+  localStorage.setItem('TALENTBUZZ_GEMINI_MODEL', model);
+  window.TALENTBUZZ_GEMINI_MODEL = model;
+}
+
+function getGeminiApiKey(){
+  return String(window.TALENTBUZZ_GEMINI_API_KEY || localStorage.getItem('TALENTBUZZ_GEMINI_API_KEY') || '').trim();
+}
+
+function syncGeminiSettingsUI(status = ''){
+  if (!els.geminiApiKeyInput) return;
+  const savedKey = localStorage.getItem('TALENTBUZZ_GEMINI_API_KEY') || '';
+  const model = getGeminiModelPreference();
+  els.geminiApiKeyInput.value = savedKey;
+  if (els.geminiModelSelect) els.geminiModelSelect.value = model;
+
+  const connected = !!getGeminiApiKey();
+  if (els.geminiStatusChip) {
+    els.geminiStatusChip.className = `ai-status-chip ${connected ? 'connected' : 'disconnected'}`;
+    els.geminiStatusChip.innerHTML = `<span class="ai-status-dot"></span><span>${connected ? 'Connected' : 'Not Connected'}</span>`;
+  }
+  if (els.geminiStatusText) {
+    els.geminiStatusText.textContent = connected
+      ? `Gemini key saved. Primary model: ${model}.`
+      : 'Gemini not connected yet.';
+  }
+  if (els.geminiSettingsNote) {
+    els.geminiSettingsNote.textContent = status || (
+      connected
+        ? 'Gemini is available for Sift enrichment, stronger Signal fill, and better question generation.'
+        : 'Once connected, Sift will use Gemini before falling back to TalentBuzz local drafting.'
+    );
+  }
+  refreshJDSuggestions();
+}
+
+function openAiSettingsModal(){
+  els.aiSettingsModal?.classList.add('show');
+  syncGeminiSettingsUI();
+}
+
+function closeAiSettingsModal(){
+  els.aiSettingsModal?.classList.remove('show');
+}
+
+async function testGeminiConnection(){
+  const key = String(els.geminiApiKeyInput?.value || '').trim();
+  const model = String(els.geminiModelSelect?.value || GEMINI_PRIMARY_MODEL).trim();
+  if (!key) {
+    syncGeminiSettingsUI('Please paste a Gemini API key first.');
+    showNotice('Please paste a Gemini API key first.', 'warning');
+    return;
+  }
+
+  try {
+    const url = `https://generativelanguage.googleapis.com/${GEMINI_API_VERSION}/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(key)}`;
+    const body = {
+      contents: [{ parts: [{ text: 'Reply with the single word: connected' }] }],
+      generationConfig: { temperature: 0.1 }
+    };
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+    const raw = await response.text();
+    let data = {};
+    try { data = raw ? JSON.parse(raw) : {}; } catch(e) { data = {}; }
+    if (!response.ok) {
+      const message = data?.error?.message || `Gemini test failed with status ${response.status}`;
+      syncGeminiSettingsUI(message);
+      showNotice(`Gemini test failed: ${message}`, 'error');
+      return;
+    }
+    syncGeminiSettingsUI(`Gemini connected successfully using ${model}.`);
+    showNotice(`Gemini connected successfully using ${model}.`, 'success');
+  } catch (error) {
+    syncGeminiSettingsUI(error?.message || 'Gemini test failed.');
+    showNotice(`Gemini test failed: ${error?.message || 'Unknown error'}`, 'error');
+  }
+}
+
+function saveGeminiSettings(){
+  const key = String(els.geminiApiKeyInput?.value || '').trim();
+  const model = String(els.geminiModelSelect?.value || GEMINI_PRIMARY_MODEL).trim();
+  if (!key) {
+    showNotice('Please paste a Gemini API key before saving.', 'warning');
+    return;
+  }
+  localStorage.setItem('TALENTBUZZ_GEMINI_API_KEY', key);
+  localStorage.setItem('TALENTBUZZ_GEMINI_MODEL', model);
+  window.TALENTBUZZ_GEMINI_API_KEY = key;
+  window.TALENTBUZZ_GEMINI_MODEL = model;
+  syncGeminiSettingsUI(`Gemini settings saved. Primary model: ${model}.`);
+  showNotice('Gemini settings saved.', 'success');
+}
+
+function removeGeminiSettings(){
+  localStorage.removeItem('TALENTBUZZ_GEMINI_API_KEY');
+  localStorage.removeItem('TALENTBUZZ_GEMINI_MODEL');
+  try { delete window.TALENTBUZZ_GEMINI_API_KEY; } catch(e) {}
+  try { delete window.TALENTBUZZ_GEMINI_MODEL; } catch(e) {}
+  if (els.geminiApiKeyInput) els.geminiApiKeyInput.value = '';
+  if (els.geminiModelSelect) els.geminiModelSelect.value = GEMINI_PRIMARY_MODEL;
+  syncGeminiSettingsUI('Gemini settings removed. Sift will use TalentBuzz fallback drafting until a new key is saved.');
+  showNotice('Gemini settings removed.', 'success');
+}
+
+function toggleGeminiKeyVisibility(){
+  if (!els.geminiApiKeyInput) return;
+  els.geminiApiKeyInput.type = els.geminiApiKeyInput.type === 'password' ? 'text' : 'password';
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  els.openAiSettingsBtn?.addEventListener('click', openAiSettingsModal);
+  els.closeAiSettingsBtn?.addEventListener('click', closeAiSettingsModal);
+  els.saveGeminiSettingsBtn?.addEventListener('click', saveGeminiSettings);
+  els.testGeminiConnectionBtn?.addEventListener('click', testGeminiConnection);
+  els.removeGeminiSettingsBtn?.addEventListener('click', removeGeminiSettings);
+  els.toggleGeminiKeyVisibilityBtn?.addEventListener('click', toggleGeminiKeyVisibility);
+  els.geminiModelSelect?.addEventListener('change', () => {
+    const model = String(els.geminiModelSelect.value || GEMINI_PRIMARY_MODEL).trim();
+    setGeminiModelPreference(model);
+    syncGeminiSettingsUI(`Primary Gemini model set to ${model}.`);
+  });
+  syncGeminiSettingsUI();
+});
 
 </script>
 </body>
