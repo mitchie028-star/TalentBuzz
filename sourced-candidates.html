@@ -965,112 +965,93 @@
         };
       }
 
-      async function saveProspectWithFallback(payload){
+      function buildProspectAttemptBodies(payload){
+        const skillsArray = Array.isArray(payload.skills) ? payload.skills.filter(Boolean) : String(payload.skills || '').split(',').map(s => s.trim()).filter(Boolean);
+        const skillsText = skillsArray.join(', ');
+        const base = {
+          full_name: payload.full_name || '',
+          current_title: payload.current_title || '',
+          current_company: payload.current_company || '',
+          location: payload.location || '',
+          personal_email: payload.personal_email || '',
+          phone: payload.phone || '',
+          resume_url: payload.resume_url || '',
+          resume_path: payload.resume_path || '',
+          resume_file_name: payload.resume_file_name || '',
+          linkedin_url: payload.linkedin_url || '',
+          total_experience: payload.total_experience || '',
+          experience_summary: payload.experience_summary || '',
+          source: payload.source || '',
+          ai_score: Number(payload.ai_score || 0)
+        };
+
         const attempts = [
+          { ...base, skills: skillsArray },
+          { ...base, skills: skillsText },
+          { ...base, skill_tags: skillsArray, skills: skillsText },
+          { ...base, extracted_skills: skillsArray, skills: skillsText },
           {
-            full_name: payload.full_name,
-            current_title: payload.current_title,
-            current_company: payload.current_company,
-            location: payload.location,
-            personal_email: payload.personal_email,
-            phone: payload.phone,
-            resume_url: payload.resume_url,
-            resume_path: payload.resume_path,
-            resume_file_name: payload.resume_file_name,
-            linkedin_url: payload.linkedin_url,
-            total_experience: payload.total_experience,
-            experience_summary: payload.experience_summary,
-            skills: payload.skills,
-            source: payload.source,
-            ai_score: payload.ai_score
+            full_name: base.full_name,
+            current_title: base.current_title,
+            current_company: base.current_company,
+            location: base.location,
+            personal_email: base.personal_email,
+            phone: base.phone,
+            linkedin_url: base.linkedin_url,
+            total_experience: base.total_experience,
+            experience_summary: base.experience_summary
           },
           {
-            full_name: payload.full_name,
-            current_title: payload.current_title,
-            current_company: payload.current_company,
-            location: payload.location,
-            personal_email: payload.personal_email,
-            phone: payload.phone,
-            resume_url: payload.resume_url,
-            resume_path: payload.resume_path,
-            resume_file_name: payload.resume_file_name,
-            linkedin_url: payload.linkedin_url,
-            experience_summary: payload.experience_summary,
-            skills: payload.skills
+            full_name: base.full_name,
+            current_title: base.current_title,
+            current_company: base.current_company,
+            location: base.location,
+            personal_email: base.personal_email,
+            linkedin_url: base.linkedin_url
           },
           {
-            full_name: payload.full_name,
-            current_title: payload.current_title,
-            location: payload.location,
-            personal_email: payload.personal_email,
-            phone: payload.phone,
-            resume_url: payload.resume_url,
-            resume_path: payload.resume_path,
-            resume_file_name: payload.resume_file_name,
-            linkedin_url: payload.linkedin_url
+            full_name: base.full_name,
+            current_title: base.current_title,
+            location: base.location,
+            linkedin_url: base.linkedin_url
           }
         ];
 
+        return attempts.map(body => {
+          const clean = {};
+          Object.entries(body).forEach(([key, value]) => {
+            if (value === undefined || value === null) return;
+            if (typeof value === 'string' && !value.trim()) return;
+            if (Array.isArray(value) && !value.length) return;
+            clean[key] = value;
+          });
+          return clean;
+        });
+      }
+
+      async function saveProspectWithFallback(payload){
+        const attempts = buildProspectAttemptBodies(payload);
         let lastError = null;
         for (const body of attempts) {
           const { data, error } = await supabase.from('prospects').insert([body]).select('*').single();
           if (!error) return data;
           lastError = error;
         }
-        throw lastError || new Error('Unable to save prospect.');
+        const message = lastError?.message || lastError?.error_description || 'Unable to save prospect.';
+        throw new Error(message);
       }
 
       async function updateProspectWithFallback(prospectId, payload){
         if (!prospectId) throw new Error('Missing prospect ID.');
-        const attempts = [
-          {
-            full_name: payload.full_name,
-            current_title: payload.current_title,
-            current_company: payload.current_company,
-            location: payload.location,
-            personal_email: payload.personal_email,
-            phone: payload.phone,
-            resume_url: payload.resume_url,
-            resume_path: payload.resume_path,
-            resume_file_name: payload.resume_file_name,
-            linkedin_url: payload.linkedin_url,
-            total_experience: payload.total_experience,
-            experience_summary: payload.experience_summary,
-            skills: payload.skills,
-            source: payload.source,
-            ai_score: payload.ai_score
-          },
-          {
-            full_name: payload.full_name,
-            current_title: payload.current_title,
-            current_company: payload.current_company,
-            location: payload.location,
-            personal_email: payload.personal_email,
-            phone: payload.phone,
-            resume_url: payload.resume_url,
-            resume_path: payload.resume_path,
-            resume_file_name: payload.resume_file_name,
-            linkedin_url: payload.linkedin_url,
-            experience_summary: payload.experience_summary,
-            skills: payload.skills
-          },
-          {
-            full_name: payload.full_name,
-            current_title: payload.current_title,
-            location: payload.location,
-            personal_email: payload.personal_email,
-            phone: payload.phone,
-            linkedin_url: payload.linkedin_url
-          }
-        ];
-
+        const attempts = buildProspectAttemptBodies(payload);
         let lastError = null;
         for (const body of attempts) {
           const { data, error } = await supabase.from('prospects').update(body).eq('id', prospectId).select('*').single();
           if (!error) return data;
           lastError = error;
         }
-        throw lastError || new Error('Unable to update prospect.');
+        const message = lastError?.message || lastError?.error_description || 'Unable to update prospect.';
+        throw new Error(message);
       }
 
 
@@ -2232,9 +2213,13 @@
               if (!csvParsedData.length) throw new Error('No parsed CSV rows to save yet.');
               let success = 0;
               let failed = 0;
+              const failedRows = [];
 
               for (const row of csvParsedData) {
                 try {
+                  if (!String(row.full_name || row.personal_email || row.linkedin_url || row.phone || '').trim()) {
+                    throw new Error('Missing identifier: add at least full_name, email, phone, or linkedin_url.');
+                  }
                   await saveProspectWithFallback({
                     full_name: row.full_name,
                     current_title: row.current_title,
@@ -2251,7 +2236,10 @@
                   });
                   success += 1;
                 } catch (innerError) {
-                  console.error('[CSV_ROW_SAVE_ERROR]', row.full_name, innerError);
+                  const rowLabel = row.full_name || row.personal_email || row.linkedin_url || row.phone || 'Unknown row';
+                  const rowMessage = innerError?.message || 'Save failed';
+                  console.error('[CSV_ROW_SAVE_ERROR]', rowLabel, innerError);
+                  failedRows.push(`${rowLabel}: ${rowMessage}`);
                   failed += 1;
                 }
               }
@@ -2263,7 +2251,12 @@
               document.querySelector('.tab[data-tab="sourcing"]')?.classList.add('active');
               renderActiveView();
               closeModal(els.csvUploadModal);
-              showNotice(`CSV upload complete. Success: ${success}. Failed: ${failed}.`, failed ? 'warning' : 'success');
+              if (failedRows.length && els.csvPreviewBox) {
+                els.csvPreviewBox.classList.remove('hidden');
+                els.csvPreviewBox.innerHTML = `<div><strong>Failed rows</strong></div><div style="margin-top:8px;white-space:pre-wrap;">${escapeHtml(failedRows.slice(0, 12).join('\n'))}</div>`;
+              }
+              const detail = failedRows.length ? ` First error: ${failedRows[0]}` : '';
+              showNotice(`CSV upload complete. Success: ${success}. Failed: ${failed}.${detail}`, failed ? 'warning' : 'success');
             } catch (error) {
               console.error('[CSV_SAVE_ERROR]', error);
               showNotice(error.message || 'Failed to save CSV prospects.', 'error');
