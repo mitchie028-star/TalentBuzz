@@ -1483,7 +1483,7 @@
           const score = deriveTalentScore(profile);
           const [fitLabel, fitClass] = fitFor(score);
           const voice = findVoiceEntry(linkedApps);
-          const tags = mergeUnique([
+          const tags = uniqueOptions([
             ...(normalizeArray(profile.extracted_skills)).slice(0,4),
             ...(normalizeArray(profile.suggested_roles)).slice(0,2),
             profile.top_match_role || '',
@@ -1505,7 +1505,7 @@
           resume_path: p.resume_path || '',
           resume_file_name: p.resume_file_name || '',
           source_stage: p.status || 'new_lead',
-          tags: mergeUnique([...(normalizeArray(p.skills)).slice(0,4), ...(normalizeArray(p.suggested_roles)).slice(0,2), p.top_match_role || '']).slice(0,6)
+          tags: uniqueOptions([...(normalizeArray(p.skills)).slice(0,4), ...(normalizeArray(p.suggested_roles)).slice(0,2), p.top_match_role || '']).slice(0,6)
         }));
 
         const profilesByEmail = new Map((profiles || []).filter(p => normalizeText(p.email || '')).map(p => [normalizeText(p.email || ''), p]));
@@ -1572,7 +1572,7 @@
             converted: completedProfile || linkedOutreach.some(item => item.converted),
             hasApplication: linkedApps.length > 0,
             talentOnly: !!linkedProfile && linkedApps.length === 0,
-            tags: mergeUnique([...(row.tags || []), ...getRowSkillsAndTags(linkedProfile || {})]).slice(0, 8)
+            tags: uniqueOptions([...(row.tags || []), ...getRowSkillsAndTags(linkedProfile || {})]).slice(0, 8)
           };
         });
 
@@ -1680,26 +1680,40 @@
         });
       }
 
+      function canonicalTagValue(value=''){
+        return String(value || '')
+          .replace(/[|/]+/g, ' ')
+          .replace(/[_-]+/g, ' ')
+          .replace(/\s+/g, ' ')
+          .trim()
+          .toLowerCase();
+      }
+
       function uniqueOptions(values){
-        return [...new Set(values.filter(Boolean))].sort((a,b) => String(a).localeCompare(String(b)));
+        const map = new Map();
+        (values || []).forEach(value => {
+          const clean = String(value || '').replace(/\s+/g, ' ').trim();
+          const key = canonicalTagValue(clean);
+          if (!clean || !key || map.has(key)) return;
+          map.set(key, clean);
+        });
+        return [...map.values()].sort((a,b) => String(a).localeCompare(String(b), undefined, { sensitivity:'base' }));
       }
 
       function populateSelect(selectEl, label, options){
         if (!selectEl) return;
+        const selectedValue = selectEl.value || '';
         selectEl.innerHTML = `<option value="">All ${label.toLowerCase()}</option>` + options.map(v => `<option value="${escapeHtml(v)}">${escapeHtml(v)}</option>`).join('');
+        const matched = options.find(v => canonicalTagValue(v) === canonicalTagValue(selectedValue));
+        selectEl.value = matched || '';
       }
 
-
       function getRowSkillsAndTags(row){
-        return mergeUnique([
+        return uniqueOptions([
           ...(normalizeArray(row.tags)),
           ...(normalizeArray(row.skills)),
           ...(normalizeArray(row.extracted_skills)),
-          ...(normalizeArray(row.suggested_roles)),
-          row.top_match_role || '',
-          row.target_role || '',
-          row.title || '',
-          row.company || ''
+          ...(normalizeArray(row.suggested_roles))
         ]).filter(Boolean);
       }
 
@@ -1784,8 +1798,8 @@
         const skillFilter = normalizeText(els.filterSkills?.value);
 
         return rows.filter(row => {
-          const skillTags = getRowSkillsAndTags(row).map(normalizeText);
-          if (skillFilter && !skillTags.includes(skillFilter)) return false;
+          const skillTags = getRowSkillsAndTags(row).map(canonicalTagValue);
+          if (skillFilter && !skillTags.some(tag => tag === canonicalTagValue(skillFilter) || tag.includes(canonicalTagValue(skillFilter)) || canonicalTagValue(skillFilter).includes(tag))) return false;
           if (state.activeTab === 'talent') {
             if (state.quickFilter === 'completed' && normalizeText(row.profile_status) !== 'completed') return false;
             if (state.quickFilter === 'with_resume' && !(row.resume_url || row.resume_path)) return false;
