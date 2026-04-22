@@ -331,7 +331,7 @@
           <input id="linkedinPdfInput" type="file" accept="application/pdf,.pdf" />
         </div>
         <div class="field full-span">
-          <label for="prospectResumeInput">Resume Upload</label>
+          <label for="prospectResumeInput">Resume</label>
           <input id="prospectResumeInput" type="file" accept=".pdf,.doc,.docx,.rtf,.txt" />
           <div class="helper">Optional. Upload a resume to attach to the lead record.</div>
         </div>
@@ -384,6 +384,10 @@
           <label for="prospectSummary">Summary</label>
           <textarea id="prospectSummary" rows="5"></textarea>
         </div>
+        <div class="field full-span">
+          <label for="prospectEducation">Educational Background</label>
+          <textarea id="prospectEducation" rows="4" placeholder="Degree, school, certifications, graduation details"></textarea>
+        </div>
       </div>
       <div id="linkedinPdfResult" class="result-box" style="display:none"></div>
       <div class="form-actions">
@@ -405,7 +409,7 @@
       </div>
       <div class="help-box">
         Expected columns:<br>
-        <strong>full_name, current_title, total_experience, skills, current_company, location, email, phone, linkedin_url, summary_of_experience</strong>
+        <strong>full_name, current_title, total_experience, skills, current_company, location, email, phone, linkedin_url, summary_of_experience, education</strong>
       </div>
       <div class="form-grid">
         <div class="field full-span">
@@ -524,7 +528,7 @@
         prospectFullName:$('prospectFullName'), prospectTitle:$('prospectTitle'), prospectCompany:$('prospectCompany'),
         prospectLocation:$('prospectLocation'), prospectId:$('prospectId'), prospectEmail:$('prospectEmail'), prospectPhone:$('prospectPhone'), prospectLinkedIn:$('prospectLinkedIn'),
         prospectExperience:$('prospectExperience'), prospectAiScore:$('prospectAiScore'), prospectSkills:$('prospectSkills'),
-        prospectSummary:$('prospectSummary'), linkedinPdfResult:$('linkedinPdfResult'),
+        prospectSummary:$('prospectSummary'), prospectEducation:$('prospectEducation'), linkedinPdfResult:$('linkedinPdfResult'),
         parseLinkedInPdfBtn:$('parseLinkedInPdfBtn'), saveLinkedInProspectBtn:$('saveLinkedInProspectBtn'),
         csvUploadModal:$('csvUploadModal'), closeCsvModalBtn:$('closeCsvModalBtn'),
         csvFileInput:$('csvFileInput'), csvPreviewBox:$('csvPreviewBox'),
@@ -811,6 +815,16 @@
           .trim();
       }
 
+      function detectEducation(text=''){
+        const lines = getPdfLines(text);
+        const section = findSectionRange(lines, 'Education', ['Experience', 'Certifications', 'Licenses & Certifications']).items;
+        return section
+          .filter(line => line && !/^Page\s+\d+/i.test(line))
+          .join(' ')
+          .replace(/\s+/g, ' ')
+          .trim();
+      }
+
       function detectSkills(text=''){
         const lines = getPdfLines(text);
         const topIdx = lines.findIndex(line => /^Top Skills$/i.test(line));
@@ -895,13 +909,18 @@
       }
 
       function buildProspectSummary(parsed){
-        if (parsed.summary_text) return parsed.summary_text;
+        if (parsed.summary_text) {
+          let summary = parsed.summary_text;
+          if (parsed.education) summary += `${summary ? ' ' : ''}Educational background: ${parsed.education}.`;
+          return summary.trim();
+        }
         const parts = [];
         if (parsed.current_title) parts.push(parsed.current_title);
         if (parsed.current_company) parts.push(`at ${parsed.current_company}`);
         let summary = parts.join(' ');
         if (parsed.location) summary += `${summary ? '. ' : ''}Based in ${parsed.location}.`;
         if (parsed.skills?.length) summary += `${summary ? ' ' : ''}Core skills include ${parsed.skills.slice(0,5).join(', ')}.`;
+        if (parsed.education) summary += `${summary ? ' ' : ''}Educational background includes ${parsed.education}.`;
         if (parsed.experience_years) summary += ` Approx. ${parsed.experience_years} years of experience detected.`;
         return summary || 'LinkedIn PDF uploaded and parsed for sourcing.';
       }
@@ -917,6 +936,7 @@
         if (parsed.skills?.length) score += Math.min(parsed.skills.length * 4, 24);
         if (parsed.experience_years) score += Math.min(parsed.experience_years * 3, 18);
         if (parsed.summary_text) score += 8;
+        if (parsed.education) score += 6;
         return Math.min(100, Math.round(score));
       }
 
@@ -931,6 +951,7 @@
         if (els.prospectExperience) els.prospectExperience.value = parsed.experience_years || '';
         if (els.prospectSkills) els.prospectSkills.value = (parsed.skills || []).join(', ');
         if (els.prospectSummary) els.prospectSummary.value = parsed.experience_summary || '';
+        if (els.prospectEducation) els.prospectEducation.value = parsed.education || '';
         if (els.prospectAiScore) els.prospectAiScore.value = parsed.ai_score || '';
       }
 
@@ -946,7 +967,8 @@
           linkedin_url: detectLinkedInUrl(text),
           experience_years: detectExperienceYears(text),
           skills: detectSkills(text),
-          summary_text: detectSummary(text)
+          summary_text: detectSummary(text),
+          education: detectEducation(text)
         };
         parsed.experience_summary = buildProspectSummary(parsed);
         parsed.ai_score = computeProspectAiScore(parsed);
@@ -987,6 +1009,7 @@
           linkedin_url: payload.linkedin_url || '',
           total_experience: payload.total_experience || '',
           experience_summary: payload.experience_summary || '',
+          education: payload.education || '',
           source: payload.source || '',
           ai_score: Number(payload.ai_score || 0)
         };
@@ -1005,7 +1028,8 @@
             phone: base.phone,
             linkedin_url: base.linkedin_url,
             total_experience: base.total_experience,
-            experience_summary: base.experience_summary
+            experience_summary: base.experience_summary,
+            education: base.education
           },
           {
             full_name: base.full_name,
@@ -1013,7 +1037,8 @@
             current_company: base.current_company,
             location: base.location,
             personal_email: base.personal_email,
-            linkedin_url: base.linkedin_url
+            linkedin_url: base.linkedin_url,
+            education: base.education
           },
           {
             full_name: base.full_name,
@@ -1132,6 +1157,7 @@
         }
 
         if (c.summary_of_experience) score += 8;
+        if (c.education) score += 6;
         return Math.min(100, Math.round(score));
       }
 
@@ -1151,6 +1177,7 @@
             <td>${escapeHtml(row.location || '')}</td>
             <td>${escapeHtml(String(row.total_experience || ''))}</td>
             <td>${escapeHtml(String(row.skills || ''))}</td>
+            <td>${escapeHtml(String(row.education || ''))}</td>
             <td>${escapeHtml(String(row.ai_score || 0))}</td>
           </tr>
         `).join('');
@@ -1168,6 +1195,7 @@
                   <th>Location</th>
                   <th>Total Experience</th>
                   <th>Skills</th>
+                  <th>Educational Background</th>
                   <th>AI Score</th>
                 </tr>
               </thead>
@@ -1501,6 +1529,7 @@
           title: p.current_title || '',
           email: p.personal_email || '',
           phone: p.phone || p.contact_number || '',
+          education: p.education || '',
           resume_url: p.resume_url || '',
           resume_path: p.resume_path || '',
           resume_file_name: p.resume_file_name || '',
@@ -1881,7 +1910,7 @@
         const rows = filterRows(activeRows());
         const heads = {
           talent: ['Candidate','Target Role / Headline','Location / Work Setup','AI Score','Profile Status','Applications','Resume','Tags','Updated','Actions'],
-          sourcing: ['Lead','Current Role','Company','Location','Source Stage','Email','Phone','Resume','LinkedIn','Tags','Created','Actions'],
+          sourcing: ['Lead','Current Role','Company','Location','Educational Background','Source Stage','Email','Phone','Resume','LinkedIn','Tags','Created','Actions'],
           outreach: ['Invite Email','Status','Recruiter','Sent','Progress','Converted','Specific Opening','Actions'],
           pipeline: ['Applicant','Job','Status','Screening','Score','Created','Actions']
         };
@@ -1916,6 +1945,7 @@
             <td><div><strong>${escapeHtml(row.title || 'No title')}</strong></div></td>
             <td>${escapeHtml(row.company || 'No company')}</td>
             <td>${escapeHtml(row.location || 'No location')}</td>
+            <td>${escapeHtml(row.education || 'No education')}</td>
             <td><span class="stage-pill ${statusClass(row.source_stage)}">${escapeHtml(titleCase(String(row.source_stage || 'new_lead').replace(/_/g,' ')))}</span></td>
             <td>${escapeHtml(row.email || 'No email')}</td>
             <td>${escapeHtml(row.phone || 'No phone')}</td>
@@ -2016,7 +2046,7 @@
             row.email ? `Lead email available: ${row.email}` : 'No lead email stored yet.',
             row.tags.length ? `Detected signals: ${row.tags.join(', ')}` : 'Limited signals found.'
           ].map(s => `<div class="summary-item">${escapeHtml(s)}</div>`).join('');
-          els.panelKv.innerHTML = [kv('Full Name', row.display_name), kv('Email', row.email), kv('Phone', row.phone || '-'), kv('Current Title', row.title), kv('Company', row.company), kv('Location', row.location), kv('Resume', row.resume_file_name || ((row.resume_url || row.resume_path) ? 'Uploaded' : '-')), kv('LinkedIn', row.linkedin_url || '-')].join('');
+          els.panelKv.innerHTML = [kv('Full Name', row.display_name), kv('Email', row.email), kv('Phone', row.phone || '-'), kv('Current Title', row.title), kv('Company', row.company), kv('Location', row.location), kv('Educational Background', row.education || '-'), kv('Resume', row.resume_file_name || ((row.resume_url || row.resume_path) ? 'Uploaded' : '-')), kv('LinkedIn', row.linkedin_url || '-')].join('');
           els.panelActivity.innerHTML = `<div class="activity-item">Created: ${escapeHtml(formatDate(row.created_at))}</div>`;
           setTimeout(() => document.getElementById('panelSendInviteBtn')?.addEventListener('click', () => openOutreachComposer({ full_name: row.display_name, email: row.email })), 0);
         } else if (type === 'outreach') {
@@ -2138,6 +2168,7 @@
             if (els.prospectExperience) els.prospectExperience.value = parseFloat(String(row.total_experience || '').replace(/[^\d.]/g,'')) || '';
             if (els.prospectSkills) els.prospectSkills.value = normalizeArray(row.skills).join(', ');
             if (els.prospectSummary) els.prospectSummary.value = row.experience_summary || '';
+            if (els.prospectEducation) els.prospectEducation.value = row.education || '';
             if (els.prospectAiScore) els.prospectAiScore.value = Number(row.ai_score || 0) || '';
             if (els.linkedinPdfRawText) els.linkedinPdfRawText.value = row.raw_resume_text || '';
             if (els.linkedinPdfInput) els.linkedinPdfInput.value = '';
@@ -2222,6 +2253,7 @@
                 linkedin_url: els.prospectLinkedIn?.value.trim() || '',
                 total_experience: els.prospectExperience?.value ? `${els.prospectExperience.value} years` : '',
                 experience_summary: els.prospectSummary?.value.trim() || '',
+                education: els.prospectEducation?.value.trim() || '',
                 skills: (els.prospectSkills?.value || '').split(',').map(s => s.trim()).filter(Boolean),
                 source: 'linkedin_pdf_upload',
                 ai_score: Number(els.prospectAiScore?.value || 0)
@@ -2305,7 +2337,11 @@
                 phone: row.phone || row.mobile || row.mobile_phone || row.contact_number || '',
                 linkedin_url: row.linkedin_url || row.linkedin || '',
                 summary_of_experience: row.summary_of_experience || row.summary || '',
-                ai_score: computeCsvAIScore(row)
+                education: row.education || row.educational_background || '',
+                ai_score: computeCsvAIScore({
+                  ...row,
+                  education: row.education || row.educational_background || ''
+                })
               }));
               renderCsvPreview(csvParsedData);
               showNotice(`CSV parsed successfully. ${csvParsedData.length} row(s) ready to save.`, 'success');
@@ -2343,6 +2379,7 @@
                     linkedin_url: row.linkedin_url,
                     total_experience: row.total_experience ? `${row.total_experience}` : '',
                     experience_summary: row.summary_of_experience,
+                    education: row.education || '',
                     skills: String(row.skills || '').split(',').map(s => s.trim()).filter(Boolean),
                     source: 'csv_upload',
                     ai_score: Number(row.ai_score || 0)
