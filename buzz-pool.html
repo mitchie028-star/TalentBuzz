@@ -1088,7 +1088,8 @@
 
       let csvParsedData = [];
 
-      function parseCsvLine(line=''){
+      
+function parseCsvLine(line=''){
         const result = [];
         let current = '';
         let inQuotes = false;
@@ -1097,7 +1098,7 @@
           const ch = line[i];
           const next = line[i + 1];
 
-          if (ch === '"' ) {
+          if (ch === '"') {
             if (inQuotes && next === '"') {
               current += '"';
               i += 1;
@@ -1120,26 +1121,141 @@
         return result.map(v => v.replace(/^"|"$/g, '').trim());
       }
 
+      function parseCSVRows(text=''){
+        const rows = [];
+        let row = [];
+        let current = '';
+        let inQuotes = false;
+        const source = String(text || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+
+        for (let i = 0; i < source.length; i++) {
+          const ch = source[i];
+          const next = source[i + 1];
+
+          if (ch === '"') {
+            if (inQuotes && next === '"') {
+              current += '"';
+              i += 1;
+            } else {
+              inQuotes = !inQuotes;
+            }
+            continue;
+          }
+
+          if (ch === ',' && !inQuotes) {
+            row.push(current.trim());
+            current = '';
+            continue;
+          }
+
+          if (ch === '\n' && !inQuotes) {
+            row.push(current.trim());
+            if (row.some(cell => String(cell || '').trim() !== '')) rows.push(row);
+            row = [];
+            current = '';
+            continue;
+          }
+
+          current += ch;
+        }
+
+        row.push(current.trim());
+        if (row.some(cell => String(cell || '').trim() !== '')) rows.push(row);
+
+        return rows.map(r => r.map(cell => String(cell || '').replace(/^"|"$/g, '').trim()));
+      }
+
+      function normalizeCsvHeader(header=''){
+        return String(header || '')
+          .toLowerCase()
+          .trim()
+          .replace(/[\uFEFF]/g, '')
+          .replace(/[()]/g, '')
+          .replace(/[\/\\]+/g, ' ')
+          .replace(/[^a-z0-9]+/g, '_')
+          .replace(/^_+|_+$/g, '')
+          .replace(/_+/g, '_');
+      }
+
+      function canonicalCsvHeader(header=''){
+        const normalized = normalizeCsvHeader(header);
+        const aliasMap = {
+          full_name: 'full_name',
+          name: 'full_name',
+          candidate_name: 'full_name',
+
+          current_title: 'current_title',
+          title: 'current_title',
+          current_role: 'current_title',
+          role: 'current_title',
+          job_title: 'current_title',
+
+          total_experience: 'total_experience',
+          experience: 'total_experience',
+          years_of_experience: 'total_experience',
+
+          skills: 'skills',
+          skill: 'skills',
+          top_skills: 'skills',
+          languages: 'skills',
+          language: 'skills',
+
+          current_company: 'current_company',
+          company: 'current_company',
+          present_company: 'current_company',
+
+          location: 'location',
+          current_location: 'location',
+          city: 'location',
+          address: 'location',
+
+          email: 'email',
+          personal_email: 'email',
+          email_address: 'email',
+
+          phone: 'phone',
+          mobile: 'phone',
+          mobile_phone: 'phone',
+          contact_number: 'phone',
+          phone_number: 'phone',
+
+          linkedin_url: 'linkedin_url',
+          linkedin: 'linkedin_url',
+          linkedin_profile: 'linkedin_url',
+          linkedin_profile_url: 'linkedin_url',
+
+          summary_of_experience: 'summary_of_experience',
+          summary: 'summary_of_experience',
+          profile_summary: 'summary_of_experience',
+          experience_summary: 'summary_of_experience',
+
+          education: 'education',
+          educational_background: 'education',
+          educational_attainment: 'education',
+          academic_background: 'education'
+        };
+
+        return aliasMap[normalized] || normalized;
+      }
+
       function parseCSVAdvanced(text=''){
-        const rows = String(text || '')
-          .replace(/\r/g, '')
-          .split('\n')
-          .filter(line => line.trim());
-
+        const rows = parseCSVRows(text);
         if (!rows.length) return [];
-        const headers = parseCsvLine(rows[0]).map(h => h.toLowerCase().trim());
 
-        return rows.slice(1).map(line => {
-          const values = parseCsvLine(line);
+        const headers = rows[0].map(header => canonicalCsvHeader(header));
+
+        return rows.slice(1).map(values => {
           const obj = {};
           headers.forEach((header, index) => {
+            if (!header) return;
             obj[header] = values[index] || '';
           });
           return obj;
-        });
+        }).filter(row => Object.values(row).some(value => String(value || '').trim()));
       }
 
       function computeCsvAIScore(c){
+
         let score = 0;
         if (c.full_name) score += 12;
         if (c.current_title) score += 20;
@@ -2326,23 +2442,26 @@
               if (!file) throw new Error('Please choose a CSV file first.');
               const text = await file.text();
               const parsed = parseCSVAdvanced(text);
-              csvParsedData = parsed.map(row => ({
-                full_name: row.full_name || '',
-                current_title: row.current_title || '',
-                current_company: row.current_company || '',
-                location: row.location || row.current_location || row.city || '',
-                total_experience: row.total_experience || '',
-                skills: row.skills || '',
-                personal_email: row.personal_email || row.email || '',
-                phone: row.phone || row.mobile || row.mobile_phone || row.contact_number || '',
-                linkedin_url: row.linkedin_url || row.linkedin || '',
-                summary_of_experience: row.summary_of_experience || row.summary || '',
-                education: row.education || row.educational_background || '',
-                ai_score: computeCsvAIScore({
-                  ...row,
-                  education: row.education || row.educational_background || ''
-                })
-              }));
+              csvParsedData = parsed.map(row => {
+                const mapped = {
+                  full_name: row.full_name || '',
+                  current_title: row.current_title || '',
+                  current_company: row.current_company || '',
+                  location: row.location || '',
+                  total_experience: row.total_experience || '',
+                  skills: row.skills || '',
+                  personal_email: row.email || '',
+                  phone: row.phone || '',
+                  linkedin_url: row.linkedin_url || '',
+                  summary_of_experience: row.summary_of_experience || '',
+                  education: row.education || ''
+                };
+
+                return {
+                  ...mapped,
+                  ai_score: computeCsvAIScore(mapped)
+                };
+              });
               renderCsvPreview(csvParsedData);
               showNotice(`CSV parsed successfully. ${csvParsedData.length} row(s) ready to save.`, 'success');
             } catch (error) {
