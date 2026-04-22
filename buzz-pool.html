@@ -1702,9 +1702,32 @@ function parseCsvLine(line=''){
           const linkedProfile = profilesByEmail.get(emailKey) || null;
           const linkedOutreach = outreachByEmail.get(emailKey) || [];
           const linkedApps = appsByEmail.get(emailKey) || [];
-          const completedProfile = !!(linkedProfile?.profile_completed_at || normalizeText(linkedProfile?.profile_status) === 'completed' || linkedOutreach.some(item => item.profile_completed_at));
-          const incompleteProfile = !!(!completedProfile && (linkedProfile?.profile_started_at || linkedOutreach.some(item => item.profile_started_at)));
+          const completedProfile = !!(
+            linkedProfile?.profile_completed_at ||
+            normalizeText(linkedProfile?.profile_status) === 'completed' ||
+            linkedOutreach.some(item => item.profile_completed_at)
+          );
+          const incompleteProfile = !!(
+            !completedProfile &&
+            (linkedProfile?.profile_started_at || linkedOutreach.some(item => item.profile_started_at))
+          );
           const invited = linkedOutreach.length > 0;
+          const converted = completedProfile || linkedOutreach.some(item => item.converted);
+          const hasApplication = linkedApps.length > 0;
+
+          let derivedSourceStage = normalizeText(row.source_stage || row.status || 'new_lead');
+          if (converted) {
+            derivedSourceStage = 'converted';
+          } else if (hasApplication) {
+            derivedSourceStage = 'application_started';
+          } else if (incompleteProfile) {
+            derivedSourceStage = 'profile_started';
+          } else if (invited) {
+            derivedSourceStage = 'invite_sent';
+          } else if (!derivedSourceStage) {
+            derivedSourceStage = 'new_lead';
+          }
+
           return {
             ...row,
             linkedProfile,
@@ -1714,8 +1737,9 @@ function parseCsvLine(line=''){
             completedProfile,
             incompleteProfile,
             invited,
-            converted: completedProfile || linkedOutreach.some(item => item.converted),
-            hasApplication: linkedApps.length > 0,
+            converted,
+            hasApplication,
+            source_stage: derivedSourceStage,
             talentOnly: !!linkedProfile && linkedApps.length === 0,
             tags: uniqueOptions([...(row.tags || []), ...getRowSkillsAndTags(linkedProfile || {})]).slice(0, 8)
           };
@@ -1792,7 +1816,7 @@ function parseCsvLine(line=''){
           sourcing: {
             title: 'Sourcing Engine',
             copy: 'Review sourced leads and LinkedIn-style prospect records from prospects.',
-            quicks: [['all','All'],['new','New'],['with_email','With Email'],['with_linkedin','With LinkedIn'],['high_signal','High Signal']],
+            quicks: [['all','All'],['new','New'],['invited','Invited'],['started','Profile Started'],['converted','Converted'],['with_email','With Email'],['with_linkedin','With LinkedIn'],['high_signal','High Signal']],
             filters: [['company','Company'],['title','Current Title'],['location','Location'],['source_stage','Lead Stage']]
           },
           outreach: {
@@ -1972,6 +1996,9 @@ function parseCsvLine(line=''){
             if (state.dashboardFilter === 'applications' && !row.hasApplication) return false;
 
             if (state.quickFilter === 'new' && normalizeText(row.source_stage) !== 'new_lead' && normalizeText(row.source_stage) !== 'new') return false;
+            if (state.quickFilter === 'invited' && normalizeText(row.source_stage) !== 'invite_sent') return false;
+            if (state.quickFilter === 'started' && normalizeText(row.source_stage) !== 'profile_started') return false;
+            if (state.quickFilter === 'converted' && normalizeText(row.source_stage) !== 'converted') return false;
             if (state.quickFilter === 'with_email' && !row.email) return false;
             if (state.quickFilter === 'with_linkedin' && !row.linkedin_url) return false;
             if (state.quickFilter === 'high_signal' && row.tags.length < 3) return false;
