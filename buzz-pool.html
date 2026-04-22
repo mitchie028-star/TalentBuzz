@@ -449,6 +449,7 @@
           <select id="outreachMode">
             <option value="invite">Initial Invite</option>
             <option value="follow_up">Manual Follow-Up</option>
+            <option value="outbound_call">Outbound Call</option>
             <option value="job_offer">Offer Specific Opening</option>
           </select>
         </div>
@@ -470,11 +471,15 @@
         <div class="field composer-wide">
           <label for="outreachInviteLink">Invite Link</label>
           <input id="outreachInviteLink" type="text" placeholder="https://talentbuzz.net/create-profile.html?..." />
-          <div class="helper-note">If left blank, TalentBuzz will generate a recruiter-attributed TalentBuzz link automatically. For bulk outreach, a unique link is generated per recipient.</div>
+          <div class="helper-note">If left blank, TalentBuzz will generate a recruiter-attributed TalentBuzz link automatically.</div>
         </div>
         <div class="field composer-wide">
           <label for="outreachCustomMessage">Custom Message</label>
           <textarea id="outreachCustomMessage" rows="5" placeholder="Optional message. For follow-ups and job offers, this will be sent with the invite."></textarea>
+        </div>
+        <div class="field composer-wide">
+          <label for="outreachRecruiterNotes">Recruiter Notes</label>
+          <textarea id="outreachRecruiterNotes" rows="3" placeholder="Internal recruiter notes for this outreach record."></textarea>
         </div>
       </div>
 
@@ -536,7 +541,7 @@
         parseCsvBtn:$('parseCsvBtn'), saveCsvBtn:$('saveCsvBtn'),
         outreachComposerModal:$('outreachComposerModal'), closeOutreachComposerBtn:$('closeOutreachComposerBtn'),
         outreachMode:$('outreachMode'), outreachJobId:$('outreachJobId'), outreachFullName:$('outreachFullName'), outreachEmail:$('outreachEmail'), outreachInviteLink:$('outreachInviteLink'),
-        outreachCustomMessage:$('outreachCustomMessage'),
+        outreachCustomMessage:$('outreachCustomMessage'), outreachRecruiterNotes:$('outreachRecruiterNotes'),
         outreachResult:$('outreachResult'), previewOutreachLinkBtn:$('previewOutreachLinkBtn'), sendOutreachBtn:$('sendOutreachBtn')
       };
 
@@ -562,13 +567,19 @@
         if (['completed','profile_completed'].includes(key)) return 'completed';
         if (['profile_started','started'].includes(key)) return 'started';
         if (['invite_opened','opened'].includes(key)) return 'opened';
-        if (['invite_sent','sent','follow_up_sent','job_offer_sent'].includes(key)) return 'sent';
-        return key || 'sent';
+        if (['invite_sent','sent'].includes(key)) return 'invite_sent';
+        if (['follow_up_sent','followup_sent'].includes(key)) return 'follow_up_sent';
+        if (['outbound_call','call_sent','outbound_called'].includes(key)) return 'outbound_call';
+        if (['job_offer_sent'].includes(key)) return 'job_offer_sent';
+        return key || 'invite_sent';
       }
 
       function displayInviteStatus(status=''){
         const key = normalizeInviteStatus(status);
-        if (key === 'sent') return 'Invite Sent';
+        if (key === 'invite_sent') return 'Invite Sent';
+        if (key === 'follow_up_sent') return 'Follow-up Sent';
+        if (key === 'outbound_call') return 'Outbound Call';
+        if (key === 'job_offer_sent') return 'Job Offer Sent';
         if (key === 'opened') return 'Invite Opened';
         if (key === 'started') return 'Profile Started';
         if (key === 'completed') return 'Profile Completed';
@@ -613,7 +624,7 @@
       function statusClass(status){
         const key = normalizeText(status).replace(/\s+/g,'_');
         if (['completed','profile_completed'].includes(key)) return 'status-completed';
-        if (['in_progress','profile_started','sent','opened'].includes(key)) return 'status-in_progress';
+        if (['in_progress','profile_started','sent','invite_sent','follow_up_sent','outbound_call','job_offer_sent','opened'].includes(key)) return 'status-in_progress';
         if (['auto_created'].includes(key)) return 'status-auto_created';
         if (['failed','rejected','declined'].includes(key)) return 'stage-failed';
         if (['new','new_lead'].includes(key)) return 'stage-new';
@@ -1348,6 +1359,34 @@ function parseCsvLine(line=''){
         return `${getBaseAppUrl()}/create-profile.html?${qp.toString()}`;
       }
 
+      function parseOutreachEmails(value=''){
+        return Array.from(new Set(
+          String(value || '')
+            .split(/[\n,;]+/)
+            .map(item => item.trim().toLowerCase())
+            .filter(item => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(item))
+        ));
+      }
+
+      function getDisplayNameFromEmail(email=''){
+        const local = String(email || '').split('@')[0] || '';
+        return local
+          .replace(/[._-]+/g, ' ')
+          .replace(/\s+/g, ' ')
+          .trim()
+          .split(' ')
+          .filter(Boolean)
+          .map(part => part.charAt(0).toUpperCase() + part.slice(1))
+          .join(' ');
+      }
+
+      function buildOutreachSource(mode='invite'){
+        if (mode === 'job_offer') return 'buzzpool_job_offer';
+        if (mode === 'follow_up') return 'buzzpool_follow_up';
+        if (mode === 'outbound_call') return 'buzzpool_outbound_call';
+        return 'buzzpool_invite';
+      }
+
       function getDefaultInviteLink(email='', options = {}){
         const recruiterEmail = String(options.recruiterEmail || getRecruiterIdentity()).trim().toLowerCase();
         const cleanEmail = String(email || '').trim().toLowerCase();
@@ -1382,31 +1421,6 @@ function parseCsvLine(line=''){
         showNotice(successMessage, 'success');
       }
 
-      function parseOutreachEmails(rawValue=''){
-        const seen = new Set();
-        return String(rawValue || '')
-          .split(/[\n,;]+/)
-          .map(email => String(email || '').trim().toLowerCase())
-          .filter(email => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
-          .filter(email => {
-            if (seen.has(email)) return false;
-            seen.add(email);
-            return true;
-          });
-      }
-
-      function buildOutreachSource(mode='invite'){
-        if (mode === 'job_offer') return 'buzzpool_job_offer';
-        if (mode === 'follow_up') return 'buzzpool_follow_up';
-        return 'buzzpool_invite';
-      }
-
-      function getDisplayNameFromEmail(email=''){
-        const local = String(email || '').split('@')[0] || '';
-        const cleaned = local.replace(/[._-]+/g, ' ').trim();
-        return cleaned ? titleCase(cleaned) : '';
-      }
-
       function openOutreachComposer(seed = {}){
         const seededEmail = seed.email || seed.invite_email || '';
         const mode = seed.mode || 'invite';
@@ -1415,7 +1429,7 @@ function parseCsvLine(line=''){
 
         if (els.outreachMode) els.outreachMode.value = mode;
         if (els.outreachFullName) els.outreachFullName.value = seed.full_name || seed.display_name || '';
-        if (els.outreachEmail) els.outreachEmail.value = Array.isArray(seed.emails) ? seed.emails.join('\n') : seededEmail;
+        if (els.outreachEmail) els.outreachEmail.value = seededEmail;
 
         populateJobSelect(selectedJobId);
 
@@ -1423,7 +1437,7 @@ function parseCsvLine(line=''){
         const defaultLink = getDefaultInviteLink(seededEmail, {
           recruiterEmail,
           jobId: selectedJob?.id || '',
-          source: buildOutreachSource(mode)
+          source: mode === 'job_offer' ? 'buzzpool_job_offer' : mode === 'follow_up' ? 'buzzpool_follow_up' : 'buzzpool_invite'
         });
 
         if (els.outreachInviteLink) {
@@ -1435,6 +1449,8 @@ function parseCsvLine(line=''){
             els.outreachCustomMessage.value = seed.message;
           } else if (mode === 'follow_up') {
             els.outreachCustomMessage.value = `Hi ${seed.full_name || seed.display_name || ''}, just following up on the TalentBuzz profile invite I sent earlier.`;
+          } else if (mode === 'outbound_call') {
+            els.outreachCustomMessage.value = `Hi ${seed.full_name || seed.display_name || ''}, I tried reaching out with an outbound call regarding TalentBuzz opportunities.`;
           } else if (mode === 'job_offer' && (seed.offered_job_title || selectedJob?.title)) {
             els.outreachCustomMessage.value = `Hi ${seed.full_name || seed.display_name || ''}, I wanted to share a specific opening that may match your background: ${seed.offered_job_title || selectedJob?.title || 'Open role'}.`;
           } else {
@@ -1442,20 +1458,26 @@ function parseCsvLine(line=''){
           }
         }
 
+        if (els.outreachRecruiterNotes) {
+          els.outreachRecruiterNotes.value = seed.recruiter_notes || seed.notes || '';
+        }
+
         if (els.outreachJobId) {
           const field = els.outreachJobId.closest('.field');
           if (field) field.classList.toggle('hidden', mode !== 'job_offer');
         }
         if (els.sendOutreachBtn) {
-          els.sendOutreachBtn.textContent = mode === 'follow_up' ? 'Send Follow-Up' : mode === 'job_offer' ? 'Send Job Offer' : 'Send Outreach';
+          els.sendOutreachBtn.textContent = mode === 'follow_up' ? 'Send Follow-Up' : mode === 'outbound_call' ? 'Log Outbound Call' : mode === 'job_offer' ? 'Send Job Offer' : 'Send Outreach';
         }
 
         if (seededEmail) {
           showOutreachResult(mode === 'follow_up'
             ? 'Follow-up mode is ready. Review the link and message, then send.'
-            : 'Review the recruiter-attributed link, then send the tracked outreach.', 'info');
+            : mode === 'outbound_call'
+              ? 'Outbound call mode is ready. Review the note, then log the outreach.'
+              : 'Review the recruiter-attributed link, then send the tracked outreach.', 'info');
         } else if (els.outreachEmail?.value && parseOutreachEmails(els.outreachEmail.value).length > 1) {
-          showOutreachResult(`Bulk ${mode === 'follow_up' ? 'follow-up' : 'invite'} mode is ready for ${parseOutreachEmails(els.outreachEmail.value).length} recipients.`, 'info');
+          showOutreachResult(`Bulk ${mode === 'follow_up' ? 'follow-up' : mode === 'outbound_call' ? 'outbound call' : mode === 'job_offer' ? 'job offer' : 'invite'} mode is ready for ${parseOutreachEmails(els.outreachEmail.value).length} recipients. Leave Full Name blank unless every recipient should receive the same name.`, 'warning');
         } else if (recruiterEmail) {
           showOutreachResult('No recipient email yet. You can still copy your recruiter link for direct sourcing.', 'info');
         } else {
@@ -1484,7 +1506,7 @@ function parseCsvLine(line=''){
             <button id="contextRefreshSourcingBtn" class="btn btn-outline" type="button">Refresh Sourcing</button>
           `;
         } else if (state.activeTab === 'outreach') {
-          const sentCount = state.data.outreach.filter(r => normalizeInviteStatus(r.status) === 'sent').length;
+          const sentCount = state.data.outreach.filter(r => ['invite_sent','follow_up_sent','outbound_call','job_offer_sent'].includes(normalizeInviteStatus(r.status))).length;
           const startedCount = state.data.outreach.filter(r => normalizeInviteStatus(r.status) === 'started').length;
           const completedCount = state.data.outreach.filter(r => normalizeInviteStatus(r.status) === 'completed').length;
           html = `
@@ -1547,7 +1569,8 @@ function parseCsvLine(line=''){
           clicked_at: record.clicked_at || null,
           offered_job_id: record.offered_job_id || null,
           offered_job_title: record.offered_job_title || '',
-          notes: record.notes || ''
+          notes: record.notes || '',
+          recruiter_notes: record.recruiter_notes || record.internal_notes || ''
         };
       }
 
@@ -1713,7 +1736,8 @@ function parseCsvLine(line=''){
             profile_status: linkedProfile?.profile_status || null,
             offered_job_id: i.offered_job_id || null,
             offered_job_title: i.offered_job_title || '',
-            notes: i.notes || ''
+            notes: i.notes || '',
+            recruiter_notes: i.recruiter_notes || i.internal_notes || ''
           };
         });
 
@@ -1730,32 +1754,9 @@ function parseCsvLine(line=''){
           const linkedProfile = profilesByEmail.get(emailKey) || null;
           const linkedOutreach = outreachByEmail.get(emailKey) || [];
           const linkedApps = appsByEmail.get(emailKey) || [];
-          const completedProfile = !!(
-            linkedProfile?.profile_completed_at ||
-            normalizeText(linkedProfile?.profile_status) === 'completed' ||
-            linkedOutreach.some(item => item.profile_completed_at)
-          );
-          const incompleteProfile = !!(
-            !completedProfile &&
-            (linkedProfile?.profile_started_at || linkedOutreach.some(item => item.profile_started_at))
-          );
+          const completedProfile = !!(linkedProfile?.profile_completed_at || normalizeText(linkedProfile?.profile_status) === 'completed' || linkedOutreach.some(item => item.profile_completed_at));
+          const incompleteProfile = !!(!completedProfile && (linkedProfile?.profile_started_at || linkedOutreach.some(item => item.profile_started_at)));
           const invited = linkedOutreach.length > 0;
-          const converted = completedProfile || linkedOutreach.some(item => item.converted);
-          const hasApplication = linkedApps.length > 0;
-
-          let derivedSourceStage = normalizeText(row.source_stage || row.status || 'new_lead');
-          if (converted) {
-            derivedSourceStage = 'converted';
-          } else if (hasApplication) {
-            derivedSourceStage = 'application_started';
-          } else if (incompleteProfile) {
-            derivedSourceStage = 'profile_started';
-          } else if (invited) {
-            derivedSourceStage = 'invite_sent';
-          } else if (!derivedSourceStage) {
-            derivedSourceStage = 'new_lead';
-          }
-
           return {
             ...row,
             linkedProfile,
@@ -1765,9 +1766,8 @@ function parseCsvLine(line=''){
             completedProfile,
             incompleteProfile,
             invited,
-            converted,
-            hasApplication,
-            source_stage: derivedSourceStage,
+            converted: completedProfile || linkedOutreach.some(item => item.converted),
+            hasApplication: linkedApps.length > 0,
             talentOnly: !!linkedProfile && linkedApps.length === 0,
             tags: uniqueOptions([...(row.tags || []), ...getRowSkillsAndTags(linkedProfile || {})]).slice(0, 8)
           };
@@ -1844,13 +1844,13 @@ function parseCsvLine(line=''){
           sourcing: {
             title: 'Sourcing Engine',
             copy: 'Review sourced leads and LinkedIn-style prospect records from prospects.',
-            quicks: [['all','All'],['new','New'],['invited','Invited'],['started','Profile Started'],['converted','Converted'],['with_email','With Email'],['with_linkedin','With LinkedIn'],['high_signal','High Signal']],
+            quicks: [['all','All'],['new','New'],['with_email','With Email'],['with_linkedin','With LinkedIn'],['high_signal','High Signal']],
             filters: [['company','Company'],['title','Current Title'],['location','Location'],['source_stage','Lead Stage']]
           },
           outreach: {
             title: 'Outreach',
             copy: 'Track invites sent through send-buzzpool-invite, monitor open, start, incomplete, and completed profile states, resend outreach when needed, and keep a clean invite log.',
-            quicks: [['all','All'],['sent','Sent'],['opened','Opened'],['started','Started'],['incomplete','Incomplete'],['completed','Completed'],['converted','Converted'],['not_converted','Not Converted']],
+            quicks: [['all','All'],['invite_sent','Invite Sent'],['follow_up_sent','Follow-up Sent'],['outbound_call','Outbound Call'],['opened','Opened'],['started','Started'],['incomplete','Incomplete'],['completed','Completed'],['converted','Converted'],['not_converted','Not Converted']],
             filters: [['status','Invite Status'],['recruiter','Recruiter'],['converted','Converted'],['domain','Email Domain']]
           },
           pipeline: {
@@ -2024,9 +2024,6 @@ function parseCsvLine(line=''){
             if (state.dashboardFilter === 'applications' && !row.hasApplication) return false;
 
             if (state.quickFilter === 'new' && normalizeText(row.source_stage) !== 'new_lead' && normalizeText(row.source_stage) !== 'new') return false;
-            if (state.quickFilter === 'invited' && normalizeText(row.source_stage) !== 'invite_sent') return false;
-            if (state.quickFilter === 'started' && normalizeText(row.source_stage) !== 'profile_started') return false;
-            if (state.quickFilter === 'converted' && normalizeText(row.source_stage) !== 'converted') return false;
             if (state.quickFilter === 'with_email' && !row.email) return false;
             if (state.quickFilter === 'with_linkedin' && !row.linkedin_url) return false;
             if (state.quickFilter === 'high_signal' && row.tags.length < 3) return false;
@@ -2041,7 +2038,9 @@ function parseCsvLine(line=''){
           }
 
           if (state.activeTab === 'outreach') {
-            if (state.quickFilter === 'sent' && normalizeInviteStatus(row.status) !== 'sent') return false;
+            if (state.quickFilter === 'invite_sent' && normalizeInviteStatus(row.status) !== 'invite_sent') return false;
+            if (state.quickFilter === 'follow_up_sent' && normalizeInviteStatus(row.status) !== 'follow_up_sent') return false;
+            if (state.quickFilter === 'outbound_call' && normalizeInviteStatus(row.status) !== 'outbound_call') return false;
             if (state.quickFilter === 'opened' && normalizeInviteStatus(row.status) !== 'opened') return false;
             if (state.quickFilter === 'started' && normalizeInviteStatus(row.status) !== 'started') return false;
             if (state.quickFilter === 'incomplete' && !row.incomplete) return false;
@@ -2055,7 +2054,7 @@ function parseCsvLine(line=''){
             if (v3 === 'no' && row.converted) return false;
             if (v4 && normalizeText((String(row.email || '').split('@')[1] || '')) !== v4) return false;
 
-            const hay = [row.full_name,row.email,row.status,row.recruiter_email].join(' ');
+            const hay = [row.full_name,row.email,row.status,row.recruiter_email,row.recruiter_notes,row.notes].join(' ');
             return !q || normalizeText(hay).includes(q);
           }
 
@@ -2082,7 +2081,7 @@ function parseCsvLine(line=''){
         const heads = {
           talent: ['Candidate','Target Role / Headline','Location / Work Setup','AI Score','Profile Status','Applications','Resume','Tags','Updated','Actions'],
           sourcing: ['Lead','Current Role','Company','Location','Educational Background','Source Stage','Email','Phone','Resume','LinkedIn','Tags','Created','Actions'],
-          outreach: ['Invite Email','Status','Recruiter','Sent','Progress','Converted','Specific Opening','Actions'],
+          outreach: ['Invite Email','Status','Recruiter','Recruiter Notes','Sent','Progress','Converted','Specific Opening','Actions'],
           pipeline: ['Applicant','Job','Status','Screening','Score','Created','Actions']
         };
         els.tableHeadRow.innerHTML = heads[state.activeTab].map(h => `<th>${escapeHtml(h)}</th>`).join('');
@@ -2131,11 +2130,12 @@ function parseCsvLine(line=''){
             <td><div class="candidate-cell"><div class="name">${escapeHtml(row.full_name || row.email || 'No recipient')}</div><div class="meta">${escapeHtml(row.email || 'No email')}</div></div></td>
             <td><span class="stage-pill ${statusClass(row.status)}">${escapeHtml(displayInviteStatus(row.status))}</span></td>
             <td>${escapeHtml(row.recruiter_email || 'TalentBuzz')}</td>
+            <td><div class="small">${escapeHtml(row.recruiter_notes || '-')}</div></td>
             <td><div class="small">${escapeHtml(formatDate(row.sent_at || row.created_at))}</div></td>
             <td><span class="small">${row.profile_completed_at ? 'Profile completed' : row.incomplete ? `Started • ${escapeHtml(String(row.profile_completion_percent || 0))}% complete` : row.profile_started_at ? 'Profile started' : row.opened_at ? 'Invite opened' : 'Awaiting profile action'}</span></td>
             <td>${row.converted ? '<span class="status-pill status-completed">Converted</span>' : row.incomplete ? '<span class="status-pill stage-new">Incomplete</span>' : '<span class="status-pill status-unknown">Not yet</span>'}</td>
             <td><div class="small">${escapeHtml(row.offered_job_title || row.notes || 'No opening attached')}</div></td>
-            <td><div class="row-actions"><button class="row-menu-btn" type="button" data-id="${escapeHtml(row.id || row.email)}">☰</button><div class="row-menu" id="menu-${escapeHtml(row.id || row.email)}"><button type="button" data-open="outreach" data-id="${escapeHtml(row.id || row.email)}">Open Invite</button><button type="button" data-compose-email="${escapeHtml(row.id || row.email)}" data-source-type="outreach" data-compose-mode="follow_up">Send Follow-Up</button><button type="button" data-compose-email="${escapeHtml(row.id || row.email)}" data-source-type="outreach" data-compose-mode="job_offer">Offer Opening</button><button type="button" data-compose-email="${escapeHtml(row.id || row.email)}" data-source-type="outreach" data-compose-mode="invite">Resend Invite</button></div></div></td>
+            <td><div class="row-actions"><button class="row-menu-btn" type="button" data-id="${escapeHtml(row.id || row.email)}">☰</button><div class="row-menu" id="menu-${escapeHtml(row.id || row.email)}"><button type="button" data-open="outreach" data-id="${escapeHtml(row.id || row.email)}">Open Invite</button><button type="button" data-compose-email="${escapeHtml(row.id || row.email)}" data-source-type="outreach" data-compose-mode="follow_up">Send Follow-Up</button><button type="button" data-compose-email="${escapeHtml(row.id || row.email)}" data-source-type="outreach" data-compose-mode="outbound_call">Log Outbound Call</button><button type="button" data-compose-email="${escapeHtml(row.id || row.email)}" data-source-type="outreach" data-compose-mode="job_offer">Offer Opening</button><button type="button" data-compose-email="${escapeHtml(row.id || row.email)}" data-source-type="outreach" data-compose-mode="invite">Resend Invite</button></div></div></td>
           </tr>`).join('');
         } else {
           els.tableBody.innerHTML = rows.map(row => `<tr>
@@ -2229,7 +2229,7 @@ function parseCsvLine(line=''){
             row.converted ? 'This invite converted into an applicant profile.' : 'No matching applicant profile found yet.',
             row.invite_note || 'No invite note saved.'
           ].map(s => `<div class="summary-item">${escapeHtml(s)}</div>`).join('');
-          els.panelKv.innerHTML = [kv('Invite Email', row.email), kv('Recruiter', row.recruiter_email), kv('Status', row.status), kv('Sent At', formatDate(row.sent_at || row.created_at))].join('');
+          els.panelKv.innerHTML = [kv('Invite Email', row.email), kv('Recruiter', row.recruiter_email), kv('Recruiter Notes', row.recruiter_notes || '-'), kv('Status', row.status), kv('Sent At', formatDate(row.sent_at || row.created_at))].join('');
           els.panelActivity.innerHTML = `<div class="activity-item">Invite record created: ${escapeHtml(formatDate(row.created_at))}</div>`;
           if (row.opened_at) els.panelActivity.innerHTML += `<div class="activity-item">Opened: ${escapeHtml(formatDate(row.opened_at))}</div>`;
           if (row.clicked_at) els.panelActivity.innerHTML += `<div class="activity-item">Clicked: ${escapeHtml(formatDate(row.clicked_at))}</div>`;
@@ -2306,11 +2306,14 @@ function parseCsvLine(line=''){
               invite_link: row.invite_link || '',
               offered_job_id: row.offered_job_id || '',
               offered_job_title: row.offered_job_title || '',
+              recruiter_notes: row.recruiter_notes || row.notes || '',
               message: mode === 'follow_up'
                 ? `Hi ${row.full_name || row.display_name || ''}, just following up on the TalentBuzz invite I sent earlier.`
-                : mode === 'job_offer'
-                  ? `Hi ${row.full_name || row.display_name || ''}, I’d like to share a specific opening that may fit your background.`
-                  : ''
+                : mode === 'outbound_call'
+                  ? `Hi ${row.full_name || row.display_name || ''}, I tried reaching out with an outbound call regarding TalentBuzz opportunities.`
+                  : mode === 'job_offer'
+                    ? `Hi ${row.full_name || row.display_name || ''}, I’d like to share a specific opening that may fit your background.`
+                    : ''
             });
           });
         });
@@ -2634,26 +2637,33 @@ function parseCsvLine(line=''){
 
         if (els.previewOutreachLinkBtn) {
           els.previewOutreachLinkBtn.addEventListener('click', () => {
-            const email = (els.outreachEmail?.value || '').trim().toLowerCase();
-            if (!email) {
-              showOutreachResult('Enter the recipient email first so TalentBuzz can generate the invite link.', 'error');
-              return;
+            try {
+              const recruiterEmail = getRecruiterIdentity();
+              if (!recruiterEmail) throw new Error('Recruiter identity is missing. Please sign in again.');
+
+              const mode = els.outreachMode?.value || 'invite';
+              const emails = parseOutreachEmails(els.outreachEmail?.value || '');
+              const selectedJob = (state.jobs || []).find(job => String(job.id) === String(els.outreachJobId?.value || ''));
+
+              if (!emails.length) throw new Error('Please enter at least one valid email address.');
+
+              const firstLink = getDefaultInviteLink(emails[0], {
+                recruiterEmail,
+                jobId: selectedJob?.id || '',
+                source: buildOutreachSource(mode)
+              });
+
+              if (els.outreachInviteLink) els.outreachInviteLink.value = firstLink;
+
+              showOutreachResult(
+                emails.length > 1
+                  ? `Generated preview link for the first of ${emails.length} recipients. Each recipient will get a unique recruiter-attributed link.`
+                  : 'Recruiter-attributed invite link generated.',
+                'success'
+              );
+            } catch (error) {
+              showOutreachResult(error?.message || 'Failed to generate invite link.', 'error');
             }
-            const selectedJob = (state.jobs || []).find(j => String(j.id) === String(els.outreachJobId?.value || ''));
-            const generated = getDefaultInviteLink(email, {
-              recruiterEmail: getRecruiterIdentity(),
-              jobId: selectedJob?.id || '',
-              source: (els.outreachMode?.value || 'invite') === 'job_offer' ? 'buzzpool_job_offer' : 'buzzpool_invite'
-            });
-            if (els.outreachInviteLink) els.outreachInviteLink.value = generated;
-            const mode = els.outreachMode?.value || 'invite';
-            if (mode === 'job_offer') {
-              const job = (state.jobs || []).find(j => String(j.id) === String(els.outreachJobId?.value || ''));
-              if (job && els.outreachCustomMessage && !els.outreachCustomMessage.value.trim()) {
-                els.outreachCustomMessage.value = `Hi ${(els.outreachFullName?.value || '').trim()}, I wanted to share a specific opening that may match your background: ${job.title || 'Open role'}. ${getJobLink(job)}`;
-              }
-            }
-            showOutreachResult(emails.length > 1 ? `Outreach preview prepared for ${emails.length} recipients. The invite link shown is the first generated link.` : 'Outreach preview prepared.', 'success');
           });
         }
 
@@ -2662,7 +2672,7 @@ function parseCsvLine(line=''){
           els.outreachMode.addEventListener('change', () => {
             const mode = els.outreachMode.value || 'invite';
             if (els.sendOutreachBtn) {
-              els.sendOutreachBtn.textContent = mode === 'follow_up' ? 'Send Follow-Up' : mode === 'job_offer' ? 'Send Job Offer' : 'Send Outreach';
+              els.sendOutreachBtn.textContent = mode === 'follow_up' ? 'Send Follow-Up' : mode === 'outbound_call' ? 'Log Outbound Call' : mode === 'job_offer' ? 'Send Job Offer' : 'Send Outreach';
             }
             if (els.outreachJobId) {
               els.outreachJobId.closest('.field').classList.toggle('hidden', mode !== 'job_offer');
@@ -2685,29 +2695,29 @@ function parseCsvLine(line=''){
           els.sendOutreachBtn.addEventListener('click', async () => {
             try {
               const mode = els.outreachMode?.value || 'invite';
+              const recruiterEmail = getRecruiterIdentity();
               const fullName = (els.outreachFullName?.value || '').trim();
               const emails = parseOutreachEmails(els.outreachEmail?.value || '');
               const baseInviteLink = (els.outreachInviteLink?.value || '').trim();
               const customMessage = (els.outreachCustomMessage?.value || '').trim();
+              const recruiterNotes = (els.outreachRecruiterNotes?.value || '').trim();
               const selectedJob = (state.jobs || []).find(job => String(job.id) === String(els.outreachJobId?.value || ''));
-              const recruiterEmail = getRecruiterIdentity();
 
-              if (!recruiterEmail) throw new Error('Recruiter identity is missing. Sign in again before sending outreach.');
-              if (!emails.length) throw new Error('At least one valid recipient email is required.');
-              if (mode === 'job_offer' && !selectedJob) throw new Error('Choose an opening before sending a job offer.');
+              if (!recruiterEmail) throw new Error('Recruiter identity is missing. Please sign in again.');
+              if (!emails.length) throw new Error('Please enter at least one valid email address.');
+
+              if (emails.length > 1 && fullName) {
+                throw new Error('Bulk outreach cannot use one shared Full Name. Leave Full Name blank for bulk sends, or send one candidate at a time.');
+              }
 
               showOutreachResult(
-                emails.length > 1
-                  ? `${mode === 'follow_up' ? 'Sending follow-ups' : mode === 'job_offer' ? 'Sending job offers' : 'Sending invites'} to ${emails.length} recipients...`
-                  : mode === 'follow_up'
-                    ? 'Sending follow-up...'
-                    : 'Sending tracked BuzzPool outreach...',
+                mode === 'follow_up'
+                  ? `Sending follow-up to ${emails.length} recipient${emails.length > 1 ? 's' : ''}...`
+                  : mode === 'outbound_call'
+                    ? `Logging outbound call for ${emails.length} recipient${emails.length > 1 ? 's' : ''}...`
+                    : `Sending outreach to ${emails.length} recipient${emails.length > 1 ? 's' : ''}...`,
                 'info'
               );
-
-              if (els.sendOutreachBtn) {
-                els.sendOutreachBtn.disabled = true;
-              }
 
               const successes = [];
               const failures = [];
@@ -2727,7 +2737,7 @@ function parseCsvLine(line=''){
                   }
 
                   const payload = {
-                    full_name: emails.length === 1 ? fullName : (fullName || getDisplayNameFromEmail(email)),
+                    full_name: emails.length === 1 ? (fullName || getDisplayNameFromEmail(email)) : getDisplayNameFromEmail(email),
                     email,
                     invite_link: inviteLink,
                     recruiter_email: recruiterEmail,
@@ -2742,7 +2752,7 @@ function parseCsvLine(line=''){
                   const returnedInviteId = result.invite_id || result.invite?.id || email;
                   const returnedInviteToken = result.invite_token || result.invite?.invite_token || null;
                   const returnedLink = result.invite_link || inviteLink;
-                  const returnedStatus = result.invite_status || result.invite?.invite_status || (mode === 'follow_up' ? 'follow_up_sent' : mode === 'job_offer' ? 'job_offer_sent' : 'invite_sent');
+                  const returnedStatus = result.invite_status || result.invite?.invite_status || (mode === 'follow_up' ? 'follow_up_sent' : mode === 'outbound_call' ? 'outbound_call' : mode === 'job_offer' ? 'job_offer_sent' : 'invite_sent');
                   const returnedSentAt = result.sent_at || result.invite?.sent_at || new Date().toISOString();
                   const returnedFollowUpCount = result.follow_up_count ?? result.invite?.follow_up_count ?? (mode === 'follow_up' ? 1 : 0);
 
@@ -2759,7 +2769,8 @@ function parseCsvLine(line=''){
                     last_follow_up_at: mode === 'follow_up' ? new Date().toISOString() : null,
                     offered_job_id: selectedJob?.id || null,
                     offered_job_title: selectedJob?.title || null,
-                    notes: customMessage || ''
+                    notes: customMessage || '',
+                    recruiter_notes: recruiterNotes || ''
                   });
 
                   successes.push(email);
@@ -2790,39 +2801,17 @@ function parseCsvLine(line=''){
               }
 
               if (successes.length && !failures.length) {
-                showOutreachResult(
-                  `${mode === 'follow_up' ? 'Follow-up' : mode === 'job_offer' ? 'Job offer' : 'Invite'} sent to ${successes.length} recipient${successes.length > 1 ? 's' : ''}.`,
-                  'success'
-                );
-                if (!state.data.outreach.length) {
-                  showNotice('Outreach sent, but the browser could not read buzzpool_invites. Check your SELECT policy or RLS for that table.', 'warning');
-                } else {
-                  showNotice(
-                    mode === 'follow_up'
-                      ? `Tracked BuzzPool follow-up sent to ${successes.length} recipient${successes.length > 1 ? 's' : ''}.`
-                      : mode === 'job_offer'
-                        ? `Tracked BuzzPool job offer sent to ${successes.length} recipient${successes.length > 1 ? 's' : ''}.`
-                        : `Tracked BuzzPool invite sent to ${successes.length} recipient${successes.length > 1 ? 's' : ''}.`,
-                    'success'
-                  );
-                }
+                showNotice(`${mode === 'follow_up' ? 'Follow-up' : mode === 'outbound_call' ? 'Outbound call' : mode === 'job_offer' ? 'Job offer' : 'Invite'} sent to ${successes.length} recipient${successes.length > 1 ? 's' : ''}.`, 'success');
               } else if (successes.length && failures.length) {
-                showOutreachResult(
-                  `Sent to ${successes.length} recipient${successes.length > 1 ? 's' : ''}. Failed for ${failures.length}: ${failures.map(item => `${item.email} (${item.message})`).join('; ')}`,
-                  'error'
-                );
-                showNotice(`Partial success: ${successes.length} sent, ${failures.length} failed.`, 'warning');
+                showNotice(`Partial success. Sent to ${successes.length}; failed for ${failures.length}.`, 'warning');
               } else {
-                throw new Error(failures.map(item => `${item.email}: ${item.message}`).join('; ') || 'Failed to send outreach.');
+                throw new Error(failures[0]?.message || 'Failed to send outreach.');
               }
+
             } catch (error) {
               console.error('[OUTREACH_SEND_ERROR]', error);
               showOutreachResult(error?.message || 'Failed to send outreach.', 'error');
               showNotice(error?.message || 'Failed to send outreach.', 'error');
-            } finally {
-              if (els.sendOutreachBtn) {
-                els.sendOutreachBtn.disabled = false;
-              }
             }
           });
         }
