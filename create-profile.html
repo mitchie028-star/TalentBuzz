@@ -1339,26 +1339,142 @@ function getRecruiterOnlineStatus(){
   function inferCandidateText() { return [getTargetRoleInput().value,document.getElementById('experience').value,document.getElementById('linkedin').value,document.getElementById('portfolio').value,document.getElementById('location').value].filter(Boolean).join(' '); }
   async function readFileAsText(file) { const lowerName = file.name.toLowerCase(); if (lowerName.endsWith('.txt')) return await file.text(); return [file.name, inferCandidateText()].filter(Boolean).join(' '); }
   function computeJobFit(job, candidate) {
-    const selectedRole = normalizeText(candidate.target_role); const candidateText = normalizeText(candidate.resume_text + ' ' + candidate.extra_text); const candidateSkills = candidate.skills || [];
-    const title = String(job.title || ''); const roleFamily = String(job.role_family || ''); const jobDescription = String(job.job_description || ''); const keywords = String(job.keywords || ''); const workSetup = String(job.work_setup || ''); const location = [job.location, job.city, job.country].filter(Boolean).join(' '); const requiredSkills = safelyArrayifySkills(job.required_skills); const niceToHaveSkills = safelyArrayifySkills(job.nice_to_have_skills);
-    let score = 0; const matchedSkills = []; const titleText = normalizeText(title); const roleFamilyText = normalizeText(roleFamily); const jobText = normalizeText([title, roleFamily, jobDescription, keywords, workSetup, location].join(' '));
-    if (selectedRole && titleText.includes(selectedRole)) score += 35; else if (selectedRole && roleFamilyText.includes(selectedRole)) score += 24; else if (selectedRole && jobText.includes(selectedRole)) score += 16;
-    requiredSkills.forEach(skill => { const skillNorm = normalizeText(skill); const skillMatched = candidateSkills.includes(skillNorm) || candidateText.includes(skillNorm); if (skillMatched) { score += 14; matchedSkills.push(skill); } });
-    niceToHaveSkills.forEach(skill => { const skillNorm = normalizeText(skill); const skillMatched = candidateSkills.includes(skillNorm) || candidateText.includes(skillNorm); if (skillMatched) { score += 6; matchedSkills.push(skill); } });
-    candidateSkills.forEach(skill => { if (jobText.includes(skill)) { score += 5; matchedSkills.push(skill); } });
-    const preferredWorkSetup = normalizeText(document.getElementById('work_setup').value); if (preferredWorkSetup && workSetup && normalizeText(workSetup).includes(preferredWorkSetup)) score += 8;
-    const candidateLocation = normalizeText(document.getElementById('location').value); if (candidateLocation && location && normalizeText(location).includes(candidateLocation)) score += 6;
+    const selectedRole = normalizeText(candidate.target_role);
+    const candidateText = normalizeText((candidate.resume_text || '') + ' ' + (candidate.extra_text || ''));
+    const candidateSkills = candidate.skills || [];
+    const title = String(job.title || '');
+    const roleFamily = String(job.role_family || '');
+    const jobDescription = String(job.job_description || '');
+    const keywords = String(job.keywords || '');
+    const workSetup = String(job.work_setup || '');
+    const location = [job.location, job.city, job.country].filter(Boolean).join(' ');
+    const requiredSkills = safelyArrayifySkills(job.required_skills);
+    const niceToHaveSkills = safelyArrayifySkills(job.nice_to_have_skills);
+    let score = 0;
+    const matchedSkills = [];
+    const titleText = normalizeText(title);
+    const roleFamilyText = normalizeText(roleFamily);
+    const jobText = normalizeText([title, roleFamily, jobDescription, keywords, workSetup, location].join(' '));
+
+    if (selectedRole && titleText.includes(selectedRole)) score += 35;
+    else if (selectedRole && roleFamilyText.includes(selectedRole)) score += 24;
+    else if (selectedRole && jobText.includes(selectedRole)) score += 16;
+
+    requiredSkills.forEach(skill => {
+      const skillNorm = normalizeText(skill);
+      const skillMatched = candidateSkills.includes(skillNorm) || candidateText.includes(skillNorm);
+      if (skillMatched) {
+        score += 14;
+        matchedSkills.push(skill);
+      }
+    });
+
+    niceToHaveSkills.forEach(skill => {
+      const skillNorm = normalizeText(skill);
+      const skillMatched = candidateSkills.includes(skillNorm) || candidateText.includes(skillNorm);
+      if (skillMatched) {
+        score += 6;
+        matchedSkills.push(skill);
+      }
+    });
+
+    candidateSkills.forEach(skill => {
+      if (jobText.includes(skill)) {
+        score += 5;
+        matchedSkills.push(skill);
+      }
+    });
+
+    const preferredWorkSetup = normalizeText(document.getElementById('work_setup').value);
+    if (preferredWorkSetup && workSetup && normalizeText(workSetup).includes(preferredWorkSetup)) score += 8;
+
+    const candidateLocation = normalizeText(document.getElementById('location').value);
+    if (candidateLocation && location && normalizeText(location).includes(candidateLocation)) score += 6;
+
     score = Math.min(score, 100);
-    return { job_id: job.id, title: job.title || 'Untitled role', client_name: job.client_name || '', work_setup: job.work_setup || '', location: job.location || job.city || job.country || '', score, matched_skills: dedupeArray(matchedSkills).slice(0, 8) };
+    return {
+      job_id: job.id,
+      title: job.title || 'Untitled role',
+      client_name: job.client_name || '',
+      work_setup: job.work_setup || '',
+      location: job.location || job.city || job.country || '',
+      score,
+      matched_skills: dedupeArray(matchedSkills).slice(0, 8)
+    };
   }
+
+  async function invokeGeminiRoleMatch(candidate, jobs) {
+    if (!supabaseClient) throw new Error('Supabase is not available in this build.');
+    const { data, error } = await supabaseClient.functions.invoke('gemini-role-match', {
+      body: { candidate, jobs }
+    });
+    if (error) throw error;
+    if (!data) throw new Error('No match data returned from Gemini.');
+    return data;
+  }
+
   async function analyzeProfileAgainstOpenJobs(file) {
-    const selectedRole = getTargetRoleInput().value.trim(); const extraText = inferCandidateText(); let resumeText = ''; let extractedSkills = [];
-    if (file) { resumeText = await readFileAsText(file); extractedSkills = extractSkillsFromText(resumeText); }
-    const candidate = { target_role: selectedRole, resume_text: resumeText || '', extra_text: extraText || '', skills: extractedSkills };
-    const matches = openJobs.map(job => computeJobFit(job, candidate)).filter(match => match.score > 0).sort((a, b) => b.score - a.score).slice(0, 5);
-    const topMatch = matches[0] || null;
-    resumeAnalysis = { resume_text: resumeText || null, extracted_skills: extractedSkills, suggested_roles: dedupeArray(matches.map(m => m.title)).slice(0, 5), top_match_role: topMatch ? topMatch.title : (selectedRole || null), ai_score: topMatch ? topMatch.score : (selectedRole ? 35 : 0), has_resume: !!file, matched_open_roles: matches };
-    renderResumeInsights(); return resumeAnalysis;
+    const selectedRole = getTargetRoleInput().value.trim();
+    const extraText = inferCandidateText();
+    let resumeText = '';
+    let extractedSkills = [];
+
+    if (file) {
+      resumeText = await readFileAsText(file);
+      extractedSkills = extractSkillsFromText(resumeText);
+    }
+
+    const candidateForGemini = {
+      target_role: selectedRole,
+      preferred_work_setup: document.getElementById('work_setup').value.trim(),
+      location: document.getElementById('location').value.trim(),
+      experience_summary: document.getElementById('experience').value.trim(),
+      linkedin: document.getElementById('linkedin').value.trim(),
+      portfolio_url: document.getElementById('portfolio').value.trim(),
+      extracted_skills: extractedSkills,
+      resume_text: resumeText || extraText || ''
+    };
+
+    try {
+      const geminiData = await invokeGeminiRoleMatch(candidateForGemini, openJobs);
+      const matches = Array.isArray(geminiData.matches) ? geminiData.matches : [];
+      resumeAnalysis = {
+        resume_text: resumeText || null,
+        extracted_skills: extractedSkills,
+        suggested_roles: Array.isArray(geminiData.suggested_roles) ? geminiData.suggested_roles : dedupeArray(matches.map(m => m.title)).slice(0, 5),
+        top_match_role: geminiData.top_match_role || (matches[0]?.title || selectedRole || null),
+        ai_score: Number(geminiData.ai_score || matches[0]?.score || (selectedRole ? 35 : 0)),
+        has_resume: !!file,
+        matched_open_roles: matches
+      };
+      renderResumeInsights();
+      return resumeAnalysis;
+    } catch (err) {
+      console.warn('Gemini role matching failed, falling back to local scoring:', err);
+      const fallbackCandidate = {
+        target_role: selectedRole,
+        resume_text: resumeText || '',
+        extra_text: extraText || '',
+        skills: extractedSkills
+      };
+      const matches = openJobs
+        .map(job => computeJobFit(job, fallbackCandidate))
+        .filter(match => match.score > 0)
+        .sort((a, b) => b.score - a.score)
+        .slice(0, 5);
+      const topMatch = matches[0] || null;
+      resumeAnalysis = {
+        resume_text: resumeText || null,
+        extracted_skills: extractedSkills,
+        suggested_roles: dedupeArray(matches.map(m => m.title)).slice(0, 5),
+        top_match_role: topMatch ? topMatch.title : (selectedRole || null),
+        ai_score: topMatch ? topMatch.score : (selectedRole ? 35 : 0),
+        has_resume: !!file,
+        matched_open_roles: matches
+      };
+      renderResumeInsights();
+      return resumeAnalysis;
+    }
   }
   function renderResumeInsights() {
     const hasData = resumeAnalysis.has_resume || resumeAnalysis.extracted_skills.length || resumeAnalysis.suggested_roles.length || resumeAnalysis.matched_open_roles.length;
@@ -2036,7 +2152,7 @@ function getRecruiterOnlineStatus(){
     }
   });
   getFullNameInput().addEventListener('input', updatePhotoPreviewFromName);
-  resumeInput.addEventListener('change', async (e) => { clearMessage(); const file = e.target.files[0]; if (!file) { renderResumeInsights(); return; } try { validateResumeFile(file); await analyzeProfileAgainstOpenJobs(file); showMessage('Resume attached. TalentBuzz match preview updated.', 'info'); } catch (err) { showMessage(err.message || 'Invalid resume file.', 'error'); e.target.value = ''; renderResumeInsights(); } });
+  resumeInput.addEventListener('change', async (e) => { clearMessage(); const file = e.target.files[0]; if (!file) { renderResumeInsights(); return; } try { validateResumeFile(file); showMessage('Analyzing your profile and matching roles...', 'info'); await analyzeProfileAgainstOpenJobs(file); showMessage('Resume attached. TalentBuzz match preview updated.', 'success'); } catch (err) { showMessage(err.message || 'Invalid resume file.', 'error'); e.target.value = ''; renderResumeInsights(); } });
   profilePhotoInput.addEventListener('change', (e) => {
     const file = e.target.files[0]; if (!file) { pendingProfilePhotoDataUrl = null; updatePhotoPreviewFromName(); return; }
     try { validateImageFile(file); const reader = new FileReader(); reader.onload = function(evt) { pendingProfilePhotoDataUrl = evt.target?.result || null; photoPreview.innerHTML = `<img src="${pendingProfilePhotoDataUrl}" alt="Profile preview">`; }; reader.readAsDataURL(file); }
