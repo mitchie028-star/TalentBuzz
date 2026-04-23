@@ -196,14 +196,14 @@
       border-radius: 14px;
       padding: 16px;
     }
-        .upload-note {
+    .upload-note {
       color: var(--muted);
       font-size: 0.8rem;
       line-height: 1.45;
       margin-top: 8px;
     }
     .resume-status-card {
-      border: 1px solid #bfdbfe;
+      border: 1.5px solid #bfdbfe;
       background: #f8fbff;
       border-radius: 14px;
       padding: 16px;
@@ -877,6 +877,8 @@
   const steps = Array.from(document.querySelectorAll('.step'));
 
   let currentStep = 1;
+  let resumeStartSelected = false;
+  let uploadedResumeFileName = '';
   let currentUser = null;
   let existingProfile = null;
   let openJobs = [];
@@ -886,8 +888,6 @@
   let lastSignupAttempt = 0;
   const AUTH_EMAIL_COOLDOWN = 60000;
 
-  let resumeStartSelected = false;
-  let uploadedResumeFileName = '';
   let resumeAnalysis = {
     uploaded_resume_path: null,
     raw_resume_text: null,
@@ -955,6 +955,46 @@
   function sanitizeFolderName(name) { return String(name || 'unknown').replace(/[^a-zA-Z0-9._-]/g, '_'); }
   function normalizeText(text) { return String(text || '').toLowerCase().replace(/\s+/g, ' ').trim(); }
   function dedupeArray(items) { return [...new Set((items || []).filter(Boolean))]; }
+
+  function extractPhoneFromText(text) {
+    const match = String(text || '').match(/(?:\+?\d[\d\s().-]{7,}\d)/);
+    return match ? match[0].trim() : '';
+  }
+
+  function inferTargetRoleFromParsed(parsed) {
+    const candidates = [
+      parsed?.target_role,
+      parsed?.current_title,
+      parsed?.headline
+    ].filter(Boolean).map(v => String(v).toLowerCase());
+
+    const options = Array.from(document.getElementById('target_role').options).map(o => o.value).filter(Boolean);
+    for (const candidate of candidates) {
+      for (const option of options) {
+        if (candidate === option.toLowerCase()) return option;
+        if (candidate.includes(option.toLowerCase()) || option.toLowerCase().includes(candidate)) return option;
+      }
+    }
+    return '';
+  }
+
+  function updatePhoneHelperNote() {
+    if (!phoneHelperNote) return;
+    const shouldShow = !!resumeAnalysis.has_resume && !document.getElementById('phone').value.trim();
+    phoneHelperNote.classList.toggle('show', shouldShow);
+  }
+
+  function updateResumeStepState() {
+    if (!resumeUploadBox || !resumeStatusCard || !resumeStatusText) return;
+    const shouldShowUploaded = !!(resumeStartSelected && (resumeAnalysis.has_resume || resumeAnalysis.uploaded_resume_path));
+    resumeStatusCard.classList.toggle('show', shouldShowUploaded);
+    resumeUploadBox.classList.toggle('hidden', shouldShowUploaded);
+    if (shouldShowUploaded) {
+      resumeStatusText.textContent = uploadedResumeFileName
+        ? `Added: ${uploadedResumeFileName}`
+        : 'Your resume has been uploaded and used to prefill your profile.';
+    }
+  }
 
   function validateResumeFile(file) {
     if (!file) return;
@@ -1256,12 +1296,20 @@
     if (!parsed) return;
     if (!getFullNameInput().value && parsed.full_name) getFullNameInput().value = parsed.full_name;
     if (!getEmailInput().value && parsed.email) getEmailInput().value = parsed.email;
-    if (!document.getElementById('phone').value && parsed.phone) document.getElementById('phone').value = parsed.phone;
+
+    const fallbackPhone = parsed.phone || extractPhoneFromText(parsed.raw_resume_text);
+    if (!document.getElementById('phone').value && fallbackPhone) document.getElementById('phone').value = fallbackPhone;
+
     if (!document.getElementById('location').value && parsed.location) document.getElementById('location').value = parsed.location;
     if (!document.getElementById('country').value && parsed.country) document.getElementById('country').value = parsed.country;
     if (!document.getElementById('timezone').value && parsed.timezone) document.getElementById('timezone').value = parsed.timezone;
     if (!document.getElementById('experience').value && parsed.experience_summary) document.getElementById('experience').value = parsed.experience_summary;
-    if (!document.getElementById('target_role').value && parsed.target_role) document.getElementById('target_role').value = parsed.target_role;
+
+    if (!document.getElementById('target_role').value) {
+      const inferredRole = inferTargetRoleFromParsed(parsed);
+      if (inferredRole) document.getElementById('target_role').value = inferredRole;
+    }
+
     if (!document.getElementById('linkedin_url').value && parsed.linkedin_url) document.getElementById('linkedin_url').value = parsed.linkedin_url;
     if (!document.getElementById('github_url').value && parsed.github_url) document.getElementById('github_url').value = parsed.github_url;
     if (!document.getElementById('portfolio').value && parsed.portfolio_url) document.getElementById('portfolio').value = parsed.portfolio_url;
@@ -1412,29 +1460,6 @@
 
     renderResumeInsights();
     return resumeAnalysis;
-  }
-
-  function updatePhoneHelperNote() {
-    if (!phoneHelperNote) return;
-    const phoneValue = document.getElementById('phone').value.trim();
-    const shouldShow = !!resumeAnalysis.has_resume && !phoneValue;
-    phoneHelperNote.classList.toggle('show', shouldShow);
-  }
-
-  function updateResumeStepState() {
-    if (!resumeUploadBox || !resumeStatusCard || !resumeStatusText) return;
-    const hasResume = !!resumeAnalysis.has_resume || !!resumeAnalysis.uploaded_resume_path;
-    const shouldShowUploadedState = hasResume && resumeStartSelected;
-
-    resumeStatusCard.classList.toggle('show', shouldShowUploadedState);
-    resumeUploadBox.classList.toggle('hidden', shouldShowUploadedState);
-
-    if (shouldShowUploadedState) {
-      const fileText = uploadedResumeFileName ? `Added: ${uploadedResumeFileName}` : 'Your resume has been uploaded and used to prefill your profile.';
-      resumeStatusText.textContent = fileText;
-    } else {
-      resumeStatusText.textContent = 'Your resume has been uploaded and used to prefill your profile.';
-    }
   }
 
   function renderResumeInsights() {
