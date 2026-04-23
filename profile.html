@@ -877,6 +877,7 @@
   const steps = Array.from(document.querySelectorAll('.step'));
 
   let currentStep = 1;
+  const PENDING_RESUME_KEY = 'talentbuzz_pending_resume_profile';
   let resumeStartSelected = false;
   let uploadedResumeFileName = '';
   let currentUser = null;
@@ -976,6 +977,76 @@
       }
     }
     return '';
+  }
+
+
+  function persistPendingResumeState() {
+    try {
+      const payload = {
+        resumeStartSelected,
+        uploadedResumeFileName,
+        resumeAnalysis,
+        fields: {
+          full_name: getFullNameInput().value.trim() || '',
+          email: getEmailInput().value.trim() || '',
+          phone: document.getElementById('phone').value || '',
+          location: document.getElementById('location').value || '',
+          country: document.getElementById('country').value || '',
+          timezone: document.getElementById('timezone').value || '',
+          target_role: document.getElementById('target_role').value || '',
+          work_setup: document.getElementById('work_setup').value || '',
+          salary: document.getElementById('salary').value || '',
+          salary_currency: document.getElementById('salary_currency').value || 'USD',
+          salary_period: document.getElementById('salary_period').value || 'monthly',
+          linkedin_url: document.getElementById('linkedin_url').value || '',
+          github_url: document.getElementById('github_url').value || '',
+          portfolio: document.getElementById('portfolio').value || '',
+          experience: document.getElementById('experience').value || ''
+        }
+      };
+      sessionStorage.setItem(PENDING_RESUME_KEY, JSON.stringify(payload));
+    } catch (_) {}
+  }
+
+  function restorePendingResumeState() {
+    try {
+      const raw = sessionStorage.getItem(PENDING_RESUME_KEY);
+      if (!raw) return false;
+      const saved = JSON.parse(raw);
+      resumeStartSelected = !!saved?.resumeStartSelected;
+      uploadedResumeFileName = saved?.uploadedResumeFileName || '';
+      if (saved?.resumeAnalysis && typeof saved.resumeAnalysis === 'object') {
+        resumeAnalysis = { ...resumeAnalysis, ...saved.resumeAnalysis };
+      }
+      const fields = saved?.fields || {};
+      if (fields.full_name) getFullNameInput().value = fields.full_name;
+      if (fields.email) getEmailInput().value = fields.email;
+      if (fields.phone) document.getElementById('phone').value = fields.phone;
+      if (fields.location) document.getElementById('location').value = fields.location;
+      if (fields.country) document.getElementById('country').value = fields.country;
+      if (fields.timezone) document.getElementById('timezone').value = fields.timezone;
+      if (fields.target_role) document.getElementById('target_role').value = fields.target_role;
+      if (fields.work_setup) document.getElementById('work_setup').value = fields.work_setup;
+      if (fields.salary) document.getElementById('salary').value = fields.salary;
+      if (fields.salary_currency) document.getElementById('salary_currency').value = fields.salary_currency;
+      if (fields.salary_period) document.getElementById('salary_period').value = fields.salary_period;
+      if (fields.linkedin_url) document.getElementById('linkedin_url').value = fields.linkedin_url;
+      if (fields.github_url) document.getElementById('github_url').value = fields.github_url;
+      if (fields.portfolio) document.getElementById('portfolio').value = fields.portfolio;
+      if (fields.experience) document.getElementById('experience').value = fields.experience;
+
+      renderResumeInsights();
+      updateResumeStepState();
+      updatePhoneHelperNote();
+      updatePhotoPreviewFromName();
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function clearPendingResumeState() {
+    try { sessionStorage.removeItem(PENDING_RESUME_KEY); } catch (_) {}
   }
 
   function updatePhoneHelperNote() {
@@ -1315,6 +1386,7 @@
     if (!document.getElementById('portfolio').value && parsed.portfolio_url) document.getElementById('portfolio').value = parsed.portfolio_url;
     updatePhotoPreviewFromName();
     updatePhoneHelperNote();
+    persistPendingResumeState();
   }
 
   function safelyArrayifySkills(value) {
@@ -1828,6 +1900,7 @@
       uploadedResumeFileName = file.name || '';
       showMessage('Uploading and analyzing your resume...', 'info');
       await analyzeProfileAgainstOpenJobs(file);
+      persistPendingResumeState();
       updateResumeStepState();
       updatePhoneHelperNote();
       showMessage('Resume parsed successfully. Your preview has been updated.', 'success');
@@ -1954,6 +2027,7 @@
         if (existingEmailProfile) existingProfile = existingEmailProfile;
 
         if (supabaseClient) {
+          persistPendingResumeState();
           const signupAttemptTs = enforceCooldown(lastSignupAttempt, AUTH_EMAIL_COOLDOWN, 'email');
           lastSignupAttempt = signupAttemptTs;
           const emailRedirectTo = `${window.location.origin}/create-profile.html?${buildCreateProfileQueryForEmail(email)}`;
@@ -2065,6 +2139,7 @@
       const savedProfile = await upsertProfileWithFallback(payload, email, existingProfile);
       existingProfile = savedProfile;
 
+      clearPendingResumeState();
       showMessage(hasApplicationRoute() ? 'Profile saved. We will continue your application now.' : 'Profile saved successfully.', 'success');
       setTimeout(() => redirectAfterSave(), 900);
     } catch (err) {
@@ -2080,6 +2155,7 @@
     updatePhotoPreviewFromName();
     updateResumeStepState();
     updatePhoneHelperNote();
+    restorePendingResumeState();
     await fetchOpenJobs();
 
     const emailFromUrl = params.get('email') || '';
