@@ -1009,41 +1009,64 @@
   }
 
   function restorePendingResumeState() {
-    try {
-      const raw = sessionStorage.getItem(PENDING_RESUME_KEY);
-      if (!raw) return false;
-      const saved = JSON.parse(raw);
-      resumeStartSelected = !!saved?.resumeStartSelected;
-      uploadedResumeFileName = saved?.uploadedResumeFileName || '';
-      if (saved?.resumeAnalysis && typeof saved.resumeAnalysis === 'object') {
-        resumeAnalysis = { ...resumeAnalysis, ...saved.resumeAnalysis };
-      }
-      const fields = saved?.fields || {};
-      if (fields.full_name) getFullNameInput().value = fields.full_name;
-      if (fields.email) getEmailInput().value = fields.email;
-      if (fields.phone) document.getElementById('phone').value = fields.phone;
-      if (fields.location) document.getElementById('location').value = fields.location;
-      if (fields.country) document.getElementById('country').value = fields.country;
-      if (fields.timezone) document.getElementById('timezone').value = fields.timezone;
-      if (fields.target_role) document.getElementById('target_role').value = fields.target_role;
-      if (fields.work_setup) document.getElementById('work_setup').value = fields.work_setup;
-      if (fields.salary) document.getElementById('salary').value = fields.salary;
-      if (fields.salary_currency) document.getElementById('salary_currency').value = fields.salary_currency;
-      if (fields.salary_period) document.getElementById('salary_period').value = fields.salary_period;
-      if (fields.linkedin_url) document.getElementById('linkedin_url').value = fields.linkedin_url;
-      if (fields.github_url) document.getElementById('github_url').value = fields.github_url;
-      if (fields.portfolio) document.getElementById('portfolio').value = fields.portfolio;
-      if (fields.experience) document.getElementById('experience').value = fields.experience;
+  try {
+    const raw = sessionStorage.getItem(PENDING_RESUME_KEY);
+    if (!raw) return false;
 
-      renderResumeInsights();
-      updateResumeStepState();
-      updatePhoneHelperNote();
-      updatePhotoPreviewFromName();
-      return true;
-    } catch (_) {
-      return false;
+    const saved = JSON.parse(raw);
+    if (!saved || typeof saved !== 'object') return false;
+
+    resumeStartSelected = Boolean(saved.resumeStartSelected);
+    uploadedResumeFileName = typeof saved.uploadedResumeFileName === 'string'
+      ? saved.uploadedResumeFileName
+      : '';
+
+    if (saved.resumeAnalysis && typeof saved.resumeAnalysis === 'object') {
+      resumeAnalysis = {
+        ...resumeAnalysis,
+        ...saved.resumeAnalysis
+      };
     }
+
+    const fields = saved.fields && typeof saved.fields === 'object'
+      ? saved.fields
+      : {};
+
+    const setValue = (id, value) => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      if (value === undefined || value === null) return;
+      if (String(value).trim() === '') return;
+      el.value = String(value);
+    };
+
+    setValue('full_name', fields.full_name);
+    setValue('email', fields.email);
+    setValue('phone', fields.phone);
+    setValue('location', fields.location);
+    setValue('country', fields.country);
+    setValue('timezone', fields.timezone);
+    setValue('target_role', fields.target_role);
+    setValue('work_setup', fields.work_setup);
+    setValue('salary', fields.salary);
+    setValue('salary_currency', fields.salary_currency);
+    setValue('salary_period', fields.salary_period);
+    setValue('linkedin_url', fields.linkedin_url);
+    setValue('github_url', fields.github_url);
+    setValue('portfolio', fields.portfolio);
+    setValue('experience', fields.experience);
+
+    renderResumeInsights();
+    updateResumeStepState();
+    updatePhoneHelperNote();
+    updatePhotoPreviewFromName();
+
+    return true;
+  } catch (error) {
+    console.warn('Failed to restore pending resume state:', error);
+    return false;
   }
+}
 
   function clearPendingResumeState() {
     try { sessionStorage.removeItem(PENDING_RESUME_KEY); } catch (_) {}
@@ -2030,7 +2053,7 @@
           persistPendingResumeState();
           const signupAttemptTs = enforceCooldown(lastSignupAttempt, AUTH_EMAIL_COOLDOWN, 'email');
           lastSignupAttempt = signupAttemptTs;
-          const emailRedirectTo = `${window.location.origin}/create-profile.html?${buildCreateProfileQueryForEmail(email)}`;
+          const emailRedirectTo = `${window.location.origin}/profile.html?${buildCreateProfileQueryForEmail(email)}`;
           const { data: signUpData, error: signUpError } = await supabaseClient.auth.signUp({
             email,
             password,
