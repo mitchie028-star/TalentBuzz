@@ -196,12 +196,44 @@
       border-radius: 14px;
       padding: 16px;
     }
-    .upload-note {
+        .upload-note {
       color: var(--muted);
       font-size: 0.8rem;
       line-height: 1.45;
       margin-top: 8px;
     }
+    .resume-status-card {
+      border: 1px solid #bfdbfe;
+      background: #f8fbff;
+      border-radius: 14px;
+      padding: 16px;
+      display: none;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+    .resume-status-card.show { display: flex; }
+    .resume-status-copy strong {
+      display: block;
+      color: var(--blue);
+      margin-bottom: 4px;
+      font-size: 0.95rem;
+    }
+    .resume-status-copy span {
+      color: var(--muted);
+      font-size: 0.84rem;
+      line-height: 1.45;
+      display: block;
+    }
+    .phone-helper-note {
+      margin-top: 8px;
+      color: var(--muted);
+      font-size: 0.8rem;
+      line-height: 1.45;
+      display: none;
+    }
+    .phone-helper-note.show { display: block; }
 
     .photo-wrap { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
     .photo-preview {
@@ -652,7 +684,7 @@
             </div>
 
             <div class="field full"><label for="full_name">Full name</label><input id="full_name" required></div>
-            <div class="field"><label for="phone">Phone number</label><input id="phone" type="tel" inputmode="tel" maxlength="30" placeholder="e.g. +1 415 555 0123"><div class="hint">International format works best.</div></div>
+            <div class="field"><label for="phone">Phone number</label><input id="phone" type="tel" inputmode="tel" maxlength="30" placeholder="e.g. +1 415 555 0123"><div class="hint">International format works best.</div><div id="phoneHelperNote" class="phone-helper-note">We couldn’t find a phone number in your resume. Add one so recruiters can reach you more easily.</div></div>
             <div class="field"><label for="location">City or location</label><input id="location" placeholder="e.g. Singapore, London, New York"></div>
             <div class="field"><label for="country">Country</label><input id="country" placeholder="e.g. Philippines, Singapore, United States"></div>
             <div class="field"><label for="target_role">Target role</label>
@@ -724,7 +756,15 @@
             <p class="step-desc">Upload your resume to prefill your profile faster, add your public links, and review a quick match preview before saving.</p>
           </div>
 
-          <div class="upload-box">
+          <div id="resumeStatusCard" class="resume-status-card">
+            <div class="resume-status-copy">
+              <strong>Resume added</strong>
+              <span id="resumeStatusText">Your resume has been uploaded and used to prefill your profile.</span>
+            </div>
+            <button type="button" class="btn btn-secondary" id="replaceResumeBtn">Replace resume</button>
+          </div>
+
+          <div id="resumeUploadBox" class="upload-box">
             <label for="resume">Upload resume</label>
             <input id="resume" type="file" accept=".pdf,.doc,.docx,.txt">
             <div class="upload-note">Accepted formats: PDF, DOC, DOCX, TXT.</div>
@@ -821,6 +861,11 @@
   const passwordWrap = document.getElementById('passwordWrap');
   const resumeInput = document.getElementById('resume');
   const resumeQuickInput = document.getElementById('resumeQuickInput');
+  const resumeUploadBox = document.getElementById('resumeUploadBox');
+  const resumeStatusCard = document.getElementById('resumeStatusCard');
+  const resumeStatusText = document.getElementById('resumeStatusText');
+  const replaceResumeBtn = document.getElementById('replaceResumeBtn');
+  const phoneHelperNote = document.getElementById('phoneHelperNote');
   const resumeInsightCard = document.getElementById('resumeInsightCard');
   const scoreRow = document.getElementById('scoreRow');
   const topRoleRow = document.getElementById('topRoleRow');
@@ -841,6 +886,8 @@
   let lastSignupAttempt = 0;
   const AUTH_EMAIL_COOLDOWN = 60000;
 
+  let resumeStartSelected = false;
+  let uploadedResumeFileName = '';
   let resumeAnalysis = {
     uploaded_resume_path: null,
     raw_resume_text: null,
@@ -1219,6 +1266,7 @@
     if (!document.getElementById('github_url').value && parsed.github_url) document.getElementById('github_url').value = parsed.github_url;
     if (!document.getElementById('portfolio').value && parsed.portfolio_url) document.getElementById('portfolio').value = parsed.portfolio_url;
     updatePhotoPreviewFromName();
+    updatePhoneHelperNote();
   }
 
   function safelyArrayifySkills(value) {
@@ -1366,6 +1414,29 @@
     return resumeAnalysis;
   }
 
+  function updatePhoneHelperNote() {
+    if (!phoneHelperNote) return;
+    const phoneValue = document.getElementById('phone').value.trim();
+    const shouldShow = !!resumeAnalysis.has_resume && !phoneValue;
+    phoneHelperNote.classList.toggle('show', shouldShow);
+  }
+
+  function updateResumeStepState() {
+    if (!resumeUploadBox || !resumeStatusCard || !resumeStatusText) return;
+    const hasResume = !!resumeAnalysis.has_resume || !!resumeAnalysis.uploaded_resume_path;
+    const shouldShowUploadedState = hasResume && resumeStartSelected;
+
+    resumeStatusCard.classList.toggle('show', shouldShowUploadedState);
+    resumeUploadBox.classList.toggle('hidden', shouldShowUploadedState);
+
+    if (shouldShowUploadedState) {
+      const fileText = uploadedResumeFileName ? `Added: ${uploadedResumeFileName}` : 'Your resume has been uploaded and used to prefill your profile.';
+      resumeStatusText.textContent = fileText;
+    } else {
+      resumeStatusText.textContent = 'Your resume has been uploaded and used to prefill your profile.';
+    }
+  }
+
   function renderResumeInsights() {
     const hasData = resumeAnalysis.has_resume || resumeAnalysis.extracted_skills.length || resumeAnalysis.suggested_roles.length || resumeAnalysis.matched_open_roles.length;
     if (!hasData) {
@@ -1375,6 +1446,8 @@
       skillsRow.innerHTML = '';
       suggestedRolesRow.innerHTML = '';
       matchedJobsList.innerHTML = '';
+      updateResumeStepState();
+      updatePhoneHelperNote();
       return;
     }
 
@@ -1414,6 +1487,9 @@
         suggestedRolesRow.appendChild(chip);
       });
     }
+
+    updateResumeStepState();
+    updatePhoneHelperNote();
 
     if (resumeAnalysis.matched_open_roles.length) {
       resumeAnalysis.matched_open_roles.forEach(match => {
@@ -1490,6 +1566,8 @@
     };
 
     renderResumeInsights();
+    updateResumeStepState();
+    updatePhoneHelperNote();
   }
 
   async function upsertProfileWithFallback(payload, email, existingProfileRow) {
@@ -1721,8 +1799,12 @@
     if (!file) return;
     try {
       validateResumeFile(file);
+      resumeStartSelected = true;
+      uploadedResumeFileName = file.name || '';
       showMessage('Uploading and analyzing your resume...', 'info');
       await analyzeProfileAgainstOpenJobs(file);
+      updateResumeStepState();
+      updatePhoneHelperNote();
       showMessage('Resume parsed successfully. Your preview has been updated.', 'success');
       if (currentStep === 1) {
         currentStep = 2;
@@ -1743,6 +1825,14 @@
       resumeInput.files = dt.files;
     }
   });
+
+  replaceResumeBtn?.addEventListener('click', () => {
+    resumeUploadBox.classList.remove('hidden');
+    resumeStatusCard.classList.remove('show');
+    resumeInput.click();
+  });
+
+  document.getElementById('phone')?.addEventListener('input', updatePhoneHelperNote);
 
   resumeInput.addEventListener('change', async (e) => {
     const file = e.target.files[0];
@@ -1963,6 +2053,8 @@
     updateRouteUI();
     updateStepUI();
     updatePhotoPreviewFromName();
+    updateResumeStepState();
+    updatePhoneHelperNote();
     await fetchOpenJobs();
 
     const emailFromUrl = params.get('email') || '';
