@@ -2,9 +2,9 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Client Dashboard | TalentBuzz</title>
+  <title>Client Pipeline Dashboard | TalentBuzz</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="description" content="TalentBuzz client dashboard for endorsed candidates only." />
+  <meta name="description" content="TalentBuzz client-facing hiring pipeline for endorsed, shortlisted, offered, onboarded, and post-onboarding outcomes." />
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
@@ -66,7 +66,7 @@
     .notice.error{background:#fff2f0;color:var(--error);border-color:#f2c7c3}
 
     .stats{
-      display:grid;grid-template-columns:repeat(8,minmax(0,1fr));
+      display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));
       gap:10px;margin-bottom:14px
     }
     .stat{
@@ -88,8 +88,14 @@
     .panel-title{font-size:.98rem;font-weight:800;color:var(--text)}
     .panel-subtitle{font-size:.82rem;color:var(--muted);margin-top:4px;line-height:1.55}
 
+    .pipeline-tabs{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 14px}
+    .pipeline-tab{border:1px solid var(--line);background:#fff;color:#334155;border-radius:999px;min-height:38px;padding:8px 12px;font:inherit;font-size:.8rem;font-weight:800;cursor:pointer;transition:.18s ease}
+    .pipeline-tab:hover{transform:translateY(-1px);border-color:#c5d7ff}
+    .pipeline-tab.active{background:linear-gradient(135deg,var(--blue),var(--blue-light));border-color:transparent;color:#fff;box-shadow:0 10px 22px rgba(47,94,229,.14)}
+    .pipeline-tab .count{margin-left:6px;opacity:.82}
+
     .filters{
-      display:grid;grid-template-columns:1.5fr 1fr 1fr 1fr 1fr auto;
+      display:grid;grid-template-columns:minmax(220px,1.5fr) repeat(4,minmax(150px,1fr)) auto;
       gap:12px;margin-bottom:16px;align-items:end
     }
     input,select,textarea{
@@ -119,6 +125,8 @@
     .status-passed_application{background:#eef4ff;color:#2b57db}
     .status-shortlisted,.status-onboarded{background:#e9f9ef;color:#15803d}
     .status-on_hold{background:#fff6e9;color:#c27a10}
+    .status-post_onboarding_issue,.status-rejected_after_onboarding,.status-no_show,.status-quit_early{background:#fff1f1;color:#c9372c}
+    .status-retained{background:#e9f9ef;color:#15803d}
     .status-rejected_by_client{background:#fff1f1;color:#c9372c}
     .status-need_more_profiles{background:#f5f0ff;color:#6e3fd2}
     .status-offered_jo{background:#eff3ff;color:#4d5fd1}
@@ -149,7 +157,7 @@
     .modal-body{padding:0;height:calc(90vh - 74px);overflow:hidden}
     .candidate-modal-card{width:min(1420px,100%);height:min(90vh,900px)}
     .candidate-modal-body{height:calc(100% - 72px);overflow:hidden;padding:14px 16px 16px;background:#fff}
-    .decision-strip{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-bottom:12px}
+    .decision-strip{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-bottom:12px}
     .decision-box{background:#f8fbff;border:1px solid var(--line);border-radius:16px;padding:10px 12px}
     .decision-box .meta-label{margin-bottom:4px}
     .decision-box .meta-value{font-size:.9rem}
@@ -374,8 +382,8 @@
         <div class="brand-line">
           <img src="logo.png" class="brand-logo" alt="TalentBuzz Logo" />
           <div>
-            <h1>Client Dashboard</h1>
-            <div class="subtitle">Review endorsed candidates for your company only. This portal shows only candidates formally endorsed to your requisitions.</div>
+            <h1>Client Pipeline Dashboard</h1>
+            <div class="subtitle">Track candidates across your hiring pipeline — from endorsement to onboarding — while keeping recruiter-only notes internal to TalentBuzz.</div>
           </div>
         </div>
       </div>
@@ -396,15 +404,26 @@
       <div class="stat"><div class="stat-label">Offered JO</div><div id="statOfferedJo" class="stat-value">0</div></div>
       <div class="stat"><div class="stat-label">Onboarded</div><div id="statOnboarded" class="stat-value">0</div></div>
       <div class="stat"><div class="stat-label">Rejected</div><div id="statRejected" class="stat-value">0</div></div>
+      <div class="stat"><div class="stat-label">Post-Onboarding Issues</div><div id="statPostOnboardingIssues" class="stat-value">0</div></div>
       <div class="stat"><div class="stat-label">Avg Rating</div><div id="statAvgRating" class="stat-value">-</div></div>
     </div>
 
     <div class="panel sticky-head">
       <div class="panel-head">
         <div>
-          <div class="panel-title">Endorsed Candidates</div>
-          <div class="panel-subtitle">Search and review candidates endorsed to your company. Use “View” to open full candidate details, preview resumes, and submit feedback.</div>
+          <div class="panel-title">Hiring Pipeline</div>
+          <div class="panel-subtitle">Review endorsed candidates, track decisions, and follow progress through offer and onboarding. Post-onboarding outcomes are shown only as client-facing status indicators.</div>
         </div>
+      </div>
+
+      <div class="pipeline-tabs" id="pipelineTabs" aria-label="Pipeline stage filters">
+        <button class="pipeline-tab active" type="button" data-stage="">All <span class="count" data-stage-count="all">0</span></button>
+        <button class="pipeline-tab" type="button" data-stage="pending">Needs Review <span class="count" data-stage-count="pending">0</span></button>
+        <button class="pipeline-tab" type="button" data-stage="in_process">In Process <span class="count" data-stage-count="in_process">0</span></button>
+        <button class="pipeline-tab" type="button" data-stage="offer">Offer <span class="count" data-stage-count="offer">0</span></button>
+        <button class="pipeline-tab" type="button" data-stage="onboarded">Onboarded <span class="count" data-stage-count="onboarded">0</span></button>
+        <button class="pipeline-tab" type="button" data-stage="post_onboarding">Post-Onboarding <span class="count" data-stage-count="post_onboarding">0</span></button>
+        <button class="pipeline-tab" type="button" data-stage="rejected">Rejected <span class="count" data-stage-count="rejected">0</span></button>
       </div>
 
       <div class="filters">
@@ -426,6 +445,13 @@
         <select id="dateFilter" name="dateFilter">
           <option value="">All dates</option><option value="today">Today</option><option value="7d">Last 7 days</option><option value="30d">Last 30 days</option><option value="month">This month</option>
         </select>
+        <select id="onboardingOutcomeFilter" name="onboardingOutcomeFilter">
+          <option value="">All onboarding outcomes</option>
+          <option value="retained">Retained</option>
+          <option value="rejected_after_onboarding">Rejected After Onboarding</option>
+          <option value="no_show">No Show</option>
+          <option value="quit_early">Quit Early</option>
+        </select>
         <label class="inline-toggle"><input type="checkbox" id="pendingOnlyToggle" />Pending only</label>
       </div>
 
@@ -433,7 +459,7 @@
         <table>
           <thead>
             <tr>
-              <th>Candidate</th><th>Requisition</th><th>Status</th><th>Rating</th><th>Endorsement Date</th><th>Experience</th><th>Resume</th><th>Action</th>
+              <th>Candidate</th><th>Requisition</th><th>Pipeline Stage</th><th>Rating</th><th>Endorsement Date</th><th>Experience</th><th>Resume</th><th>Action</th>
             </tr>
           </thead>
           <tbody id="endorsementsTable"><tr><td colspan="8" class="empty">Loading endorsed candidates...</td></tr></tbody>
@@ -457,6 +483,7 @@
           <div class="decision-box"><div class="meta-label">Current Status</div><div id="modalDecisionStatus" class="meta-value">No feedback yet</div></div>
           <div class="decision-box"><div class="meta-label">Rating</div><div id="modalDecisionRating" class="meta-value">-</div></div>
           <div class="decision-box"><div class="meta-label">Endorsed On</div><div id="modalEndorsementDate" class="meta-value">-</div></div>
+          <div class="decision-box"><div class="meta-label">Post-Onboarding</div><div id="modalOnboardingOutcome" class="meta-value">-</div></div>
         </div>
 
         <div class="modal-grid">
@@ -535,6 +562,11 @@
                 <a id="modalResumeBtn" class="btn btn-soft" href="#" target="_blank" rel="noopener" style="display:none;">View Resume</a>
                 <span id="modalNoResume" class="small">No resume uploaded.</span>
               </div>
+            </div>
+
+            <div class="card" style="margin-top:16px;" id="modalPostOnboardingCard">
+              <div class="card-title">Post-Onboarding Status</div>
+              <div id="modalPostOnboardingText" class="summary-box">No post-onboarding outcome has been recorded yet.</div>
             </div>
 
             <div class="card" style="margin-top:16px;">
@@ -718,24 +750,24 @@
     const PREVIEW_ALLOWED_EMAILS = ["eric.se@talentbuzz.pro","eric.s@talentbuzz.pro","michelle.giray@talentbuzz.pro","mitchie028@gmail.com","angel.n@talentbuzz.pro","jercey.cayetano@talentbuzz.pro","jayson.c@talentbuzz.pro","xyrene.e@talentbuzz.pro"];
     const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-    const state = { rows: [], currentClientUser: null, currentSessionUser: null, selectedRow: null, modalDraft: { status: "", rating: null, notes: "", decisionReason: "", missing: "", confirmedSignals: [] }, chatMessages: [], chatThreads: [], selectedChatThreadKey: 'general', chatFilter: 'all', chatUnreadCount: 0, chatUnreadByThread: {}, chatChannel: null, chatSeenAt: null, chatEnabled: true };
+    const state = { rows: [], pipelineStageFilter: '', currentClientUser: null, currentSessionUser: null, selectedRow: null, modalDraft: { status: "", rating: null, notes: "", decisionReason: "", missing: "", confirmedSignals: [] }, chatMessages: [], chatThreads: [], selectedChatThreadKey: 'general', chatFilter: 'all', chatUnreadCount: 0, chatUnreadByThread: {}, chatChannel: null, chatSeenAt: null, chatEnabled: true };
 
     const els = {
       notice: document.getElementById("notice"), previewBanner: document.getElementById("previewBanner"), table: document.getElementById("endorsementsTable"),
       searchInput: document.getElementById("searchInput"), roleFilter: document.getElementById("roleFilter"), statusFilter: document.getElementById("statusFilter"),
-      ratingFilter: document.getElementById("ratingFilter"), dateFilter: document.getElementById("dateFilter"), pendingOnlyToggle: document.getElementById("pendingOnlyToggle"),
+      ratingFilter: document.getElementById("ratingFilter"), dateFilter: document.getElementById("dateFilter"), onboardingOutcomeFilter: document.getElementById("onboardingOutcomeFilter"), pendingOnlyToggle: document.getElementById("pendingOnlyToggle"),
       logoutBtn: document.getElementById("logoutBtn"), refreshBtn: document.getElementById("refreshBtn"), chatBtn: document.getElementById("chatBtn"), chatBadge: document.getElementById("chatBadge"),
       statEndorsed: document.getElementById("statEndorsed"), statPending: document.getElementById("statPending"), statPassedApplication: document.getElementById("statPassedApplication"),
       statShortlisted: document.getElementById("statShortlisted"), statOfferedJo: document.getElementById("statOfferedJo"), statOnboarded: document.getElementById("statOnboarded"),
-      statRejected: document.getElementById("statRejected"), statAvgRating: document.getElementById("statAvgRating"),
+      statRejected: document.getElementById("statRejected"), statPostOnboardingIssues: document.getElementById("statPostOnboardingIssues"), statAvgRating: document.getElementById("statAvgRating"),
       modal: document.getElementById("candidateModal"), closeModalBtn: document.getElementById("closeModalBtn"), modalTitle: document.getElementById("modalTitle"), modalSubtitle: document.getElementById("modalSubtitle"),
-      modalDecisionStatus: document.getElementById("modalDecisionStatus"), modalDecisionRating: document.getElementById("modalDecisionRating"), modalEndorsementDate: document.getElementById("modalEndorsementDate"),
+      modalDecisionStatus: document.getElementById("modalDecisionStatus"), modalDecisionRating: document.getElementById("modalDecisionRating"), modalEndorsementDate: document.getElementById("modalEndorsementDate"), modalOnboardingOutcome: document.getElementById("modalOnboardingOutcome"),
       modalFullName: document.getElementById("modalFullName"), modalCurrentTitle: document.getElementById("modalCurrentTitle"), modalExperience: document.getElementById("modalExperience"), modalLocation: document.getElementById("modalLocation"),
       modalPhone: document.getElementById("modalPhone"), modalSkills: document.getElementById("modalSkills"), modalRole: document.getElementById("modalRole"), modalWorkSetup: document.getElementById("modalWorkSetup"),
       modalJobLocation: document.getElementById("modalJobLocation"), modalEmploymentType: document.getElementById("modalEmploymentType"), modalSummary: document.getElementById("modalSummary"),
       modalAiScoreRing: document.getElementById("modalAiScoreRing"), modalAiScoreValue: document.getElementById("modalAiScoreValue"), modalAiConfidence: document.getElementById("modalAiConfidence"), modalAiDecision: document.getElementById("modalAiDecision"), modalAiSummary: document.getElementById("modalAiSummary"),
       modalPreviewStrengths: document.getElementById("modalPreviewStrengths"), modalPreviewRisks: document.getElementById("modalPreviewRisks"), modalPreviewRecruiterSummary: document.getElementById("modalPreviewRecruiterSummary"), modalPreviewDecision: document.getElementById("modalPreviewDecision"),
-      modalResumeBtn: document.getElementById("modalResumeBtn"), modalNoResume: document.getElementById("modalNoResume"), modalNotes: document.getElementById("modalNotes"), modalLastUpdated: document.getElementById("modalLastUpdated"), modalRatingGroup: document.getElementById("modalRatingGroup"),
+      modalResumeBtn: document.getElementById("modalResumeBtn"), modalNoResume: document.getElementById("modalNoResume"), modalPostOnboardingCard: document.getElementById("modalPostOnboardingCard"), modalPostOnboardingText: document.getElementById("modalPostOnboardingText"), modalNotes: document.getElementById("modalNotes"), modalLastUpdated: document.getElementById("modalLastUpdated"), modalRatingGroup: document.getElementById("modalRatingGroup"),
       modalDecisionReasonGroup: document.getElementById("modalDecisionReasonGroup"), clientMissingInput: document.getElementById("clientMissingInput"), signalChecklist: document.getElementById("signalChecklist"),
       saveModalBtn: document.getElementById("saveModalBtn"), clearModalBtn: document.getElementById("clearModalBtn"),
       resumePreviewModal: document.getElementById("resumePreviewModal"), closeResumePreviewBtn: document.getElementById("closeResumePreviewBtn"), resumePreviewFrame: document.getElementById("resumePreviewFrame"), resumePreviewTitle: document.getElementById("resumePreviewTitle"), chatModal: document.getElementById("chatModal"), closeChatBtn: document.getElementById("closeChatBtn"), chatMessages: document.getElementById("chatMessages"), chatInput: document.getElementById("chatInput"), chatSendBtn: document.getElementById("chatSendBtn"), chatEmailBtn: document.getElementById("chatEmailBtn"), chatModalSubtitle: document.getElementById("chatModalSubtitle"), chatThreadSections: document.getElementById("chatThreadSections"), chatThreadSearch: document.getElementById("chatThreadSearch"), chatThreadSelect: document.getElementById("chatThreadSelect"), chatThreadTitle: document.getElementById("chatThreadTitle"), chatThreadSubtitle: document.getElementById("chatThreadSubtitle"), chatThreadContext: document.getElementById("chatThreadContext"), chatFilterTabs: document.getElementById("chatFilterTabs"), chatComposerHint: document.getElementById("chatComposerHint"), chatJumpToCandidateBtn: document.getElementById("chatJumpToCandidateBtn"), chatTooltip: document.getElementById("chatTooltip"), chatTypingIndicator: document.getElementById("chatTypingIndicator"), chatEmojiToggleBtn: document.getElementById("chatEmojiToggleBtn"), chatEmojiPicker: document.getElementById("chatEmojiPicker"), chatEmojiRow: document.getElementById("chatEmojiRow"), chatEmojiGrid: document.getElementById("chatEmojiGrid")
@@ -846,6 +878,39 @@
     }
     const getRoleName = (row) => row.job_title_from_jobs || row.job_title || row.title || "-";
     const getEndorsementDateValue = (row) => row.sent_at || row.endorsement_date || null;
+    const POST_ONBOARDING_ISSUES = ["rejected_after_onboarding", "no_show", "quit_early"];
+    const ONBOARDING_OUTCOME_LABELS = {
+      retained: "Retained",
+      rejected_after_onboarding: "Rejected After Onboarding",
+      no_show: "No Show",
+      quit_early: "Quit Early"
+    };
+
+    function getOnboardingOutcomeLabel(value){
+      const key = normalize(value);
+      return ONBOARDING_OUTCOME_LABELS[key] || "—";
+    }
+
+    function isPostOnboardingIssue(row){
+      return POST_ONBOARDING_ISSUES.includes(normalize(row?.onboarding_outcome));
+    }
+
+    function getPipelineStatusLabel(row){
+      const statusLabel = getStatusLabel(row?.client_response_status);
+      const outcome = normalize(row?.onboarding_outcome);
+      if (outcome && normalize(row?.client_response_status) === "onboarded") {
+        return `${statusLabel} → ${getOnboardingOutcomeLabel(outcome)}`;
+      }
+      if (outcome) return getOnboardingOutcomeLabel(outcome);
+      return statusLabel;
+    }
+
+    function getPipelineStatusClass(row){
+      const outcome = normalize(row?.onboarding_outcome);
+      if (POST_ONBOARDING_ISSUES.includes(outcome)) return `status-${outcome}`;
+      if (outcome === "retained") return "status-retained";
+      return getStatusClass(row?.client_response_status);
+    }
 
     const THREAD_META_PREFIX = '[[TBTHREAD:';
 
@@ -1408,7 +1473,7 @@ ${cleanMessage}`;
         showNotice(error.message || 'Unable to send chat message.', 'error');
       }finally{
         els.chatSendBtn.disabled = false;
-        els.chatSendBtn.textContent = 'Send Message';
+        els.chatSendBtn.textContent = 'Send';
       }
     }
     function emailInsteadForChat(){
@@ -1426,6 +1491,25 @@ ${cleanMessage}`;
         }
       }catch(_){ }
     }
+    let dashboardChannel = null;
+    function teardownDashboardRealtime(){
+      try{
+        if(dashboardChannel){
+          supabaseClient.removeChannel(dashboardChannel);
+          dashboardChannel = null;
+        }
+      }catch(_){ }
+    }
+    function setupDashboardRealtime(){
+      teardownDashboardRealtime();
+      dashboardChannel = supabaseClient
+        .channel("client-dashboard-live-endorsements")
+        .on("postgres_changes", { event: "*", schema: "public", table: "application_endorsements" }, async () => {
+          try { await loadRows(); } catch (err) { console.warn("Unable to refresh client pipeline:", err?.message || err); }
+        })
+        .subscribe();
+    }
+
     function setupChatRealtime(){
       if(!state.chatEnabled) return;
       teardownChatRealtime();
@@ -1607,23 +1691,50 @@ ${cleanMessage}`;
     }
 
     function updateStats(rows){
-      const endorsed=rows.length;
-      const pending=rows.filter(r=>!normalize(r.client_response_status)).length;
-      const passedApplication=rows.filter(r=>normalize(r.client_response_status)==="passed_application").length;
-      const shortlisted=rows.filter(r=>normalize(r.client_response_status)==="shortlisted").length;
-      const offeredJo=rows.filter(r=>normalize(r.client_response_status)==="offered_jo").length;
-      const onboarded=rows.filter(r=>normalize(r.client_response_status)==="onboarded").length;
-      const rejected=rows.filter(r=>normalize(r.client_response_status)==="rejected_by_client").length;
-      const ratings=rows.map(r=>Number(r.client_rating)).filter(r=>!isNaN(r));
-      const avgRating = ratings.length ? (ratings.reduce((a,b)=>a+b,0)/ratings.length).toFixed(1) : "-";
-      els.statEndorsed.textContent=String(endorsed);
-      els.statPending.textContent=String(pending);
-      els.statPassedApplication.textContent=String(passedApplication);
-      els.statShortlisted.textContent=String(shortlisted);
-      els.statOfferedJo.textContent=String(offeredJo);
-      els.statOnboarded.textContent=String(onboarded);
-      els.statRejected.textContent=String(rejected);
-      els.statAvgRating.textContent=avgRating;
+      const endorsed = rows.length;
+      const pending = rows.filter(r => !normalize(r.client_response_status)).length;
+      const passedApplication = rows.filter(r => normalize(r.client_response_status) === "passed_application").length;
+      const shortlisted = rows.filter(r => normalize(r.client_response_status) === "shortlisted").length;
+      const offeredJo = rows.filter(r => normalize(r.client_response_status) === "offered_jo").length;
+      const onboarded = rows.filter(r => normalize(r.client_response_status) === "onboarded").length;
+      const rejected = rows.filter(r => normalize(r.client_response_status) === "rejected_by_client").length;
+      const postOnboardingIssues = rows.filter(isPostOnboardingIssue).length;
+      const ratings = rows.map(r => Number(r.client_rating)).filter(r => !isNaN(r));
+      const avgRating = ratings.length ? (ratings.reduce((a,b) => a + b, 0) / ratings.length).toFixed(1) : "-";
+
+      els.statEndorsed.textContent = String(endorsed);
+      els.statPending.textContent = String(pending);
+      els.statPassedApplication.textContent = String(passedApplication);
+      els.statShortlisted.textContent = String(shortlisted);
+      els.statOfferedJo.textContent = String(offeredJo);
+      els.statOnboarded.textContent = String(onboarded);
+      els.statRejected.textContent = String(rejected);
+      if (els.statPostOnboardingIssues) els.statPostOnboardingIssues.textContent = String(postOnboardingIssues);
+      els.statAvgRating.textContent = avgRating;
+      updatePipelineTabCounts(rows);
+    }
+
+    function getStageCounts(rows){
+      return {
+        all: rows.length,
+        pending: rows.filter(r => !normalize(r.client_response_status)).length,
+        in_process: rows.filter(r => ["passed_application", "shortlisted", "on_hold"].includes(normalize(r.client_response_status))).length,
+        offer: rows.filter(r => normalize(r.client_response_status) === "offered_jo").length,
+        onboarded: rows.filter(r => normalize(r.client_response_status) === "onboarded").length,
+        post_onboarding: rows.filter(r => normalize(r.onboarding_outcome)).length,
+        rejected: rows.filter(r => normalize(r.client_response_status) === "rejected_by_client").length,
+      };
+    }
+
+    function updatePipelineTabCounts(rows){
+      const counts = getStageCounts(rows || []);
+      document.querySelectorAll("[data-stage-count]").forEach((el) => {
+        const key = el.dataset.stageCount || "all";
+        el.textContent = String(counts[key] || 0);
+      });
+      document.querySelectorAll(".pipeline-tab").forEach((btn) => {
+        btn.classList.toggle("active", (btn.dataset.stage || "") === (state.pipelineStageFilter || ""));
+      });
     }
 
     function populateRoleFilter(){
@@ -1677,23 +1788,53 @@ ${cleanMessage}`;
     }
 
     function getFilteredRows(){
-      const search=normalize(els.searchInput.value), role=normalize(els.roleFilter.value), status=normalize(els.statusFilter.value), rating=normalize(els.ratingFilter.value), dateFilter=normalize(els.dateFilter.value), pendingOnly=els.pendingOnlyToggle.checked;
-      return state.rows.filter(row=>{
-        const candidateName=normalize(row.full_name), roleName=normalize(getRoleName(row)), feedbackStatus=normalize(row.client_response_status), score=String(row.client_rating ?? ""), endorsedAt=getEndorsementDateValue(row);
-        return (!search || candidateName.includes(search) || roleName.includes(search)) && (!role || roleName===role) && (!status || feedbackStatus===status) && (!rating || score===rating) && (!pendingOnly || !feedbackStatus) && matchesDateFilter(endorsedAt, dateFilter);
+      const search = normalize(els.searchInput.value);
+      const role = normalize(els.roleFilter.value);
+      const status = normalize(els.statusFilter.value);
+      const rating = normalize(els.ratingFilter.value);
+      const dateFilter = normalize(els.dateFilter.value);
+      const onboardingOutcome = normalize(els.onboardingOutcomeFilter?.value);
+      const pendingOnly = els.pendingOnlyToggle.checked;
+      const stage = normalize(state.pipelineStageFilter);
+
+      return state.rows.filter(row => {
+        const roleName = normalize(getRoleName(row));
+        const feedbackStatus = normalize(row.client_response_status);
+        const outcome = normalize(row.onboarding_outcome);
+        const score = String(row.client_rating ?? "");
+        const endorsedAt = getEndorsementDateValue(row);
+        const haystack = normalize(`${row.full_name || ""} ${getRoleName(row)} ${row.current_title || ""} ${row.candidate_summary || ""} ${row.skills || ""} ${getOnboardingOutcomeLabel(outcome)}`);
+
+        if (search && !haystack.includes(search)) return false;
+        if (role && roleName !== role) return false;
+        if (status && feedbackStatus !== status) return false;
+        if (rating && score !== rating) return false;
+        if (onboardingOutcome && outcome !== onboardingOutcome) return false;
+        if (pendingOnly && feedbackStatus) return false;
+        if (!matchesDateFilter(endorsedAt, dateFilter)) return false;
+
+        if (stage === "pending" && feedbackStatus) return false;
+        if (stage === "in_process" && !["passed_application", "shortlisted", "on_hold"].includes(feedbackStatus)) return false;
+        if (stage === "offer" && feedbackStatus !== "offered_jo") return false;
+        if (stage === "onboarded" && feedbackStatus !== "onboarded") return false;
+        if (stage === "post_onboarding" && !outcome) return false;
+        if (stage === "rejected" && feedbackStatus !== "rejected_by_client") return false;
+
+        return true;
       });
     }
 
     function renderRows(){
+      updatePipelineTabCounts(state.rows);
       const rows=getFilteredRows();
       if(!rows.length){ els.table.innerHTML='<tr><td colspan="8" class="empty">No endorsed candidates match the selected filters.</td></tr>'; return; }
 
       els.table.innerHTML = rows.map(row=>{
-        const feedbackStatus=normalize(row.client_response_status), displayStatus=getStatusLabel(feedbackStatus), ratingLabel=row.client_rating ? `${row.client_rating}/5` : "-", endorsedAt=getEndorsementDateValue(row), isNew=isRecentEndorsement(endorsedAt);
+        const feedbackStatus=normalize(row.client_response_status), displayStatus=getPipelineStatusLabel(row), statusClass=getPipelineStatusClass(row), ratingLabel=row.client_rating ? `${row.client_rating}/5` : "-", endorsedAt=getEndorsementDateValue(row), isNew=isRecentEndorsement(endorsedAt);
         return `<tr>
           <td><div class="candidate-name">${escapeHtml(row.full_name || "-")}${isNew ? '<span class="pill new">New</span>' : ''}</div><div class="small">${escapeHtml(row.current_title || "")}</div></td>
           <td><div>${escapeHtml(getRoleName(row))}</div><div class="small">${escapeHtml(row.work_setup || row.employment_type || "")}</div></td>
-          <td><span class="pill ${getStatusClass(feedbackStatus)}">${escapeHtml(displayStatus)}</span></td>
+          <td><span class="pill ${statusClass}">${escapeHtml(displayStatus)}</span></td>
           <td><span class="rating-display">${escapeHtml(ratingLabel)}</span></td>
           <td class="date-cell"><div>${escapeHtml(formatDateOnly(endorsedAt))}</div><div class="small">${escapeHtml(formatDateTime(endorsedAt))}</div></td>
           <td>${escapeHtml(safeText(row.years_of_experience))}</td>
@@ -1750,14 +1891,15 @@ ${cleanMessage}`;
 
     function openModalForRow(row){
       state.selectedRow = row;
-      state.modalDraft = { status: normalize(row.client_response_status), rating: row.client_rating ? Number(row.client_rating) : null, notes: row.client_response_notes || "" };
+      state.modalDraft = { status: normalize(row.client_response_status), rating: row.client_rating ? Number(row.client_rating) : null, notes: row.client_response_notes || "", decisionReason: "", missing: "", confirmedSignals: [] };
       const feedbackStatusLabel=getStatusLabel(row.client_response_status), ratingLabel=row.client_rating ? `${row.client_rating}/5` : "-", endorsedAt=getEndorsementDateValue(row);
 
       els.modalTitle.textContent = row.full_name || "Candidate Review";
       els.modalSubtitle.textContent = `${getRoleName(row)} • ${row.client_name || state.currentClientUser?.clients?.client_name || "Your Company"}`;
-      els.modalDecisionStatus.textContent = feedbackStatusLabel;
+      els.modalDecisionStatus.textContent = getPipelineStatusLabel(row);
       els.modalDecisionRating.textContent = ratingLabel;
       els.modalEndorsementDate.textContent = formatDateTime(endorsedAt);
+      if (els.modalOnboardingOutcome) els.modalOnboardingOutcome.textContent = getOnboardingOutcomeLabel(row.onboarding_outcome);
       els.modalFullName.textContent = safeText(row.full_name);
       els.modalCurrentTitle.textContent = safeText(row.current_title);
       els.modalExperience.textContent = safeText(row.years_of_experience);
@@ -1794,6 +1936,28 @@ ${cleanMessage}`;
         els.modalResumeBtn.removeAttribute("href");
         els.modalNoResume.style.display="inline";
       }
+
+      const outcomeLabel = getOnboardingOutcomeLabel(row.onboarding_outcome);
+      if (els.modalPostOnboardingText) {
+        if (normalize(row.onboarding_outcome)) {
+          els.modalPostOnboardingText.textContent = `${outcomeLabel}${row.onboarding_outcome_at ? ` • Recorded ${formatDateTime(row.onboarding_outcome_at)}` : ""}`;
+        } else if (normalize(row.client_response_status) === "onboarded") {
+          els.modalPostOnboardingText.textContent = "Candidate is marked onboarded. No post-onboarding outcome has been recorded yet.";
+        } else {
+          els.modalPostOnboardingText.textContent = "Post-onboarding tracking becomes available once the candidate reaches onboarding.";
+        }
+      }
+
+      const intel = getModalIntelColumns(row);
+      setDecisionReasonSelection(intel.decisionReason || "");
+      if (els.clientMissingInput) els.clientMissingInput.value = intel.missing || "";
+      state.modalDraft.missing = intel.missing || "";
+      state.modalDraft.confirmedSignals = intel.confirmedSignals || [];
+      renderSignalChecklist([
+        ...extractSignalsFromText(recruiterPreview.strengths),
+        ...extractSignalsFromText(recruiterPreview.risks),
+        ...extractSignalsFromText(recruiterPreview.decision)
+      ]);
 
       const lastResponseTime = row.client_responded_at || row.client_viewed_at;
       els.modalLastUpdated.textContent = lastResponseTime ? `Last updated: ${formatDateTime(lastResponseTime)}` : "No feedback saved yet.";
@@ -1898,14 +2062,22 @@ ${cleanMessage}`;
       await loadRows();
     }
 
-    async function logout(){ teardownChatRealtime(); await supabaseClient.auth.signOut(); window.location.href = "client.html"; }
+    async function logout(){ teardownChatRealtime(); teardownDashboardRealtime(); await supabaseClient.auth.signOut(); window.location.href = "client.html"; }
 
     els.searchInput.addEventListener("input", renderRows);
     els.roleFilter.addEventListener("change", renderRows);
     els.statusFilter.addEventListener("change", renderRows);
     els.ratingFilter.addEventListener("change", renderRows);
     els.dateFilter.addEventListener("change", renderRows);
+    els.onboardingOutcomeFilter?.addEventListener("change", renderRows);
     els.pendingOnlyToggle.addEventListener("change", renderRows);
+    document.getElementById("pipelineTabs")?.addEventListener("click", (event) => {
+      const btn = event.target.closest(".pipeline-tab");
+      if (!btn) return;
+      state.pipelineStageFilter = btn.dataset.stage || "";
+      updatePipelineTabCounts(state.rows);
+      renderRows();
+    });
 
     els.table.addEventListener("click", (event) => {
       const resumeBtn = event.target.closest(".preview-resume-btn");
@@ -2000,6 +2172,7 @@ ${cleanMessage}`;
         const allowed = await protectPage();
         if(!allowed) return;
         await loadRows();
+        setupDashboardRealtime();
 
         const chatAvailable = await detectChatAvailability();
         if(chatAvailable){
@@ -2020,7 +2193,11 @@ DB columns recommended for full Hiring Intelligence persistence:
 alter table public.application_endorsements
   add column if not exists client_decision_reason text,
   add column if not exists client_missing text,
-  add column if not exists client_confirmed_signals jsonb default '[]'::jsonb;
+  add column if not exists client_confirmed_signals jsonb default '[]'::jsonb,
+  add column if not exists onboarded_at timestamptz,
+  add column if not exists onboarding_outcome text,
+  add column if not exists onboarding_outcome_notes text,
+  add column if not exists onboarding_outcome_at timestamptz;
 -->
 
 </body>
