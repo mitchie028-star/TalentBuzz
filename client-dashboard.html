@@ -122,6 +122,11 @@
       font-weight:800;white-space:nowrap;background:#eef4ff;color:#365cc5
     }
     .pill.new{background:#f3f7ff;color:#2f5ee5;border:1px solid #c5d7ff;margin-left:8px}
+
+    .status-submitted{background:#eef4ff;color:#2b57db}
+    .status-failed_paper_screening{background:#fff1f1;color:#c9372c}
+    .status-withdrawn{background:#f8fafc;color:#64748b}
+    .status-final{background:#eff3ff;color:#4d5fd1}
     .status-assessment{background:#eef4ff;color:#2b57db}
     .status-endorsed{background:#e9f9ef;color:#15803d}
     .status-final_interview{background:#eff3ff;color:#4d5fd1}
@@ -867,7 +872,7 @@
       });
     }
     const getRoleName = (row) => row.job_title_from_jobs || row.job_title || row.title || "-";
-    const getEndorsementDateValue = (row) => row.sent_at || row.endorsement_date || null;
+    const getEndorsementDateValue = (row) => row.sent_at || row.endorsement_date || row.created_at || null;
     const POST_ONBOARDING_ISSUES = ["rejected_after_onboarding", "no_show", "quit_early"];
     const ONBOARDING_OUTCOME_LABELS = {
       retained: "Retained",
@@ -904,18 +909,42 @@
 
     function getClientPipelineStage(row){
       const raw = normalize(row?.client_response_status);
+
       const mapped = {
+        // Assessment bucket
         assessment: "assessment",
         for_assessment: "assessment",
         passed_application: "assessment",
+        submitted: "assessment",
+        new: "assessment",
+        "failed paper screening": "assessment",
+        failed_paper_screening: "assessment",
+
+        // Endorsed bucket
         endorsed: "endorsed",
         shortlisted: "endorsed",
+
+        // Final Interview bucket
+        final: "final_interview",
         final_interview: "final_interview",
         "final interview": "final_interview",
         for_final_interview: "final_interview",
+        for_interview: "final_interview",
+        "for interview": "final_interview",
+
+        // Offer / onboarding buckets
         offered_jo: "offered_jo",
-        onboarded: "onboarded"
+        "offered jo": "offered_jo",
+        offered: "offered_jo",
+        onboarded: "onboarded",
+        hired: "onboarded",
+
+        // Keep withdrawn out of the five main buckets unless explicitly filtered/search matched
+        withdrawn: "withdrawn",
+        rejected_by_client: "withdrawn",
+        rejected: "withdrawn"
       };
+
       return mapped[raw] || (raw ? raw : "endorsed");
     }
 
@@ -927,7 +956,8 @@
     function getClientStageClass(row){
       const key = getClientPipelineStage(row);
       if (CLIENT_STAGE_LABELS[key]) return `status-${key}`;
-      return getStatusClass(row?.client_response_status);
+      const raw = normalize(row?.client_response_status).replaceAll(" ", "_");
+      return raw ? `status-${raw}` : "status-empty";
     }
 
     const THREAD_META_PREFIX = '[[TBTHREAD:';
@@ -1760,15 +1790,32 @@ ${cleanMessage}`;
         assessment: "Assessment",
         for_assessment: "Assessment",
         passed_application: "Assessment",
+        submitted: "Assessment",
+        new: "Assessment",
+        "failed paper screening": "Assessment",
+        failed_paper_screening: "Assessment",
+
         endorsed: "Endorsed",
         shortlisted: "Endorsed",
+
+        final: "Final Interview",
         final_interview: "Final Interview",
         "final interview": "Final Interview",
         for_final_interview: "Final Interview",
+        for_interview: "Final Interview",
+        "for interview": "Final Interview",
+
         offered_jo: "Offered JO",
+        "offered jo": "Offered JO",
+        offered: "Offered JO",
+
         onboarded: "Onboarded",
+        hired: "Onboarded",
+
         on_hold: "On Hold",
+        withdrawn: "Withdrawn",
         rejected_by_client: "Rejected",
+        rejected: "Rejected",
         need_more_profiles: "Need More Profiles"
       };
       return map[normalize(status)] || "Endorsed";
@@ -1834,7 +1881,7 @@ ${cleanMessage}`;
         const clientStage = getClientPipelineStage(row);
         if (status && clientStage !== status) return false;
         if (rating && score !== rating) return false;
-        if (pendingOnly && feedbackStatus) return false;
+        if (pendingOnly && (row.client_responded_at || row.client_rating || row.client_response_notes)) return false;
         if (!matchesDateFilter(endorsedAt, dateFilter)) return false;
 
         if (stage && clientStage !== stage) return false;
@@ -1880,6 +1927,16 @@ ${cleanMessage}`;
       }
 
       state.rows = Array.isArray(data) ? data : [];
+      console.log("Client dashboard rows loaded:", {
+        clientId,
+        count: state.rows.length,
+        stages: state.rows.reduce((acc, row) => {
+          const stage = getClientPipelineStage(row);
+          acc[stage] = (acc[stage] || 0) + 1;
+          return acc;
+        }, {})
+      });
+
       state.rows = await Promise.all(state.rows.map(async (row) => ({
         ...row,
         resolved_resume_url: await resolveResumeUrl(row)
@@ -1892,15 +1949,26 @@ ${cleanMessage}`;
 
     async function markViewed(){
       if(isPreviewMode()) return;
-      const ids = state.rows.filter(row => (row.endorsement_id || row.id) && !row.client_viewed_at).map(row => row.endorsement_id || row.id);
+      const ids = state.rows
+        .filter(row => row.endorsement_id && !row.client_viewed_at)
+        .map(row => row.endorsement_id);
+
       if(!ids.length) return;
-      const { error } = await supabaseClient.from("application_endorsements").update({ client_viewed_at:new Date().toISOString() }).in("id", ids);
+
+      const { error } = await supabaseClient
+        .from("application_endorsements")
+        .update({ client_viewed_at:new Date().toISOString() })
+        .in("id", ids);
+
       if(error) console.error("Failed marking endorsements as viewed:", error);
     }
 
     function setStatusSelection(status){
-      document.querySelectorAll(".status-choice").forEach(btn => btn.classList.toggle("active", btn.dataset.status === status));
-      state.modalDraft.status = status || "";
+      const normalizedStage = getClientPipelineStage({ client_response_status: status });
+      document.querySelectorAll(".status-choice").forEach(btn => {
+        btn.classList.toggle("active", btn.dataset.status === normalizedStage);
+      });
+      state.modalDraft.status = normalizedStage || "";
     }
     function setRatingSelection(score){
       const numericScore = score ? Number(score) : null;
@@ -1910,7 +1978,7 @@ ${cleanMessage}`;
 
     function openModalForRow(row){
       state.selectedRow = row;
-      state.modalDraft = { status: normalize(row.client_response_status), rating: row.client_rating ? Number(row.client_rating) : null, notes: row.client_response_notes || "", decisionReason: "", missing: "", confirmedSignals: [] };
+      state.modalDraft = { status: getClientPipelineStage(row), rating: row.client_rating ? Number(row.client_rating) : null, notes: row.client_response_notes || "", decisionReason: "", missing: "", confirmedSignals: [] };
       const feedbackStatusLabel=getStatusLabel(row.client_response_status), ratingLabel=row.client_rating ? `${row.client_rating}/5` : "-", endorsedAt=getEndorsementDateValue(row);
 
       els.modalTitle.textContent = row.full_name || "Candidate Review";
@@ -1996,9 +2064,51 @@ ${cleanMessage}`;
       state.selectedRow = null;
     }
 
+
+    async function ensureEndorsementForSelectedRow(){
+      const row = state.selectedRow;
+      if (!row) throw new Error("No candidate selected.");
+      if (row.endorsement_id) return row.endorsement_id;
+
+      const payload = {
+        application_id: row.application_id || row.id,
+        client_id: row.client_id || state.currentClientUser?.client_id || null,
+        job_id: row.job_id || null,
+        sent_at: new Date().toISOString(),
+        client_viewed_at: new Date().toISOString()
+      };
+
+      if (!payload.application_id) {
+        throw new Error("Missing application ID for this candidate.");
+      }
+
+      if (!payload.client_id) {
+        throw new Error("Missing client ID for this candidate.");
+      }
+
+      const { data, error } = await supabaseClient
+        .from("application_endorsements")
+        .insert(payload)
+        .select("id")
+        .single();
+
+      if (error) throw error;
+
+      state.selectedRow.endorsement_id = data.id;
+      return data.id;
+    }
+
     async function saveModalFeedback(){
       if(!state.selectedRow) return;
-      const endorsementId = state.selectedRow.endorsement_id || state.selectedRow.id;
+      let endorsementId;
+      try {
+        endorsementId = await ensureEndorsementForSelectedRow();
+      } catch (error) {
+        console.error("Create endorsement before feedback failed:", error);
+        showNotice(error.message || "Unable to prepare this candidate for feedback.", "error");
+        return;
+      }
+
       const notes = els.modalNotes.value.trim();
       state.modalDraft.missing = els.clientMissingInput?.value.trim() || "";
       state.modalDraft.confirmedSignals = collectConfirmedSignals();
@@ -2052,7 +2162,12 @@ ${cleanMessage}`;
       const confirmed = window.confirm("Clear the saved feedback for this endorsement?");
       if(!confirmed) return;
 
-      const endorsementId = state.selectedRow.endorsement_id || state.selectedRow.id;
+      const endorsementId = state.selectedRow.endorsement_id;
+      if (!endorsementId) {
+        showNotice("No saved client feedback exists for this candidate yet.", "info");
+        return;
+      }
+
       els.clearModalBtn.disabled = true; els.clearModalBtn.textContent = "Clearing...";
 
       const extendedPayload = {
