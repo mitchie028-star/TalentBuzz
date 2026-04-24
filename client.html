@@ -520,7 +520,7 @@
         </div>
 
         <div class="utility-nav">
-          <button id="openAddClientBtn" class="btn btn-primary" type="button">+ Add Client</button>
+          <button id="openAddClientBtn" class="btn btn-primary" type="button">+ Add Client User</button>
 
           <div class="menu-wrap">
             <button class="menu-toggle" id="menuToggleBtn" type="button" title="Menu">
@@ -638,18 +638,18 @@
   <div class="modal" id="clientModal">
     <div class="modal-panel">
       <div class="modal-header">
-        <h3 class="modal-title" id="clientModalTitle">Add Client</h3>
+        <h3 class="modal-title" id="clientModalTitle">Add Client User</h3>
         <button class="drawer-close" id="closeClientModalBtn" type="button">×</button>
       </div>
       <div class="modal-body">
         <div class="modal-grid">
           <div class="field full">
-            <label for="clientNameInput">Client Name</label>
-            <input id="clientNameInput" type="text" placeholder="Company name" />
+            <label for="clientNameInput">Client Name / Existing Client</label>
+            <input id="clientNameInput" type="text" placeholder="Company name exactly as saved" />
           </div>
 
           <div class="field full">
-            <label for="clientEmailInput">Client Email</label>
+            <label for="clientEmailInput">Client User Email</label>
             <input id="clientEmailInput" type="email" placeholder="client@email.com" />
           </div>
         </div>
@@ -768,7 +768,7 @@
 
     function openClientModal() {
       clearModalNotice();
-      els.clientModalTitle.textContent = "Add Client";
+      els.clientModalTitle.textContent = "Add Client User";
       els.clientNameInput.value = "";
       els.clientEmailInput.value = "";
       els.clientModal.classList.add("show");
@@ -1102,33 +1102,39 @@
           throw existingClientByNameError;
         }
 
-        if (existingClientByName?.id) {
-          throw new Error("A client with this name already exists.");
+        let targetClient = existingClientByName || null;
+
+        if (!targetClient?.id) {
+          const { data: newClient, error: createClientError } = await supabaseClient
+            .from("clients")
+            .insert([{
+              client_name: clientName,
+              active: true
+            }])
+            .select("id, client_name")
+            .single();
+
+          if (createClientError) {
+            throw createClientError;
+          }
+
+          targetClient = newClient;
         }
 
-        const { data: newClient, error: createClientError } = await supabaseClient
-          .from("clients")
-          .insert([{
-            client_name: clientName,
-            active: true
-          }])
-          .select("id, client_name")
-          .single();
-
-        if (createClientError) {
-          throw createClientError;
+        if (!targetClient?.id) {
+          throw new Error("Unable to resolve client record.");
         }
 
         if (sendInviteAfter) {
           await resendClientInvite(email, {
-            clientName,
-            pocName: clientName
+            clientName: targetClient.client_name || clientName,
+            pocName: targetClient.client_name || clientName
           });
         } else {
           const { error: insertInviteError } = await supabaseClient
             .from("client_invites")
             .insert([{
-              client_id: newClient.id,
+              client_id: targetClient.id,
               full_name: clientName,
               email,
               token: null,
@@ -1142,7 +1148,7 @@
         }
 
         showNotice(
-          sendInviteAfter ? "Client created and invite sent." : "Client created successfully.",
+          sendInviteAfter ? "Client user invite sent." : "Client user record saved.",
           "success"
         );
         closeClientModal();
@@ -1220,7 +1226,11 @@
 
         try {
           const data = await resendClientInvite(email);
-          showNotice(data?.message || "Invite resent successfully.", "success");
+          if (data?.email_sent === false) {
+            showNotice(data.warning || "Invite link was created, but email delivery failed.", "error");
+          } else {
+            showNotice(data?.message || "Invite sent successfully.", "success");
+          }
           await loadClients();
         } catch (error) {
           console.error(error);
