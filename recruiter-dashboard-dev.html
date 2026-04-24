@@ -233,7 +233,7 @@
 
     .kpis {
       display: grid;
-      grid-template-columns: repeat(7, minmax(0,1fr));
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
       gap: 10px;
       margin-bottom: 14px;
     }
@@ -1362,6 +1362,7 @@
       <div class="kpi panel"><div class="kpi-label">Offered JO</div><div class="kpi-value" id="kpiOffered">0</div></div>
       <div class="kpi panel"><div class="kpi-label">Onboarded</div><div class="kpi-value" id="kpiOnboarded">0</div></div>
       <div class="kpi panel"><div class="kpi-label">Rejected</div><div class="kpi-value" id="kpiRejected">0</div></div>
+      <div class="kpi panel"><div class="kpi-label">Post-Onboarding Issues</div><div class="kpi-value" id="kpiPostOnboardingIssues">0</div></div>
     </section>
 
     <section class="panel filters">
@@ -1377,6 +1378,17 @@
         <div class="field"><label for="jobFilter">Job</label><select id="jobFilter"><option value="">All jobs</option></select></div>
         <div class="field"><label for="clientFilter">Client</label><select id="clientFilter"><option value="">All clients</option></select></div>
         <div class="field"><label for="scoreFilter">AI Score</label><select id="scoreFilter"><option value="">All scores</option><option value="strong">Strong</option><option value="moderate">Moderate</option><option value="weak">Weak</option></select></div>
+        <div class="field">
+          <label for="onboardingOutcomeFilter">Onboarding</label>
+          <select id="onboardingOutcomeFilter">
+            <option value="">All outcomes</option>
+            <option value="retained">Retained</option>
+            <option value="rejected_after_onboarding">Rejected After Onboarding</option>
+            <option value="no_show">No Show</option>
+            <option value="quit_early">Quit Early</option>
+            <option value="missing">Missing Outcome</option>
+          </select>
+        </div>
       </div>
     </section>
 
@@ -1593,6 +1605,50 @@
               </div>
             </div>
 
+
+            <div class="section">
+              <h3>Client Outcome & Post-Onboarding</h3>
+              <div class="kv">
+                <div class="kv-item">
+                  <div class="kv-label">Client Status</div>
+                  <div class="kv-value" id="endorsementClientStatus">—</div>
+                </div>
+                <div class="kv-item">
+                  <div class="kv-label">Client Rating</div>
+                  <div class="kv-value" id="endorsementClientRating">—</div>
+                </div>
+                <div class="kv-item full">
+                  <div class="kv-label">Client Notes</div>
+                  <div class="kv-value" id="endorsementClientNotes">—</div>
+                </div>
+                <div class="kv-item">
+                  <div class="kv-label">Onboarded Date</div>
+                  <div class="field"><input id="onboardedAtInput" type="datetime-local" /></div>
+                </div>
+                <div class="kv-item">
+                  <div class="kv-label">Outcome</div>
+                  <div class="field">
+                    <select id="onboardingOutcomeInput">
+                      <option value="">Select outcome</option>
+                      <option value="retained">Retained</option>
+                      <option value="rejected_after_onboarding">Rejected After Onboarding</option>
+                      <option value="no_show">No Show</option>
+                      <option value="quit_early">Quit Early</option>
+                    </select>
+                  </div>
+                </div>
+                <div class="kv-item full">
+                  <div class="kv-label">Outcome Notes</div>
+                  <div class="field">
+                    <textarea id="onboardingOutcomeNotesInput" placeholder="Internal recruiter notes about post-onboarding result"></textarea>
+                  </div>
+                </div>
+              </div>
+              <div class="section-actions">
+                <button class="btn btn-primary" id="saveOnboardingOutcomeBtn" type="button">Save Outcome</button>
+              </div>
+            </div>
+
             <div class="section">
               <h3>Quick Update</h3>
               <div class="kv">
@@ -1797,7 +1853,6 @@
       chatTypingByThread: {},
       chatTypingTimer: null,
       chatDraftByThread: {},
-      chatHelpRequests: [],
     };
 
     const els = {
@@ -1822,6 +1877,7 @@
       jobFilter: document.getElementById('jobFilter'),
       clientFilter: document.getElementById('clientFilter'),
       scoreFilter: document.getElementById('scoreFilter'),
+      onboardingOutcomeFilter: document.getElementById('onboardingOutcomeFilter'),
       applicationsTable: document.getElementById('applicationsTable'),
       tableCount: document.getElementById('tableCount'),
       workspace: document.getElementById('workspace'),
@@ -1895,6 +1951,14 @@
       kpiOffered: document.getElementById('kpiOffered'),
       kpiOnboarded: document.getElementById('kpiOnboarded'),
       kpiRejected: document.getElementById('kpiRejected'),
+      kpiPostOnboardingIssues: document.getElementById('kpiPostOnboardingIssues'),
+      endorsementClientStatus: document.getElementById('endorsementClientStatus'),
+      endorsementClientRating: document.getElementById('endorsementClientRating'),
+      endorsementClientNotes: document.getElementById('endorsementClientNotes'),
+      onboardedAtInput: document.getElementById('onboardedAtInput'),
+      onboardingOutcomeInput: document.getElementById('onboardingOutcomeInput'),
+      onboardingOutcomeNotesInput: document.getElementById('onboardingOutcomeNotesInput'),
+      saveOnboardingOutcomeBtn: document.getElementById('saveOnboardingOutcomeBtn'),
       newApplicantsBadge: document.getElementById('newApplicantsBadge'),
       menuToggleBtn: document.getElementById('menuToggleBtn'),
       menuDropdown: document.getElementById('menuDropdown'),
@@ -3750,17 +3814,25 @@ function renderLearningInsights(row) {
       state.loading = true;
       hideNotice();
       els.applicationsTable.innerHTML = '<tr><td colspan="8" class="small">Loading candidates...</td></tr>';
+
       try {
-        const [applications, profiles, jobs, feedbackRows, outcomeRows] = await Promise.all([
+        const [applications, profiles, jobs, feedbackRows, outcomeRows, endorsementRows] = await Promise.all([
           fetchApplicationsRows(),
           fetchAll('applicant_profiles', `id,full_name,email,phone,location,headline,current_title,resume_url,resume_path,resume_file_name,raw_resume_text,parsed_resume_json,years_of_experience,experience_years,years_experience,total_experience,experience,highest_education,degree_course,linkedin,portfolio_url,updated_at`),
           fetchAll('jobs', `id,title,client_name,job_description,keywords,industry,screening_enabled,status,work_setup,location,slug`),
           fetchAllOptional('application_feedback', `id,application_id,applicant_profile_id,job_id,recruiter_email,status_at_feedback,disposition_reason,positive_tags,risk_tags,short_note,job_title,created_at`),
           fetchAllOptional('hiring_outcomes', `id,application_id,job_id,applicant_profile_id,stage,outcome_score,ai_profile_score,ai_resume_score,ai_screening_score,ai_overall_score,is_success,role_family,job_title,created_at`),
+          fetchAllOptional(
+            'application_endorsements',
+            `id,application_id,client_response_status,client_response_notes,client_rating,client_responded_at,client_viewed_at,onboarded_at,onboarding_outcome,onboarding_outcome_notes,onboarding_outcome_at,created_at`
+          ),
         ]);
 
         const profilesById = new Map(profiles.map((item) => [item.id, item]));
         const jobsById = new Map(jobs.map((item) => [item.id, item]));
+        const endorsementsByApplicationId = new Map(
+          (endorsementRows || []).map((item) => [String(item.application_id || ''), item])
+        );
 
         console.log('DEBUG raw fetch counts', {
           applications: Array.isArray(applications) ? applications.length : -1,
@@ -3768,29 +3840,51 @@ function renderLearningInsights(row) {
           jobs: Array.isArray(jobs) ? jobs.length : -1,
           feedbackRows: Array.isArray(feedbackRows) ? feedbackRows.length : -1,
           outcomeRows: Array.isArray(outcomeRows) ? outcomeRows.length : -1,
+          endorsementRows: Array.isArray(endorsementRows) ? endorsementRows.length : -1,
         });
+
         state.feedbackRows = feedbackRows || [];
         state.outcomeRows = outcomeRows || [];
         state.learningEnabled = !!(state.feedbackRows.length || state.outcomeRows.length);
 
         state.allRows = applications.map((app) => {
-          const profile = profilesById.get(app.applicant_profile_id) || profiles.find((p) => safeText(p.email).toLowerCase() === safeText(app.email).toLowerCase()) || {};
-          const job = jobsById.get(app.job_id) || jobs.find((j) => safeText(j.title) === safeText(app.job_title)) || {};
+          const profile =
+            profilesById.get(app.applicant_profile_id) ||
+            profiles.find((p) => safeText(p.email).toLowerCase() === safeText(app.email).toLowerCase()) ||
+            {};
+
+          const job =
+            jobsById.get(app.job_id) ||
+            jobs.find((j) => safeText(j.title) === safeText(app.job_title)) ||
+            {};
+
+          const endorsement = endorsementsByApplicationId.get(String(app.id || '')) || null;
           const score = computeOverallScore(profile, app, job);
+
           const row = {
             id: app.id,
             app,
             profile,
             job,
+            endorsement,
             score,
+
             displayName: safeText(profile.full_name || profile.name || app.email || 'Unnamed candidate'),
-            status: safeText(app.client_feedback_status || app.status || 'submitted'),
+            status: safeText(endorsement?.client_response_status || app.client_feedback_status || app.status || 'submitted'),
             recruiter: safeText(app.recruiter_email || 'Unassigned'),
             source: safeText(app.application_source || '—'),
             appliedAt: app.created_at,
             clientName: safeText(job.client_name || '—'),
             jobTitle: safeText(job.title || app.job_title || '—'),
+
+            clientPipelineStatus: safeText(endorsement?.client_response_status || app.client_feedback_status || ''),
+            clientRating: endorsement?.client_rating || null,
+            clientNotes: safeText(endorsement?.client_response_notes || app.client_feedback_notes || ''),
+            onboardedAt: endorsement?.onboarded_at || null,
+            onboardingOutcome: safeText(endorsement?.onboarding_outcome || ''),
+            onboardingOutcomeNotes: safeText(endorsement?.onboarding_outcome_notes || ''),
           };
+
           row.learning = buildLearningInsights(row);
           return row;
         });
@@ -3831,8 +3925,12 @@ function renderLearningInsights(row) {
       const job = safeText(els.jobFilter.value).toLowerCase();
       const client = safeText(els.clientFilter.value).toLowerCase();
       const scoreFilter = safeText(els.scoreFilter.value).toLowerCase();
+      const onboardingOutcome = safeText(els.onboardingOutcomeFilter?.value).toLowerCase();
 
       state.filteredRows = state.allRows.filter((row) => {
+        const rowStatus = normalizeStatus(row.status);
+        const rowOutcome = safeText(row.onboardingOutcome).toLowerCase();
+
         const haystack = [
           row.displayName,
           row.profile?.email,
@@ -3841,34 +3939,111 @@ function renderLearningInsights(row) {
           row.jobTitle,
           row.clientName,
           row.recruiter,
+          row.clientPipelineStatus,
+          row.clientNotes,
+          row.onboardingOutcome,
+          row.onboardingOutcomeNotes,
         ].join(' ').toLowerCase();
 
         if (query && !haystack.includes(query)) return false;
-        if (status && normalizeStatus(row.status) !== status) return false;
+        if (status && rowStatus !== status) return false;
         if (recruiter && row.recruiter.toLowerCase() !== recruiter) return false;
         if (source && row.source.toLowerCase() !== source) return false;
         if (job && row.jobTitle.toLowerCase() !== job) return false;
         if (client && row.clientName.toLowerCase() !== client) return false;
         if (scoreFilter && scoreTier(row.score.overall) !== scoreFilter) return false;
+
+        if (onboardingOutcome === 'missing') {
+          const isOnboarded = ['onboarded', 'hired'].includes(rowStatus);
+          if (!isOnboarded || rowOutcome) return false;
+        } else if (onboardingOutcome && rowOutcome !== onboardingOutcome) {
+          return false;
+        }
+
         return true;
       });
 
       renderKPIs();
       renderTable();
-      if (state.selectedId && !state.filteredRows.some((row) => row.id === state.selectedId)) closeDrawer();
+
+      if (state.selectedId && !state.filteredRows.some((row) => row.id === state.selectedId)) {
+        closeDrawer();
+      }
+
       updateDrawerNavMeta();
+    }
+
+
+    function toLocalDatetimeInputValue(value) {
+      if (!value) return '';
+      const date = new Date(value);
+      if (Number.isNaN(date.getTime())) return '';
+      const offset = date.getTimezoneOffset();
+      const local = new Date(date.getTime() - offset * 60000);
+      return local.toISOString().slice(0, 16);
+    }
+
+    function fromLocalDatetimeInputValue(value) {
+      if (!value) return null;
+      const date = new Date(value);
+      return Number.isNaN(date.getTime()) ? null : date.toISOString();
+    }
+
+    async function saveOnboardingOutcome() {
+      const row = state.allRows.find((item) => item.id === state.selectedId);
+      if (!row) return showNotice('Select a candidate first.', 'error');
+
+      const endorsementId = row.endorsement?.id;
+      if (!endorsementId) {
+        return showNotice('This candidate has no endorsement record yet. Endorse the candidate first before saving onboarding outcome.', 'error');
+      }
+
+      const payload = {
+        onboarded_at: fromLocalDatetimeInputValue(els.onboardedAtInput?.value) || null,
+        onboarding_outcome: safeText(els.onboardingOutcomeInput?.value) || null,
+        onboarding_outcome_notes: safeText(els.onboardingOutcomeNotesInput?.value) || null,
+        onboarding_outcome_at: safeText(els.onboardingOutcomeInput?.value) ? new Date().toISOString() : null,
+      };
+
+      if (els.saveOnboardingOutcomeBtn) els.saveOnboardingOutcomeBtn.disabled = true;
+
+      try {
+        const { error } = await supabaseClient
+          .from('application_endorsements')
+          .update(payload)
+          .eq('id', endorsementId);
+
+        if (error) throw error;
+
+        showNotice('Post-onboarding outcome saved.', 'success');
+        await loadDashboard();
+        await openDrawer(row.id);
+      } catch (error) {
+        showNotice(`Unable to save onboarding outcome: ${error.message || error}`, 'error');
+      } finally {
+        if (els.saveOnboardingOutcomeBtn) els.saveOnboardingOutcomeBtn.disabled = false;
+      }
     }
 
     function renderKPIs() {
       const rows = state.filteredRows;
-      const countStatus = (predicate) => rows.filter(predicate).length;
+      const count = (fn) => rows.filter(fn).length;
+      const status = (row) => normalizeStatus(row.status);
+      const outcome = (row) => safeText(row.onboardingOutcome).toLowerCase();
+
       els.kpiApplications.textContent = rows.length;
-      els.kpiUnassigned.textContent = countStatus((row) => row.recruiter === 'Unassigned');
-      els.kpiEndorsed.textContent = countStatus((row) => normalizeStatus(row.status) === 'endorsed');
-      els.kpiInterview.textContent = countStatus((row) => ['for interview', 'shortlisted', 'assessment'].includes(normalizeStatus(row.status)));
-      els.kpiOffered.textContent = countStatus((row) => normalizeStatus(row.status) === 'offered jo');
-      els.kpiOnboarded.textContent = countStatus((row) => ['onboarded', 'hired'].includes(normalizeStatus(row.status)));
-      els.kpiRejected.textContent = countStatus((row) => ['rejected', 'failed paper screening'].includes(normalizeStatus(row.status)));
+      els.kpiUnassigned.textContent = count((row) => row.recruiter === 'Unassigned');
+      els.kpiEndorsed.textContent = count((row) => status(row) === 'endorsed');
+      els.kpiInterview.textContent = count((row) => ['for interview', 'shortlisted', 'assessment'].includes(status(row)));
+      els.kpiOffered.textContent = count((row) => status(row) === 'offered jo');
+      els.kpiOnboarded.textContent = count((row) => ['onboarded', 'hired'].includes(status(row)));
+      els.kpiRejected.textContent = count((row) => ['rejected', 'failed paper screening'].includes(status(row)));
+
+      if (els.kpiPostOnboardingIssues) {
+        els.kpiPostOnboardingIssues.textContent = count((row) =>
+          ['rejected_after_onboarding', 'no_show', 'quit_early'].includes(outcome(row))
+        );
+      }
     }
 
     function renderTable() {
@@ -3949,6 +4124,25 @@ function renderLearningInsights(row) {
       els.editStatus.value = row.status || row.app?.client_feedback_status || row.app?.status || 'submitted';
       els.editNotes.value = row.app?.recruiter_notes || row.app?.stage_note_label || '';
       els.editResumeFile.value = '';
+
+      if (els.endorsementClientStatus) {
+        els.endorsementClientStatus.textContent = formatStatusLabel(row.clientPipelineStatus || row.status || '—');
+      }
+      if (els.endorsementClientRating) {
+        els.endorsementClientRating.textContent = row.clientRating ? `${row.clientRating}/5` : '—';
+      }
+      if (els.endorsementClientNotes) {
+        els.endorsementClientNotes.textContent = row.clientNotes || '—';
+      }
+      if (els.onboardedAtInput) {
+        els.onboardedAtInput.value = toLocalDatetimeInputValue(row.onboardedAt);
+      }
+      if (els.onboardingOutcomeInput) {
+        els.onboardingOutcomeInput.value = row.onboardingOutcome || '';
+      }
+      if (els.onboardingOutcomeNotesInput) {
+        els.onboardingOutcomeNotesInput.value = row.onboardingOutcomeNotes || '';
+      }
       clearFeedbackInputs();
       state.selectedScreeningReview = buildScreeningReview(row);
       renderScreeningReview(state.selectedScreeningReview);
@@ -4074,7 +4268,10 @@ function renderLearningInsights(row) {
         els.jobFilter,
         els.clientFilter,
         els.scoreFilter,
-      ].forEach((el) => { el.value = ''; });
+        els.onboardingOutcomeFilter,
+      ].forEach((el) => {
+        if (el) el.value = '';
+      });
       applyFilters();
     }
 
@@ -4255,7 +4452,7 @@ function renderLearningInsights(row) {
     }
     async function loadChatIndexes() {
       try {
-        const [{ data: candidateMessages, error: candidateError }, { data: clientMessages, error: clientError }, { data: helpRequests, error: helpError }] = await Promise.all([
+        const [{ data: candidateMessages, error: candidateError }, { data: clientMessages, error: clientError }] = await Promise.all([
           supabaseClient
             .from('applicant_messages')
             .select('id, applicant_email, applicant_profile_id, application_id, sender_type, sender_name, full_name, issue_type, page, step, phone, channel, message, created_at')
@@ -4264,11 +4461,6 @@ function renderLearningInsights(row) {
           supabaseClient
             .from('client_messages')
             .select('id, client_email, email, sender_type, message, created_at')
-            .order('created_at', { ascending: false })
-            .limit(300),
-          supabaseClient
-            .from('recruiter_help_requests')
-            .select('id, full_name, email, phone, applicant_profile_id, issue_type, message, page, step, channel, status, created_at')
             .order('created_at', { ascending: false })
             .limit(300)
         ]);
@@ -4286,20 +4478,10 @@ function renderLearningInsights(row) {
         } else {
           state.chatClientMessages = Array.isArray(clientMessages) ? clientMessages : [];
         }
-
-        if (helpError) {
-          if (!/relation .*recruiter_help_requests.* does not exist/i.test(helpError?.message || '')) {
-            console.warn('Unable to load recruiter help requests:', helpError?.message || helpError);
-          }
-          state.chatHelpRequests = [];
-        } else {
-          state.chatHelpRequests = Array.isArray(helpRequests) ? helpRequests : [];
-        }
       } catch (err) {
         console.warn('Unable to load chat indexes:', err?.message || err);
         state.chatCandidateMessages = [];
         state.chatClientMessages = [];
-        state.chatHelpRequests = [];
       }
     }
     async function loadThreadMessages(thread) {
@@ -4309,59 +4491,17 @@ function renderLearningInsights(row) {
           const clauses = [];
           if (thread.applicantProfileId) clauses.push(`applicant_profile_id.eq.${thread.applicantProfileId}`);
           if (thread.email) clauses.push(`applicant_email.eq.${thread.email}`);
-          if (!clauses.length && !thread.email) return [];
+          if (!clauses.length) return [];
 
-          const [applicantResult, helpResult] = await Promise.all([
-            clauses.length
-              ? supabaseClient
-                  .from('applicant_messages')
-                  .select('id, applicant_email, applicant_profile_id, application_id, sender_type, sender_name, full_name, issue_type, page, step, phone, channel, message, created_at')
-                  .order('created_at', { ascending: false })
-                  .limit(100)
-                  .or(clauses.join(','))
-              : Promise.resolve({ data: [], error: null }),
-            supabaseClient
-              .from('recruiter_help_requests')
-              .select('id, full_name, email, phone, applicant_profile_id, issue_type, message, page, step, channel, status, created_at')
-              .order('created_at', { ascending: false })
-              .limit(100)
-              .or([
-                thread.applicantProfileId ? `applicant_profile_id.eq.${thread.applicantProfileId}` : null,
-                thread.email ? `email.eq.${thread.email}` : null
-              ].filter(Boolean).join(','))
-          ]);
+          const { data, error } = await supabaseClient
+            .from('applicant_messages')
+            .select('id, applicant_email, applicant_profile_id, application_id, sender_type, sender_name, full_name, issue_type, page, step, phone, channel, message, created_at')
+            .order('created_at', { ascending: false })
+            .limit(100)
+            .or(clauses.join(','));
 
-          if (applicantResult?.error) throw applicantResult.error;
-          if (helpResult?.error && !/relation .*recruiter_help_requests.* does not exist/i.test(helpResult.error?.message || '')) {
-            throw helpResult.error;
-          }
-
-          const applicantRows = (applicantResult?.data || []).map((item) => ({ ...item, _source: 'applicant_messages' }));
-          const helpRows = (helpResult?.data || []).map((item) => ({
-            id: item.id,
-            applicant_email: item.email,
-            applicant_profile_id: item.applicant_profile_id,
-            application_id: null,
-            sender_type: 'applicant',
-            sender_name: item.full_name,
-            full_name: item.full_name,
-            issue_type: item.issue_type,
-            page: item.page,
-            step: item.step,
-            phone: item.phone,
-            channel: item.channel || 'offline_help',
-            message: item.message,
-            created_at: item.created_at,
-            _source: 'recruiter_help_requests'
-          }));
-
-          const deduped = new Map();
-          [...applicantRows, ...helpRows].forEach((row) => {
-            const key = [row._source || 'message', row.id || '', row.created_at || '', row.message || ''].join(':');
-            deduped.set(key, row);
-          });
-
-          return [...deduped.values()].sort((a, b) => new Date(a.created_at || 0) - new Date(b.created_at || 0));
+          if (error) throw error;
+          return (data || []).sort((a, b) => new Date(a.created_at || 0) - new Date(b.created_at || 0));
         } else {
           const clauses = [];
           if (thread.email) {
@@ -4397,7 +4537,6 @@ function renderLearningInsights(row) {
     function buildChatThreads() {
       const rows = state.allRows || [];
       const candidateMessages = Array.isArray(state.chatCandidateMessages) ? state.chatCandidateMessages : [];
-      const helpRequests = Array.isArray(state.chatHelpRequests) ? state.chatHelpRequests : [];
       const clientMessages = Array.isArray(state.chatClientMessages) ? state.chatClientMessages : [];
       const candidateMap = new Map();
       const clientMap = new Map();
@@ -4484,45 +4623,6 @@ function renderLearningInsights(row) {
           existing.preview = safeText(message?.message || '') || 'No messages yet.';
         }
         if (isInbound && messageAt) existing.inboundMessageAts.push(messageAt);
-        candidateMap.set(key, existing);
-      });
-
-      helpRequests.forEach((request) => {
-        const key = candidateKey(request?.email, request?.applicant_profile_id);
-        if (!key) return;
-        const supportMeta = uniq([
-          'Guest support',
-          formatStatusLabel(request?.issue_type || ''),
-          safeText(request?.step || ''),
-          safeText(request?.page || '')
-        ].filter(Boolean)).join(' • ');
-        const existing = candidateMap.get(key) || {
-          threadKey: key,
-          threadType: 'candidate',
-          typeLabel: 'Support',
-          name: safeText(request?.full_name || '') || normalizeEmail(request?.email || '') || 'Candidate',
-          subtitle: supportMeta || 'Guest support conversation',
-          preview: 'No messages yet.',
-          lastMessageAt: null,
-          email: normalizeEmail(request?.email || ''),
-          applicantProfileId: request?.applicant_profile_id || null,
-          applicationId: null,
-          status: formatStatusLabel(request?.status || ''),
-          inboundMessageAts: [],
-          relatedJobs: [],
-        };
-        const messageAt = request?.created_at || null;
-        if (!existing.email && request?.email) existing.email = normalizeEmail(request.email);
-        if (!existing.applicantProfileId && request?.applicant_profile_id) existing.applicantProfileId = request.applicant_profile_id;
-        if ((!existing.name || existing.name === existing.email) && request?.full_name) {
-          existing.name = safeText(request.full_name) || existing.email || 'Candidate';
-        }
-        if (supportMeta) existing.subtitle = supportMeta;
-        if (!existing.lastMessageAt || new Date(messageAt || 0) > new Date(existing.lastMessageAt || 0)) {
-          existing.lastMessageAt = messageAt;
-          existing.preview = safeText(request?.message || '') || 'No messages yet.';
-        }
-        if (messageAt) existing.inboundMessageAts.push(messageAt);
         candidateMap.set(key, existing);
       });
 
@@ -4786,16 +4886,11 @@ function renderLearningInsights(row) {
 
       try {
         if (thread.threadType === 'candidate') {
-          if (!thread.email && !thread.applicantProfileId) {
-            showNotice('This guest support thread does not have a linked email or profile yet, so it cannot receive a recruiter reply.', 'error');
-            return;
-          }
           const payload = {
             applicant_email: thread.email || null,
             applicant_profile_id: thread.applicantProfileId || null,
             application_id: thread.applicationId || null,
             sender_type: 'recruiter',
-            sender_name: safeText(state.recruiterProfile?.full_name || state.currentUser?.email || 'Recruiter'),
             message,
           };
           const { error } = await supabaseClient.from('applicant_messages').insert(payload);
@@ -4897,14 +4992,7 @@ function renderLearningInsights(row) {
           })
           .subscribe();
 
-        const helpChannel = supabaseClient
-          .channel('buzzhire-live-recruiter-help-requests')
-          .on('postgres_changes', { event: '*', schema: 'public', table: 'recruiter_help_requests' }, () => {
-            void refreshChatWidgetLive(true);
-          })
-          .subscribe();
-
-        chatRealtimeChannels.push(applicantChannel, clientChannel, helpChannel);
+        chatRealtimeChannels.push(applicantChannel, clientChannel);
       } catch (err) {
         console.warn('Unable to start chat realtime:', err?.message || err);
       }
@@ -4918,32 +5006,39 @@ function renderLearningInsights(row) {
     function bindEvents() {
       renderCheckboxList(els.positiveTagsList, POSITIVE_FEEDBACK_OPTIONS, 'positive');
       renderCheckboxList(els.riskTagsList, RISK_FEEDBACK_OPTIONS, 'risk');
+
       els.feedbackDisposition?.addEventListener('change', updateFeedbackPreview);
+
       document.querySelectorAll('input[data-group="positive"], input[data-group="risk"]').forEach((input) => {
         input.addEventListener('change', () => {
           updateFeedbackPreview();
           generateCommunicationPreview();
         });
       });
+
       updateFeedbackPreview();
 
       els.menuToggleBtn?.addEventListener('click', (event) => {
         event.stopPropagation();
         els.menuDropdown?.classList.toggle('show');
       });
+
       els.clearFromMenuBtn?.addEventListener('click', () => els.clearFiltersBtn?.click());
       els.headerLogoutBtn?.addEventListener('click', () => { void handleLogout(); });
       els.logoutBtn?.addEventListener('click', () => { void handleLogout(); });
+
       document.addEventListener('click', (event) => {
         if (!event.target.closest('.menu-wrap') && els.menuDropdown?.classList.contains('show')) {
           els.menuDropdown.classList.remove('show');
         }
+
         if (!event.target.closest('.chat-widget') && !event.target.closest('.chat-conversation-shell') && state.chatPanelOpen) {
           state.chatPanelOpen = false;
           persistChatWidgetOpenState();
           renderChatWidget();
         }
       });
+
       els.chatWidgetLauncher?.addEventListener('click', (event) => {
         event.stopPropagation();
         const intro = document.getElementById('siftIntroBubble');
@@ -4952,67 +5047,98 @@ function renderLearningInsights(row) {
         persistChatWidgetOpenState();
         renderChatWidget();
       });
+
       els.chatWidgetCloseBtn?.addEventListener('click', () => {
         state.chatPanelOpen = false;
         persistChatWidgetOpenState();
         renderChatWidget();
       });
+
       els.chatWidgetRefreshBtn?.addEventListener('click', () => { void refreshChatWidgetLive(true); });
+
       document.addEventListener('visibilitychange', () => {
         if (!document.hidden) {
           void refreshChatWidgetLive(true);
           queueDashboardRefresh(0);
         }
       });
+
       window.addEventListener('beforeunload', () => {
         teardownChatRealtime();
         teardownDashboardRealtime();
         stopDashboardAutoRefresh();
       });
+
       els.chatWidgetTabs?.querySelectorAll('.chat-tab').forEach((btn) => {
         btn.addEventListener('click', () => {
           state.chatSelectedTab = btn.dataset.chatTab || 'candidates';
           renderChatWidget();
         });
       });
+
       els.chatWidgetFilters?.querySelectorAll('.chat-filter-chip').forEach((btn) => {
         btn.addEventListener('click', () => {
           state.chatSelectedFilter = btn.dataset.chatFilter || 'all';
           renderChatWidget();
         });
       });
+
       els.chatWidgetSearchInput?.addEventListener('input', () => {
         state.chatSearchQuery = els.chatWidgetSearchInput.value || '';
         renderChatWidget();
       });
+
       els.chatConversationCloseBtn?.addEventListener('click', closeChatConversationModal);
+
       els.chatConversationModal?.addEventListener('click', (event) => {
         if (event.target === els.chatConversationModal) closeChatConversationModal();
       });
+
       els.chatConversationSendBtn?.addEventListener('click', () => { void sendChatConversationMessage(); });
       els.chatConversationEmailBtn?.addEventListener('click', emailInsteadForThread);
       els.chatConversationInput?.addEventListener('input', handleConversationTyping);
+
       els.chatConversationInput?.addEventListener('keydown', (event) => {
         if (event.key === 'Enter' && !event.shiftKey) {
           event.preventDefault();
           void sendChatConversationMessage();
         }
       });
-      [els.searchInput, els.statusFilter, els.recruiterFilter, els.sourceFilter, els.jobFilter, els.clientFilter, els.scoreFilter]
-        .forEach((el) => el.addEventListener('input', applyFilters));
-      [els.statusFilter, els.recruiterFilter, els.sourceFilter, els.jobFilter, els.clientFilter, els.scoreFilter]
-        .forEach((el) => el.addEventListener('change', applyFilters));
+
+      [
+        els.searchInput,
+        els.statusFilter,
+        els.recruiterFilter,
+        els.sourceFilter,
+        els.jobFilter,
+        els.clientFilter,
+        els.scoreFilter,
+        els.onboardingOutcomeFilter,
+      ].forEach((el) => el?.addEventListener('input', applyFilters));
+
+      [
+        els.statusFilter,
+        els.recruiterFilter,
+        els.sourceFilter,
+        els.jobFilter,
+        els.clientFilter,
+        els.scoreFilter,
+        els.onboardingOutcomeFilter,
+      ].forEach((el) => el?.addEventListener('change', applyFilters));
 
       const openSourcingModal = () => {
         renderSourcingLinkCard();
         els.sourcingLinkModal?.classList.add('show');
       };
+
       const closeSourcingModal = () => {
         els.sourcingLinkModal?.classList.remove('show');
       };
+
       els.openSourcingModalBtn?.addEventListener('click', openSourcingModal);
       els.copySourcingLinkMenuBtn?.addEventListener('click', openSourcingModal);
       els.sourcingLinkModalClose?.addEventListener('click', closeSourcingModal);
+
       els.sourcingLinkModal?.addEventListener('click', (event) => {
         if (event.target === els.sourcingLinkModal) closeSourcingModal();
       });
@@ -5026,6 +5152,7 @@ function renderLearningInsights(row) {
           showNotice(error?.message || 'Unable to copy your sourcing link.', 'error');
         }
       });
+
       els.openSourcingLinkBtn?.addEventListener('click', () => {
         const link = getRecruiterSourcingLink();
         if (!link) {
@@ -5034,59 +5161,80 @@ function renderLearningInsights(row) {
         }
         window.open(link, '_blank', 'noopener');
       });
-      els.clearFiltersBtn.addEventListener('click', clearFilters);
-      els.closeDrawerBtn.addEventListener('click', closeDrawer);
-      els.prevBtn.addEventListener('click', () => openSelectedOffset(-1));
-      els.nextBtn.addEventListener('click', () => openSelectedOffset(1));
-      els.saveBtn.addEventListener('click', saveSelectedRow);
-      els.generateScreeningReviewBtn.addEventListener('click', () => {
+
+      els.clearFiltersBtn?.addEventListener('click', clearFilters);
+      els.closeDrawerBtn?.addEventListener('click', closeDrawer);
+      els.prevBtn?.addEventListener('click', () => openSelectedOffset(-1));
+      els.nextBtn?.addEventListener('click', () => openSelectedOffset(1));
+      els.saveBtn?.addEventListener('click', saveSelectedRow);
+      els.saveOnboardingOutcomeBtn?.addEventListener('click', saveOnboardingOutcome);
+
+      els.generateScreeningReviewBtn?.addEventListener('click', () => {
         const row = state.allRows.find((item) => item.id === state.selectedId);
         if (!row) return;
+
         state.selectedScreeningReview = buildScreeningReview(row);
         renderScreeningReview(state.selectedScreeningReview);
         generateCommunicationPreview();
         showNotice('Screening review generated from saved responses.', 'success');
       });
-      els.insertScreeningReviewBtn.addEventListener('click', insertScreeningReviewIntoNotes);
+
+      els.insertScreeningReviewBtn?.addEventListener('click', insertScreeningReviewIntoNotes);
+
       els.editStatus?.addEventListener('change', () => {
         syncCommunicationTypeToStatus();
         generateCommunicationPreview();
       });
+
       els.feedbackDisposition?.addEventListener('change', generateCommunicationPreview);
       els.commType?.addEventListener('change', generateCommunicationPreview);
       els.commTone?.addEventListener('change', generateCommunicationPreview);
       els.generateCommBtn?.addEventListener('click', generateCommunicationPreview);
       els.insertCommIntoNotesBtn?.addEventListener('click', insertCommunicationIntoNotes);
       els.sendCommBtn?.addEventListener('click', sendGeneratedCommunication);
-      els.viewResumeBtn.addEventListener('click', () => openResumeModal(state.selectedResumeUrl, 'Resume Viewer'));
-      els.downloadResumeBtn.addEventListener('click', () => {
+
+      els.viewResumeBtn?.addEventListener('click', () => openResumeModal(state.selectedResumeUrl, 'Resume Viewer'));
+
+      els.downloadResumeBtn?.addEventListener('click', () => {
         if (!state.selectedResumeUrl) return showNotice('Resume file not found in storage.', 'error');
         window.open(state.selectedResumeUrl, '_blank', 'noopener,noreferrer');
       });
-      els.resumeModalClose.addEventListener('click', () => {
+
+      els.resumeModalClose?.addEventListener('click', () => {
         els.resumeModal.classList.remove('show');
         els.resumeFrame.src = '';
       });
-      els.resumeModal.addEventListener('click', (event) => {
+
+      els.resumeModal?.addEventListener('click', (event) => {
         if (event.target === els.resumeModal) {
           els.resumeModal.classList.remove('show');
           els.resumeFrame.src = '';
         }
       });
 
-      els.applicationsTable.addEventListener('click', async (event) => {
+      els.applicationsTable?.addEventListener('click', async (event) => {
         const button = event.target.closest('button[data-action]');
         const row = event.target.closest('tr[data-id]');
         if (!row) return;
+
         const id = row.getAttribute('data-id');
+
         if (!button) return openDrawer(id);
+
         const action = button.getAttribute('data-action');
+
         if (action === 'open') return openDrawer(id);
+
         if (action === 'resume') {
-          const selected = state.filteredRows.find((item) => item.id === id) || state.allRows.find((item) => item.id === id);
+          const selected =
+            state.filteredRows.find((item) => item.id === id) ||
+            state.allRows.find((item) => item.id === id);
+
           if (!selected) return;
+
           const url = await getResumeUrl(selected.profile, selected.app);
           if (!url) return showNotice('Resume file not found in storage.', 'error');
+
           openResumeModal(url, `${selected.displayName} Resume`);
         }
       });
@@ -5177,6 +5325,7 @@ function renderLearningInsights(row) {
           .on('postgres_changes', { event: '*', schema: 'public', table: 'jobs' }, () => queueDashboardRefresh(350))
           .on('postgres_changes', { event: '*', schema: 'public', table: 'application_feedback' }, () => queueDashboardRefresh(250))
           .on('postgres_changes', { event: '*', schema: 'public', table: 'hiring_outcomes' }, () => queueDashboardRefresh(250))
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'application_endorsements' }, () => queueDashboardRefresh(250))
           .subscribe((status) => {
             console.log('Dashboard realtime status:', status);
           });
