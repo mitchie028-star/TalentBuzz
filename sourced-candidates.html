@@ -99,16 +99,26 @@
     .fit-pill.stretch{background:#fff7ed;color:var(--warning);border-color:#fed7aa}
     .fit-pill.weak{background:#fef2f2;color:var(--danger);border-color:#fecaca}
     .tag-pill{background:#f8fbff;border-color:#dbeafe;color:#1d4ed8}
-    .sourcing-location-cell{width:220px;min-width:220px;max-width:260px;white-space:normal;line-height:1.45}
+    .sourcing-table{min-width:1650px}
+    .sourcing-table th:first-child,.sourcing-table td.sourcing-lead-cell{position:sticky;left:0;z-index:3;background:#fff;box-shadow:8px 0 14px rgba(15,23,42,.04)}
+    .sourcing-table th:first-child{z-index:5;background:#f8fbff}
+    .sourcing-lead-cell{width:310px;min-width:310px;max-width:340px}
+    .sourcing-lead-cell .candidate-cell .name{font-size:.9rem;line-height:1.25;white-space:normal;overflow:visible;text-overflow:clip}
+    .sourcing-lead-cell .meta{word-break:break-word}
+    .sourcing-current-role-cell{width:170px;min-width:170px;max-width:190px}
+    .sourcing-company-cell{width:150px;min-width:150px;max-width:170px}
+    .sourcing-location-cell{width:210px;min-width:210px;max-width:240px;white-space:normal;line-height:1.45}
     .sourcing-phone-cell{width:150px;min-width:150px;white-space:nowrap;font-variant-numeric:tabular-nums}
-    .sourcing-tags-cell{width:110px;max-width:110px;min-width:110px}
-    .sourcing-tags-cell .stack{max-width:110px;gap:4px;overflow:hidden}
+    .sourcing-tags-cell{width:105px;max-width:105px;min-width:105px}
+    .sourcing-tags-cell .stack{max-width:105px;gap:4px;overflow:hidden}
     .sourcing-tags-cell .tag-pill{max-width:100%;padding:4px 7px;font-size:.66rem;overflow:hidden;text-overflow:ellipsis}
     .sourcing-status-cell{width:190px;min-width:190px;max-width:190px}
     .recruiter-status-select{width:178px;max-width:178px;padding:9px 12px;border:1px solid var(--border);border-radius:12px;background:#fff;color:var(--text);font:inherit;font-size:.78rem;font-weight:800;outline:none;box-shadow:0 1px 2px rgba(15,23,42,.04)}
     .recruiter-status-select:focus{border-color:#93c5fd;box-shadow:0 0 0 3px rgba(147,197,253,.24)}
-    .sourcing-notes-cell{width:240px;min-width:240px;max-width:280px}
-    .recruiter-notes-input{width:100%;min-height:64px;resize:vertical;padding:10px 12px;border:1px solid var(--border);border-radius:12px;background:#fff;color:var(--text);font:inherit;font-size:.8rem;line-height:1.35;outline:none;box-shadow:0 1px 2px rgba(15,23,42,.04)}
+    .recruiter-status-select.is-saving,.recruiter-notes-input.is-saving{background:#f8fbff}
+    .recruiter-status-select.is-saved,.recruiter-notes-input.is-saved{border-color:#bbf7d0;box-shadow:0 0 0 3px rgba(187,247,208,.2)}
+    .sourcing-notes-cell{width:260px;min-width:260px;max-width:300px}
+    .recruiter-notes-input{width:100%;min-height:54px;resize:vertical;padding:10px 12px;border:1px solid var(--border);border-radius:12px;background:#fff;color:var(--text);font:inherit;font-size:.8rem;line-height:1.35;outline:none;box-shadow:0 1px 2px rgba(15,23,42,.04)}
     .recruiter-notes-input::placeholder{color:#94a3b8}
     .recruiter-notes-input:focus{border-color:#93c5fd;box-shadow:0 0 0 3px rgba(147,197,253,.24)}
     .recruiter-notes-input.is-saving{background:#f8fbff}
@@ -2337,12 +2347,32 @@ function parseCsvLine(line=''){
 
       function renderRecruiterStatusSelect(row){
         const current = String(row.recruiter_status || '').trim().toLowerCase();
-        return `<select class="recruiter-status-select" data-recruiter-status-id="${escapeHtml(row.id)}" aria-label="Recruiter status for ${escapeHtml(row.display_name || 'lead')}" title="Recruiter Status">${RECRUITER_STATUS_OPTIONS.map(opt => `<option value="${escapeHtml(opt.value)}" ${current === opt.value ? 'selected' : ''}>${escapeHtml(opt.label)}</option>`).join('')}</select>`;
+        return `<select class="recruiter-status-select" data-recruiter-status-id="${escapeHtml(row.id || '')}" data-recruiter-status-email="${escapeHtml(row.email || '')}" aria-label="Recruiter status for ${escapeHtml(row.display_name || 'lead')}" title="Recruiter Status">${RECRUITER_STATUS_OPTIONS.map(opt => `<option value="${escapeHtml(opt.value)}" ${current === opt.value ? 'selected' : ''}>${escapeHtml(opt.label)}</option>`).join('')}</select>`;
       }
 
       function renderRecruiterNotesField(row){
         const notes = String(row.recruiter_notes || '').trim();
-        return `<textarea class="recruiter-notes-input" data-recruiter-notes-id="${escapeHtml(row.id)}" rows="3" placeholder="Add recruiter notes...">${escapeHtml(notes)}</textarea>`;
+        return `<textarea class="recruiter-notes-input" data-recruiter-notes-id="${escapeHtml(row.id || '')}" data-recruiter-notes-email="${escapeHtml(row.email || '')}" rows="3" placeholder="Add recruiter notes...">${escapeHtml(notes)}</textarea>`;
+      }
+
+      async function saveProspectRecruiterField({ id, email, payload }){
+        const safeId = String(id || '').trim();
+        const safeEmail = String(email || '').trim().toLowerCase();
+        let lastError = null;
+
+        if (safeId) {
+          const { data, error } = await supabase.from('prospects').update(payload).eq('id', safeId).select('id').limit(1);
+          if (!error && Array.isArray(data) && data.length) return data;
+          lastError = error || new Error('No prospect matched this id.');
+        }
+
+        if (safeEmail) {
+          const { data, error } = await supabase.from('prospects').update(payload).eq('email', safeEmail).select('id').limit(1);
+          if (!error && Array.isArray(data) && data.length) return data;
+          lastError = error || lastError || new Error('No prospect matched this email.');
+        }
+
+        throw lastError || new Error('Missing prospect id/email for save.');
       }
 
       function renderCompactTags(tags){
@@ -2362,7 +2392,9 @@ function parseCsvLine(line=''){
           outreach: ['Invite Email','Status','Recruiter','Recruiter Notes','Sent','Progress','Converted','Specific Opening','Actions'],
           pipeline: ['Applicant','Job','Status','Screening','Score','Created','Actions']
         };
-        els.tableHeadRow.innerHTML = heads[state.activeTab].map(h => `<th>${escapeHtml(h)}</th>`).join('');
+        const activeTable = els.tableHeadRow.closest('table');
+        if (activeTable) activeTable.className = `${state.activeTab}-table`;
+        els.tableHeadRow.innerHTML = heads[state.activeTab].map((h, index) => `<th class="${state.activeTab === 'sourcing' && index === 0 ? 'sourcing-lead-head' : ''}">${escapeHtml(h)}</th>`).join('');
 
         if (!rows.length) {
           els.tableBody.innerHTML = `<tr><td colspan="${heads[state.activeTab].length}" class="empty">No records found for the current filters.</td></tr>`;
@@ -2389,9 +2421,9 @@ function parseCsvLine(line=''){
           }).join('');
         } else if (state.activeTab === 'sourcing') {
           els.tableBody.innerHTML = rows.map(row => `<tr>
-            <td><div class="candidate-cell"><div class="name">${escapeHtml(row.display_name)}</div><div class="meta">${escapeHtml(row.email || 'No email')}</div><div class="meta">${escapeHtml(formatPhone(row.phone) || 'No phone')}</div></div></td>
-            <td><div><strong>${escapeHtml(row.title || 'No title')}</strong></div></td>
-            <td>${escapeHtml(row.company || 'No company')}</td>
+            <td class="sourcing-lead-cell"><div class="candidate-cell"><div class="name">${escapeHtml(row.display_name)}</div><div class="meta">${escapeHtml(row.email || 'No email')}</div><div class="meta">${escapeHtml(formatPhone(row.phone) || 'No phone')}</div></div></td>
+            <td class="sourcing-current-role-cell"><div><strong>${escapeHtml(row.title || 'No title')}</strong></div></td>
+            <td class="sourcing-company-cell">${escapeHtml(row.company || 'No company')}</td>
             <td class="sourcing-location-cell">${escapeHtml(row.location || 'No location')}</td>
             <td>${escapeHtml(row.education || 'No education')}</td>
             <td><span class="stage-pill ${statusClass(row.source_stage)}">${escapeHtml(titleCase(String(row.source_stage || 'new_lead').replace(/_/g,' ')))}</span></td>
@@ -2602,16 +2634,25 @@ function parseCsvLine(line=''){
         document.querySelectorAll('[data-recruiter-status-id]').forEach(select => {
           select.addEventListener('change', async () => {
             const id = select.dataset.recruiterStatusId;
+            const email = select.dataset.recruiterStatusEmail;
             const value = select.value;
-            const row = (state.data.sourcing || []).find(r => String(r.id) === String(id));
+            const row = (state.data.sourcing || []).find(r => String(r.id || '') === String(id || '') || (email && String(r.email || '').toLowerCase() === String(email).toLowerCase()));
+            const previous = row ? row.recruiter_status : '';
             if (row) row.recruiter_status = value;
+            select.classList.add('is-saving');
+            select.classList.remove('is-saved');
             try {
-              const { error } = await supabase.from('prospects').update({ recruiter_status:value || null }).eq('id', id);
-              if (error) throw error;
-              showNotice('Recruiter status updated.', 'success');
+              await saveProspectRecruiterField({ id, email, payload:{ recruiter_status:value || null } });
+              select.classList.remove('is-saving');
+              select.classList.add('is-saved');
+              setTimeout(() => select.classList.remove('is-saved'), 1200);
+              showNotice('Recruiter status saved.', 'success');
             } catch (err) {
               console.warn(err);
-              showNotice('Status changed in this view, but could not be saved. Make sure prospects.recruiter_status exists.', 'warning');
+              select.classList.remove('is-saving');
+              if (row) row.recruiter_status = previous;
+              select.value = previous || '';
+              showNotice('Status could not be saved. Make sure the prospects table has a recruiter_status column and this user can update prospects.', 'warning');
             }
           });
         });
@@ -2619,24 +2660,27 @@ function parseCsvLine(line=''){
         document.querySelectorAll('[data-recruiter-notes-id]').forEach(input => {
           const saveNotes = async () => {
             const id = input.dataset.recruiterNotesId;
-            const row = (state.data.sourcing || []).find(r => String(r.id) === String(id));
+            const email = input.dataset.recruiterNotesEmail;
+            const row = (state.data.sourcing || []).find(r => String(r.id || '') === String(id || '') || (email && String(r.email || '').toLowerCase() === String(email).toLowerCase()));
             if (!row) return;
+            const previous = row.recruiter_notes || '';
             const nextNotes = input.value.trim();
-            if ((row.recruiter_notes || '') === nextNotes) return;
+            if (previous === nextNotes) return;
             row.recruiter_notes = nextNotes;
             input.classList.add('is-saving');
             input.classList.remove('is-saved');
             try {
-              const { error } = await supabase.from('prospects').update({ recruiter_notes: row.recruiter_notes || null }).eq('id', id);
-              if (error) throw error;
+              await saveProspectRecruiterField({ id, email, payload:{ recruiter_notes: row.recruiter_notes || null } });
               input.classList.remove('is-saving');
               input.classList.add('is-saved');
               setTimeout(() => input.classList.remove('is-saved'), 1200);
               showNotice('Recruiter notes saved.', 'success');
             } catch (err) {
               console.warn(err);
+              row.recruiter_notes = previous;
+              input.value = previous;
               input.classList.remove('is-saving');
-              showNotice('Notes changed in this view, but could not be saved. Make sure prospects.recruiter_notes exists.', 'warning');
+              showNotice('Notes could not be saved. Make sure the prospects table has a recruiter_notes column and this user can update prospects.', 'warning');
             }
           };
           input.addEventListener('blur', saveNotes);
