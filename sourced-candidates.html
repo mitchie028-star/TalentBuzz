@@ -2374,21 +2374,28 @@ function parseCsvLine(line=''){
       async function saveProspectRecruiterField({ id, email, payload }){
         const safeId = String(id || '').trim();
         const safeEmail = String(email || '').trim().toLowerCase();
-        let lastError = null;
+
+        // Use update without .select() so saving does not depend on a separate SELECT/RLS policy.
+        // The update itself still requires an UPDATE policy on prospects.
+        const withTimestamp = {
+          ...payload,
+          recruiter_tracking_updated_at: new Date().toISOString()
+        };
 
         if (safeId) {
-          const { data, error } = await supabase.from('prospects').update(payload).eq('id', safeId).select('id').limit(1);
-          if (!error && Array.isArray(data) && data.length) return data;
-          lastError = error || new Error('No prospect matched this id.');
+          const { error } = await supabase.from('prospects').update(withTimestamp).eq('id', safeId);
+          if (!error) return true;
+          console.warn('Recruiter tracking save by id failed:', error);
         }
 
         if (safeEmail) {
-          const { data, error } = await supabase.from('prospects').update(payload).eq('email', safeEmail).select('id').limit(1);
-          if (!error && Array.isArray(data) && data.length) return data;
-          lastError = error || lastError || new Error('No prospect matched this email.');
+          const { error } = await supabase.from('prospects').update(withTimestamp).ilike('email', safeEmail);
+          if (!error) return true;
+          console.warn('Recruiter tracking save by email failed:', error);
+          throw error;
         }
 
-        throw lastError || new Error('Missing prospect id/email for save.');
+        throw new Error('Missing prospect id/email for save.');
       }
 
       function renderCompactTags(tags){
@@ -2684,7 +2691,7 @@ function parseCsvLine(line=''){
             select?.classList.remove('is-saving');
             notesInput?.classList.remove('is-saving');
             if (stateEl) { stateEl.textContent = 'Not saved'; stateEl.className = 'recruiter-save-state error'; }
-            showNotice('Tracking could not be saved. Make sure the prospects table has recruiter_status and recruiter_notes columns and this user can update prospects.', 'warning');
+            showNotice(`Tracking could not be saved. Supabase needs these columns on prospects: recruiter_status, recruiter_notes, recruiter_tracking_updated_at, plus an UPDATE policy. ${err?.message || ''}`, 'warning');
           } finally {
             if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Save tracking'; }
           }
