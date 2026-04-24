@@ -667,7 +667,7 @@
   <script>
     const SUPABASE_URL = "https://dilalntcxmvdcmwxjcct.supabase.co";
     const SUPABASE_ANON_KEY = "sb_publishable_HrLVIUwnaRo54yijtrbWBQ_1aeb4ezs";
-    const APP_BASE_URL = "https://talentbuzz.pro";
+    const APP_BASE_URL = "https://talentbuzz.net";
     const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
     const els = {
@@ -998,9 +998,38 @@
       return error?.message || "Request failed.";
     }
 
-    async function resendClientInvite(email) {
-      const result = await supabaseClient.functions.invoke("resend-client-invite", {
-        body: { email }
+    async function resendClientInvite(email, options = {}) {
+      const normalizedEmail = normalizeEmail(email);
+
+      const row = state.rows.find(
+        item => normalizeEmail(item.email) === normalizedEmail
+      );
+
+      const clientName = String(
+        options.clientName ||
+        (row ? getClientDisplayName(row) : "")
+      ).trim();
+
+      const pocName = String(
+        options.pocName ||
+        row?.full_name ||
+        clientName
+      ).trim();
+
+      if (!clientName || clientName === "-") {
+        throw new Error("Client name is missing for this invite.");
+      }
+
+      if (!normalizedEmail) {
+        throw new Error("Client email is missing for this invite.");
+      }
+
+      const result = await supabaseClient.functions.invoke("create-client-login", {
+        body: {
+          client_name: clientName,
+          poc_name: pocName || clientName,
+          poc_email: normalizedEmail
+        }
       });
 
       if (result.error) {
@@ -1090,23 +1119,26 @@
           throw createClientError;
         }
 
-        const { error: insertInviteError } = await supabaseClient
-          .from("client_invites")
-          .insert([{
-            client_id: newClient.id,
-            full_name: clientName,
-            email,
-            token: null,
-            used: false,
-            expires_at: null
-          }]);
-
-        if (insertInviteError) {
-          throw insertInviteError;
-        }
-
         if (sendInviteAfter) {
-          await resendClientInvite(email);
+          await resendClientInvite(email, {
+            clientName,
+            pocName: clientName
+          });
+        } else {
+          const { error: insertInviteError } = await supabaseClient
+            .from("client_invites")
+            .insert([{
+              client_id: newClient.id,
+              full_name: clientName,
+              email,
+              token: null,
+              used: false,
+              expires_at: null
+            }]);
+
+          if (insertInviteError) {
+            throw insertInviteError;
+          }
         }
 
         showNotice(
