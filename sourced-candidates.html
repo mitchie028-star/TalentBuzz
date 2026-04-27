@@ -1172,8 +1172,10 @@
             els.outreachCustomMessage.value = seed.message;
           } else if (mode === 'follow_up') {
             els.outreachCustomMessage.value = `Hi ${seed.full_name || seed.display_name || ''}, just following up on the TalentBuzz profile invite I sent earlier.`;
-          } else if (mode === 'job_offer' && (seed.offered_job_title || selectedJob?.title)) {
-            els.outreachCustomMessage.value = `Hi ${seed.full_name || seed.display_name || ''}, I wanted to share a specific opening that may match your background: ${seed.offered_job_title || selectedJob?.title || 'Open role'}.`;
+          } else if (mode === 'job_offer') {
+            const roleTitle = seed.offered_job_title || selectedJob?.title || 'one of our open roles';
+            const namePart = seed.full_name || seed.display_name || 'there';
+            els.outreachCustomMessage.value = `Hi ${namePart}, I wanted to share a specific opening that may match your background: ${roleTitle}. If you're interested, please use the link below so we can prioritize your profile for this role.`;
           } else {
             els.outreachCustomMessage.value = '';
           }
@@ -1306,7 +1308,13 @@
       function renderContextActions(){
         if (!els.contextActions) return;
         let html = '';
-        if (state.activeTab === 'sourcing') {
+        if (state.activeTab === 'talent') {
+          html = `
+            <button id="contextComposeJobOfferBtn" class="btn btn-primary" type="button">Offer Specific Opening</button>
+            <button id="contextComposeInviteBtn" class="btn btn-outline" type="button">New Talent Invite</button>
+            <button id="contextCopyRecruiterLinkBtn" class="btn btn-outline" type="button">Copy My Recruiter Link</button>
+          `;
+        } else if (state.activeTab === 'sourcing') {
           const selectedCount = getSelectedSourcingLeads().length;
           const newLeadCount = getNewSourcingLeads().length;
           html = `
@@ -1336,6 +1344,9 @@
 
         const composeBtn = document.getElementById('contextComposeInviteBtn');
         if (composeBtn) composeBtn.addEventListener('click', () => openOutreachComposer());
+
+        const composeJobOfferBtn = document.getElementById('contextComposeJobOfferBtn');
+        if (composeJobOfferBtn) composeJobOfferBtn.addEventListener('click', () => openOutreachComposer({ mode: 'job_offer' }));
 
         const sendSelectedBtn = document.getElementById('contextSendSelectedBtn');
         if (sendSelectedBtn) {
@@ -1826,7 +1837,7 @@
               <td><span class="resume-pill ${(row.resume_url || row.resume_path) ? 'ok' : 'none'}">${(row.resume_url || row.resume_path) ? 'Resume Added' : 'No Resume'}</span></td>
               <td><div class="stack">${row.tags.map(t => `<span class="tag-pill">${escapeHtml(t)}</span>`).join('')}</div></td>
               <td><div class="small">${escapeHtml(formatDate(updated))}</div></td>
-              <td><div class="row-actions"><button class="row-menu-btn" type="button" data-id="${escapeHtml(row.id)}">☰</button><div class="row-menu" id="menu-${escapeHtml(row.id)}"><button type="button" data-open="talent" data-id="${escapeHtml(row.id)}">Open Profile</button></div></div></td>
+              <td><div class="row-actions"><button class="row-menu-btn" type="button" data-id="${escapeHtml(row.id)}">☰</button><div class="row-menu" id="menu-${escapeHtml(row.id)}"><button type="button" data-open="talent" data-id="${escapeHtml(row.id)}">Open Profile</button><button type="button" data-compose-email="${escapeHtml(row.id)}" data-source-type="talent" data-compose-mode="job_offer">Offer Opening</button><button type="button" data-compose-email="${escapeHtml(row.id)}" data-source-type="talent" data-compose-mode="invite">Send Talent Invite</button></div></div></td>
             </tr>`;
           }).join('');
         } else if (state.activeTab === 'sourcing') {
@@ -1862,7 +1873,7 @@
             <td><span class="stage-pill ${statusClass(row.screening_result)}">${escapeHtml(titleCase(String(row.screening_result || 'pending').replace(/_/g,' ')))}</span></td>
             <td><span class="score-pill ${scoreClass(Number(row.score || 0))}">${Number(row.score || 0)}</span></td>
             <td><div class="small">${escapeHtml(formatDate(row.created_at))}</div></td>
-            <td><div class="row-actions"><button class="row-menu-btn" type="button" data-id="${escapeHtml(row.id)}">☰</button><div class="row-menu" id="menu-${escapeHtml(row.id)}"><button type="button" data-open="pipeline" data-id="${escapeHtml(row.id)}">Open Application</button></div></div></td>
+            <td><div class="row-actions"><button class="row-menu-btn" type="button" data-id="${escapeHtml(row.id)}">☰</button><div class="row-menu" id="menu-${escapeHtml(row.id)}"><button type="button" data-open="pipeline" data-id="${escapeHtml(row.id)}">Open Application</button><button type="button" data-compose-email="${escapeHtml(row.id)}" data-source-type="pipeline" data-compose-mode="job_offer">Offer Opening</button></div></div></td>
           </tr>`).join('');
         }
 
@@ -1899,6 +1910,7 @@
           `;
           if (row.linkedin) els.panelActions.innerHTML += `<a class="btn btn-outline btn-sm" href="${escapeHtml(row.linkedin)}" target="_blank" rel="noopener noreferrer">Open LinkedIn</a>`;
           if (row.resume_url) els.panelActions.innerHTML += `<a class="btn btn-outline btn-sm" href="${escapeHtml(row.resume_url)}" target="_blank" rel="noopener noreferrer">View Resume</a>`;
+          els.panelActions.innerHTML += `<button class="btn btn-primary btn-sm" type="button" id="panelOfferOpeningBtn">Offer Opening</button>`;
 
           const summary = [
             'Profile-first record stored in applicant_profiles.',
@@ -1922,12 +1934,21 @@
           } else {
             els.panelVoice.innerHTML = `<div class="summary-item">No communication recording found for this profile yet.</div>`;
           }
+          setTimeout(() => {
+            document.getElementById('panelOfferOpeningBtn')?.addEventListener('click', () => openOutreachComposer({
+              mode: 'job_offer',
+              full_name: row.full_name || '',
+              email: row.email || '',
+              offered_job_title: row.top_match_role || row.target_role || ''
+            }));
+          }, 0);
         } else if (type === 'sourcing') {
           els.panelName.textContent = row.display_name || 'Lead';
           els.panelSubtitle.textContent = `${row.title || 'No title'} | ${row.company || 'No company'}`;
           els.panelBadges.innerHTML = `${badge(titleCase(String(row.source_stage || 'new_lead').replace(/_/g,' ')), statusClass(row.source_stage))}`;
           if (row.linkedin_url) els.panelActions.innerHTML += `<a class="btn btn-outline btn-sm" href="${escapeHtml(row.linkedin_url)}" target="_blank" rel="noopener noreferrer">Open LinkedIn</a>`;
-          els.panelActions.innerHTML += `<button class="btn btn-primary btn-sm" type="button" id="panelSendInviteBtn">Send Invite</button>`;
+          els.panelActions.innerHTML += `<button class="btn btn-primary btn-sm" type="button" id="panelOfferOpeningBtn">Offer Opening</button>`;
+          els.panelActions.innerHTML += `<button class="btn btn-outline btn-sm" type="button" id="panelSendInviteBtn">Send Invite</button>`;
           els.panelActions.innerHTML += `<button class="btn btn-danger btn-sm" type="button" id="panelDeleteLeadBtn">Delete Lead</button>`;
           els.panelSummary.innerHTML = [
             'Lead stored in prospects.',
@@ -1937,6 +1958,7 @@
           els.panelKv.innerHTML = [kv('Full Name', row.display_name), kv('Email', row.email), kv('Current Title', row.title), kv('Company', row.company), kv('Location', row.location), kv('LinkedIn', row.linkedin_url || '-')].join('');
           els.panelActivity.innerHTML = `<div class="activity-item">Created: ${escapeHtml(formatDate(row.created_at))}</div>`;
           setTimeout(() => {
+            document.getElementById('panelOfferOpeningBtn')?.addEventListener('click', () => openOutreachComposer({ mode: 'job_offer', full_name: row.display_name, email: row.email, offered_job_title: row.top_match_role || row.title || '' }));
             document.getElementById('panelSendInviteBtn')?.addEventListener('click', () => openOutreachComposer({ full_name: row.display_name, email: row.email }));
             document.getElementById('panelDeleteLeadBtn')?.addEventListener('click', async () => {
               try { await deleteLead(row.id); closeSidePanel(); }
@@ -1958,8 +1980,12 @@
           if (row.clicked_at) els.panelActivity.innerHTML += `<div class="activity-item">Clicked: ${escapeHtml(formatDate(row.clicked_at))}</div>`;
           if (row.profile_started_at) els.panelActivity.innerHTML += `<div class="activity-item">Profile started: ${escapeHtml(formatDate(row.profile_started_at))}</div>`;
           if (row.profile_completed_at) els.panelActivity.innerHTML += `<div class="activity-item">Profile completed: ${escapeHtml(formatDate(row.profile_completed_at))}</div>`;
-          els.panelActions.innerHTML += `<button class="btn btn-primary btn-sm" type="button" id="panelResendInviteBtn">Resend Invite</button>`;
-          setTimeout(() => document.getElementById('panelResendInviteBtn')?.addEventListener('click', () => openOutreachComposer({ full_name: row.full_name, email: row.email, invite_link: row.invite_link })), 0);
+          els.panelActions.innerHTML += `<button class="btn btn-primary btn-sm" type="button" id="panelOfferAnotherOpeningBtn">Offer Opening</button>`;
+          els.panelActions.innerHTML += `<button class="btn btn-outline btn-sm" type="button" id="panelResendInviteBtn">Resend Invite</button>`;
+          setTimeout(() => {
+            document.getElementById('panelOfferAnotherOpeningBtn')?.addEventListener('click', () => openOutreachComposer({ mode: 'job_offer', full_name: row.full_name, email: row.email, invite_link: row.invite_link, offered_job_id: row.offered_job_id || '', offered_job_title: row.offered_job_title || '' }));
+            document.getElementById('panelResendInviteBtn')?.addEventListener('click', () => openOutreachComposer({ full_name: row.full_name, email: row.email, invite_link: row.invite_link }));
+          }, 0);
         } else {
           els.panelName.textContent = row.email || 'Applicant';
           els.panelSubtitle.textContent = `${row.job_title || 'No job title'} | ${titleCase(String(row.status || 'submitted').replace(/_/g,' '))}`;
@@ -2024,7 +2050,7 @@
             if (!row) return;
             openOutreachComposer({
               mode,
-              full_name: row.full_name || row.display_name || '',
+              full_name: row.full_name || row.display_name || row.email || '',
               email: row.email || row.invite_email || '',
               invite_link: row.invite_link || '',
               offered_job_id: row.offered_job_id || '',
