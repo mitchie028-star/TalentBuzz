@@ -327,7 +327,7 @@
     }
 
     .filters {
-      padding: 16px;
+      padding: 18px;
       margin-bottom: 14px;
     }
     .filters-head {
@@ -341,8 +341,8 @@
     .filters-head h2, .table-card h2 { margin: 0; color: var(--primary); font-size: 1.1rem; }
     .filters-grid {
       display: grid;
-      grid-template-columns: minmax(210px, 1.45fr) repeat(7, minmax(118px, 1fr));
-      gap: 10px;
+      grid-template-columns: 1.45fr repeat(5, 1fr) .9fr;
+      gap: 12px;
       align-items: end;
     }
     .field label {
@@ -358,8 +358,7 @@
       background: #fff;
       color: var(--text);
       border-radius: 14px;
-      padding: 10px 12px;
-      min-height: 42px;
+      padding: 12px 13px;
       outline: none;
     }
     .field textarea { min-height: 110px; resize: vertical; }
@@ -1311,6 +1310,19 @@
     .lead-help-list strong { color: var(--primary); }
     @media (max-width: 980px) {
       .lead-upload-grid, .lead-summary-grid { grid-template-columns: 1fr; }
+    }
+
+
+
+    /* Compact one-row filter layout on desktop */
+    @media (min-width: 1401px) {
+      .filters { padding: 16px 20px; }
+      .filters-head { margin-bottom: 10px; }
+      .filters-grid {
+        grid-template-columns: minmax(260px, 1.55fr) repeat(7, minmax(132px, 1fr));
+        gap: 10px;
+      }
+      .field input, .field select, .field textarea { padding: 10px 12px; min-height: 48px; }
     }
 
     @keyframes chatPulse {
@@ -3804,6 +3816,15 @@
       return safeText(value).replace(/\D/g, '');
     }
 
+    function normalizePhPhoneE164(rawPhone) {
+      const cleaned = safeText(rawPhone).replace(/[^\d+]/g, '');
+      if (/^\+639\d{9}$/.test(cleaned)) return cleaned;
+      if (/^639\d{9}$/.test(cleaned)) return `+${cleaned}`;
+      if (/^09\d{9}$/.test(cleaned)) return `+63${cleaned.slice(1)}`;
+      if (/^9\d{9}$/.test(cleaned)) return `+63${cleaned}`;
+      return '';
+    }
+
     function normalizeLeadType(value) {
       const raw = safeText(value).toLowerCase().replace(/[\s-]+/g, '_');
       if (!raw) return 'callout';
@@ -5086,12 +5107,7 @@ function renderLearningInsights(row) {
     }
     async function loadChatIndexes() {
       try {
-        const [
-          { data: candidateMessages, error: candidateError },
-          { data: clientMessages, error: clientError },
-          { data: smsThreads, error: smsThreadError },
-          { data: smsMessages, error: smsMessageError }
-        ] = await Promise.all([
+        const [{ data: candidateMessages, error: candidateError }, { data: clientMessages, error: clientError }] = await Promise.all([
           supabaseClient
             .from('applicant_messages')
             .select('id, applicant_email, applicant_profile_id, application_id, sender_type, sender_name, full_name, issue_type, page, step, phone, channel, message, created_at')
@@ -5101,17 +5117,7 @@ function renderLearningInsights(row) {
             .from('client_messages')
             .select('id, client_email, email, sender_type, message, created_at')
             .order('created_at', { ascending: false })
-            .limit(300),
-          supabaseClient
-            .from('candidate_sms_threads')
-            .select('id, applicant_profile_id, application_id, applicant_email, recruiter_email, candidate_phone_e164, last_message_at, last_message_preview, unread_count, created_at, updated_at')
-            .order('last_message_at', { ascending: false })
-            .limit(500),
-          supabaseClient
-            .from('candidate_sms_messages')
-            .select('id, thread_id, direction, sender_type, sender_name, message, delivery_status, phone_e164, created_at, sent_at')
-            .order('created_at', { ascending: false })
-            .limit(500)
+            .limit(300)
         ]);
 
         if (candidateError) {
@@ -5127,26 +5133,10 @@ function renderLearningInsights(row) {
         } else {
           state.chatClientMessages = Array.isArray(clientMessages) ? clientMessages : [];
         }
-
-        if (smsThreadError) {
-          console.warn('Unable to load SMS thread index:', smsThreadError?.message || smsThreadError);
-          state.chatSmsThreads = [];
-        } else {
-          state.chatSmsThreads = Array.isArray(smsThreads) ? smsThreads : [];
-        }
-
-        if (smsMessageError) {
-          console.warn('Unable to load SMS message index:', smsMessageError?.message || smsMessageError);
-          state.chatSmsMessages = [];
-        } else {
-          state.chatSmsMessages = Array.isArray(smsMessages) ? smsMessages : [];
-        }
       } catch (err) {
         console.warn('Unable to load chat indexes:', err?.message || err);
         state.chatCandidateMessages = [];
         state.chatClientMessages = [];
-        state.chatSmsThreads = [];
-        state.chatSmsMessages = [];
       }
     }
     async function loadThreadMessages(thread) {
@@ -5156,55 +5146,17 @@ function renderLearningInsights(row) {
           const clauses = [];
           if (thread.applicantProfileId) clauses.push(`applicant_profile_id.eq.${thread.applicantProfileId}`);
           if (thread.email) clauses.push(`applicant_email.eq.${thread.email}`);
+          if (!clauses.length) return [];
 
-          let supportRows = [];
-          if (clauses.length) {
-            const { data, error } = await supabaseClient
-              .from('applicant_messages')
-              .select('id, applicant_email, applicant_profile_id, application_id, sender_type, sender_name, full_name, issue_type, page, step, phone, channel, message, created_at')
-              .order('created_at', { ascending: false })
-              .limit(100)
-              .or(clauses.join(','));
-            if (error) throw error;
-            supportRows = (data || []).map((row) => ({ ...row, channel: row.channel || 'support' }));
-          }
+          const { data, error } = await supabaseClient
+            .from('applicant_messages')
+            .select('id, applicant_email, applicant_profile_id, application_id, sender_type, sender_name, full_name, issue_type, page, step, phone, channel, message, created_at')
+            .order('created_at', { ascending: false })
+            .limit(100)
+            .or(clauses.join(','));
 
-          let smsRows = [];
-          const smsThreadIds = uniq([
-            thread.smsThreadId,
-            ...(state.chatSmsThreads || [])
-              .filter((item) => {
-                const sameProfile = thread.applicantProfileId && item.applicant_profile_id === thread.applicantProfileId;
-                const sameEmail = thread.email && normalizeEmail(item.applicant_email || '') === thread.email;
-                const samePhone = thread.phoneE164 && item.candidate_phone_e164 === thread.phoneE164;
-                return sameProfile || sameEmail || samePhone;
-              })
-              .map((item) => item.id)
-          ].filter(Boolean));
-
-          if (smsThreadIds.length) {
-            const { data, error } = await supabaseClient
-              .from('candidate_sms_messages')
-              .select('id, thread_id, direction, sender_type, sender_name, message, delivery_status, phone_e164, created_at, sent_at')
-              .in('thread_id', smsThreadIds)
-              .order('created_at', { ascending: false })
-              .limit(120);
-            if (!error) {
-              smsRows = (data || []).map((row) => ({
-                ...row,
-                channel: 'sms',
-                sender_type: row.direction === 'outbound' ? 'recruiter' : 'candidate',
-                created_at: row.created_at || row.sent_at,
-                issue_type: row.delivery_status ? `SMS ${row.delivery_status}` : 'SMS',
-              }));
-            } else {
-              console.warn('Unable to load SMS thread messages:', error?.message || error);
-            }
-          }
-
-          return [...supportRows, ...smsRows]
-            .filter((row) => row.created_at || row.sent_at)
-            .sort((a, b) => new Date(a.created_at || a.sent_at || 0) - new Date(b.created_at || b.sent_at || 0));
+          if (error) throw error;
+          return (data || []).sort((a, b) => new Date(a.created_at || 0) - new Date(b.created_at || 0));
         } else {
           const clauses = [];
           if (thread.email) {
@@ -5241,33 +5193,21 @@ function renderLearningInsights(row) {
       const rows = state.allRows || [];
       const candidateMessages = Array.isArray(state.chatCandidateMessages) ? state.chatCandidateMessages : [];
       const clientMessages = Array.isArray(state.chatClientMessages) ? state.chatClientMessages : [];
-      const smsThreads = Array.isArray(state.chatSmsThreads) ? state.chatSmsThreads : [];
-      const smsMessages = Array.isArray(state.chatSmsMessages) ? state.chatSmsMessages : [];
-      const smsByThreadId = new Map();
-      smsMessages.forEach((message) => {
-        const id = safeText(message.thread_id || '');
-        if (!id) return;
-        if (!smsByThreadId.has(id)) smsByThreadId.set(id, []);
-        smsByThreadId.get(id).push(message);
-      });
       const candidateMap = new Map();
       const clientMap = new Map();
 
-      function candidateKey(email, applicantProfileId, phoneE164 = '') {
+      function candidateKey(email, applicantProfileId) {
         const profileId = safeText(applicantProfileId);
         const normalizedEmail = normalizeEmail(email || '');
-        const phone = safeText(phoneE164 || '');
         if (profileId) return `candidate:profile:${profileId}`;
         if (normalizedEmail) return `candidate:email:${normalizedEmail}`;
-        if (phone) return `candidate:phone:${phone}`;
         return '';
       }
 
       rows.forEach((row) => {
         const email = normalizeEmail(row?.app?.email || row?.profile?.email);
         const applicantProfileId = row?.profile?.id || row?.app?.applicant_profile_id || null;
-        const phoneE164 = normalizePhPhoneE164(row?.profile?.phone || row?.app?.phone || row?.app?.applicant_phone || '');
-        const key = candidateKey(email, applicantProfileId, phoneE164);
+        const key = candidateKey(email, applicantProfileId);
         if (!key) return;
         const existing = candidateMap.get(key);
         const subtitleBits = uniq([row.jobTitle, row.clientName].filter(Boolean));
@@ -5283,10 +5223,12 @@ function renderLearningInsights(row) {
             lastMessageAt: fallbackLastAt,
             email,
             applicantProfileId,
-            applicationId: row?.app?.id || null,
-            phoneE164,
+            applicationId: null,
             status: formatStatusLabel(row?.status || row?.app?.status || ''),
             inboundMessageAts: [],
+            inboundSmsAts: [],
+            hasSms: false,
+            smsThreadId: null,
             relatedJobs: subtitleBits,
           });
         } else {
@@ -5325,6 +5267,9 @@ function renderLearningInsights(row) {
           applicationId: null,
           status: '',
           inboundMessageAts: [],
+          inboundSmsAts: [],
+          hasSms: false,
+          smsThreadId: null,
           relatedJobs: [],
         };
         const messageAt = message?.created_at || null;
@@ -5339,47 +5284,6 @@ function renderLearningInsights(row) {
           existing.preview = safeText(message?.message || '') || 'No messages yet.';
         }
         if (isInbound && messageAt) existing.inboundMessageAts.push(messageAt);
-        candidateMap.set(key, existing);
-      });
-
-      smsThreads.forEach((thread) => {
-        const messages = smsByThreadId.get(thread.id) || [];
-        const latest = messages.slice().sort((a, b) => new Date(b.created_at || b.sent_at || 0) - new Date(a.created_at || a.sent_at || 0))[0] || null;
-        const key = candidateKey(thread.applicant_email, thread.applicant_profile_id, thread.candidate_phone_e164);
-        if (!key) return;
-        const existing = candidateMap.get(key) || {
-          threadKey: key,
-          threadType: 'candidate',
-          typeLabel: 'SMS',
-          name: normalizeEmail(thread.applicant_email || '') || thread.candidate_phone_e164 || 'Candidate',
-          subtitle: 'SMS conversation',
-          preview: 'No SMS messages yet.',
-          lastMessageAt: null,
-          email: normalizeEmail(thread.applicant_email || ''),
-          applicantProfileId: thread.applicant_profile_id || null,
-          applicationId: thread.application_id || null,
-          phoneE164: thread.candidate_phone_e164 || '',
-          smsThreadId: thread.id,
-          status: '',
-          inboundMessageAts: [],
-          relatedJobs: [],
-        };
-        existing.smsThreadId = thread.id;
-        if (!existing.phoneE164 && thread.candidate_phone_e164) existing.phoneE164 = thread.candidate_phone_e164;
-        if (!existing.email && thread.applicant_email) existing.email = normalizeEmail(thread.applicant_email);
-        if (!existing.applicantProfileId && thread.applicant_profile_id) existing.applicantProfileId = thread.applicant_profile_id;
-        if (!existing.applicationId && thread.application_id) existing.applicationId = thread.application_id;
-        const lastAt = latest?.created_at || latest?.sent_at || thread.last_message_at || thread.updated_at || thread.created_at || null;
-        if (!existing.lastMessageAt || new Date(lastAt || 0) > new Date(existing.lastMessageAt || 0)) {
-          existing.lastMessageAt = lastAt;
-          existing.preview = safeText(latest?.message || thread.last_message_preview || '') || 'No SMS messages yet.';
-          existing.typeLabel = 'SMS';
-        }
-        messages.forEach((message) => {
-          if (message.direction === 'inbound' && (message.created_at || message.sent_at)) {
-            existing.inboundMessageAts.push(message.created_at || message.sent_at);
-          }
-        });
         candidateMap.set(key, existing);
       });
 
@@ -5458,6 +5362,76 @@ function renderLearningInsights(row) {
         return true;
       });
     }
+    function getLatestUnreadSmsThread() {
+      return (state.chatThreads || [])
+        .filter((thread) => thread.threadType === 'candidate' && thread.hasSms && Number(thread.unreadCount || 0) > 0)
+        .sort((a, b) => new Date(b.lastMessageAt || 0) - new Date(a.lastMessageAt || 0))[0] || null;
+    }
+
+    function renderSiftSmsAlert() {
+      const intro = document.getElementById('siftIntroBubble');
+      if (!intro) return;
+      const latestSms = getLatestUnreadSmsThread();
+      if (latestSms) {
+        intro.innerHTML = `<strong>Sift Alert: new SMS</strong>${escapeHtml(latestSms.name || 'Applicant')}: ${escapeHtml(truncateText(latestSms.preview || 'New applicant SMS received.', 96))}`;
+        intro.style.display = 'block';
+        intro.dataset.alertThreadKey = latestSms.threadKey || '';
+        intro.style.cursor = 'pointer';
+      } else {
+        intro.innerHTML = '<strong>Sift</strong>New applicant support, profile, SMS, and client messages appear here.';
+        intro.dataset.alertThreadKey = '';
+        intro.style.cursor = '';
+      }
+    }
+
+    function findApplicantRowForThread(thread) {
+      if (!thread) return null;
+      const threadEmail = normalizeEmail(thread.email || '');
+      const threadPhone = safeText(thread.phoneE164 || thread.candidate_phone_e164 || '');
+      return (state.allRows || []).find((row) => {
+        const rowProfileId = safeText(row?.profile?.id || row?.app?.applicant_profile_id || '');
+        const rowApplicationId = safeText(row?.app?.id || '');
+        const rowEmail = normalizeEmail(row?.profile?.email || row?.app?.email || row?.app?.applicant_email || '');
+        const rowPhone = normalizePhPhoneE164(row?.profile?.phone || row?.app?.phone || row?.app?.applicant_phone || '');
+        return (thread.applicantProfileId && rowProfileId === safeText(thread.applicantProfileId))
+          || (thread.applicationId && rowApplicationId === safeText(thread.applicationId))
+          || (threadEmail && rowEmail === threadEmail)
+          || (threadPhone && rowPhone === threadPhone);
+      }) || null;
+    }
+
+    function resetFiltersForApplicantReveal() {
+      if (els.searchInput) els.searchInput.value = '';
+      if (els.statusFilter) els.statusFilter.value = '';
+      if (els.recruiterFilter) els.recruiterFilter.value = '';
+      if (els.sourceFilter) els.sourceFilter.value = '';
+      if (els.followUpFilter) els.followUpFilter.value = '';
+      if (els.jobFilter) els.jobFilter.value = '';
+      if (els.clientFilter) els.clientFilter.value = '';
+      if (els.scoreFilter) els.scoreFilter.value = '';
+    }
+
+    async function revealApplicantForThread(thread) {
+      if (!thread || thread.threadType !== 'candidate') return false;
+      const row = findApplicantRowForThread(thread);
+      if (!row) {
+        showNotice('Sift received an SMS, but no matching applicant row was found yet. Check phone/email on the applicant profile.', 'info');
+        return false;
+      }
+
+      if (!state.filteredRows.some((item) => item.id === row.id)) {
+        resetFiltersForApplicantReveal();
+        applyFilters();
+      }
+
+      await openDrawer(row.id);
+      window.setTimeout(() => {
+        const node = els.applicationsTable?.querySelector(`tr[data-id="${CSS.escape(row.id)}"]`);
+        if (node) node.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }, 150);
+      return true;
+    }
+
     function updateHeaderBadges() {
       const unreadTotal = state.chatThreads.reduce((sum, thread) => sum + Number(thread.unreadCount || 0), 0);
       const unassigned = state.allRows.filter((row) => !safeText(row.recruiterEmail) || safeText(row.recruiterEmail).toLowerCase() === 'unassigned').length;
@@ -5471,6 +5445,7 @@ function renderLearningInsights(row) {
         els.chatWidgetLauncherBadge.classList.toggle('show', unreadTotal > 0);
       }
       if (els.chatWidgetLauncher) els.chatWidgetLauncher.classList.toggle('pulse', unreadTotal > 0);
+      renderSiftSmsAlert();
     }
     function getThreadDisplayName(thread) {
       return safeText(thread?.name || thread?.email || (thread?.threadType === 'client' ? 'Client' : 'Candidate'));
@@ -5555,6 +5530,7 @@ function renderLearningInsights(row) {
 
     function renderChatWidget() {
       if (!els.chatWidgetPanel) return;
+      renderSiftSmsAlert();
       els.chatWidgetPanel.classList.toggle('show', !!state.chatPanelOpen);
       els.chatWidgetTabs?.querySelectorAll('.chat-tab').forEach((btn) => {
         btn.classList.toggle('is-active', btn.dataset.chatTab === state.chatSelectedTab);
@@ -5603,7 +5579,9 @@ function renderLearningInsights(row) {
         node.addEventListener('click', async () => {
           const threadKey = node.getAttribute('data-chat-thread-key');
           state.chatSelectedThreadKey = threadKey;
+          const selectedThread = state.chatThreads.find((item) => item.threadKey === threadKey) || null;
           renderChatWidget();
+          await revealApplicantForThread(selectedThread);
           await openChatConversationModal(threadKey);
         });
       });
@@ -5826,6 +5804,20 @@ function renderLearningInsights(row) {
         state.chatPanelOpen = !state.chatPanelOpen;
         persistChatWidgetOpenState();
         renderChatWidget();
+      });
+      document.getElementById('siftIntroBubble')?.addEventListener('click', async (event) => {
+        event.stopPropagation();
+        const threadKey = event.currentTarget?.dataset?.alertThreadKey || '';
+        if (!threadKey) return;
+        state.chatPanelOpen = true;
+        state.chatSelectedTab = 'candidates';
+        state.chatSelectedFilter = 'unread';
+        state.chatSelectedThreadKey = threadKey;
+        persistChatWidgetOpenState();
+        renderChatWidget();
+        const thread = state.chatThreads.find((item) => item.threadKey === threadKey) || null;
+        await revealApplicantForThread(thread);
+        await openChatConversationModal(threadKey);
       });
       els.chatWidgetCloseBtn?.addEventListener('click', () => {
         state.chatPanelOpen = false;
@@ -6054,7 +6046,15 @@ function renderLearningInsights(row) {
           .on('postgres_changes', { event: '*', schema: 'public', table: 'jobs' }, () => queueDashboardRefresh(350))
           .on('postgres_changes', { event: '*', schema: 'public', table: 'application_feedback' }, () => queueDashboardRefresh(250))
           .on('postgres_changes', { event: '*', schema: 'public', table: 'hiring_outcomes' }, () => queueDashboardRefresh(250))
-          .on('postgres_changes', { event: '*', schema: 'public', table: 'candidate_sms_messages' }, () => queueDashboardRefresh(350))
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'candidate_sms_messages' }, (payload) => {
+            queueDashboardRefresh(350);
+            const row = payload?.new || {};
+            if (row.direction === 'inbound') {
+              state.chatPanelOpen = true;
+              persistChatWidgetOpenState();
+              showNotice('Sift Alert: new SMS received from applicant.', 'info');
+            }
+          })
           .subscribe((status) => {
             console.log('Dashboard realtime status:', status);
           });
