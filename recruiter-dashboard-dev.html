@@ -4977,7 +4977,9 @@ function renderLearningInsights(row) {
     function threadUnreadCount(thread) {
       const seen = getSeenChatMap();
       const lastSeenAt = seen?.[thread.threadKey];
-      const inboundTimes = Array.isArray(thread?.inboundMessageAts) ? thread.inboundMessageAts : [];
+      const supportInboundTimes = Array.isArray(thread?.inboundMessageAts) ? thread.inboundMessageAts : [];
+      const smsInboundTimes = Array.isArray(thread?.inboundSmsAts) ? thread.inboundSmsAts : [];
+      const inboundTimes = [...supportInboundTimes, ...smsInboundTimes].filter(Boolean);
       if (!inboundTimes.length) return 0;
       if (!lastSeenAt) return inboundTimes.length;
       const seenTs = new Date(lastSeenAt).getTime();
@@ -5107,7 +5109,7 @@ function renderLearningInsights(row) {
     }
     async function loadChatIndexes() {
       try {
-        const [{ data: candidateMessages, error: candidateError }, { data: clientMessages, error: clientError }] = await Promise.all([
+        const [candidateResp, clientResp, smsThreadResp, smsMessageResp] = await Promise.all([
           supabaseClient
             .from('applicant_messages')
             .select('id, applicant_email, applicant_profile_id, application_id, sender_type, sender_name, full_name, issue_type, page, step, phone, channel, message, created_at')
@@ -5117,46 +5119,98 @@ function renderLearningInsights(row) {
             .from('client_messages')
             .select('id, client_email, email, sender_type, message, created_at')
             .order('created_at', { ascending: false })
-            .limit(300)
+            .limit(300),
+          supabaseClient
+            .from('candidate_sms_threads')
+            .select('id, applicant_profile_id, application_id, applicant_email, recruiter_email, candidate_phone_e164, last_message, last_message_at, last_direction, thread_status, created_at, updated_at')
+            .eq('thread_status', 'active')
+            .order('last_message_at', { ascending: false, nullsFirst: false })
+            .limit(500),
+          supabaseClient
+            .from('candidate_sms_messages')
+            .select('id, thread_id, provider, provider_message_id, direction, sender_type, sender_name, message, delivery_status, phone_e164, received_at, sent_at, created_at, metadata')
+            .order('created_at', { ascending: false })
+            .limit(500)
         ]);
 
-        if (candidateError) {
-          console.warn('Unable to load applicant chat index:', candidateError?.message || candidateError);
+        if (candidateResp.error) {
+          console.warn('Unable to load applicant chat index:', candidateResp.error?.message || candidateResp.error);
           state.chatCandidateMessages = [];
         } else {
-          state.chatCandidateMessages = Array.isArray(candidateMessages) ? candidateMessages : [];
+          state.chatCandidateMessages = Array.isArray(candidateResp.data) ? candidateResp.data : [];
         }
 
-        if (clientError) {
-          console.warn('Unable to load client chat index:', clientError?.message || clientError);
+        if (clientResp.error) {
+          console.warn('Unable to load client chat index:', clientResp.error?.message || clientResp.error);
           state.chatClientMessages = [];
         } else {
-          state.chatClientMessages = Array.isArray(clientMessages) ? clientMessages : [];
+          state.chatClientMessages = Array.isArray(clientResp.data) ? clientResp.data : [];
+        }
+
+        if (smsThreadResp.error) {
+          console.warn('Unable to load SMS threads:', smsThreadResp.error?.message || smsThreadResp.error);
+          state.chatSmsThreads = [];
+        } else {
+          state.chatSmsThreads = Array.isArray(smsThreadResp.data) ? smsThreadResp.data : [];
+        }
+
+        if (smsMessageResp.error) {
+          console.warn('Unable to load SMS messages:', smsMessageResp.error?.message || smsMessageResp.error);
+          state.chatSmsMessages = [];
+        } else {
+          state.chatSmsMessages = Array.isArray(smsMessageResp.data) ? smsMessageResp.data : [];
         }
       } catch (err) {
         console.warn('Unable to load chat indexes:', err?.message || err);
         state.chatCandidateMessages = [];
         state.chatClientMessages = [];
+        state.chatSmsThreads = [];
+        state.chatSmsMessages = [];
       }
     }
     async function loadThreadMessages(thread) {
       if (!thread) return [];
       try {
         if (thread.threadType === 'candidate') {
+          const allMessages = [];
+
           const clauses = [];
           if (thread.applicantProfileId) clauses.push(`applicant_profile_id.eq.${thread.applicantProfileId}`);
           if (thread.email) clauses.push(`applicant_email.eq.${thread.email}`);
-          if (!clauses.length) return [];
 
-          const { data, error } = await supabaseClient
-            .from('applicant_messages')
-            .select('id, applicant_email, applicant_profile_id, application_id, sender_type, sender_name, full_name, issue_type, page, step, phone, channel, message, created_at')
-            .order('created_at', { ascending: false })
-            .limit(100)
-            .or(clauses.join(','));
+          if (clauses.length) {
+            const { data, error } = await supabaseClient
+              .from('applicant_messages')
+              .select('id, applicant_email, applicant_profile_id, application_id, sender_type, sender_name, full_name, issue_type, page, step, phone, channel, message, created_at')
+              .order('created_at', { ascending: false })
+              .limit(100)
+              .or(clauses.join(','));
+            if (error) throw error;
+            allMessages.push(...(data || []));
+          }
 
-          if (error) throw error;
-          return (data || []).sort((a, b) => new Date(a.created_at || 0) - new Date(b.created_at || 0));
+          if (thread.smsThreadId) {
+            const { data: smsRows, error: smsError } = await supabaseClient
+              .from('candidate_sms_messages')
+              .select('id, thread_id, direction, sender_type, sender_name, message, delivery_status, phone_e164, received_at, sent_at, created_at, metadata')
+              .eq('thread_id', thread.smsThreadId)
+              .order('created_at', { ascending: false })
+              .limit(150);
+            if (smsError) throw smsError;
+            (smsRows || []).forEach((sms) => {
+              const direction = safeText(sms.direction).toLowerCase();
+              allMessages.push({
+                ...sms,
+                id: `sms-${sms.id}`,
+                sender_type: direction === 'inbound' ? 'candidate' : 'recruiter',
+                sender_name: direction === 'inbound' ? (thread.name || thread.email || 'Applicant') : (sms.sender_name || 'TalentBuzz'),
+                created_at: sms.received_at || sms.sent_at || sms.created_at,
+                channel: 'sms',
+              });
+            });
+          }
+
+          return allMessages.sort((a, b) => new Date(a.created_at || 0) - new Date(b.created_at || 0));
         } else {
           const clauses = [];
           if (thread.email) {
@@ -5193,6 +5247,16 @@ function renderLearningInsights(row) {
       const rows = state.allRows || [];
       const candidateMessages = Array.isArray(state.chatCandidateMessages) ? state.chatCandidateMessages : [];
       const clientMessages = Array.isArray(state.chatClientMessages) ? state.chatClientMessages : [];
+      const smsThreads = Array.isArray(state.chatSmsThreads) ? state.chatSmsThreads : [];
+      const smsMessages = Array.isArray(state.chatSmsMessages) ? state.chatSmsMessages : [];
+      const smsMessagesByThread = new Map();
+      smsMessages.forEach((message) => {
+        const threadId = safeText(message?.thread_id || '');
+        if (!threadId) return;
+        const list = smsMessagesByThread.get(threadId) || [];
+        list.push(message);
+        smsMessagesByThread.set(threadId, list);
+      });
       const candidateMap = new Map();
       const clientMap = new Map();
 
@@ -5202,6 +5266,25 @@ function renderLearningInsights(row) {
         if (profileId) return `candidate:profile:${profileId}`;
         if (normalizedEmail) return `candidate:email:${normalizedEmail}`;
         return '';
+      }
+
+      function findRowForSmsThread(thread) {
+        const threadProfileId = safeText(thread?.applicant_profile_id || '');
+        const threadApplicationId = safeText(thread?.application_id || '');
+        const threadEmail = normalizeEmail(thread?.applicant_email || '');
+        const threadPhone = safeText(thread?.candidate_phone_e164 || '');
+        return rows.find((row) => {
+          const rowProfileId = safeText(row?.profile?.id || row?.app?.applicant_profile_id || '');
+          const rowApplicationId = safeText(row?.app?.id || '');
+          const rowEmail = normalizeEmail(row?.profile?.email || row?.app?.email || row?.app?.applicant_email || '');
+          const rowPhone = typeof normalizePhPhoneE164 === 'function'
+          ? normalizePhPhoneE164(row?.profile?.phone || row?.app?.phone || row?.app?.applicant_phone || '')
+          : safeText(row?.profile?.phone || row?.app?.phone || row?.app?.applicant_phone || '').replace(/\D/g, '');
+          return (threadProfileId && rowProfileId === threadProfileId)
+            || (threadApplicationId && rowApplicationId === threadApplicationId)
+            || (threadEmail && rowEmail === threadEmail)
+            || (threadPhone && rowPhone === threadPhone);
+        }) || null;
       }
 
       rows.forEach((row) => {
@@ -5284,6 +5367,59 @@ function renderLearningInsights(row) {
           existing.preview = safeText(message?.message || '') || 'No messages yet.';
         }
         if (isInbound && messageAt) existing.inboundMessageAts.push(messageAt);
+        candidateMap.set(key, existing);
+      });
+
+      smsThreads.forEach((smsThread) => {
+        const matchedRow = findRowForSmsThread(smsThread);
+        const email = normalizeEmail(smsThread?.applicant_email || matchedRow?.profile?.email || matchedRow?.app?.email || '');
+        const applicantProfileId = smsThread?.applicant_profile_id || matchedRow?.profile?.id || matchedRow?.app?.applicant_profile_id || null;
+        let key = candidateKey(email, applicantProfileId);
+        if (!key) key = `candidate:sms:${safeText(smsThread?.id || smsThread?.candidate_phone_e164 || '')}`;
+        if (!key) return;
+
+        const threadMessages = (smsMessagesByThread.get(safeText(smsThread?.id || '')) || [])
+          .sort((a, b) => new Date(b.received_at || b.sent_at || b.created_at || 0) - new Date(a.received_at || a.sent_at || a.created_at || 0));
+        const latestMessage = threadMessages[0] || null;
+        const inboundSmsAts = threadMessages
+          .filter((msg) => safeText(msg.direction).toLowerCase() === 'inbound')
+          .map((msg) => msg.received_at || msg.created_at)
+          .filter(Boolean);
+        const lastAt = latestMessage?.received_at || latestMessage?.sent_at || latestMessage?.created_at || smsThread?.last_message_at || smsThread?.updated_at || smsThread?.created_at || null;
+        const latestPreview = safeText(latestMessage?.message || smsThread?.last_message || '') || 'SMS conversation';
+        const existing = candidateMap.get(key) || {
+          threadKey: key,
+          threadType: 'candidate',
+          typeLabel: 'SMS',
+          name: matchedRow?.displayName || email || safeText(smsThread?.candidate_phone_e164 || '') || 'Applicant SMS',
+          subtitle: matchedRow ? uniq([matchedRow.jobTitle, matchedRow.clientName].filter(Boolean)).join(' • ') : safeText(smsThread?.candidate_phone_e164 || 'SMS thread'),
+          preview: latestPreview,
+          lastMessageAt: lastAt,
+          email,
+          applicantProfileId,
+          applicationId: smsThread?.application_id || matchedRow?.app?.id || null,
+          status: matchedRow ? formatStatusLabel(matchedRow?.status || matchedRow?.app?.status || '') : '',
+          inboundMessageAts: [],
+          inboundSmsAts: [],
+          hasSms: true,
+          smsThreadId: smsThread?.id || null,
+          phoneE164: smsThread?.candidate_phone_e164 || null,
+          relatedJobs: matchedRow ? uniq([matchedRow.jobTitle, matchedRow.clientName].filter(Boolean)) : [],
+        };
+
+        existing.typeLabel = existing.typeLabel === 'Support' ? 'Support + SMS' : 'SMS';
+        existing.hasSms = true;
+        existing.smsThreadId = existing.smsThreadId || smsThread?.id || null;
+        existing.phoneE164 = existing.phoneE164 || smsThread?.candidate_phone_e164 || null;
+        existing.applicationId = existing.applicationId || smsThread?.application_id || matchedRow?.app?.id || null;
+        existing.applicantProfileId = existing.applicantProfileId || applicantProfileId;
+        existing.email = existing.email || email;
+        if ((!existing.name || existing.name === existing.email) && matchedRow?.displayName) existing.name = matchedRow.displayName;
+        if (!existing.lastMessageAt || new Date(lastAt || 0) > new Date(existing.lastMessageAt || 0)) {
+          existing.lastMessageAt = lastAt;
+          existing.preview = latestPreview;
+        }
+        existing.inboundSmsAts = uniq([...(existing.inboundSmsAts || []), ...inboundSmsAts]);
         candidateMap.set(key, existing);
       });
 
@@ -5392,7 +5528,9 @@ function renderLearningInsights(row) {
         const rowProfileId = safeText(row?.profile?.id || row?.app?.applicant_profile_id || '');
         const rowApplicationId = safeText(row?.app?.id || '');
         const rowEmail = normalizeEmail(row?.profile?.email || row?.app?.email || row?.app?.applicant_email || '');
-        const rowPhone = normalizePhPhoneE164(row?.profile?.phone || row?.app?.phone || row?.app?.applicant_phone || '');
+        const rowPhone = typeof normalizePhPhoneE164 === 'function'
+          ? normalizePhPhoneE164(row?.profile?.phone || row?.app?.phone || row?.app?.applicant_phone || '')
+          : safeText(row?.profile?.phone || row?.app?.phone || row?.app?.applicant_phone || '').replace(/\D/g, '');
         return (thread.applicantProfileId && rowProfileId === safeText(thread.applicantProfileId))
           || (thread.applicationId && rowApplicationId === safeText(thread.applicationId))
           || (threadEmail && rowEmail === threadEmail)
