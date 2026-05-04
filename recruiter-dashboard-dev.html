@@ -4520,6 +4520,30 @@ function renderLearningInsights(row) {
       if (els.smsCharCount) els.smsCharCount.textContent = `${count} character${count === 1 ? '' : 's'}`;
     }
 
+    async function postCandidateSms(payload) {
+      const sessionResp = await supabaseClient.auth.getSession();
+      const accessToken = sessionResp?.data?.session?.access_token || '';
+      const res = await fetch(`${CONFIG.SUPABASE_URL}/functions/v1/send-candidate-sms`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'apikey': CONFIG.SUPABASE_ANON_KEY,
+          ...(accessToken ? { 'Authorization': `Bearer ${accessToken}` } : {}),
+        },
+        body: JSON.stringify(payload),
+      });
+      let data = null;
+      const text = await res.text();
+      try { data = text ? JSON.parse(text) : null; } catch (_) { data = { message: text }; }
+      if (!res.ok || data?.ok === false) {
+        const err = new Error(data?.message || data?.error_code || `SMS function failed with HTTP ${res.status}.`);
+        err.status = res.status;
+        err.data = data;
+        throw err;
+      }
+      return data;
+    }
+
     async function sendFreeformSms() {
       const row = state.allRows.find((item) => item.id === state.smsTargetId);
       if (!row) return showNotice('Select an applicant first.', 'error');
@@ -4527,34 +4551,34 @@ function renderLearningInsights(row) {
       const message = safeText(els.smsMessageInput.value);
       if (!phone) return showNotice('Phone number is required to send SMS.', 'error');
       if (!message) return showNotice('SMS message is required.', 'error');
+      const payload = {
+        applicant_profile_id: row.profile?.id || row.app?.applicant_profile_id || null,
+        application_id: row.id,
+        applicant_email: row.profile?.email || row.app?.email || null,
+        recruiter_email: state.currentUser?.email || row.recruiter || null,
+        phone,
+        message,
+        is_automated: false,
+        metadata: {
+          source: 'recruiter_dashboard_freeform_sms',
+          candidate_name: row.displayName,
+          job_title: row.jobTitle,
+          client_name: row.clientName,
+        },
+      };
       try {
         els.sendSmsBtn.disabled = true;
         els.sendSmsBtn.textContent = 'Sending...';
-        const { data, error } = await supabaseClient.functions.invoke('send-candidate-sms', {
-          body: {
-            applicant_profile_id: row.profile?.id || row.app?.applicant_profile_id || null,
-            application_id: row.id,
-            applicant_email: row.profile?.email || row.app?.email || null,
-            recruiter_email: state.currentUser?.email || row.recruiter || null,
-            phone,
-            message,
-            is_automated: false,
-            sender_name: 'TalentBuzz',
-            metadata: {
-              source: 'recruiter_dashboard_freeform_sms',
-              candidate_name: row.displayName,
-              job_title: row.jobTitle,
-              client_name: row.clientName,
-            },
-          },
-        });
-        if (error) throw error;
-        if (data && data.ok === false) throw new Error(data.message || data.error_code || 'SMS send failed.');
-        showNotice('SMS sent from TalentBuzz.', 'success');
+        await postCandidateSms(payload);
+        showNotice('SMS sent.', 'success');
         closeSmsModal();
+        await loadSmsInboxThreads?.();
       } catch (error) {
         console.error(error);
-        showNotice(`Unable to send SMS: ${error.message || error}`, 'error');
+        const details = error?.data?.details?.provider_response
+          ? ` Provider: ${JSON.stringify(error.data.details.provider_response)}`
+          : '';
+        showNotice(`Unable to send SMS: ${error.message || error}.${details}`, 'error');
       } finally {
         els.sendSmsBtn.disabled = false;
         els.sendSmsBtn.textContent = 'Send SMS';
