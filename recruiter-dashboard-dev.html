@@ -4350,12 +4350,49 @@ function renderLearningInsights(row) {
       return Number.isNaN(date.getTime()) ? null : date;
     }
 
+function extractFollowUpFromRecruiterNotes(app) {
+      const notes = safeText(app?.recruiter_notes || app?.stage_note_label || app?.endorsement_notes || '');
+      if (!notes) return null;
+
+      const blocks = notes
+        .split(/\n\s*\n/g)
+        .map((block) => block.trim())
+        .filter(Boolean)
+        .filter((block) => /^Follow-up Note/i.test(block) || /\bFollow-up\b/i.test(block));
+
+      const block = blocks.length ? blocks[blocks.length - 1] : '';
+      if (!block) return null;
+
+      const statusMatch = block.match(/Status:\s*([^\n]+)/i);
+      const dueMatch = block.match(/Due:\s*([^\n]+)/i);
+      const noteMatch = block.match(/Note:\s*([\s\S]*?)(?:\nLogged:|$)/i);
+      const loggedMatch = block.match(/Logged:\s*([^\n]+)/i);
+
+      const statusText = safeText(statusMatch?.[1] || '').toLowerCase();
+      let status = '';
+      if (/followed\s*up/.test(statusText)) status = 'followed_up';
+      else if (/no\s*follow/.test(statusText)) status = 'none';
+      else if (/overdue|due today|needs?\s*follow/.test(statusText)) status = 'needs_follow_up';
+
+      const dueDate = parseFollowUpDate(safeText(dueMatch?.[1] || ''));
+      const loggedDate = parseFollowUpDate(safeText(loggedMatch?.[1] || ''));
+      const note = safeText(noteMatch?.[1] || '');
+
+      return {
+        status: status || (note || dueDate ? 'needs_follow_up' : ''),
+        dueAt: dueDate ? dueDate.toISOString() : null,
+        note,
+        loggedAt: loggedDate ? loggedDate.toISOString() : null,
+      };
+    }
+
     function getFollowUpInfo(app) {
+      const parsedFromNotes = extractFollowUpFromRecruiterNotes(app);
       const required = app?.follow_up_required === true || String(app?.follow_up_required || '').toLowerCase() === 'true';
-      const rawStatus = safeText(app?.follow_up_status || '').toLowerCase();
-      const note = safeText(app?.follow_up_note || '');
-      const dueAt = app?.follow_up_date || app?.follow_up_due_at || null;
-      const lastAt = app?.last_followed_up_at || null;
+      const rawStatus = safeText(app?.follow_up_status || parsedFromNotes?.status || '').toLowerCase();
+      const note = safeText(app?.follow_up_note || parsedFromNotes?.note || '');
+      const dueAt = app?.follow_up_date || app?.follow_up_due_at || parsedFromNotes?.dueAt || null;
+      const lastAt = app?.last_followed_up_at || (rawStatus === 'followed_up' ? parsedFromNotes?.loggedAt : null) || null;
       const dueDate = parseFollowUpDate(dueAt);
       const now = new Date();
       const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -4563,8 +4600,12 @@ function renderLearningInsights(row) {
         const note = safeText(els.followUpNoteInput.value || '');
         await updateFollowUpForRow(row, { status, dueAt, note });
         closeFollowUpModal();
-        await loadDashboard();
+        renderTable();
         if (state.selectedId) await openDrawer(row.id);
+        // Refresh from Supabase after the UI updates. getFollowUpInfo also reads the fallback
+        // Follow-up Note block from recruiter_notes, so the status survives even when the
+        // follow_up_* columns are not exposed by the dashboard view yet.
+        setTimeout(() => { void loadDashboard(); }, 250);
       } catch (error) {
         console.error(error);
         showNotice(`Unable to save follow-up: ${error.message || error}`, 'error');
@@ -4577,16 +4618,16 @@ function renderLearningInsights(row) {
       const row = getSelectedRow();
       if (!row) return showNotice('Select an applicant first.', 'error');
       await updateFollowUpForRow(row, { status: 'followed_up', dueAt: null, note: getFollowUpInfo(row.app).note });
-      await loadDashboard();
       await openDrawer(row.id);
+      setTimeout(() => { void loadDashboard(); }, 250);
     }
 
     async function clearSelectedFollowUp() {
       const row = getSelectedRow();
       if (!row) return showNotice('Select an applicant first.', 'error');
       await updateFollowUpForRow(row, { status: 'none', dueAt: null, note: '' });
-      await loadDashboard();
       await openDrawer(row.id);
+      setTimeout(() => { void loadDashboard(); }, 250);
     }
 
     function openSmsModal(rowId = state.selectedId) {
