@@ -1571,7 +1571,8 @@
                 <div class="kv-item"><div class="kv-label">Phone</div><div class="kv-value" id="snapPhone">—</div></div>
                 <div class="kv-item"><div class="kv-label">Location</div><div class="kv-value" id="snapLocation">—</div></div>
                 <div class="kv-item"><div class="kv-label">Experience</div><div class="kv-value" id="snapExperience">—</div></div>
-                <div class="kv-item"><div class="kv-label">Job</div><div class="kv-value" id="snapJob">—</div></div>
+                <div class="kv-item"><div class="kv-label">Education</div><div class="kv-value" id="snapEducation">—</div></div>
+                <div class="kv-item"><div class="kv-label">Job / Target Role</div><div class="kv-value" id="snapJob">—</div></div>
                 <div class="kv-item"><div class="kv-label">Recruiter</div><div class="kv-value" id="snapRecruiter">—</div></div>
                 <div class="kv-item"><div class="kv-label">Source</div><div class="kv-value" id="snapSource">—</div></div>
                 <div class="kv-item"><div class="kv-label">Applied</div><div class="kv-value" id="snapApplied">—</div></div>
@@ -1923,7 +1924,7 @@
       <div class="modal-head">
         <div>
           <strong>Upload Leads CSV</strong>
-          <div class="small" style="margin-top:6px;">Bulk upload pre-candidate leads for recruiter callout and offer openings. Leads do not need a job, client, or role yet.</div>
+          <div class="small" style="margin-top:6px;">Bulk upload pre-candidate leads for recruiter callout and offer openings. Leads can include a target role even when they are not attached to a job/client yet.</div>
         </div>
         <button class="btn btn-xs" id="leadUploadModalClose" type="button">Close</button>
       </div>
@@ -1931,7 +1932,7 @@
         <div class="lead-upload-grid">
           <div class="lead-drop-zone">
             <h3>CSV file</h3>
-            <p>Accepted columns: <strong>full_name, email, phone, location, source, lead_type, notes</strong>. Blank fields are allowed, but each row needs at least an email or phone.</p>
+            <p>Accepted columns: <strong>full_name, email, phone, location, target_role, experience, education, source, lead_type, notes</strong>. Blank fields are allowed, but each row needs at least an email or phone.</p>
             <input class="lead-file-input" id="leadCsvFile" type="file" accept=".csv,text/csv" />
             <div class="sourcing-card-actions">
               <button class="btn btn-soft" id="downloadLeadTemplateBtn" type="button">Download Template</button>
@@ -1946,6 +1947,8 @@
               <li><strong>Blank fields are allowed.</strong> Missing name becomes “Unknown Lead”.</li>
               <li><strong>Email or phone is required.</strong> Rows missing both are skipped.</li>
               <li><strong>Duplicates are skipped.</strong> The uploader checks duplicates inside the CSV and existing leads by normalized email or phone.</li>
+              <li><strong>Target role shows under Job.</strong> For leads without an assigned job, the Target Role appears in the Job column.</li>
+              <li><strong>Experience and education show in the candidate details.</strong> They also search/filter through the main search box.</li>
               <li><strong>Default values:</strong> lead_type = callout, status = new, recruiter = signed-in recruiter.</li>
             </ul>
           </div>
@@ -1966,13 +1969,16 @@
                 <th>Email</th>
                 <th>Phone</th>
                 <th>Location</th>
+                <th>Target Role</th>
+                <th>Experience</th>
+                <th>Education</th>
                 <th>Source</th>
                 <th>Lead Type</th>
                 <th>Notes</th>
               </tr>
             </thead>
             <tbody id="leadUploadPreviewTable">
-              <tr><td colspan="9" class="small">Upload a CSV to preview leads before importing.</td></tr>
+              <tr><td colspan="12" class="small">Upload a CSV to preview leads before importing.</td></tr>
             </tbody>
           </table>
         </div>
@@ -2149,6 +2155,7 @@
       snapPhone: document.getElementById('snapPhone'),
       snapLocation: document.getElementById('snapLocation'),
       snapExperience: document.getElementById('snapExperience'),
+      snapEducation: document.getElementById('snapEducation'),
       snapJob: document.getElementById('snapJob'),
       snapRecruiter: document.getElementById('snapRecruiter'),
       snapSource: document.getElementById('snapSource'),
@@ -2447,6 +2454,46 @@
         profile?.years_experience,
         profile?.total_experience,
         profile?.experience,
+      ].map(safeText).filter(Boolean);
+      return candidates[0] || '—';
+    }
+
+    function formatEducation(profile, app = {}) {
+      const candidates = [
+        profile?.highest_education,
+        profile?.degree_course,
+        profile?.education,
+        app?.education,
+        app?.highest_education,
+        app?.degree_course,
+      ].map(safeText).filter(Boolean);
+      return candidates[0] || '—';
+    }
+
+    function getTargetRole(profile = {}, app = {}, job = {}) {
+      const candidates = [
+        job?.title,
+        app?.job_title,
+        app?.target_role,
+        app?.desired_role,
+        profile?.target_role,
+        profile?.top_match_role,
+        profile?.suggested_roles,
+        profile?.current_title,
+        profile?.headline,
+      ].map(safeText).filter(Boolean);
+      return candidates[0] || '—';
+    }
+
+    function getLeadExperience(profile = {}, app = {}) {
+      const fromProfile = formatExperience(profile);
+      if (fromProfile && fromProfile !== '—') return fromProfile;
+      const candidates = [
+        app?.experience,
+        app?.years_of_experience,
+        app?.experience_years,
+        app?.years_experience,
+        app?.total_experience,
       ].map(safeText).filter(Boolean);
       return candidates[0] || '—';
     }
@@ -3814,7 +3861,7 @@
 
 
 
-    const LEAD_UPLOAD_HEADERS = ['full_name', 'email', 'phone', 'location', 'source', 'lead_type', 'notes'];
+    const LEAD_UPLOAD_HEADERS = ['full_name', 'email', 'phone', 'location', 'target_role', 'experience', 'education', 'source', 'lead_type', 'notes'];
     const LEAD_TYPE_OPTIONS = new Set(['callout', 'offer_opening', 'offer opening', 'both']);
 
     function normalizePhone(value) {
@@ -3909,8 +3956,8 @@
     function downloadLeadTemplate() {
       const rows = [
         LEAD_UPLOAD_HEADERS,
-        ['Juan Dela Cruz', 'juan@example.com', '09171234567', 'Manila', 'LinkedIn', 'callout', 'Interested in remote roles'],
-        ['Maria Santos', '', '09181234567', 'Cebu', 'Referral', 'offer_opening', 'Previously declined offer'],
+        ['Juan Dela Cruz', 'juan@example.com', '09171234567', 'Manila', 'CSR', '3 years BPO', 'College graduate', 'LinkedIn', 'callout', 'Interested in remote roles'],
+        ['Maria Santos', '', '09181234567', 'Cebu', 'Korean Bilingual Support', '2 years customer service', 'Bachelor degree', 'Referral', 'offer_opening', 'Previously declined offer'],
       ];
       const csv = rows.map((row) => row.map(csvEscape).join(',')).join('\n');
       const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
@@ -3971,6 +4018,9 @@
           email: email || null,
           phone: phone || null,
           location: safeText(row.location) || null,
+          target_role: safeText(row.target_role || row.role || row.desired_role || row.position || row.job || row.job_title) || null,
+          experience: safeText(row.experience || row.years_of_experience || row.years_experience || row.total_experience || row.work_experience) || null,
+          education: safeText(row.education || row.highest_education || row.degree || row.degree_course || row.educational_attainment) || null,
           source: safeText(row.source) || null,
           lead_type: leadType,
           status: 'new',
@@ -4012,7 +4062,7 @@
 
       if (!els.leadUploadPreviewTable) return;
       if (!upload.preparedRows.length) {
-        els.leadUploadPreviewTable.innerHTML = '<tr><td colspan="9" class="small">Upload a CSV to preview leads before importing.</td></tr>';
+        els.leadUploadPreviewTable.innerHTML = '<tr><td colspan="12" class="small">Upload a CSV to preview leads before importing.</td></tr>';
         return;
       }
 
@@ -4027,12 +4077,15 @@
             <td>${escapeHtml(row.email || '—')}</td>
             <td>${escapeHtml(row.phone || '—')}</td>
             <td>${escapeHtml(row.location || '—')}</td>
+            <td>${escapeHtml(row.target_role || '—')}</td>
+            <td>${escapeHtml(row.experience || '—')}</td>
+            <td>${escapeHtml(row.education || '—')}</td>
             <td>${escapeHtml(row.source || '—')}</td>
             <td>${escapeHtml(row.lead_type || 'callout')}</td>
             <td>${escapeHtml(row.notes || '—')}</td>
           </tr>
         `;
-      }).join('') + (upload.preparedRows.length > 250 ? '<tr><td colspan="9" class="small">Preview limited to first 250 rows.</td></tr>' : '');
+      }).join('') + (upload.preparedRows.length > 250 ? '<tr><td colspan="12" class="small">Preview limited to first 250 rows.</td></tr>' : '');
     }
 
     function resetLeadUpload() {
@@ -4723,14 +4776,27 @@ function extractFollowUpFromRecruiterNotes(app) {
 
     async function fetchApplicationsRows() {
       const baseSelect = `id,email,job_id,job_title,status,created_at,applicant_profile_id,recruiter_email,application_source,screening_result,screening_score,auto_disposition_reason,stage_note_code,stage_note_label,stage_note_updated_at,endorsement_status,endorsement_sent_at,endorsement_sent_to,endorsed_by,client_feedback_status,client_feedback_notes,client_feedback_at,last_status_change_at,sla_status,sla_due_at,endorsement_notes,screening_answers,screening_responses,screening_review_strengths,screening_review_risks,screening_review_summary,screening_review_decision,profile_fit_score,recruiter_score,top_talent_score,is_top_talent,talent_tag,recruiter_top_talent_override,recruiter_notes,updated_at,screening_review,screening_review_generated_at,screening_review_version`;
-      const followUpSelect = `${baseSelect},follow_up_required,follow_up_status,follow_up_date,follow_up_due_at,follow_up_note,last_followed_up_at`;
+      const leadExtraSelect = `${baseSelect},target_role,desired_role,experience,years_of_experience,education,highest_education,degree_course,lead_type`;
+      const followUpSelect = `${leadExtraSelect},follow_up_required,follow_up_status,follow_up_date,follow_up_due_at,follow_up_note,last_followed_up_at`;
+      const baseFollowUpSelect = `${baseSelect},follow_up_required,follow_up_status,follow_up_date,follow_up_due_at,follow_up_note,last_followed_up_at`;
       const tryFetch = async (table) => {
         try {
           return await fetchAll(table, followUpSelect, 'created_at');
         } catch (error) {
           const msg = String(error?.message || error || '');
-          if (/follow_up_|last_followed_up/i.test(msg) || /column/i.test(msg)) {
-            return await fetchAll(table, baseSelect, 'created_at');
+          if (/target_role|desired_role|experience|education|lead_type/i.test(msg) || /column/i.test(msg)) {
+            try {
+              return await fetchAll(table, baseFollowUpSelect, 'created_at');
+            } catch (followError) {
+              const followMsg = String(followError?.message || followError || '');
+              if (/follow_up_|last_followed_up/i.test(followMsg) || /column/i.test(followMsg)) {
+                return await fetchAll(table, baseSelect, 'created_at');
+              }
+              throw followError;
+            }
+          }
+          if (/follow_up_|last_followed_up/i.test(msg)) {
+            return await fetchAll(table, leadExtraSelect, 'created_at');
           }
           throw error;
         }
@@ -4789,7 +4855,7 @@ function extractFollowUpFromRecruiterNotes(app) {
             source: safeText(app.application_source || '—'),
             appliedAt: app.created_at,
             clientName: safeText(job.client_name || '—'),
-            jobTitle: safeText(job.title || app.job_title || '—'),
+            jobTitle: getTargetRole(profile, app, job),
             followUp: getFollowUpInfo(app),
           };
           row.learning = buildLearningInsights(row);
@@ -4841,6 +4907,8 @@ function extractFollowUpFromRecruiterNotes(app) {
           row.profile?.phone,
           getLocation(row.profile),
           row.jobTitle,
+          getLeadExperience(row.profile, row.app),
+          formatEducation(row.profile, row.app),
           row.clientName,
           row.recruiter,
         ].join(' ').toLowerCase();
@@ -4889,10 +4957,12 @@ function extractFollowUpFromRecruiterNotes(app) {
               <div class="name">${escapeHtml(row.displayName)}</div>
               <div class="small">${escapeHtml(row.profile?.email || row.app?.email || '—')}</div>
               <div class="small">${escapeHtml(getLocation(row.profile) || '—')}</div>
+              <div class="small">Experience: ${escapeHtml(getLeadExperience(row.profile, row.app))}</div>
+              <div class="small">Education: ${escapeHtml(formatEducation(row.profile, row.app))}</div>
             </td>
             <td>
               <div>${escapeHtml(row.jobTitle)}</div>
-              <div class="small">${escapeHtml(row.job?.work_setup || '')}</div>
+              <div class="small">${escapeHtml(row.job?.work_setup || (row.app?.lead_type ? `Lead type: ${formatStatusLabel(row.app.lead_type.replace(/_/g, ' '))}` : ''))}</div>
             </td>
             <td>${escapeHtml(row.clientName)}</td>
             <td><span class="pill ${tone}">${escapeHtml(formatStatusLabel(row.status || 'submitted'))}</span></td>
@@ -4962,7 +5032,8 @@ function extractFollowUpFromRecruiterNotes(app) {
       els.snapEmail.textContent = row.profile?.email || row.app?.email || '—';
       els.snapPhone.textContent = row.profile?.phone || '—';
       els.snapLocation.textContent = getLocation(row.profile) || '—';
-      els.snapExperience.textContent = formatExperience(row.profile);
+      els.snapExperience.textContent = getLeadExperience(row.profile, row.app);
+      if (els.snapEducation) els.snapEducation.textContent = formatEducation(row.profile, row.app);
       els.snapJob.textContent = row.jobTitle;
       els.snapRecruiter.textContent = row.recruiter;
       els.snapSource.textContent = row.source;
