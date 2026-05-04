@@ -4444,13 +4444,70 @@ function renderLearningInsights(row) {
       els.followUpModal?.classList.remove('show');
     }
 
+    function getCurrentRecruiterNotesForRow(row) {
+      const drawerNotes = row?.id === state.selectedId ? safeText(els.editNotes?.value || '') : '';
+      return drawerNotes || safeText(row?.app?.recruiter_notes || row?.app?.stage_note_label || '');
+    }
+
+    function isColumnOrSchemaError(error) {
+      const message = String(error?.message || error || '').toLowerCase();
+      return /column|schema cache|does not exist|could not find|unknown|not found/i.test(message);
+    }
+
+    async function updateApplicationWithFallbacks(applicationId, fullPayload, notesValue) {
+      const attempts = [];
+
+      attempts.push(fullPayload);
+
+      if (Object.prototype.hasOwnProperty.call(fullPayload, 'follow_up_date')) {
+        const dueAt = fullPayload.follow_up_date;
+        const altPayload = { ...fullPayload };
+        delete altPayload.follow_up_date;
+        altPayload.follow_up_due_at = dueAt;
+        attempts.push(altPayload);
+      }
+
+      const notesPayload = {
+        recruiter_notes: notesValue || null,
+        updated_at: fullPayload.updated_at || new Date().toISOString(),
+      };
+      attempts.push(notesPayload);
+
+      attempts.push({
+        stage_note_label: notesValue || null,
+        stage_note_updated_at: fullPayload.updated_at || new Date().toISOString(),
+        updated_at: fullPayload.updated_at || new Date().toISOString(),
+      });
+
+      let lastError = null;
+      for (const payload of attempts) {
+        const { error } = await supabaseClient
+          .from('applications')
+          .update(payload)
+          .eq('id', applicationId);
+
+        if (!error) {
+          return { savedPayload: payload, fullSave: payload === fullPayload || Object.prototype.hasOwnProperty.call(payload, 'follow_up_due_at') };
+        }
+
+        lastError = error;
+        if (!isColumnOrSchemaError(error)) break;
+      }
+
+      throw lastError || new Error('Unable to update application.');
+    }
+
     async function updateFollowUpForRow(row, updates) {
       const status = safeText(updates.status || 'none');
       const dueAt = updates.dueAt || null;
       const note = safeText(updates.note || '');
       const nowIso = new Date().toISOString();
-      const currentRecruiterNotes = safeText(row.app?.recruiter_notes || row.app?.stage_note_label || '');
-      const nextRecruiterNotes = appendFollowUpToRecruiterNotes(currentRecruiterNotes, status, dueAt, note);
+      const currentRecruiterNotes = getCurrentRecruiterNotesForRow(row);
+      const shouldAppendNote = status !== 'none' && (note || dueAt || status === 'followed_up' || status === 'needs_follow_up');
+      const nextRecruiterNotes = shouldAppendNote
+        ? appendFollowUpToRecruiterNotes(currentRecruiterNotes, status, dueAt, note)
+        : currentRecruiterNotes;
+
       const payload = {
         follow_up_required: status === 'needs_follow_up',
         follow_up_status: status,
@@ -4459,27 +4516,41 @@ function renderLearningInsights(row) {
         recruiter_notes: nextRecruiterNotes || null,
         updated_at: nowIso,
       };
+
       if (status === 'followed_up') {
         payload.follow_up_required = false;
         payload.last_followed_up_at = nowIso;
       }
+
       if (status === 'none') {
         payload.follow_up_required = false;
         payload.follow_up_date = null;
         payload.follow_up_note = null;
+        payload.last_followed_up_at = null;
       }
 
-      const { error } = await supabaseClient.from('applications').update(payload).eq('id', row.id);
-      if (error) {
-        const fallback = await supabaseClient
-          .from('applications')
-          .update({ recruiter_notes: nextRecruiterNotes || null, updated_at: nowIso })
-          .eq('id', row.id);
-        if (fallback.error) throw error;
-        showNotice('Follow-up note saved into recruiter notes. Add follow-up columns to applications for full filtering persistence.', 'info');
-        return;
+      const result = await updateApplicationWithFallbacks(row.id, payload, nextRecruiterNotes);
+
+      row.app = {
+        ...row.app,
+        ...payload,
+        ...(Object.prototype.hasOwnProperty.call(result.savedPayload, 'follow_up_due_at') ? { follow_up_due_at: dueAt } : {}),
+        ...(Object.prototype.hasOwnProperty.call(result.savedPayload, 'stage_note_label') ? { stage_note_label: nextRecruiterNotes } : {}),
+      };
+      row.followUp = getFollowUpInfo(row.app);
+
+      if (row.id === state.selectedId && els.editNotes) {
+        els.editNotes.value = nextRecruiterNotes || '';
+        renderFollowUpSnapshot(row);
       }
-      showNotice('Follow-up updated and added to recruiter notes.', 'success');
+
+      applyFilters();
+
+      if (result.fullSave) {
+        showNotice('Follow-up updated and added to recruiter notes.', 'success');
+      } else {
+        showNotice('Follow-up note added to recruiter notes. Follow-up filter fields were not available in this Supabase table yet.', 'info');
+      }
     }
 
     async function saveFollowUpFromModal() {
