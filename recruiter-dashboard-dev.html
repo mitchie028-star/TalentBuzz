@@ -1228,6 +1228,24 @@
 
 
 
+
+
+    /* Follow-up + freeform SMS */
+    .followup-cell { min-width: 150px; }
+    .followup-note { margin-top: 6px; max-width: 220px; }
+    .sms-char-count { text-align: right; margin-top: 6px; color: var(--muted); font-size: .78rem; font-weight: 800; }
+    .sms-target-card {
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      background: #f8fbff;
+      padding: 14px;
+      margin-bottom: 12px;
+    }
+    .sms-target-name { color: var(--primary); font-weight: 800; margin-bottom: 4px; }
+    .sms-target-meta { color: var(--muted); font-size: .84rem; line-height: 1.45; }
+    .followup-form-grid { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 12px; }
+    @media (max-width: 760px) { .followup-form-grid { grid-template-columns: 1fr; } }
+
     /* Lead CSV bulk upload */
     .lead-upload-grid {
       display: grid;
@@ -1444,6 +1462,7 @@
         <div class="field"><label for="statusFilter">Status</label><select id="statusFilter"><option value="">All statuses</option></select></div>
         <div class="field"><label for="recruiterFilter">Recruiter</label><select id="recruiterFilter"><option value="">All recruiters</option></select></div>
         <div class="field"><label for="sourceFilter">Source</label><select id="sourceFilter"><option value="">All sources</option></select></div>
+        <div class="field"><label for="followUpFilter">Follow-up</label><select id="followUpFilter"><option value="">All follow-ups</option><option value="needs_follow_up">Needs Follow-up</option><option value="due_today">Due Today</option><option value="overdue">Overdue</option><option value="followed_up">Followed Up</option><option value="none">No Follow-up</option></select></div>
         <div class="field"><label for="jobFilter">Job</label><select id="jobFilter"><option value="">All jobs</option></select></div>
         <div class="field"><label for="clientFilter">Client</label><select id="clientFilter"><option value="">All clients</option></select></div>
         <div class="field"><label for="scoreFilter">AI Score</label><select id="scoreFilter"><option value="">All scores</option><option value="strong">Strong</option><option value="moderate">Moderate</option><option value="weak">Weak</option></select></div>
@@ -1464,6 +1483,7 @@
                 <th>Job</th>
                 <th>Client</th>
                 <th>Status</th>
+                <th>Follow-up</th>
                 <th>Recruiter</th>
                 <th>Applied</th>
                 <th>AI Score</th>
@@ -1471,7 +1491,7 @@
               </tr>
             </thead>
             <tbody id="applicationsTable">
-              <tr><td colspan="8" class="small">Loading candidates...</td></tr>
+              <tr><td colspan="9" class="small">Loading candidates...</td></tr>
             </tbody>
           </table>
         </div>
@@ -1664,6 +1684,22 @@
             </div>
 
             <div class="section">
+              <h3>Follow-up</h3>
+              <div class="muted" id="followUpMeta">Mark applicants who need recruiter follow-up and add a due date so they can be filtered quickly.</div>
+              <div class="kv" style="margin-top:12px;">
+                <div class="kv-item"><div class="kv-label">Current Follow-up Status</div><div class="kv-value" id="followUpSnapshot">—</div></div>
+                <div class="kv-item"><div class="kv-label">Due Date</div><div class="kv-value" id="followUpDueSnapshot">—</div></div>
+                <div class="kv-item full"><div class="kv-label">Follow-up Note</div><div class="kv-value" id="followUpNoteSnapshot">—</div></div>
+              </div>
+              <div class="section-actions">
+                <button class="btn btn-xs" id="markFollowUpBtn" type="button">Mark Follow-up</button>
+                <button class="btn btn-xs" id="markFollowedUpBtn" type="button">Mark Followed Up</button>
+                <button class="btn btn-xs" id="clearFollowUpBtn" type="button">Clear Follow-up</button>
+                <button class="btn btn-xs" id="openSmsModalBtn" type="button">Send SMS</button>
+              </div>
+            </div>
+
+            <div class="section">
               <h3>Quick Update</h3>
               <div class="kv">
                 <div class="kv-item">
@@ -1796,6 +1832,73 @@
   </div>
 
 
+
+  <div class="modal" id="followUpModal">
+    <div class="modal-card" style="width:min(720px,100%); max-height:none; overflow:visible;">
+      <div class="modal-head">
+        <div>
+          <strong>Mark Applicant for Follow-up</strong>
+          <div class="small" style="margin-top:6px;">Use this for callbacks, interview reminders, document requests, and any recruiter action that should not get lost.</div>
+        </div>
+        <button class="btn btn-xs" id="followUpModalClose" type="button">Close</button>
+      </div>
+      <div class="modal-body" style="min-height:auto; padding:18px; background:#fff;">
+        <div class="followup-form-grid">
+          <div class="field">
+            <label for="followUpStatusInput">Follow-up Status</label>
+            <select id="followUpStatusInput">
+              <option value="needs_follow_up">Needs Follow-up</option>
+              <option value="followed_up">Followed Up</option>
+              <option value="none">No Follow-up</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="followUpDateInput">Follow-up Due Date</label>
+            <input id="followUpDateInput" type="datetime-local" />
+          </div>
+          <div class="field" style="grid-column:1 / -1;">
+            <label for="followUpNoteInput">Follow-up Note</label>
+            <textarea id="followUpNoteInput" placeholder="Example: Call candidate after 3 PM, ask for updated resume, confirm interview availability..."></textarea>
+          </div>
+        </div>
+        <div class="section-actions" style="justify-content:flex-end;">
+          <button class="btn" id="followUpModalCancel" type="button">Cancel</button>
+          <button class="btn btn-primary" id="saveFollowUpBtn" type="button">Save Follow-up</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal" id="smsModal">
+    <div class="modal-card" style="width:min(760px,100%); max-height:none; overflow:visible;">
+      <div class="modal-head">
+        <div>
+          <strong>Send Freeform SMS</strong>
+          <div class="small" style="margin-top:6px;">Sender name: <strong>TalentBuzz</strong>. SMS requires a valid PH mobile number and candidate SMS consent.</div>
+        </div>
+        <button class="btn btn-xs" id="smsModalClose" type="button">Close</button>
+      </div>
+      <div class="modal-body" style="min-height:auto; padding:18px; background:#fff;">
+        <div class="sms-target-card">
+          <div class="sms-target-name" id="smsTargetName">Select an applicant</div>
+          <div class="sms-target-meta" id="smsTargetMeta">Phone and application details will appear here.</div>
+        </div>
+        <div class="field">
+          <label for="smsPhoneInput">Recipient Phone</label>
+          <input id="smsPhoneInput" type="text" placeholder="09171234567 or +639171234567" />
+        </div>
+        <div class="field" style="margin-top:12px;">
+          <label for="smsMessageInput">Message</label>
+          <textarea id="smsMessageInput" placeholder="Type a freeform message to the applicant..."></textarea>
+          <div class="sms-char-count" id="smsCharCount">0 characters</div>
+        </div>
+        <div class="section-actions" style="justify-content:flex-end;">
+          <button class="btn" id="smsModalCancel" type="button">Cancel</button>
+          <button class="btn btn-primary" id="sendSmsBtn" type="button">Send SMS</button>
+        </div>
+      </div>
+    </div>
+  </div>
 
   <div class="modal" id="leadUploadModal">
     <div class="modal-card" style="width:min(1180px,100%);">
@@ -1974,6 +2077,7 @@
       statusFilter: document.getElementById('statusFilter'),
       recruiterFilter: document.getElementById('recruiterFilter'),
       sourceFilter: document.getElementById('sourceFilter'),
+      followUpFilter: document.getElementById('followUpFilter'),
       jobFilter: document.getElementById('jobFilter'),
       clientFilter: document.getElementById('clientFilter'),
       scoreFilter: document.getElementById('scoreFilter'),
@@ -2038,6 +2142,29 @@
       editNotes: document.getElementById('editNotes'),
       editResumeFile: document.getElementById('editResumeFile'),
       saveBtn: document.getElementById('saveBtn'),
+      markFollowUpBtn: document.getElementById('markFollowUpBtn'),
+      markFollowedUpBtn: document.getElementById('markFollowedUpBtn'),
+      clearFollowUpBtn: document.getElementById('clearFollowUpBtn'),
+      openSmsModalBtn: document.getElementById('openSmsModalBtn'),
+      followUpSnapshot: document.getElementById('followUpSnapshot'),
+      followUpDueSnapshot: document.getElementById('followUpDueSnapshot'),
+      followUpNoteSnapshot: document.getElementById('followUpNoteSnapshot'),
+      followUpModal: document.getElementById('followUpModal'),
+      followUpModalClose: document.getElementById('followUpModalClose'),
+      followUpModalCancel: document.getElementById('followUpModalCancel'),
+      followUpStatusInput: document.getElementById('followUpStatusInput'),
+      followUpDateInput: document.getElementById('followUpDateInput'),
+      followUpNoteInput: document.getElementById('followUpNoteInput'),
+      saveFollowUpBtn: document.getElementById('saveFollowUpBtn'),
+      smsModal: document.getElementById('smsModal'),
+      smsModalClose: document.getElementById('smsModalClose'),
+      smsModalCancel: document.getElementById('smsModalCancel'),
+      smsTargetName: document.getElementById('smsTargetName'),
+      smsTargetMeta: document.getElementById('smsTargetMeta'),
+      smsPhoneInput: document.getElementById('smsPhoneInput'),
+      smsMessageInput: document.getElementById('smsMessageInput'),
+      smsCharCount: document.getElementById('smsCharCount'),
+      sendSmsBtn: document.getElementById('sendSmsBtn'),
       clearFiltersBtn: document.getElementById('clearFiltersBtn'),
       resumeModal: document.getElementById('resumeModal'),
       resumeModalTitle: document.getElementById('resumeModalTitle'),
@@ -4181,15 +4308,258 @@ function renderLearningInsights(row) {
       return data || [];
     }
 
-    async function fetchApplicationsRows() {
-      const applicationSelect = `id,email,job_id,job_title,status,created_at,applicant_profile_id,recruiter_email,application_source,screening_result,screening_score,auto_disposition_reason,stage_note_code,stage_note_label,stage_note_updated_at,endorsement_status,endorsement_sent_at,endorsement_sent_to,endorsed_by,client_feedback_status,client_feedback_notes,client_feedback_at,last_status_change_at,sla_status,sla_due_at,endorsement_notes,screening_answers,screening_responses,screening_review_strengths,screening_review_risks,screening_review_summary,screening_review_decision,profile_fit_score,recruiter_score,top_talent_score,is_top_talent,talent_tag,recruiter_top_talent_override,recruiter_notes,updated_at,screening_review,screening_review_generated_at,screening_review_version`;
+
+    const FOLLOW_UP_OPTIONS = {
+      needs_follow_up: 'Needs Follow-up',
+      due_today: 'Due Today',
+      overdue: 'Overdue',
+      followed_up: 'Followed Up',
+      none: 'No Follow-up',
+    };
+
+    function parseFollowUpDate(value) {
+      if (!value) return null;
+      const date = new Date(value);
+      return Number.isNaN(date.getTime()) ? null : date;
+    }
+
+    function getFollowUpInfo(app) {
+      const required = app?.follow_up_required === true || String(app?.follow_up_required || '').toLowerCase() === 'true';
+      const rawStatus = safeText(app?.follow_up_status || '').toLowerCase();
+      const note = safeText(app?.follow_up_note || '');
+      const dueAt = app?.follow_up_date || app?.follow_up_due_at || null;
+      const lastAt = app?.last_followed_up_at || null;
+      const dueDate = parseFollowUpDate(dueAt);
+      const now = new Date();
+      const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      const tomorrowStart = new Date(todayStart.getTime() + 86400000);
+
+      let key = 'none';
+      if (rawStatus === 'followed_up' || lastAt) key = 'followed_up';
+      else if (rawStatus === 'needs_follow_up' || required || dueDate || note) key = 'needs_follow_up';
+
+      if (key === 'needs_follow_up' && dueDate) {
+        if (dueDate.getTime() < todayStart.getTime()) key = 'overdue';
+        else if (dueDate.getTime() >= todayStart.getTime() && dueDate.getTime() < tomorrowStart.getTime()) key = 'due_today';
+      }
+
+      return {
+        key,
+        label: FOLLOW_UP_OPTIONS[key] || 'No Follow-up',
+        required: key !== 'none' && key !== 'followed_up',
+        dueAt,
+        note,
+        lastAt,
+      };
+    }
+
+    function getFollowUpTone(key) {
+      if (key === 'overdue') return 'bad';
+      if (key === 'due_today' || key === 'needs_follow_up') return 'warn';
+      if (key === 'followed_up') return 'good';
+      return 'info';
+    }
+
+    function formatDateTimeLocalInput(value) {
+      const date = parseFollowUpDate(value);
+      if (!date) return '';
+      const pad = (n) => String(n).padStart(2, '0');
+      return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+    }
+
+    function getSelectedRow() {
+      return state.allRows.find((item) => item.id === state.selectedId) || null;
+    }
+
+    function renderFollowUpSnapshot(row) {
+      if (!row || !els.followUpSnapshot) return;
+      const info = getFollowUpInfo(row.app);
+      els.followUpSnapshot.textContent = info.label;
+      els.followUpDueSnapshot.textContent = info.dueAt ? formatDateTime(info.dueAt) : '—';
+      els.followUpNoteSnapshot.textContent = info.note || '—';
+    }
+
+    function defaultSmsMessage(row) {
+      const name = safeText(row?.displayName || '').split(' ')[0] || 'there';
+      return `Hi ${name}, this is TalentBuzz. We are following up on your application. Please reply here when you are available. Thank you.`;
+    }
+
+    function openFollowUpModal(rowId = state.selectedId, presetStatus = null) {
+      const row = state.allRows.find((item) => item.id === rowId);
+      if (!row) return showNotice('Select an applicant first.', 'error');
+      state.followUpTargetId = row.id;
+      const info = getFollowUpInfo(row.app);
+      els.followUpStatusInput.value = presetStatus || (info.key === 'followed_up' ? 'followed_up' : info.key === 'none' ? 'needs_follow_up' : 'needs_follow_up');
+      els.followUpDateInput.value = formatDateTimeLocalInput(info.dueAt);
+      els.followUpNoteInput.value = info.note || '';
+      els.followUpModal?.classList.add('show');
+    }
+
+    function closeFollowUpModal() {
+      els.followUpModal?.classList.remove('show');
+    }
+
+    async function updateFollowUpForRow(row, updates) {
+      const status = safeText(updates.status || 'none');
+      const dueAt = updates.dueAt || null;
+      const note = safeText(updates.note || '');
+      const nowIso = new Date().toISOString();
+      const payload = {
+        follow_up_required: status === 'needs_follow_up',
+        follow_up_status: status,
+        follow_up_date: dueAt,
+        follow_up_note: note || null,
+        updated_at: nowIso,
+      };
+      if (status === 'followed_up') {
+        payload.follow_up_required = false;
+        payload.last_followed_up_at = nowIso;
+      }
+      if (status === 'none') {
+        payload.follow_up_required = false;
+        payload.follow_up_date = null;
+        payload.follow_up_note = null;
+      }
+
+      const { error } = await supabaseClient.from('applications').update(payload).eq('id', row.id);
+      if (error) {
+        const notesFallback = [
+          safeText(row.app?.recruiter_notes || row.app?.stage_note_label || ''),
+          status === 'none'
+            ? 'Follow-up cleared.'
+            : `Follow-up: ${FOLLOW_UP_OPTIONS[status] || status}${dueAt ? ` • Due ${formatDateTime(dueAt)}` : ''}${note ? ` • ${note}` : ''}`,
+        ].filter(Boolean).join('\n\n');
+        const fallback = await supabaseClient
+          .from('applications')
+          .update({ recruiter_notes: notesFallback, updated_at: nowIso })
+          .eq('id', row.id);
+        if (fallback.error) throw error;
+        showNotice('Follow-up saved into recruiter notes. Add follow-up columns to applications for full filtering persistence.', 'info');
+        return;
+      }
+      showNotice('Follow-up updated.', 'success');
+    }
+
+    async function saveFollowUpFromModal() {
+      const row = state.allRows.find((item) => item.id === state.followUpTargetId);
+      if (!row) return;
       try {
-        return await fetchAll('recruiter_dashboard_applications', applicationSelect, 'created_at');
+        els.saveFollowUpBtn.disabled = true;
+        const status = safeText(els.followUpStatusInput.value || 'needs_follow_up');
+        const dueAt = els.followUpDateInput.value ? new Date(els.followUpDateInput.value).toISOString() : null;
+        const note = safeText(els.followUpNoteInput.value || '');
+        await updateFollowUpForRow(row, { status, dueAt, note });
+        closeFollowUpModal();
+        await loadDashboard();
+        if (state.selectedId) await openDrawer(row.id);
+      } catch (error) {
+        console.error(error);
+        showNotice(`Unable to save follow-up: ${error.message || error}`, 'error');
+      } finally {
+        els.saveFollowUpBtn.disabled = false;
+      }
+    }
+
+    async function markSelectedFollowedUp() {
+      const row = getSelectedRow();
+      if (!row) return showNotice('Select an applicant first.', 'error');
+      await updateFollowUpForRow(row, { status: 'followed_up', dueAt: null, note: getFollowUpInfo(row.app).note });
+      await loadDashboard();
+      await openDrawer(row.id);
+    }
+
+    async function clearSelectedFollowUp() {
+      const row = getSelectedRow();
+      if (!row) return showNotice('Select an applicant first.', 'error');
+      await updateFollowUpForRow(row, { status: 'none', dueAt: null, note: '' });
+      await loadDashboard();
+      await openDrawer(row.id);
+    }
+
+    function openSmsModal(rowId = state.selectedId) {
+      const row = state.allRows.find((item) => item.id === rowId);
+      if (!row) return showNotice('Select an applicant first.', 'error');
+      state.smsTargetId = row.id;
+      const phone = safeText(row.profile?.phone || row.app?.phone || '');
+      els.smsTargetName.textContent = row.displayName || 'Applicant';
+      els.smsTargetMeta.textContent = `${row.jobTitle} • ${row.clientName} • ${phone || 'No phone on profile'}`;
+      els.smsPhoneInput.value = phone;
+      els.smsMessageInput.value = defaultSmsMessage(row);
+      updateSmsCharCount();
+      els.smsModal?.classList.add('show');
+    }
+
+    function closeSmsModal() {
+      els.smsModal?.classList.remove('show');
+    }
+
+    function updateSmsCharCount() {
+      const count = safeText(els.smsMessageInput?.value || '').length;
+      if (els.smsCharCount) els.smsCharCount.textContent = `${count} character${count === 1 ? '' : 's'}`;
+    }
+
+    async function sendFreeformSms() {
+      const row = state.allRows.find((item) => item.id === state.smsTargetId);
+      if (!row) return showNotice('Select an applicant first.', 'error');
+      const phone = safeText(els.smsPhoneInput.value);
+      const message = safeText(els.smsMessageInput.value);
+      if (!phone) return showNotice('Phone number is required to send SMS.', 'error');
+      if (!message) return showNotice('SMS message is required.', 'error');
+      try {
+        els.sendSmsBtn.disabled = true;
+        els.sendSmsBtn.textContent = 'Sending...';
+        const { data, error } = await supabaseClient.functions.invoke('send-candidate-sms', {
+          body: {
+            applicant_profile_id: row.profile?.id || row.app?.applicant_profile_id || null,
+            application_id: row.id,
+            applicant_email: row.profile?.email || row.app?.email || null,
+            recruiter_email: state.currentUser?.email || row.recruiter || null,
+            phone,
+            message,
+            is_automated: false,
+            sender_name: 'TalentBuzz',
+            metadata: {
+              source: 'recruiter_dashboard_freeform_sms',
+              candidate_name: row.displayName,
+              job_title: row.jobTitle,
+              client_name: row.clientName,
+            },
+          },
+        });
+        if (error) throw error;
+        if (data && data.ok === false) throw new Error(data.message || data.error_code || 'SMS send failed.');
+        showNotice('SMS sent from TalentBuzz.', 'success');
+        closeSmsModal();
+      } catch (error) {
+        console.error(error);
+        showNotice(`Unable to send SMS: ${error.message || error}`, 'error');
+      } finally {
+        els.sendSmsBtn.disabled = false;
+        els.sendSmsBtn.textContent = 'Send SMS';
+      }
+    }
+
+    async function fetchApplicationsRows() {
+      const baseSelect = `id,email,job_id,job_title,status,created_at,applicant_profile_id,recruiter_email,application_source,screening_result,screening_score,auto_disposition_reason,stage_note_code,stage_note_label,stage_note_updated_at,endorsement_status,endorsement_sent_at,endorsement_sent_to,endorsed_by,client_feedback_status,client_feedback_notes,client_feedback_at,last_status_change_at,sla_status,sla_due_at,endorsement_notes,screening_answers,screening_responses,screening_review_strengths,screening_review_risks,screening_review_summary,screening_review_decision,profile_fit_score,recruiter_score,top_talent_score,is_top_talent,talent_tag,recruiter_top_talent_override,recruiter_notes,updated_at,screening_review,screening_review_generated_at,screening_review_version`;
+      const followUpSelect = `${baseSelect},follow_up_required,follow_up_status,follow_up_date,follow_up_due_at,follow_up_note,last_followed_up_at`;
+      const tryFetch = async (table) => {
+        try {
+          return await fetchAll(table, followUpSelect, 'created_at');
+        } catch (error) {
+          const msg = String(error?.message || error || '');
+          if (/follow_up_|last_followed_up/i.test(msg) || /column/i.test(msg)) {
+            return await fetchAll(table, baseSelect, 'created_at');
+          }
+          throw error;
+        }
+      };
+      try {
+        return await tryFetch('recruiter_dashboard_applications');
       } catch (error) {
         const message = String(error?.message || error || '');
         const missingView = /recruiter_dashboard_applications/i.test(message) || /does not exist/i.test(message);
         if (!missingView) throw error;
-        return await fetchAll('applications', applicationSelect, 'created_at');
+        return await tryFetch('applications');
       }
     }
 
@@ -4197,7 +4567,7 @@ function renderLearningInsights(row) {
       if (!supabaseClient) return;
       state.loading = true;
       hideNotice();
-      els.applicationsTable.innerHTML = '<tr><td colspan="8" class="small">Loading candidates...</td></tr>';
+      els.applicationsTable.innerHTML = '<tr><td colspan="9" class="small">Loading candidates...</td></tr>';
       try {
         const [applications, profiles, jobs, feedbackRows, outcomeRows] = await Promise.all([
           fetchApplicationsRows(),
@@ -4238,6 +4608,7 @@ function renderLearningInsights(row) {
             appliedAt: app.created_at,
             clientName: safeText(job.client_name || '—'),
             jobTitle: safeText(job.title || app.job_title || '—'),
+            followUp: getFollowUpInfo(app),
           };
           row.learning = buildLearningInsights(row);
           return row;
@@ -4249,7 +4620,7 @@ function renderLearningInsights(row) {
         await refreshChatWidget();
       } catch (error) {
         console.error(error);
-        els.applicationsTable.innerHTML = `<tr><td colspan="8" class="small">Unable to load dashboard: ${escapeHtml(error.message || String(error))}</td></tr>`;
+        els.applicationsTable.innerHTML = `<tr><td colspan="9" class="small">Unable to load dashboard: ${escapeHtml(error.message || String(error))}</td></tr>`;
         showNotice(`Unable to load dashboard: ${error.message || error}`, 'error');
       } finally {
         state.loading = false;
@@ -4276,6 +4647,7 @@ function renderLearningInsights(row) {
       const status = safeText(els.statusFilter.value).toLowerCase();
       const recruiter = safeText(els.recruiterFilter.value).toLowerCase();
       const source = safeText(els.sourceFilter.value).toLowerCase();
+      const followUp = safeText(els.followUpFilter.value).toLowerCase();
       const job = safeText(els.jobFilter.value).toLowerCase();
       const client = safeText(els.clientFilter.value).toLowerCase();
       const scoreFilter = safeText(els.scoreFilter.value).toLowerCase();
@@ -4295,6 +4667,7 @@ function renderLearningInsights(row) {
         if (status && normalizeStatus(row.status) !== status) return false;
         if (recruiter && row.recruiter.toLowerCase() !== recruiter) return false;
         if (source && row.source.toLowerCase() !== source) return false;
+        if (followUp && row.followUp?.key !== followUp) return false;
         if (job && row.jobTitle.toLowerCase() !== job) return false;
         if (client && row.clientName.toLowerCase() !== client) return false;
         if (scoreFilter && scoreTier(row.score.overall) !== scoreFilter) return false;
@@ -4322,7 +4695,7 @@ function renderLearningInsights(row) {
     function renderTable() {
       els.tableCount.textContent = `${state.filteredRows.length} candidate${state.filteredRows.length === 1 ? '' : 's'}`;
       if (!state.filteredRows.length) {
-        els.applicationsTable.innerHTML = '<tr><td colspan="8" class="small">No candidates match the current filters.</td></tr>';
+        els.applicationsTable.innerHTML = '<tr><td colspan="9" class="small">No candidates match the current filters.</td></tr>';
         return;
       }
       els.applicationsTable.innerHTML = state.filteredRows.map((row) => {
@@ -4341,6 +4714,11 @@ function renderLearningInsights(row) {
             </td>
             <td>${escapeHtml(row.clientName)}</td>
             <td><span class="pill ${tone}">${escapeHtml(formatStatusLabel(row.status || 'submitted'))}</span></td>
+            <td class="followup-cell">
+              <span class="pill ${getFollowUpTone(row.followUp?.key)}">${escapeHtml(row.followUp?.label || 'No Follow-up')}</span>
+              ${row.followUp?.dueAt ? `<div class="small followup-note">${escapeHtml(formatDateTime(row.followUp.dueAt))}</div>` : ''}
+              ${row.followUp?.note ? `<div class="small followup-note">${escapeHtml(row.followUp.note)}</div>` : ''}
+            </td>
             <td>${escapeHtml(row.recruiter)}</td>
             <td>${escapeHtml(formatDateTime(row.appliedAt))}</td>
             <td class="score-cell">\n              <span class="pill ${scoreTone}">${row.score.overall}%</span>\n            </td>
@@ -4348,6 +4726,8 @@ function renderLearningInsights(row) {
               <div class="actions">
                 <button class="btn btn-xs" type="button" data-action="open">Open</button>
                 <button class="btn btn-xs" type="button" data-action="resume">Resume</button>
+                <button class="btn btn-xs" type="button" data-action="followup">Follow-up</button>
+                <button class="btn btn-xs" type="button" data-action="sms">SMS</button>
               </div>
             </td>
           </tr>
@@ -4394,6 +4774,7 @@ function renderLearningInsights(row) {
       els.snapRecruiter.textContent = row.recruiter;
       els.snapSource.textContent = row.source;
       els.snapApplied.textContent = formatDateTime(row.appliedAt);
+      renderFollowUpSnapshot(row);
       els.editStatus.value = row.status || row.app?.client_feedback_status || row.app?.status || 'submitted';
       els.editNotes.value = row.app?.recruiter_notes || row.app?.stage_note_label || '';
       els.editResumeFile.value = '';
@@ -4519,6 +4900,7 @@ function renderLearningInsights(row) {
         els.statusFilter,
         els.recruiterFilter,
         els.sourceFilter,
+        els.followUpFilter,
         els.jobFilter,
         els.clientFilter,
         els.scoreFilter,
@@ -5288,6 +5670,19 @@ function renderLearningInsights(row) {
       els.resetLeadUploadBtn?.addEventListener('click', resetLeadUpload);
       els.leadCsvFile?.addEventListener('change', (event) => { void handleLeadCsvSelected(event); });
       els.confirmLeadUploadBtn?.addEventListener('click', () => { void importPreparedLeadRows(); });
+      els.markFollowUpBtn?.addEventListener('click', () => openFollowUpModal(state.selectedId));
+      els.markFollowedUpBtn?.addEventListener('click', () => { void markSelectedFollowedUp(); });
+      els.clearFollowUpBtn?.addEventListener('click', () => { void clearSelectedFollowUp(); });
+      els.openSmsModalBtn?.addEventListener('click', () => openSmsModal(state.selectedId));
+      els.followUpModalClose?.addEventListener('click', closeFollowUpModal);
+      els.followUpModalCancel?.addEventListener('click', closeFollowUpModal);
+      els.followUpModal?.addEventListener('click', (event) => { if (event.target === els.followUpModal) closeFollowUpModal(); });
+      els.saveFollowUpBtn?.addEventListener('click', () => { void saveFollowUpFromModal(); });
+      els.smsModalClose?.addEventListener('click', closeSmsModal);
+      els.smsModalCancel?.addEventListener('click', closeSmsModal);
+      els.smsModal?.addEventListener('click', (event) => { if (event.target === els.smsModal) closeSmsModal(); });
+      els.smsMessageInput?.addEventListener('input', updateSmsCharCount);
+      els.sendSmsBtn?.addEventListener('click', () => { void sendFreeformSms(); });
       els.headerLogoutBtn?.addEventListener('click', () => { void handleLogout(); });
       els.logoutBtn?.addEventListener('click', () => { void handleLogout(); });
       document.addEventListener('click', (event) => {
@@ -5354,9 +5749,9 @@ function renderLearningInsights(row) {
           void sendChatConversationMessage();
         }
       });
-      [els.searchInput, els.statusFilter, els.recruiterFilter, els.sourceFilter, els.jobFilter, els.clientFilter, els.scoreFilter]
+      [els.searchInput, els.statusFilter, els.recruiterFilter, els.sourceFilter, els.followUpFilter, els.jobFilter, els.clientFilter, els.scoreFilter]
         .forEach((el) => el.addEventListener('input', applyFilters));
-      [els.statusFilter, els.recruiterFilter, els.sourceFilter, els.jobFilter, els.clientFilter, els.scoreFilter]
+      [els.statusFilter, els.recruiterFilter, els.sourceFilter, els.followUpFilter, els.jobFilter, els.clientFilter, els.scoreFilter]
         .forEach((el) => el.addEventListener('change', applyFilters));
 
       const openSourcingModal = () => {
@@ -5438,6 +5833,8 @@ function renderLearningInsights(row) {
         if (!button) return openDrawer(id);
         const action = button.getAttribute('data-action');
         if (action === 'open') return openDrawer(id);
+        if (action === 'followup') return openFollowUpModal(id);
+        if (action === 'sms') return openSmsModal(id);
         if (action === 'resume') {
           const selected = state.filteredRows.find((item) => item.id === id) || state.allRows.find((item) => item.id === id);
           if (!selected) return;
@@ -5451,7 +5848,7 @@ function renderLearningInsights(row) {
     function initClient() {
       if (!CONFIG.SUPABASE_URL || !CONFIG.SUPABASE_ANON_KEY) {
         showNotice('Missing Supabase config. Set window.TALENTBUZZ_SUPABASE_URL and window.TALENTBUZZ_SUPABASE_ANON_KEY, or store them in localStorage under the same keys.', 'error');
-        els.applicationsTable.innerHTML = '<tr><td colspan="8" class="small">Missing Supabase config.</td></tr>';
+        els.applicationsTable.innerHTML = '<tr><td colspan="9" class="small">Missing Supabase config.</td></tr>';
         setAuthMessage('Missing Supabase configuration for recruiter login.');
         return false;
       }
@@ -5533,6 +5930,7 @@ function renderLearningInsights(row) {
           .on('postgres_changes', { event: '*', schema: 'public', table: 'jobs' }, () => queueDashboardRefresh(350))
           .on('postgres_changes', { event: '*', schema: 'public', table: 'application_feedback' }, () => queueDashboardRefresh(250))
           .on('postgres_changes', { event: '*', schema: 'public', table: 'hiring_outcomes' }, () => queueDashboardRefresh(250))
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'candidate_sms_messages' }, () => queueDashboardRefresh(350))
           .subscribe((status) => {
             console.log('Dashboard realtime status:', status);
           });
