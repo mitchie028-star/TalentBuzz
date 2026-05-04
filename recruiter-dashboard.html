@@ -601,6 +601,11 @@
     }
     .hidden { display: none !important; }
 
+    .notes-focus-highlight {
+      box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.18);
+      border-color: #93c5fd !important;
+    }
+
 
     
     .utility-nav {
@@ -1851,7 +1856,7 @@
       <div class="modal-head">
         <div>
           <strong>Mark Applicant for Follow-up</strong>
-          <div class="small" style="margin-top:6px;">Use this for callbacks, interview reminders, document requests, and any recruiter action that should not get lost.</div>
+          <div class="small" style="margin-top:6px;">Use this for callbacks, interview reminders, document requests, and any recruiter action that should not get lost. The note will also be appended into Recruiter Notes.</div>
         </div>
         <button class="btn btn-xs" id="followUpModalClose" type="button">Close</button>
       </div>
@@ -4345,12 +4350,49 @@ function renderLearningInsights(row) {
       return Number.isNaN(date.getTime()) ? null : date;
     }
 
+function extractFollowUpFromRecruiterNotes(app) {
+      const notes = safeText(app?.recruiter_notes || app?.stage_note_label || app?.endorsement_notes || '');
+      if (!notes) return null;
+
+      const blocks = notes
+        .split(/\n\s*\n/g)
+        .map((block) => block.trim())
+        .filter(Boolean)
+        .filter((block) => /^Follow-up Note/i.test(block) || /\bFollow-up\b/i.test(block));
+
+      const block = blocks.length ? blocks[blocks.length - 1] : '';
+      if (!block) return null;
+
+      const statusMatch = block.match(/Status:\s*([^\n]+)/i);
+      const dueMatch = block.match(/Due:\s*([^\n]+)/i);
+      const noteMatch = block.match(/Note:\s*([\s\S]*?)(?:\nLogged:|$)/i);
+      const loggedMatch = block.match(/Logged:\s*([^\n]+)/i);
+
+      const statusText = safeText(statusMatch?.[1] || '').toLowerCase();
+      let status = '';
+      if (/followed\s*up/.test(statusText)) status = 'followed_up';
+      else if (/no\s*follow/.test(statusText)) status = 'none';
+      else if (/overdue|due today|needs?\s*follow/.test(statusText)) status = 'needs_follow_up';
+
+      const dueDate = parseFollowUpDate(safeText(dueMatch?.[1] || ''));
+      const loggedDate = parseFollowUpDate(safeText(loggedMatch?.[1] || ''));
+      const note = safeText(noteMatch?.[1] || '');
+
+      return {
+        status: status || (note || dueDate ? 'needs_follow_up' : ''),
+        dueAt: dueDate ? dueDate.toISOString() : null,
+        note,
+        loggedAt: loggedDate ? loggedDate.toISOString() : null,
+      };
+    }
+
     function getFollowUpInfo(app) {
+      const parsedFromNotes = extractFollowUpFromRecruiterNotes(app);
       const required = app?.follow_up_required === true || String(app?.follow_up_required || '').toLowerCase() === 'true';
-      const rawStatus = safeText(app?.follow_up_status || '').toLowerCase();
-      const note = safeText(app?.follow_up_note || '');
-      const dueAt = app?.follow_up_date || app?.follow_up_due_at || null;
-      const lastAt = app?.last_followed_up_at || null;
+      const rawStatus = safeText(app?.follow_up_status || parsedFromNotes?.status || '').toLowerCase();
+      const note = safeText(app?.follow_up_note || parsedFromNotes?.note || '');
+      const dueAt = app?.follow_up_date || app?.follow_up_due_at || parsedFromNotes?.dueAt || null;
+      const lastAt = app?.last_followed_up_at || (rawStatus === 'followed_up' ? parsedFromNotes?.loggedAt : null) || null;
       const dueDate = parseFollowUpDate(dueAt);
       const now = new Date();
       const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -4401,6 +4443,24 @@ function renderLearningInsights(row) {
       els.followUpNoteSnapshot.textContent = info.note || '—';
     }
 
+    function buildFollowUpRecruiterNote(status, dueAt, note) {
+      const statusLabel = FOLLOW_UP_OPTIONS[status] || formatStatusLabel(status) || 'Follow-up';
+      const lines = [
+        'Follow-up Note',
+        `Status: ${statusLabel}`,
+      ];
+      if (dueAt) lines.push(`Due: ${formatDateTime(dueAt)}`);
+      if (note) lines.push(`Note: ${note}`);
+      lines.push(`Logged: ${formatDateTime(new Date().toISOString())}`);
+      return lines.join('\n');
+    }
+
+    function appendFollowUpToRecruiterNotes(existingNotes, status, dueAt, note) {
+      const block = buildFollowUpRecruiterNote(status, dueAt, note);
+      const base = safeText(existingNotes || '');
+      return base ? `${base}\n\n${block}` : block;
+    }
+
     function defaultSmsMessage(row) {
       const name = safeText(row?.displayName || '').split(' ')[0] || 'there';
       return `Hi ${name}, this is TalentBuzz. We are following up on your application. Please reply here when you are available. Thank you.`;
@@ -4421,45 +4481,113 @@ function renderLearningInsights(row) {
       els.followUpModal?.classList.remove('show');
     }
 
+    function getCurrentRecruiterNotesForRow(row) {
+      const drawerNotes = row?.id === state.selectedId ? safeText(els.editNotes?.value || '') : '';
+      return drawerNotes || safeText(row?.app?.recruiter_notes || row?.app?.stage_note_label || '');
+    }
+
+    function isColumnOrSchemaError(error) {
+      const message = String(error?.message || error || '').toLowerCase();
+      return /column|schema cache|does not exist|could not find|unknown|not found/i.test(message);
+    }
+
+    async function updateApplicationWithFallbacks(applicationId, fullPayload, notesValue) {
+      const attempts = [];
+
+      attempts.push(fullPayload);
+
+      if (Object.prototype.hasOwnProperty.call(fullPayload, 'follow_up_date')) {
+        const dueAt = fullPayload.follow_up_date;
+        const altPayload = { ...fullPayload };
+        delete altPayload.follow_up_date;
+        altPayload.follow_up_due_at = dueAt;
+        attempts.push(altPayload);
+      }
+
+      const notesPayload = {
+        recruiter_notes: notesValue || null,
+        updated_at: fullPayload.updated_at || new Date().toISOString(),
+      };
+      attempts.push(notesPayload);
+
+      attempts.push({
+        stage_note_label: notesValue || null,
+        stage_note_updated_at: fullPayload.updated_at || new Date().toISOString(),
+        updated_at: fullPayload.updated_at || new Date().toISOString(),
+      });
+
+      let lastError = null;
+      for (const payload of attempts) {
+        const { error } = await supabaseClient
+          .from('applications')
+          .update(payload)
+          .eq('id', applicationId);
+
+        if (!error) {
+          return { savedPayload: payload, fullSave: payload === fullPayload || Object.prototype.hasOwnProperty.call(payload, 'follow_up_due_at') };
+        }
+
+        lastError = error;
+        if (!isColumnOrSchemaError(error)) break;
+      }
+
+      throw lastError || new Error('Unable to update application.');
+    }
+
     async function updateFollowUpForRow(row, updates) {
       const status = safeText(updates.status || 'none');
       const dueAt = updates.dueAt || null;
       const note = safeText(updates.note || '');
       const nowIso = new Date().toISOString();
+      const currentRecruiterNotes = getCurrentRecruiterNotesForRow(row);
+      const shouldAppendNote = status !== 'none' && (note || dueAt || status === 'followed_up' || status === 'needs_follow_up');
+      const nextRecruiterNotes = shouldAppendNote
+        ? appendFollowUpToRecruiterNotes(currentRecruiterNotes, status, dueAt, note)
+        : currentRecruiterNotes;
+
       const payload = {
         follow_up_required: status === 'needs_follow_up',
         follow_up_status: status,
         follow_up_date: dueAt,
         follow_up_note: note || null,
+        recruiter_notes: nextRecruiterNotes || null,
         updated_at: nowIso,
       };
+
       if (status === 'followed_up') {
         payload.follow_up_required = false;
         payload.last_followed_up_at = nowIso;
       }
+
       if (status === 'none') {
         payload.follow_up_required = false;
         payload.follow_up_date = null;
         payload.follow_up_note = null;
+        payload.last_followed_up_at = null;
       }
 
-      const { error } = await supabaseClient.from('applications').update(payload).eq('id', row.id);
-      if (error) {
-        const notesFallback = [
-          safeText(row.app?.recruiter_notes || row.app?.stage_note_label || ''),
-          status === 'none'
-            ? 'Follow-up cleared.'
-            : `Follow-up: ${FOLLOW_UP_OPTIONS[status] || status}${dueAt ? ` • Due ${formatDateTime(dueAt)}` : ''}${note ? ` • ${note}` : ''}`,
-        ].filter(Boolean).join('\n\n');
-        const fallback = await supabaseClient
-          .from('applications')
-          .update({ recruiter_notes: notesFallback, updated_at: nowIso })
-          .eq('id', row.id);
-        if (fallback.error) throw error;
-        showNotice('Follow-up saved into recruiter notes. Add follow-up columns to applications for full filtering persistence.', 'info');
-        return;
+      const result = await updateApplicationWithFallbacks(row.id, payload, nextRecruiterNotes);
+
+      row.app = {
+        ...row.app,
+        ...payload,
+        ...(Object.prototype.hasOwnProperty.call(result.savedPayload, 'follow_up_due_at') ? { follow_up_due_at: dueAt } : {}),
+        ...(Object.prototype.hasOwnProperty.call(result.savedPayload, 'stage_note_label') ? { stage_note_label: nextRecruiterNotes } : {}),
+      };
+      row.followUp = getFollowUpInfo(row.app);
+
+      if (row.id === state.selectedId && els.editNotes) {
+        els.editNotes.value = nextRecruiterNotes || '';
+        renderFollowUpSnapshot(row);
       }
-      showNotice('Follow-up updated.', 'success');
+
+      applyFilters();
+
+      if (result.fullSave) {
+        showNotice('Follow-up updated and added to recruiter notes.', 'success');
+      } else {
+        showNotice('Follow-up note added to recruiter notes. Follow-up filter fields were not available in this Supabase table yet.', 'info');
+      }
     }
 
     async function saveFollowUpFromModal() {
@@ -4472,8 +4600,12 @@ function renderLearningInsights(row) {
         const note = safeText(els.followUpNoteInput.value || '');
         await updateFollowUpForRow(row, { status, dueAt, note });
         closeFollowUpModal();
-        await loadDashboard();
+        renderTable();
         if (state.selectedId) await openDrawer(row.id);
+        // Refresh from Supabase after the UI updates. getFollowUpInfo also reads the fallback
+        // Follow-up Note block from recruiter_notes, so the status survives even when the
+        // follow_up_* columns are not exposed by the dashboard view yet.
+        setTimeout(() => { void loadDashboard(); }, 250);
       } catch (error) {
         console.error(error);
         showNotice(`Unable to save follow-up: ${error.message || error}`, 'error');
@@ -4486,16 +4618,16 @@ function renderLearningInsights(row) {
       const row = getSelectedRow();
       if (!row) return showNotice('Select an applicant first.', 'error');
       await updateFollowUpForRow(row, { status: 'followed_up', dueAt: null, note: getFollowUpInfo(row.app).note });
-      await loadDashboard();
       await openDrawer(row.id);
+      setTimeout(() => { void loadDashboard(); }, 250);
     }
 
     async function clearSelectedFollowUp() {
       const row = getSelectedRow();
       if (!row) return showNotice('Select an applicant first.', 'error');
       await updateFollowUpForRow(row, { status: 'none', dueAt: null, note: '' });
-      await loadDashboard();
       await openDrawer(row.id);
+      setTimeout(() => { void loadDashboard(); }, 250);
     }
 
     function openSmsModal(rowId = state.selectedId) {
@@ -4776,6 +4908,7 @@ function renderLearningInsights(row) {
               <div class="actions">
                 <button class="btn btn-xs" type="button" data-action="open">Open</button>
                 <button class="btn btn-xs" type="button" data-action="resume">Resume</button>
+                <button class="btn btn-xs" type="button" data-action="notes">Notes</button>
                 <button class="btn btn-xs" type="button" data-action="followup">Follow-up</button>
                 <button class="btn btn-xs" type="button" data-action="sms">SMS</button>
               </div>
@@ -4783,6 +4916,16 @@ function renderLearningInsights(row) {
           </tr>
         `;
       }).join('');
+    }
+
+    async function openRecruiterNotes(rowId) {
+      await openDrawer(rowId);
+      setTimeout(() => {
+        els.editNotes?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        els.editNotes?.focus();
+        els.editNotes?.classList.add('notes-focus-highlight');
+        setTimeout(() => els.editNotes?.classList.remove('notes-focus-highlight'), 1400);
+      }, 80);
     }
 
     function getSelectedIndex() {
@@ -6115,6 +6258,7 @@ function renderLearningInsights(row) {
         if (!button) return openDrawer(id);
         const action = button.getAttribute('data-action');
         if (action === 'open') return openDrawer(id);
+        if (action === 'notes') return openRecruiterNotes(id);
         if (action === 'followup') return openFollowUpModal(id);
         if (action === 'sms') return openSmsModal(id);
         if (action === 'resume') {
