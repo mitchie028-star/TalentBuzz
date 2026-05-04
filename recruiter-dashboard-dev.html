@@ -601,6 +601,11 @@
     }
     .hidden { display: none !important; }
 
+    .notes-focus-highlight {
+      box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.18);
+      border-color: #93c5fd !important;
+    }
+
 
     
     .utility-nav {
@@ -1851,7 +1856,7 @@
       <div class="modal-head">
         <div>
           <strong>Mark Applicant for Follow-up</strong>
-          <div class="small" style="margin-top:6px;">Use this for callbacks, interview reminders, document requests, and any recruiter action that should not get lost.</div>
+          <div class="small" style="margin-top:6px;">Use this for callbacks, interview reminders, document requests, and any recruiter action that should not get lost. The note will also be appended into Recruiter Notes.</div>
         </div>
         <button class="btn btn-xs" id="followUpModalClose" type="button">Close</button>
       </div>
@@ -4401,6 +4406,24 @@ function renderLearningInsights(row) {
       els.followUpNoteSnapshot.textContent = info.note || '—';
     }
 
+    function buildFollowUpRecruiterNote(status, dueAt, note) {
+      const statusLabel = FOLLOW_UP_OPTIONS[status] || formatStatusLabel(status) || 'Follow-up';
+      const lines = [
+        'Follow-up Note',
+        `Status: ${statusLabel}`,
+      ];
+      if (dueAt) lines.push(`Due: ${formatDateTime(dueAt)}`);
+      if (note) lines.push(`Note: ${note}`);
+      lines.push(`Logged: ${formatDateTime(new Date().toISOString())}`);
+      return lines.join('\n');
+    }
+
+    function appendFollowUpToRecruiterNotes(existingNotes, status, dueAt, note) {
+      const block = buildFollowUpRecruiterNote(status, dueAt, note);
+      const base = safeText(existingNotes || '');
+      return base ? `${base}\n\n${block}` : block;
+    }
+
     function defaultSmsMessage(row) {
       const name = safeText(row?.displayName || '').split(' ')[0] || 'there';
       return `Hi ${name}, this is TalentBuzz. We are following up on your application. Please reply here when you are available. Thank you.`;
@@ -4426,11 +4449,14 @@ function renderLearningInsights(row) {
       const dueAt = updates.dueAt || null;
       const note = safeText(updates.note || '');
       const nowIso = new Date().toISOString();
+      const currentRecruiterNotes = safeText(row.app?.recruiter_notes || row.app?.stage_note_label || '');
+      const nextRecruiterNotes = appendFollowUpToRecruiterNotes(currentRecruiterNotes, status, dueAt, note);
       const payload = {
         follow_up_required: status === 'needs_follow_up',
         follow_up_status: status,
         follow_up_date: dueAt,
         follow_up_note: note || null,
+        recruiter_notes: nextRecruiterNotes || null,
         updated_at: nowIso,
       };
       if (status === 'followed_up') {
@@ -4445,21 +4471,15 @@ function renderLearningInsights(row) {
 
       const { error } = await supabaseClient.from('applications').update(payload).eq('id', row.id);
       if (error) {
-        const notesFallback = [
-          safeText(row.app?.recruiter_notes || row.app?.stage_note_label || ''),
-          status === 'none'
-            ? 'Follow-up cleared.'
-            : `Follow-up: ${FOLLOW_UP_OPTIONS[status] || status}${dueAt ? ` • Due ${formatDateTime(dueAt)}` : ''}${note ? ` • ${note}` : ''}`,
-        ].filter(Boolean).join('\n\n');
         const fallback = await supabaseClient
           .from('applications')
-          .update({ recruiter_notes: notesFallback, updated_at: nowIso })
+          .update({ recruiter_notes: nextRecruiterNotes || null, updated_at: nowIso })
           .eq('id', row.id);
         if (fallback.error) throw error;
-        showNotice('Follow-up saved into recruiter notes. Add follow-up columns to applications for full filtering persistence.', 'info');
+        showNotice('Follow-up note saved into recruiter notes. Add follow-up columns to applications for full filtering persistence.', 'info');
         return;
       }
-      showNotice('Follow-up updated.', 'success');
+      showNotice('Follow-up updated and added to recruiter notes.', 'success');
     }
 
     async function saveFollowUpFromModal() {
@@ -4776,6 +4796,7 @@ function renderLearningInsights(row) {
               <div class="actions">
                 <button class="btn btn-xs" type="button" data-action="open">Open</button>
                 <button class="btn btn-xs" type="button" data-action="resume">Resume</button>
+                <button class="btn btn-xs" type="button" data-action="notes">Notes</button>
                 <button class="btn btn-xs" type="button" data-action="followup">Follow-up</button>
                 <button class="btn btn-xs" type="button" data-action="sms">SMS</button>
               </div>
@@ -4783,6 +4804,16 @@ function renderLearningInsights(row) {
           </tr>
         `;
       }).join('');
+    }
+
+    async function openRecruiterNotes(rowId) {
+      await openDrawer(rowId);
+      setTimeout(() => {
+        els.editNotes?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        els.editNotes?.focus();
+        els.editNotes?.classList.add('notes-focus-highlight');
+        setTimeout(() => els.editNotes?.classList.remove('notes-focus-highlight'), 1400);
+      }, 80);
     }
 
     function getSelectedIndex() {
@@ -6115,6 +6146,7 @@ function renderLearningInsights(row) {
         if (!button) return openDrawer(id);
         const action = button.getAttribute('data-action');
         if (action === 'open') return openDrawer(id);
+        if (action === 'notes') return openRecruiterNotes(id);
         if (action === 'followup') return openFollowUpModal(id);
         if (action === 'sms') return openSmsModal(id);
         if (action === 'resume') {
