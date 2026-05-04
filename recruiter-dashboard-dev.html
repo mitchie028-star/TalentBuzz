@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>BuzzHire | Recruiter Dashboard</title>
-  <meta name="description" content="TalentBuzz recruiter dashboard clean rebuild with SMS reminders and follow-up" />
+  <meta name="description" content="TalentBuzz recruiter dashboard clean rebuild" />
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script>
   window.TALENTBUZZ_SUPABASE_URL = "https://dilalntcxmvdcmwxjcct.supabase.co";
@@ -1226,6 +1226,74 @@
       }
     }
 
+
+
+    /* Lead CSV bulk upload */
+    .lead-upload-grid {
+      display: grid;
+      grid-template-columns: 1.1fr .9fr;
+      gap: 14px;
+      align-items: start;
+    }
+    .lead-drop-zone {
+      border: 1px dashed #93c5fd;
+      border-radius: 18px;
+      background: linear-gradient(135deg, #eff6ff 0%, #ffffff 100%);
+      padding: 18px;
+      display: grid;
+      gap: 12px;
+    }
+    .lead-drop-zone h3 { margin: 0; color: var(--primary); font-size: 1rem; }
+    .lead-drop-zone p { margin: 0; color: var(--muted); font-size: .86rem; line-height: 1.5; }
+    .lead-file-input { width: 100%; }
+    .lead-summary-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+      margin-top: 14px;
+    }
+    .lead-summary-card {
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      background: #fff;
+      padding: 12px;
+    }
+    .lead-summary-label {
+      color: var(--muted);
+      font-size: .7rem;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: .06em;
+      margin-bottom: 6px;
+    }
+    .lead-summary-value { color: var(--primary); font-size: 1.35rem; line-height: 1; font-weight: 800; }
+    .lead-preview-wrap {
+      margin-top: 14px;
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      overflow: auto;
+      max-height: 320px;
+      background: #fff;
+    }
+    .lead-preview-table { min-width: 980px; }
+    .lead-preview-table th, .lead-preview-table td { font-size: .82rem; padding: 10px; }
+    .lead-status-ready { color: var(--good); font-weight: 800; }
+    .lead-status-duplicate { color: var(--warn); font-weight: 800; }
+    .lead-status-invalid { color: var(--bad); font-weight: 800; }
+    .lead-help-list {
+      display: grid;
+      gap: 8px;
+      margin: 0;
+      padding-left: 18px;
+      color: var(--muted);
+      font-size: .86rem;
+      line-height: 1.45;
+    }
+    .lead-help-list strong { color: var(--primary); }
+    @media (max-width: 980px) {
+      .lead-upload-grid, .lead-summary-grid { grid-template-columns: 1fr; }
+    }
+
     @keyframes chatPulse {
       0%, 100% { transform: scale(1); box-shadow: 0 18px 40px rgba(30, 58, 138, 0.28); }
       50% { transform: scale(1.04); box-shadow: 0 20px 46px rgba(220, 38, 38, 0.24); }
@@ -1335,6 +1403,7 @@
               <a href="client-roles-input.html" class="menu-link">📋 Open Roles</a>
               <a href="client-invite-manager.html" class="menu-link">🏢 Add Client</a>
               <a href="recruiter-add-candidate.html" class="menu-link">➕ Add Candidate</a>
+              <button class="menu-action" id="openLeadUploadMenuBtn" type="button">📥 Upload Leads CSV</button>
               <button class="menu-action" id="copySourcingLinkMenuBtn" type="button">🔗 My Sourcing Link</button>
               <div class="menu-divider"></div>
               <button class="menu-action" id="clearFromMenuBtn" type="button">🧹 Clear Filters</button>
@@ -1346,6 +1415,7 @@
       </div>
       <div class="topbar-actions-row">
         <div class="top-actions">
+          <button class="btn btn-primary" id="openLeadUploadModalBtn" type="button">Upload Leads CSV</button>
           <button class="btn btn-soft" id="openSourcingModalBtn" type="button">My Sourcing Link</button>
           <button class="btn" id="clearFiltersBtn" type="button">Clear Filters</button>
         </div>
@@ -1468,20 +1538,6 @@
                 <div class="kv-item"><div class="kv-label">Source</div><div class="kv-value" id="snapSource">—</div></div>
                 <div class="kv-item"><div class="kv-label">Applied</div><div class="kv-value" id="snapApplied">—</div></div>
               </div>
-            </div>
-
-            <div class="section">
-              <h3>SMS</h3>
-              <div class="kv">
-                <div class="kv-item"><div class="kv-label">Consent</div><div class="kv-value" id="smsConsentValue">—</div></div>
-                <div class="kv-item"><div class="kv-label">Mobile</div><div class="kv-value" id="smsPhoneValue">—</div></div>
-                <div class="kv-item full"><div class="kv-label">Last SMS</div><div class="kv-value" id="smsLastMessageValue">No SMS activity yet.</div></div>
-              </div>
-              <div class="section-actions">
-                <button class="btn btn-xs" id="sendSmsReminderBtn" type="button">Interview Reminder SMS</button>
-                <button class="btn btn-xs" id="sendSmsFollowUpBtn" type="button">Follow-up SMS</button>
-              </div>
-              <div class="muted" id="smsHint" style="margin-top:10px;">SMS uses the send-candidate-sms Edge Function and keeps the dashboard KPI logic unchanged.</div>
             </div>
 
             <div class="section">
@@ -1739,6 +1795,70 @@
     </div>
   </div>
 
+
+
+  <div class="modal" id="leadUploadModal">
+    <div class="modal-card" style="width:min(1180px,100%);">
+      <div class="modal-head">
+        <div>
+          <strong>Upload Leads CSV</strong>
+          <div class="small" style="margin-top:6px;">Bulk upload pre-candidate leads for recruiter callout and offer openings. Leads do not need a job, client, or role yet.</div>
+        </div>
+        <button class="btn btn-xs" id="leadUploadModalClose" type="button">Close</button>
+      </div>
+      <div class="modal-body" style="padding:18px; background:#f8fbff; overflow:auto;">
+        <div class="lead-upload-grid">
+          <div class="lead-drop-zone">
+            <h3>CSV file</h3>
+            <p>Accepted columns: <strong>full_name, email, phone, location, source, lead_type, notes</strong>. Blank fields are allowed, but each row needs at least an email or phone.</p>
+            <input class="lead-file-input" id="leadCsvFile" type="file" accept=".csv,text/csv" />
+            <div class="sourcing-card-actions">
+              <button class="btn btn-soft" id="downloadLeadTemplateBtn" type="button">Download Template</button>
+              <button class="btn" id="resetLeadUploadBtn" type="button">Reset</button>
+              <button class="btn btn-primary" id="confirmLeadUploadBtn" type="button" disabled>Import Valid Leads</button>
+            </div>
+            <div class="small" id="leadUploadFileMeta">No CSV selected.</div>
+          </div>
+          <div class="panel" style="padding:16px; box-shadow:none;">
+            <h3 style="margin:0 0 10px; color:var(--primary); font-size:1rem;">Upload rules</h3>
+            <ul class="lead-help-list">
+              <li><strong>Blank fields are allowed.</strong> Missing name becomes “Unknown Lead”.</li>
+              <li><strong>Email or phone is required.</strong> Rows missing both are skipped.</li>
+              <li><strong>Duplicates are skipped.</strong> The uploader checks duplicates inside the CSV and existing leads by normalized email or phone.</li>
+              <li><strong>Default values:</strong> lead_type = callout, status = new, recruiter = signed-in recruiter.</li>
+            </ul>
+          </div>
+        </div>
+        <div class="lead-summary-grid" id="leadUploadSummary">
+          <div class="lead-summary-card"><div class="lead-summary-label">Rows found</div><div class="lead-summary-value" id="leadRowsFound">0</div></div>
+          <div class="lead-summary-card"><div class="lead-summary-label">Ready</div><div class="lead-summary-value" id="leadRowsReady">0</div></div>
+          <div class="lead-summary-card"><div class="lead-summary-label">Duplicates</div><div class="lead-summary-value" id="leadRowsDuplicate">0</div></div>
+          <div class="lead-summary-card"><div class="lead-summary-label">Invalid</div><div class="lead-summary-value" id="leadRowsInvalid">0</div></div>
+        </div>
+        <div class="lead-preview-wrap">
+          <table class="lead-preview-table">
+            <thead>
+              <tr>
+                <th>Row</th>
+                <th>Status</th>
+                <th>Name</th>
+                <th>Email</th>
+                <th>Phone</th>
+                <th>Location</th>
+                <th>Source</th>
+                <th>Lead Type</th>
+                <th>Notes</th>
+              </tr>
+            </thead>
+            <tbody id="leadUploadPreviewTable">
+              <tr><td colspan="9" class="small">Upload a CSV to preview leads before importing.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <div class="modal" id="resumeModal">
     <div class="modal-card">
       <div class="modal-head">
@@ -1811,6 +1931,14 @@
       chatTypingByThread: {},
       chatTypingTimer: null,
       chatDraftByThread: {},
+      leadUpload: {
+        rawRows: [],
+        preparedRows: [],
+        validRows: [],
+        duplicateRows: [],
+        invalidRows: [],
+        fileName: '',
+      },
     };
 
     const els = {
@@ -1820,6 +1948,20 @@
       headerAccountName: document.getElementById('headerAccountName'),
       headerLogoutBtn: document.getElementById('headerLogoutBtn'),
       logoutBtn: document.getElementById('logoutBtn'),
+      openLeadUploadModalBtn: document.getElementById('openLeadUploadModalBtn'),
+      openLeadUploadMenuBtn: document.getElementById('openLeadUploadMenuBtn'),
+      leadUploadModal: document.getElementById('leadUploadModal'),
+      leadUploadModalClose: document.getElementById('leadUploadModalClose'),
+      leadCsvFile: document.getElementById('leadCsvFile'),
+      leadUploadFileMeta: document.getElementById('leadUploadFileMeta'),
+      downloadLeadTemplateBtn: document.getElementById('downloadLeadTemplateBtn'),
+      resetLeadUploadBtn: document.getElementById('resetLeadUploadBtn'),
+      confirmLeadUploadBtn: document.getElementById('confirmLeadUploadBtn'),
+      leadRowsFound: document.getElementById('leadRowsFound'),
+      leadRowsReady: document.getElementById('leadRowsReady'),
+      leadRowsDuplicate: document.getElementById('leadRowsDuplicate'),
+      leadRowsInvalid: document.getElementById('leadRowsInvalid'),
+      leadUploadPreviewTable: document.getElementById('leadUploadPreviewTable'),
       openSourcingModalBtn: document.getElementById('openSourcingModalBtn'),
       copySourcingLinkMenuBtn: document.getElementById('copySourcingLinkMenuBtn'),
       sourcingLinkModal: document.getElementById('sourcingLinkModal'),
@@ -1889,11 +2031,6 @@
       snapRecruiter: document.getElementById('snapRecruiter'),
       snapSource: document.getElementById('snapSource'),
       snapApplied: document.getElementById('snapApplied'),
-      smsConsentValue: document.getElementById('smsConsentValue'),
-      smsPhoneValue: document.getElementById('smsPhoneValue'),
-      smsLastMessageValue: document.getElementById('smsLastMessageValue'),
-      sendSmsReminderBtn: document.getElementById('sendSmsReminderBtn'),
-      sendSmsFollowUpBtn: document.getElementById('sendSmsFollowUpBtn'),
       resumeMeta: document.getElementById('resumeMeta'),
       viewResumeBtn: document.getElementById('viewResumeBtn'),
       downloadResumeBtn: document.getElementById('downloadResumeBtn'),
@@ -3530,6 +3667,299 @@
       }
     }
 
+
+
+    const LEAD_UPLOAD_HEADERS = ['full_name', 'email', 'phone', 'location', 'source', 'lead_type', 'notes'];
+    const LEAD_TYPE_OPTIONS = new Set(['callout', 'offer_opening', 'offer opening', 'both']);
+
+    function normalizePhone(value) {
+      return safeText(value).replace(/\D/g, '');
+    }
+
+    function normalizeLeadType(value) {
+      const raw = safeText(value).toLowerCase().replace(/[\s-]+/g, '_');
+      if (!raw) return 'callout';
+      if (raw === 'offer_opening' || raw === 'offer') return 'offer_opening';
+      if (raw === 'offer_openings') return 'offer_opening';
+      if (raw === 'callout' || raw === 'cold_call' || raw === 'outreach') return 'callout';
+      if (raw === 'both') return 'both';
+      return 'callout';
+    }
+
+    function inferLeadName(email, phone) {
+      const emailValue = normalizeEmail(email);
+      if (emailValue) {
+        const local = emailValue.split('@')[0]
+          .replace(/[._-]+/g, ' ')
+          .replace(/\b\w/g, (char) => char.toUpperCase())
+          .trim();
+        return local || 'Unknown Lead';
+      }
+      return phone ? `Lead ${normalizePhone(phone).slice(-4) || ''}`.trim() : 'Unknown Lead';
+    }
+
+    function parseCsvText(text) {
+      const rows = [];
+      let row = [];
+      let value = '';
+      let inQuotes = false;
+      const input = String(text || '').replace(/^\uFEFF/, '');
+
+      for (let i = 0; i < input.length; i += 1) {
+        const char = input[i];
+        const next = input[i + 1];
+        if (char === '"') {
+          if (inQuotes && next === '"') {
+            value += '"';
+            i += 1;
+          } else {
+            inQuotes = !inQuotes;
+          }
+          continue;
+        }
+        if (char === ',' && !inQuotes) {
+          row.push(value);
+          value = '';
+          continue;
+        }
+        if ((char === '\n' || char === '\r') && !inQuotes) {
+          if (char === '\r' && next === '\n') i += 1;
+          row.push(value);
+          if (row.some((cell) => safeText(cell))) rows.push(row);
+          row = [];
+          value = '';
+          continue;
+        }
+        value += char;
+      }
+      row.push(value);
+      if (row.some((cell) => safeText(cell))) rows.push(row);
+      if (!rows.length) return [];
+
+      const headers = rows[0].map((header) => safeText(header).toLowerCase().replace(/\s+/g, '_'));
+      return rows.slice(1).map((cells, index) => {
+        const item = { __rowNumber: index + 2 };
+        headers.forEach((header, colIndex) => {
+          if (!header) return;
+          item[header] = safeText(cells[colIndex]);
+        });
+        return item;
+      }).filter((item) => Object.keys(item).some((key) => key !== '__rowNumber' && safeText(item[key])));
+    }
+
+    function csvEscape(value) {
+      const text = value == null ? '' : String(value);
+      return /[",\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+    }
+
+    function downloadLeadTemplate() {
+      const rows = [
+        LEAD_UPLOAD_HEADERS,
+        ['Juan Dela Cruz', 'juan@example.com', '09171234567', 'Manila', 'LinkedIn', 'callout', 'Interested in remote roles'],
+        ['Maria Santos', '', '09181234567', 'Cebu', 'Referral', 'offer_opening', 'Previously declined offer'],
+      ];
+      const csv = rows.map((row) => row.map(csvEscape).join(',')).join('\n');
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = 'talentbuzz-leads-template.csv';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    }
+
+    async function fetchExistingLeadKeys() {
+      const existingRows = await fetchAllOptional('recruiter_leads', 'id,email,phone,assigned_recruiter_email,created_at', 'created_at');
+      return {
+        emails: new Set((existingRows || []).map((row) => normalizeEmail(row.email)).filter(Boolean)),
+        phones: new Set((existingRows || []).map((row) => normalizePhone(row.phone)).filter(Boolean)),
+      };
+    }
+
+    async function prepareLeadUploadRows(rawRows) {
+      const existing = await fetchExistingLeadKeys();
+      const seenEmails = new Set();
+      const seenPhones = new Set();
+      const preparedRows = [];
+      const validRows = [];
+      const duplicateRows = [];
+      const invalidRows = [];
+      const recruiterEmail = normalizeEmail(state.currentUser?.email || '');
+
+      for (const row of rawRows) {
+        const email = normalizeEmail(row.email);
+        const phone = normalizePhone(row.phone);
+        const leadType = normalizeLeadType(row.lead_type || row.type || row.lead_category);
+        const hasContact = !!(email || phone);
+        const duplicateInCsv = (email && seenEmails.has(email)) || (phone && seenPhones.has(phone));
+        const duplicateInDatabase = (email && existing.emails.has(email)) || (phone && existing.phones.has(phone));
+        let status = 'ready';
+        let reason = 'Ready to import';
+
+        if (!hasContact) {
+          status = 'invalid';
+          reason = 'Missing email and phone';
+        } else if (duplicateInCsv) {
+          status = 'duplicate';
+          reason = 'Duplicate in CSV';
+        } else if (duplicateInDatabase) {
+          status = 'duplicate';
+          reason = 'Already exists';
+        }
+
+        if (email) seenEmails.add(email);
+        if (phone) seenPhones.add(phone);
+
+        const normalized = {
+          full_name: safeText(row.full_name || row.name) || inferLeadName(email, phone),
+          email: email || null,
+          phone: phone || null,
+          location: safeText(row.location) || null,
+          source: safeText(row.source) || null,
+          lead_type: leadType,
+          status: 'new',
+          assigned_recruiter_email: recruiterEmail || null,
+          notes: safeText(row.notes || row.note) || null,
+        };
+
+        const preview = {
+          rowNumber: row.__rowNumber || preparedRows.length + 2,
+          status,
+          reason,
+          normalized,
+        };
+        preparedRows.push(preview);
+        if (status === 'ready') validRows.push(normalized);
+        else if (status === 'duplicate') duplicateRows.push(preview);
+        else invalidRows.push(preview);
+      }
+
+      state.leadUpload.preparedRows = preparedRows;
+      state.leadUpload.validRows = validRows;
+      state.leadUpload.duplicateRows = duplicateRows;
+      state.leadUpload.invalidRows = invalidRows;
+      return state.leadUpload;
+    }
+
+    function renderLeadUploadPreview() {
+      const upload = state.leadUpload;
+      if (els.leadRowsFound) els.leadRowsFound.textContent = String(upload.rawRows.length || 0);
+      if (els.leadRowsReady) els.leadRowsReady.textContent = String(upload.validRows.length || 0);
+      if (els.leadRowsDuplicate) els.leadRowsDuplicate.textContent = String(upload.duplicateRows.length || 0);
+      if (els.leadRowsInvalid) els.leadRowsInvalid.textContent = String(upload.invalidRows.length || 0);
+      if (els.confirmLeadUploadBtn) els.confirmLeadUploadBtn.disabled = !upload.validRows.length;
+      if (els.leadUploadFileMeta) {
+        els.leadUploadFileMeta.textContent = upload.fileName
+          ? `${upload.fileName} • ${upload.rawRows.length} row${upload.rawRows.length === 1 ? '' : 's'} parsed`
+          : 'No CSV selected.';
+      }
+
+      if (!els.leadUploadPreviewTable) return;
+      if (!upload.preparedRows.length) {
+        els.leadUploadPreviewTable.innerHTML = '<tr><td colspan="9" class="small">Upload a CSV to preview leads before importing.</td></tr>';
+        return;
+      }
+
+      els.leadUploadPreviewTable.innerHTML = upload.preparedRows.slice(0, 250).map((item) => {
+        const row = item.normalized;
+        const statusClass = item.status === 'ready' ? 'lead-status-ready' : item.status === 'duplicate' ? 'lead-status-duplicate' : 'lead-status-invalid';
+        return `
+          <tr>
+            <td>${escapeHtml(item.rowNumber)}</td>
+            <td><span class="${statusClass}">${escapeHtml(item.reason)}</span></td>
+            <td>${escapeHtml(row.full_name || 'Unknown Lead')}</td>
+            <td>${escapeHtml(row.email || '—')}</td>
+            <td>${escapeHtml(row.phone || '—')}</td>
+            <td>${escapeHtml(row.location || '—')}</td>
+            <td>${escapeHtml(row.source || '—')}</td>
+            <td>${escapeHtml(row.lead_type || 'callout')}</td>
+            <td>${escapeHtml(row.notes || '—')}</td>
+          </tr>
+        `;
+      }).join('') + (upload.preparedRows.length > 250 ? '<tr><td colspan="9" class="small">Preview limited to first 250 rows.</td></tr>' : '');
+    }
+
+    function resetLeadUpload() {
+      state.leadUpload = {
+        rawRows: [],
+        preparedRows: [],
+        validRows: [],
+        duplicateRows: [],
+        invalidRows: [],
+        fileName: '',
+      };
+      if (els.leadCsvFile) els.leadCsvFile.value = '';
+      renderLeadUploadPreview();
+    }
+
+    async function handleLeadCsvSelected(event) {
+      const file = event?.target?.files?.[0];
+      if (!file) {
+        resetLeadUpload();
+        return;
+      }
+      try {
+        const text = await file.text();
+        const rows = parseCsvText(text);
+        state.leadUpload.rawRows = rows;
+        state.leadUpload.fileName = file.name;
+        await prepareLeadUploadRows(rows);
+        renderLeadUploadPreview();
+        if (!rows.length) {
+          showNotice('No lead rows found in the CSV.', 'error');
+        } else {
+          showNotice(`CSV parsed: ${state.leadUpload.validRows.length} ready, ${state.leadUpload.duplicateRows.length} duplicate, ${state.leadUpload.invalidRows.length} invalid.`, 'info');
+        }
+      } catch (error) {
+        console.error(error);
+        showNotice(`Unable to read CSV: ${error.message || error}`, 'error');
+      }
+    }
+
+    async function importPreparedLeadRows() {
+      const rows = state.leadUpload.validRows || [];
+      if (!rows.length) {
+        showNotice('No valid leads to import.', 'error');
+        return;
+      }
+      if (!supabaseClient) {
+        showNotice('Supabase is not ready yet.', 'error');
+        return;
+      }
+      const button = els.confirmLeadUploadBtn;
+      const originalText = button?.textContent || 'Import Valid Leads';
+      try {
+        if (button) {
+          button.disabled = true;
+          button.textContent = 'Importing...';
+        }
+        const { error } = await supabaseClient
+          .from('recruiter_leads')
+          .insert(rows);
+        if (error) throw error;
+        showNotice(`Imported ${rows.length} lead${rows.length === 1 ? '' : 's'} successfully. Duplicates and invalid rows were skipped.`, 'success');
+        resetLeadUpload();
+        els.leadUploadModal?.classList.remove('show');
+      } catch (error) {
+        console.error(error);
+        const message = String(error?.message || error || '');
+        if (/does not exist|schema cache|relation/i.test(message)) {
+          showNotice('Lead upload is ready, but the Supabase table recruiter_leads does not exist yet. Create that table first, then retry.', 'error');
+        } else if (isRlsError(error)) {
+          showNotice('Lead upload is blocked by Supabase RLS on recruiter_leads. Add insert/select policies for recruiters, then retry.', 'error');
+        } else {
+          showNotice(`Lead import failed: ${error.message || error}`, 'error');
+        }
+      } finally {
+        if (button) {
+          button.textContent = originalText;
+          button.disabled = !state.leadUpload.validRows.length;
+        }
+      }
+    }
+
     async function fetchAllOptional(table, select, orderColumn = 'created_at') {
       try {
         const { data, error } = await supabaseClient
@@ -3964,7 +4394,6 @@ function renderLearningInsights(row) {
       els.snapRecruiter.textContent = row.recruiter;
       els.snapSource.textContent = row.source;
       els.snapApplied.textContent = formatDateTime(row.appliedAt);
-      await renderSelectedSmsMeta(row);
       els.editStatus.value = row.status || row.app?.client_feedback_status || row.app?.status || 'submitted';
       els.editNotes.value = row.app?.recruiter_notes || row.app?.stage_note_label || '';
       els.editResumeFile.value = '';
@@ -4825,87 +5254,6 @@ function renderLearningInsights(row) {
       }, 15000);
     }
 
-
-    function normalizePhPhoneE164(rawPhone) {
-      if (!rawPhone) return null;
-      const cleaned = String(rawPhone).replace(/[^\d+]/g, '');
-      if (/^\+639\d{9}$/.test(cleaned)) return cleaned;
-      if (/^639\d{9}$/.test(cleaned)) return '+' + cleaned;
-      if (/^09\d{9}$/.test(cleaned)) return '+63' + cleaned.slice(1);
-      if (/^9\d{9}$/.test(cleaned)) return '+63' + cleaned;
-      return null;
-    }
-
-    function getCandidateSmsPhone(row) {
-      return normalizePhPhoneE164(row?.profile?.phone || row?.app?.phone || row?.app?.mobile || row?.app?.candidate_phone || '');
-    }
-
-    function formatSmsConsentLabel(status) {
-      const value = safeText(status).toLowerCase();
-      if (value === 'subscribed') return 'Subscribed';
-      if (value === 'opted_out') return 'Opted Out';
-      return 'Unknown';
-    }
-
-    async function renderSelectedSmsMeta(row) {
-      const phone = getCandidateSmsPhone(row);
-      if (els.smsPhoneValue) els.smsPhoneValue.textContent = phone || '—';
-      if (els.smsConsentValue) els.smsConsentValue.textContent = 'Unknown';
-      if (els.smsLastMessageValue) els.smsLastMessageValue.textContent = 'No SMS activity yet.';
-      if (!phone || !supabaseClient) return;
-      try {
-        const [{ data: consent }, { data: thread }] = await Promise.all([
-          supabaseClient.from('candidate_sms_consent').select('consent_status').eq('phone_e164', phone).maybeSingle(),
-          supabaseClient.from('candidate_sms_threads').select('last_message_preview,last_message_at').eq('candidate_phone_e164', phone).order('last_message_at', { ascending: false }).limit(1).maybeSingle()
-        ]);
-        if (els.smsConsentValue) els.smsConsentValue.textContent = formatSmsConsentLabel(consent?.consent_status);
-        if (els.smsLastMessageValue) els.smsLastMessageValue.textContent = thread?.last_message_preview || 'No SMS activity yet.';
-      } catch (err) {
-        console.warn('Unable to load SMS metadata:', err?.message || err);
-      }
-    }
-
-    function buildSmsMessage(row, type) {
-      const firstName = safeText(row?.displayName || 'there').split(/\s+/)[0] || 'there';
-      const jobTitle = safeText(row?.jobTitle || 'your application');
-      if (type === 'follow_up') {
-        return 'Hi ' + firstName + ', this is TalentBuzz following up on your ' + jobTitle + ' application. Please reply here if you are still interested or have any questions.';
-      }
-      return 'Hi ' + firstName + ', this is TalentBuzz. Reminder regarding your interview/update for ' + jobTitle + '. Please reply YES to confirm or NO if you need to reschedule.';
-    }
-
-    async function sendSelectedCandidateSms(type) {
-      const row = state.allRows.find((item) => item.id === state.selectedId);
-      if (!row) return showNotice('Select a candidate first.', 'error');
-      const phone = getCandidateSmsPhone(row);
-      if (!phone) return showNotice('No valid PH mobile number found for this candidate.', 'error');
-      const message = buildSmsMessage(row, type);
-      const confirmText = type === 'follow_up' ? 'Send follow-up SMS?' : 'Send interview reminder SMS?';
-      if (!window.confirm(confirmText + '\n\n' + message)) return;
-      try {
-        const { data, error } = await supabaseClient.functions.invoke('send-candidate-sms', {
-          body: {
-            applicant_profile_id: row?.profile?.id || row?.app?.applicant_profile_id || null,
-            application_id: row?.app?.id || row?.id || null,
-            applicant_email: row?.profile?.email || row?.app?.email || null,
-            recruiter_email: state.currentUser?.email || null,
-            phone,
-            message,
-            is_automated: false,
-            automation_type: type === 'follow_up' ? 'recruiter_follow_up' : 'interview_reminder',
-            metadata: { source: 'recruiter_dashboard', candidate_name: row?.displayName || null, job_title: row?.jobTitle || null }
-          }
-        });
-        if (error) throw error;
-        if (!data?.ok) throw new Error(data?.message || data?.error_code || 'Unable to send SMS.');
-        showNotice(type === 'follow_up' ? 'Follow-up SMS sent.' : 'Interview reminder SMS sent.', 'success');
-        await renderSelectedSmsMeta(row);
-        await refreshChatWidgetLive(true);
-      } catch (err) {
-        showNotice('Unable to send SMS: ' + (err?.message || err), 'error');
-      }
-    }
-
     function bindEvents() {
       renderCheckboxList(els.positiveTagsList, POSITIVE_FEEDBACK_OPTIONS, 'positive');
       renderCheckboxList(els.riskTagsList, RISK_FEEDBACK_OPTIONS, 'risk');
@@ -4923,6 +5271,23 @@ function renderLearningInsights(row) {
         els.menuDropdown?.classList.toggle('show');
       });
       els.clearFromMenuBtn?.addEventListener('click', () => els.clearFiltersBtn?.click());
+      const openLeadUploadModal = () => {
+        renderLeadUploadPreview();
+        els.leadUploadModal?.classList.add('show');
+      };
+      const closeLeadUploadModal = () => {
+        els.leadUploadModal?.classList.remove('show');
+      };
+      els.openLeadUploadModalBtn?.addEventListener('click', openLeadUploadModal);
+      els.openLeadUploadMenuBtn?.addEventListener('click', openLeadUploadModal);
+      els.leadUploadModalClose?.addEventListener('click', closeLeadUploadModal);
+      els.leadUploadModal?.addEventListener('click', (event) => {
+        if (event.target === els.leadUploadModal) closeLeadUploadModal();
+      });
+      els.downloadLeadTemplateBtn?.addEventListener('click', downloadLeadTemplate);
+      els.resetLeadUploadBtn?.addEventListener('click', resetLeadUpload);
+      els.leadCsvFile?.addEventListener('change', (event) => { void handleLeadCsvSelected(event); });
+      els.confirmLeadUploadBtn?.addEventListener('click', () => { void importPreparedLeadRows(); });
       els.headerLogoutBtn?.addEventListener('click', () => { void handleLogout(); });
       els.logoutBtn?.addEventListener('click', () => { void handleLogout(); });
       document.addEventListener('click', (event) => {
@@ -4982,8 +5347,6 @@ function renderLearningInsights(row) {
       });
       els.chatConversationSendBtn?.addEventListener('click', () => { void sendChatConversationMessage(); });
       els.chatConversationEmailBtn?.addEventListener('click', emailInsteadForThread);
-      els.sendSmsReminderBtn?.addEventListener('click', () => { void sendSelectedCandidateSms('interview_reminder'); });
-      els.sendSmsFollowUpBtn?.addEventListener('click', () => { void sendSelectedCandidateSms('follow_up'); });
       els.chatConversationInput?.addEventListener('input', handleConversationTyping);
       els.chatConversationInput?.addEventListener('keydown', (event) => {
         if (event.key === 'Enter' && !event.shiftKey) {
