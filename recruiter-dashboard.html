@@ -4082,38 +4082,53 @@
         showNotice('Supabase is not ready yet.', 'error');
         return;
       }
-      const button = els.confirmLeadUploadBtn;
-      const originalText = button?.textContent || 'Import Valid Leads';
-      try {
-        if (button) {
-          button.disabled = true;
-          button.textContent = 'Importing...';
-        }
-        const { error } = await supabaseClient
-          .from('recruiter_leads')
-          .insert(rows);
-        if (error) throw error;
-        showNotice(`Imported ${rows.length} lead${rows.length === 1 ? '' : 's'} successfully. Duplicates and invalid rows were skipped.`, 'success');
-        resetLeadUpload();
-        els.leadUploadModal?.classList.remove('show');
-      } catch (error) {
-        console.error(error);
-        const message = String(error?.message || error || '');
-        if (/does not exist|schema cache|relation/i.test(message)) {
-          showNotice('Lead upload is ready, but the Supabase table recruiter_leads does not exist yet. Create that table first, then retry.', 'error');
-        } else if (isRlsError(error)) {
-          showNotice('Lead upload is blocked by Supabase RLS on recruiter_leads. Add insert/select policies for recruiters, then retry.', 'error');
-        } else {
-          showNotice(`Lead import failed: ${error.message || error}`, 'error');
-        }
-      } finally {
-        if (button) {
-          button.textContent = originalText;
-          button.disabled = !state.leadUpload.validRows.length;
-        }
-      }
-    }
+     const button = els.confirmLeadUploadBtn;
+const originalText = button?.textContent || 'Import Valid Leads';
 
+try {
+  if (button) {
+    button.disabled = true;
+    button.textContent = 'Importing...';
+  }
+
+  const { error } = await supabaseClient
+    .from('recruiter_leads')
+    .insert(rows);
+
+  if (error) throw error;
+
+  showNotice(
+    `Imported ${rows.length} lead${rows.length === 1 ? '' : 's'} successfully. Duplicates and invalid rows were skipped.`,
+    'success'
+  );
+
+  resetLeadUpload();
+  els.leadUploadModal?.classList.remove('show');
+} catch (error) {
+  console.error(error);
+
+  const message = String(error?.message || error || '');
+
+  if (/schema cache|relation|does not exist/i.test(message)) {
+    showNotice(
+      'Lead import failed because Supabase cannot find recruiter_leads in the current API schema. The table exists, so refresh the PostgREST schema cache and confirm the app is connected to the correct Supabase project.',
+      'error'
+    );
+  } else if (isRlsError(error)) {
+    showNotice(
+      'Lead upload is blocked by Supabase RLS on recruiter_leads. Add insert/select policies for recruiters, then retry.',
+      'error'
+    );
+  } else {
+    showNotice(`Lead import failed: ${error?.message || error}`, 'error');
+  }
+} finally {
+  if (button) {
+    button.textContent = originalText;
+    button.disabled = !state.leadUpload.validRows.length;
+  }
+}
+}
     async function fetchAllOptional(table, select, orderColumn = 'created_at') {
       try {
         const { data, error } = await supabaseClient
