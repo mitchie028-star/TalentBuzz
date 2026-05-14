@@ -676,7 +676,7 @@
                 <p class="small" id="resumeMeta">No resume selected.</p>
                 <div class="actions">
                   <button class="btn btn-xs" id="viewResumeBtn" type="button">View Resume</button>
-                  <button class="btn btn-xs" id="downloadResumeBtn" type="button">Open File</button>
+                  <button class="btn btn-xs" id="downloadResumeBtn" type="button">Download</button>
                 </div>
               </div>
 
@@ -1040,7 +1040,7 @@
           <td><span class="pill ${getFollowUpTone(row.followUp?.key)}">${escapeHtml(row.followUp?.label||'No Follow-up')}</span>${row.followUp?.dueAt?`<div class="small">${escapeHtml(formatDateTime(row.followUp.dueAt))}</div>`:''}</td>
           <td>${escapeHtml(row.recruiter)}</td><td>${escapeHtml(formatDateTime(row.appliedAt))}</td>
           <td><span class="pill ${scoreTone}">${row.score.overall}%</span></td>
-          <td><div class="actions"><button class="btn btn-xs" data-action="open" type="button">Open</button><button class="btn btn-xs" data-action="resume" type="button">Resume</button></div></td>
+          <td><div class="actions"><button class="btn btn-xs" data-action="open" type="button">Open</button><button class="btn btn-xs" data-action="resume" type="button">View Resume</button><button class="btn btn-xs" data-action="download-resume" type="button">Download</button></div></td>
         </tr>`;
       }).join('');
     }
@@ -1064,8 +1064,48 @@
     function openSelectedOffset(step){const idx=getSelectedIndex();const next=state.filteredRows[idx+step];if(next)openDrawer(next.id)}
     function openResumeModal(url,title='Resume Viewer'){
       if(!url)return showNotice('Resume file not found in storage.','error');
-      if(!isPdfPathOrUrl(state.selectedResumePath||url)){window.open(url,'_blank','noopener,noreferrer');showNotice('This resume format opens in a new tab instead of the PDF viewer.','info');return;}
-      els.resumeModalTitle.textContent=title;els.resumeFrame.src=url;els.resumeModal.classList.add('show');
+
+      const isPdf = isPdfPathOrUrl(state.selectedResumePath || url);
+
+      if(!isPdf){
+        window.open(url,'_blank','noopener,noreferrer');
+        showNotice('This resume format opens in a new tab. Use Download if the browser cannot preview it.','info');
+        return;
+      }
+
+      els.resumeModalTitle.textContent=title;
+      els.resumeFrame.src=url;
+      els.resumeModal.classList.add('show');
+    }
+
+    function getResumeDownloadName(pathOrUrl, fallback='resume'){
+      const fileName = getFileNameFromValue(pathOrUrl);
+      return fileName || `${fallback}.pdf`;
+    }
+
+    async function downloadResumeFile(url, pathOrUrl, fallbackName='resume'){
+      if(!url)return showNotice('Resume file not found in storage.','error');
+
+      const fileName = getResumeDownloadName(pathOrUrl || url, fallbackName);
+
+      try{
+        const response = await fetch(url);
+        if(!response.ok)throw new Error(`Download failed with HTTP ${response.status}`);
+
+        const blob = await response.blob();
+        const blobUrl = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = blobUrl;
+        link.download = fileName;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(blobUrl);
+      }catch(error){
+        console.warn('Direct download failed, opening resume instead:', error);
+        window.open(url,'_blank','noopener,noreferrer');
+        showNotice('Download could not start automatically, so the resume was opened in a new tab.','info');
+      }
     }
     async function saveSelectedRow(){
       const row=state.allRows.find(item=>item.id===state.selectedId);if(!row)return;
@@ -1113,17 +1153,25 @@
         if(!button)return openDrawer(id);
         const action=button.getAttribute('data-action');
         if(action==='open')return openDrawer(id);
-        if(action==='resume'){
+        if(action==='resume' || action==='download-resume'){
           const selected=state.filteredRows.find(item=>item.id===id)||state.allRows.find(item=>item.id===id);
           if(!selected)return;
+
           const resume=await getResumeUrl(selected.profile,selected.app);
-          state.selectedResumeUrl=resume.url;state.selectedResumePath=resume.path;
+          state.selectedResumeUrl=resume.url;
+          state.selectedResumePath=resume.path;
+
           if(!resume.url)return showNotice('Resume file not found. Check applicant_profiles.resume_path/resume_url and storage folder.','error');
-          openResumeModal(resume.url,`${selected.displayName} Resume`);
+
+          if(action==='download-resume'){
+            return downloadResumeFile(resume.url, resume.path, selected.displayName || 'resume');
+          }
+
+          return openResumeModal(resume.url,`${selected.displayName} Resume`);
         }
       });
       els.viewResumeBtn.addEventListener('click',()=>openResumeModal(state.selectedResumeUrl,`${els.drawerName.textContent||'Candidate'} Resume`));
-      els.downloadResumeBtn.addEventListener('click',()=>{if(!state.selectedResumeUrl)return showNotice('Resume file not found.','error');window.open(state.selectedResumeUrl,'_blank','noopener,noreferrer')});
+      els.downloadResumeBtn.addEventListener('click',()=>downloadResumeFile(state.selectedResumeUrl,state.selectedResumePath,els.drawerName.textContent||'resume'));
       els.resumeModalClose.addEventListener('click',()=>{els.resumeModal.classList.remove('show');els.resumeFrame.src=''});
       els.resumeModal.addEventListener('click',event=>{if(event.target===els.resumeModal){els.resumeModal.classList.remove('show');els.resumeFrame.src=''}});
       window.setInterval(updateLiveStatusLabel,5000);
