@@ -143,6 +143,10 @@
       font-weight:800;
       font-size:.92rem;
       transition:.16s ease;
+      border:0;
+      background:transparent;
+      text-align:left;
+      width:100%;
     }
     .nav-item:hover,.nav-item.active{background:#f2f4f7;color:var(--ink)}
     .nav-icon{width:22px;text-align:center}
@@ -293,6 +297,8 @@
       align-items:center;
       justify-content:space-between;
       gap:12px;
+      width:100%;
+      text-align:left;
     }
     .action-card strong{display:block;font-size:.92rem;margin-bottom:4px}
     .action-card span{display:block;color:var(--muted);font-size:.8rem;line-height:1.45}
@@ -306,6 +312,7 @@
       justify-content:center;
       background:#f2f4f7;
       font-weight:900;
+      color:var(--ink);
     }
 
     .workspace{
@@ -318,7 +325,7 @@
 
     .filters{
       display:grid;
-      grid-template-columns:1.4fr repeat(5,minmax(120px,1fr)) auto;
+      grid-template-columns:repeat(6,minmax(120px,1fr));
       gap:10px;
       margin-bottom:14px;
     }
@@ -505,7 +512,7 @@
         <div class="nav-label">Workspace</div>
         <a class="nav-item active" href="#"><span class="nav-icon">◎</span> Today</a>
         <a class="nav-item" href="#pipeline"><span class="nav-icon">▦</span> Pipeline</a>
-        <a class="nav-item" href="#inbox"><span class="nav-icon">✉</span> Inbox</a>
+        <a class="nav-item" href="recruiter-inbox.html"><span class="nav-icon">✉</span> Inbox</a>
         <a class="nav-item" href="#ai"><span class="nav-icon">✦</span> AI Copilot</a>
         <a class="nav-item" href="#calendar"><span class="nav-icon">◷</span> Calendar</a>
         <a class="nav-item" href="#analytics"><span class="nav-icon">↗</span> Analytics</a>
@@ -594,7 +601,6 @@
           </div>
 
           <div class="filters">
-            <div class="field hidden"><label for="hiddenSearchMirror">Search</label><input id="hiddenSearchMirror" type="text" /></div>
             <div class="field"><label for="statusFilter">Status</label><select id="statusFilter"><option value="">All statuses</option></select></div>
             <div class="field"><label for="recruiterFilter">Recruiter</label><select id="recruiterFilter"><option value="">All recruiters</option></select></div>
             <div class="field"><label for="followUpFilter">Follow-up</label><select id="followUpFilter"><option value="">All follow-ups</option><option value="needs_follow_up">Needs Follow-up</option><option value="due_today">Due Today</option><option value="overdue">Overdue</option><option value="followed_up">Followed Up</option><option value="none">No Follow-up</option></select></div>
@@ -786,13 +792,13 @@
       if(safeText(profile?.full_name)){score+=10;evidence.push('profile identified')}
       if(safeText(profile?.email||app?.email)){score+=8;evidence.push('email available')}
       if(safeText(profile?.phone)){score+=6;evidence.push('phone available')}
-      if(safeText(profile?.resume_path||profile?.resume_url||profile?.resume_file_name||app?.resume_path||app?.resume_url)){score+=28;evidence.push('resume available')}
+      if(safeText(profile?.resume_path||profile?.resume_url||profile?.resume_file_name)){score+=28;evidence.push('resume available')}
       const roleText=[profile?.headline,profile?.current_title,profile?.skills,profile?.raw_resume_text,job?.title,job?.keywords].map(safeText).join(' ').toLowerCase();
       const titleWords=safeText(job?.title||app?.job_title).toLowerCase().split(/\s+/).filter(w=>w.length>3);
       const hits=titleWords.filter(w=>roleText.includes(w)).length;
       if(hits>=2){score+=28;evidence.push('role terms matched')}
       else if(hits===1){score+=14;evidence.push('some role alignment')}
-      return {overall:Math.max(8,Math.min(100,score)), mode:'Base Match', profilePart:{score:Math.min(100,score)}, resumePart:{score:safeText(profile?.resume_path||profile?.resume_url||profile?.resume_file_name||app?.resume_path||app?.resume_url)?70:0}, reasons:evidence};
+      return {overall:Math.max(8,Math.min(100,score)), mode:'Base Match', profilePart:{score:Math.min(100,score)}, resumePart:{score:safeText(profile?.resume_path||profile?.resume_url||profile?.resume_file_name)?70:0}, reasons:evidence};
     }
 
     const FOLLOW_UP_OPTIONS={needs_follow_up:'Needs Follow-up',due_today:'Due Today',overdue:'Overdue',followed_up:'Followed Up',none:'No Follow-up'};
@@ -833,21 +839,43 @@
 
     function buildResumePathCandidates(profile, app){
       const emailCandidates=uniq([profile?.email,app?.email,app?.applicant_email].map(safeText));
-      const rawPathCandidates=uniq([profile?.resume_path,app?.resume_path,profile?.resume_url,app?.resume_url,profile?.resume_file_name,app?.resume_file_name].map(cleanResumePath));
-      const fileNameCandidates=uniq([profile?.resume_file_name,app?.resume_file_name,getFileNameFromValue(profile?.resume_path),getFileNameFromValue(app?.resume_path),getFileNameFromValue(profile?.resume_url),getFileNameFromValue(app?.resume_url)].map(safeText));
+      const rawPathCandidates=uniq([profile?.resume_path,profile?.resume_url,profile?.resume_file_name].map(cleanResumePath));
+      const fileNameCandidates=uniq([
+        profile?.resume_file_name,
+        getFileNameFromValue(profile?.resume_path),
+        getFileNameFromValue(profile?.resume_url)
+      ].map(safeText));
+
       const candidates=[];
       rawPathCandidates.forEach(raw=>{
         if(!raw)return;
         candidates.push(raw);
         if(!raw.includes('/')){
-          emailCandidates.forEach(email=>{const folder=normalizeEmailFolder(email);candidates.push(`manual/${folder}/${raw}`);candidates.push(`sourced-candidates/${folder}/${raw}`);});
+          emailCandidates.forEach(email=>{
+            const folder=normalizeEmailFolder(email);
+            if(folder){
+              candidates.push(`manual/${folder}/${raw}`);
+              candidates.push(`sourced-candidates/${folder}/${raw}`);
+            }
+          });
         }
       });
+
       fileNameCandidates.forEach(fileName=>{
-        emailCandidates.forEach(email=>{const folder=normalizeEmailFolder(email);candidates.push(`manual/${folder}/${fileName}`);candidates.push(`sourced-candidates/${folder}/${fileName}`);});
+        emailCandidates.forEach(email=>{
+          const folder=normalizeEmailFolder(email);
+          if(folder && fileName){
+            candidates.push(`manual/${folder}/${fileName}`);
+            candidates.push(`sourced-candidates/${folder}/${fileName}`);
+          }
+        });
       });
-      emailCandidates.forEach(email=>{const folder=normalizeEmailFolder(email);if(folder)candidates.push(`manual/${folder}`);});
-      if(profile?.id&&fileNameCandidates.length){fileNameCandidates.forEach(fileName=>candidates.push(`${profile.id}/${fileName}`));}
+
+      emailCandidates.forEach(email=>{
+        const folder=normalizeEmailFolder(email);
+        if(folder)candidates.push(`manual/${folder}`);
+      });
+
       return uniq(candidates.map(cleanResumePath));
     }
 
@@ -874,7 +902,7 @@
     }
 
     async function getResumeUrl(profile, app){
-      const directCandidates=[profile?.resume_url,app?.resume_url].map(safeText).filter(Boolean);
+      const directCandidates=[profile?.resume_url].map(safeText).filter(Boolean);
       for(const direct of directCandidates){if(isDirectResumeUrl(direct))return {url:direct,path:cleanResumePath(direct)}}
       const pathCandidates=buildResumePathCandidates(profile,app);
       console.log('Resume resolver paths:', pathCandidates);
@@ -901,13 +929,32 @@
       if(error)throw error;
       return data||[];
     }
-    async function fetchAllOptional(table,select,orderColumn='created_at'){
-      try{return await fetchAll(table,select,orderColumn)}catch(error){const msg=String(error?.message||error||'');if(/does not exist|schema cache|permission denied|not found|relation/i.test(msg))return [];throw error;}
-    }
 
     async function fetchApplicationsRows(){
-      const baseSelect='id,email,job_id,job_title,status,created_at,applicant_profile_id,recruiter_email,application_source,client_feedback_status,recruiter_notes,stage_note_label,updated_at,follow_up_required,follow_up_status,follow_up_date,follow_up_due_at,follow_up_note,last_followed_up_at,resume_path,resume_url,resume_file_name';
-      try{return await fetchAll('recruiter_dashboard_applications',baseSelect,'created_at')}catch(error){return await fetchAll('applications',baseSelect,'created_at')}
+      const withFollowUp='id,email,job_id,job_title,status,created_at,applicant_profile_id,recruiter_email,application_source,client_feedback_status,recruiter_notes,stage_note_label,updated_at,follow_up_required,follow_up_status,follow_up_date,follow_up_due_at,follow_up_note,last_followed_up_at';
+      const base='id,email,job_id,job_title,status,created_at,applicant_profile_id,recruiter_email,application_source,client_feedback_status,recruiter_notes,stage_note_label,updated_at';
+
+      const tryFetch = async (table) => {
+        try {
+          return await fetchAll(table, withFollowUp, 'created_at');
+        } catch (error) {
+          const message = String(error?.message || error || '');
+          if (/follow_up_|last_followed_up|column/i.test(message)) {
+            return await fetchAll(table, base, 'created_at');
+          }
+          throw error;
+        }
+      };
+
+      try {
+        return await tryFetch('recruiter_dashboard_applications');
+      } catch (error) {
+        const message = String(error?.message || error || '');
+        if (/does not exist|schema cache|relation|recruiter_dashboard_applications/i.test(message)) {
+          return await tryFetch('applications');
+        }
+        throw error;
+      }
     }
 
     async function loadDashboard(){
@@ -1010,7 +1057,7 @@
       els.editStatus.value=row.status||row.app?.status||'submitted';els.editNotes.value=row.app?.recruiter_notes||row.app?.stage_note_label||'';
       els.resumeMeta.textContent='Resolving resume...';els.viewResumeBtn.disabled=true;els.downloadResumeBtn.disabled=true;state.selectedResumeUrl='';state.selectedResumePath='';
       const resume=await getResumeUrl(row.profile,row.app);state.selectedResumeUrl=resume.url;state.selectedResumePath=resume.path;
-      if(resume.url){els.resumeMeta.textContent=resume.path||'Resume available';els.viewResumeBtn.disabled=false;els.downloadResumeBtn.disabled=false}else{els.resumeMeta.textContent='No resume found. Check resume_path/resume_url and Supabase Storage folder.'}
+      if(resume.url){els.resumeMeta.textContent=resume.path||'Resume available';els.viewResumeBtn.disabled=false;els.downloadResumeBtn.disabled=false}else{els.resumeMeta.textContent='No resume found. Check applicant_profiles.resume_path/resume_url and Supabase Storage folder.'}
       renderTable();
     }
     function closeDrawer(){state.selectedId=null;state.selectedResumeUrl='';state.selectedResumePath='';els.workspace.classList.remove('drawer-open');renderTable();updateDrawerNavMeta()}
@@ -1050,10 +1097,31 @@
 
     function bindEvents(){
       [els.searchInput,els.statusFilter,els.recruiterFilter,els.followUpFilter,els.jobFilter,els.clientFilter,els.scoreFilter].forEach(el=>{el?.addEventListener('input',applyFilters);el?.addEventListener('change',applyFilters)});
-      document.querySelectorAll('[data-quick-filter]').forEach(btn=>btn.addEventListener('click',()=>{const f=btn.dataset.quickFilter;if(f==='follow_up')els.followUpFilter.value='due_today';if(f==='high_match')els.scoreFilter.value='strong';if(f==='needs_review')els.statusFilter.value='submitted';applyFilters();document.getElementById('pipeline')?.scrollIntoView({behavior:'smooth'});}));
+      document.querySelectorAll('[data-quick-filter]').forEach(btn=>btn.addEventListener('click',()=>{
+        clearFilters();
+        const f=btn.dataset.quickFilter;
+        if(f==='follow_up')els.followUpFilter.value='due_today';
+        if(f==='high_match')els.scoreFilter.value='strong';
+        if(f==='needs_review')els.statusFilter.value='submitted';
+        applyFilters();
+        document.getElementById('pipeline')?.scrollIntoView({behavior:'smooth'});
+      }));
       els.clearFiltersBtn.addEventListener('click',clearFilters);els.closeDrawerBtn.addEventListener('click',closeDrawer);els.prevBtn.addEventListener('click',()=>openSelectedOffset(-1));els.nextBtn.addEventListener('click',()=>openSelectedOffset(1));els.saveBtn.addEventListener('click',saveSelectedRow);
       els.headerLogoutBtn.addEventListener('click',handleLogout);els.sidebarSourcingBtn?.addEventListener('click',()=>showNotice('Sourcing link will be added after the base dashboard is stable.','info'));
-      els.applicationsTable.addEventListener('click',async event=>{const button=event.target.closest('button[data-action]');const tr=event.target.closest('tr[data-id]');if(!tr)return;const id=tr.getAttribute('data-id');if(!button)return openDrawer(id);const action=button.getAttribute('data-action');if(action==='open')return openDrawer(id);if(action==='resume'){const selected=state.filteredRows.find(item=>item.id===id)||state.allRows.find(item=>item.id===id);if(!selected)return;const resume=await getResumeUrl(selected.profile,selected.app);state.selectedResumeUrl=resume.url;state.selectedResumePath=resume.path;if(!resume.url)return showNotice('Resume file not found. Check resume_path/resume_url and storage folder.','error');openResumeModal(resume.url,`${selected.displayName} Resume`);}});
+      els.applicationsTable.addEventListener('click',async event=>{
+        const button=event.target.closest('button[data-action]');const tr=event.target.closest('tr[data-id]');if(!tr)return;const id=tr.getAttribute('data-id');
+        if(!button)return openDrawer(id);
+        const action=button.getAttribute('data-action');
+        if(action==='open')return openDrawer(id);
+        if(action==='resume'){
+          const selected=state.filteredRows.find(item=>item.id===id)||state.allRows.find(item=>item.id===id);
+          if(!selected)return;
+          const resume=await getResumeUrl(selected.profile,selected.app);
+          state.selectedResumeUrl=resume.url;state.selectedResumePath=resume.path;
+          if(!resume.url)return showNotice('Resume file not found. Check applicant_profiles.resume_path/resume_url and storage folder.','error');
+          openResumeModal(resume.url,`${selected.displayName} Resume`);
+        }
+      });
       els.viewResumeBtn.addEventListener('click',()=>openResumeModal(state.selectedResumeUrl,`${els.drawerName.textContent||'Candidate'} Resume`));
       els.downloadResumeBtn.addEventListener('click',()=>{if(!state.selectedResumeUrl)return showNotice('Resume file not found.','error');window.open(state.selectedResumeUrl,'_blank','noopener,noreferrer')});
       els.resumeModalClose.addEventListener('click',()=>{els.resumeModal.classList.remove('show');els.resumeFrame.src=''});
