@@ -902,27 +902,88 @@
     }
 
     async function getResumeUrl(profile, app){
-      const directCandidates=[profile?.resume_url].map(safeText).filter(Boolean);
-      for(const direct of directCandidates){if(isDirectResumeUrl(direct))return {url:direct,path:cleanResumePath(direct)}}
-      const pathCandidates=buildResumePathCandidates(profile,app);
-      console.log('Resume resolver paths:', pathCandidates);
-      for(const candidatePath of pathCandidates){
-        const cleanPath=cleanResumePath(candidatePath);
-        if(!cleanPath)continue;
-        if(isResumeFilePath(cleanPath)){
-          const signedUrl=await tryCreateSignedUrl(cleanPath);
-          if(signedUrl)return {url:signedUrl,path:cleanPath};
-        }else{
-          const discoveredFilePath=await findResumeFileInFolder(cleanPath);
-          if(discoveredFilePath){
-            const signedUrl=await tryCreateSignedUrl(discoveredFilePath);
-            if(signedUrl)return {url:signedUrl,path:discoveredFilePath};
-          }
-        }
-      }
-      console.warn('Resume not found. Tried paths:', pathCandidates);
-      return {url:'',path:''};
+  const pathCandidates = buildResumePathCandidates(profile, app);
+
+  const email = normalizeEmail(profile?.email || app?.email || app?.applicant_email || '');
+  const emailFolder = normalizeEmailFolder(email);
+
+  if (emailFolder) {
+    pathCandidates.push(`manual/${emailFolder}`);
+    pathCandidates.push(`sourced-candidates/${emailFolder}`);
+  }
+
+  const candidates = uniq(pathCandidates.map(cleanResumePath).filter(Boolean));
+
+  console.log('Resume resolver paths:', candidates);
+
+  for (const candidatePath of candidates) {
+    const cleanPath = cleanResumePath(candidatePath);
+    if (!cleanPath) continue;
+
+    if (isDirectResumeUrl(candidatePath)) {
+      return {
+        url: candidatePath,
+        path: cleanPath
+      };
     }
+
+    if (isResumeFilePath(cleanPath)) {
+      const signedUrl = await tryCreateSignedUrl(cleanPath);
+
+      if (signedUrl) {
+        return {
+          url: signedUrl,
+          path: cleanPath
+        };
+      }
+
+      continue;
+    }
+
+    try {
+      const { data: files, error } = await supabaseClient
+        .storage
+        .from(CONFIG.RESUME_BUCKET)
+        .list(cleanPath, {
+          limit: 50,
+          sortBy: {
+            column: 'created_at',
+            order: 'desc'
+          }
+        });
+
+      if (error) {
+        console.warn('Resume folder lookup failed:', cleanPath, error);
+        continue;
+      }
+
+      const resumeFile = (files || []).find((file) =>
+        /\.(pdf|doc|docx|rtf)$/i.test(file.name || '')
+      );
+
+      if (!resumeFile) continue;
+
+      const fullPath = `${cleanPath}/${resumeFile.name}`;
+      const signedUrl = await tryCreateSignedUrl(fullPath);
+
+      if (signedUrl) {
+        return {
+          url: signedUrl,
+          path: fullPath
+        };
+      }
+    } catch (error) {
+      console.warn('Resume folder lookup exception:', cleanPath, error);
+    }
+  }
+
+  console.warn('Resume not found. Tried paths:', candidates);
+
+  return {
+    url: '',
+    path: ''
+  };
+}
 
     async function fetchAll(table,select,orderColumn='created_at'){
       const {data,error}=await supabaseClient.from(table).select(select).order(orderColumn,{ascending:false}).limit(CONFIG.PAGE_SIZE);
