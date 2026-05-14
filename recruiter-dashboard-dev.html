@@ -677,6 +677,7 @@
                 <div class="actions">
                   <button class="btn btn-xs" id="viewResumeBtn" type="button">View Resume</button>
                   <button class="btn btn-xs" id="downloadResumeBtn" type="button">Download</button>
+                  <button class="btn btn-primary btn-xs" id="parseResumeBtn" type="button">Parse Resume</button>
                 </div>
               </div>
 
@@ -741,7 +742,7 @@
       drawerName:$('drawerName'), drawerMeta:$('drawerMeta'), drawerIndexMeta:$('drawerIndexMeta'), closeDrawerBtn:$('closeDrawerBtn'), prevBtn:$('prevBtn'), nextBtn:$('nextBtn'),
       overallScore:$('overallScore'), scoringMode:$('scoringMode'), profileScore:$('profileScore'), resumeScore:$('resumeScore'), overallReason:$('overallReason'),
       snapEmail:$('snapEmail'), snapPhone:$('snapPhone'), snapLocation:$('snapLocation'), snapExperience:$('snapExperience'), snapJob:$('snapJob'),
-      resumeMeta:$('resumeMeta'), viewResumeBtn:$('viewResumeBtn'), downloadResumeBtn:$('downloadResumeBtn'), editNotes:$('editNotes'), editStatus:$('editStatus'), saveBtn:$('saveBtn'),
+      resumeMeta:$('resumeMeta'), viewResumeBtn:$('viewResumeBtn'), downloadResumeBtn:$('downloadResumeBtn'), parseResumeBtn:$('parseResumeBtn'), editNotes:$('editNotes'), editStatus:$('editStatus'), saveBtn:$('saveBtn'),
       resumeModal:$('resumeModal'), resumeModalTitle:$('resumeModalTitle'), resumeFrame:$('resumeFrame'), resumeModalClose:$('resumeModalClose'),
       headerLogoutBtn:$('headerLogoutBtn'), newApplicantsBadge:$('newApplicantsBadge'), liveStatusText:$('liveStatusText'), sidebarSourcingBtn:$('sidebarSourcingBtn'),
     };
@@ -1116,9 +1117,9 @@
       els.overallScore.textContent=`${row.score.overall}%`;els.scoringMode.textContent=row.score.mode;els.profileScore.textContent=`${row.score.profilePart.score}%`;els.resumeScore.textContent=`${row.score.resumePart.score}%`;els.overallReason.textContent=row.score.reasons.join(' • ')||'Limited evidence';
       els.snapEmail.textContent=row.profile?.email||row.app?.email||'—';els.snapPhone.textContent=row.profile?.phone||'—';els.snapLocation.textContent=getLocation(row.profile)||'—';els.snapExperience.textContent=formatExperience(row.profile);els.snapJob.textContent=row.jobTitle;
       els.editStatus.value=row.status||row.app?.status||'submitted';els.editNotes.value=row.app?.recruiter_notes||row.app?.stage_note_label||'';
-      els.resumeMeta.textContent='Resolving resume...';els.viewResumeBtn.disabled=true;els.downloadResumeBtn.disabled=true;state.selectedResumeUrl='';state.selectedResumePath='';
+      els.resumeMeta.textContent='Resolving resume...';els.viewResumeBtn.disabled=true;els.downloadResumeBtn.disabled=true;if(els.parseResumeBtn)els.parseResumeBtn.disabled=true;state.selectedResumeUrl='';state.selectedResumePath='';
       const resume=await getResumeUrl(row.profile,row.app);state.selectedResumeUrl=resume.url;state.selectedResumePath=resume.path;
-      if(resume.url){els.resumeMeta.textContent=resume.path||'Resume available';els.viewResumeBtn.disabled=false;els.downloadResumeBtn.disabled=false}else{els.resumeMeta.textContent='No resume found. Check applicant_profiles.resume_path/resume_url and Supabase Storage folder.'}
+      if(resume.url){els.resumeMeta.textContent=resume.path||'Resume available';els.viewResumeBtn.disabled=false;els.downloadResumeBtn.disabled=false;if(els.parseResumeBtn)els.parseResumeBtn.disabled=false}else{els.resumeMeta.textContent='No resume found. Check applicant_profiles.resume_path/resume_url and Supabase Storage folder.'}
       renderTable();
     }
     function closeDrawer(){state.selectedId=null;state.selectedResumeUrl='';state.selectedResumePath='';els.workspace.classList.remove('drawer-open');renderTable();updateDrawerNavMeta()}
@@ -1168,6 +1169,55 @@
         showNotice('Download could not start automatically, so the resume was opened in a new tab.','info');
       }
     }
+    async function parseSelectedResume(){
+      const row = state.allRows.find(item => item.id === state.selectedId);
+
+      if(!row){
+        return showNotice('Select a candidate first.', 'error');
+      }
+
+      if(!row.profile?.id){
+        return showNotice('This candidate does not have an applicant profile ID.', 'error');
+      }
+
+      if(!state.selectedResumePath){
+        return showNotice('Resume path is missing. Open the candidate first so BuzzHire can resolve the resume.', 'error');
+      }
+
+      try{
+        if(els.parseResumeBtn){
+          els.parseResumeBtn.disabled = true;
+          els.parseResumeBtn.textContent = 'Parsing...';
+        }
+
+        const { data, error } = await supabaseClient.functions.invoke('parse-resume-gemini', {
+          body: {
+            applicant_profile_id: row.profile.id,
+            resume_path: state.selectedResumePath
+          }
+        });
+
+        if(error)throw error;
+
+        if(!data?.ok){
+          throw new Error(data?.error || 'Resume parsing failed.');
+        }
+
+        showNotice('Resume parsed successfully.', 'success');
+
+        await loadDashboard();
+        await openDrawer(row.id);
+      }catch(error){
+        console.error(error);
+        showNotice(`Unable to parse resume: ${error.message || error}`, 'error');
+      }finally{
+        if(els.parseResumeBtn){
+          els.parseResumeBtn.disabled = false;
+          els.parseResumeBtn.textContent = 'Parse Resume';
+        }
+      }
+    }
+
     async function saveSelectedRow(){
       const row=state.allRows.find(item=>item.id===state.selectedId);if(!row)return;
       const selectedStatus=safeText(els.editStatus.value)||'submitted';const recruiterNotes=safeText(els.editNotes.value);const now=new Date().toISOString();
@@ -1217,6 +1267,7 @@
       });
       els.viewResumeBtn.addEventListener('click',()=>openResumeModal(state.selectedResumeUrl,`${els.drawerName.textContent||'Candidate'} Resume`));
       els.downloadResumeBtn.addEventListener('click',()=>downloadResumeFile(state.selectedResumeUrl,state.selectedResumePath,els.drawerName.textContent||'resume'));
+      els.parseResumeBtn?.addEventListener('click',parseSelectedResume);
       els.resumeModalClose.addEventListener('click',()=>{els.resumeModal.classList.remove('show');els.resumeFrame.src=''});
       els.resumeModal.addEventListener('click',event=>{if(event.target===els.resumeModal){els.resumeModal.classList.remove('show');els.resumeFrame.src=''}});
       window.setInterval(updateLiveStatusLabel,5000);
