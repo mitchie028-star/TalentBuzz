@@ -1366,33 +1366,40 @@
       els.candidateModal.classList.remove('show');
     }
 
- function getReadableError(error){
-  if(!error)return 'Unknown error.';
+ function stringifyDeep(value){
+  if(value == null)return '';
 
-  if(typeof error === 'string'){
-    return error;
+  if(typeof value === 'string')return value;
+  if(typeof value === 'number' || typeof value === 'boolean')return String(value);
+
+  if(value instanceof Error){
+    return value.message && value.message !== '[object Object]'
+      ? value.message
+      : stringifyDeep({
+          name: value.name,
+          message: value.message,
+          stack: value.stack
+        });
   }
 
-  if(error?.message){
-    return error.message;
+  if(value?.error){
+    return stringifyDeep(value.error);
   }
 
-  if(error?.error){
-    if(typeof error.error === 'string')return error.error;
-    if(error.error?.message)return error.error.message;
-
-    try{
-      return JSON.stringify(error.error, null, 2);
-    }catch{
-      return String(error.error);
-    }
+  if(value?.message){
+    return stringifyDeep(value.message);
   }
 
   try{
-    return JSON.stringify(error, null, 2);
+    return JSON.stringify(value, null, 2);
   }catch{
-    return String(error);
+    return String(value);
   }
+}
+
+function getReadableError(error){
+  const message = stringifyDeep(error);
+  return message && message !== '[object Object]' ? message : 'Unknown parsing error. Check Edge Function logs.';
 }
 
 async function uploadResumeForSelected(useModal=false){
@@ -1427,7 +1434,7 @@ async function uploadResumeForSelected(useModal=false){
       .upload(uploadPath, file, { upsert: true });
 
     if(uploadError){
-      throw uploadError;
+      throw new Error(getReadableError(uploadError));
     }
 
     const { error: updateError } = await supabaseClient
@@ -1440,7 +1447,7 @@ async function uploadResumeForSelected(useModal=false){
       .eq('id', row.profile.id);
 
     if(updateError){
-      throw updateError;
+      throw new Error(getReadableError(updateError));
     }
 
     state.selectedResumePath = uploadPath;
@@ -1516,46 +1523,15 @@ async function parseSelectedResume(){
     }catch{
       result = {
         ok: false,
-        error: resultText
+        error: resultText || `Function returned status ${response.status}`
       };
     }
 
     console.log('Parse resume response:', result);
 
     if(!response.ok || !result?.ok){
-
-      console.error('Full parse response:', result);
-
-      let errorMessage = 'Resume parsing failed.';
-
-      if(typeof result === 'string'){
-        errorMessage = result;
-
-      }else if(result?.error){
-
-        if(typeof result.error === 'string'){
-          errorMessage = result.error;
-
-        }else if(result.error?.message){
-          errorMessage = result.error.message;
-
-        }else{
-          try{
-            errorMessage = JSON.stringify(result.error, null, 2);
-          }catch{
-            errorMessage = String(result.error);
-          }
-        }
-
-      }else{
-        try{
-          errorMessage = JSON.stringify(result, null, 2);
-        }catch{
-          errorMessage = String(result);
-        }
-      }
-
-      throw new Error(errorMessage);
+      const edgeMessage = getReadableError(result) || `Function failed with status ${response.status}`;
+      throw new Error(edgeMessage);
     }
 
     showNotice('Resume parsed successfully.', 'success');
@@ -1582,6 +1558,7 @@ async function parseSelectedResume(){
     }
   }
 }
+
 
     async function saveSelectedRow(){
       const row=state.allRows.find(item=>item.id===state.selectedId);if(!row)return;
