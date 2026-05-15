@@ -1,1 +1,986 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Customer Service Simulation | BuzzHire</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
+
+  <style>
+    :root{
+      --bg:#f6f7fb;
+      --card:#ffffff;
+      --ink:#101828;
+      --muted:#667085;
+      --line:#e5e7eb;
+      --dark:#111827;
+      --dark2:#374151;
+      --blue:#2563eb;
+      --good:#067647;
+      --good-bg:#ecfdf3;
+      --bad:#b42318;
+      --bad-bg:#fef3f2;
+      --warn:#b54708;
+      --warn-bg:#fffaeb;
+      --shadow:0 24px 70px rgba(16,24,40,.1);
+    }
+
+    *{box-sizing:border-box}
+
+    body{
+      margin:0;
+      min-height:100vh;
+      font-family:Inter,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+      color:var(--ink);
+      background:
+        radial-gradient(circle at 14% 10%,rgba(37,99,235,.1),transparent 28%),
+        radial-gradient(circle at 88% 4%,rgba(17,24,39,.1),transparent 25%),
+        var(--bg);
+    }
+
+    .shell{
+      width:min(1120px,100%);
+      margin:0 auto;
+      padding:24px;
+    }
+
+    .topbar{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:14px;
+      margin-bottom:16px;
+      padding:16px 18px;
+      background:rgba(255,255,255,.88);
+      border:1px solid rgba(255,255,255,.92);
+      border-radius:24px;
+      box-shadow:0 14px 42px rgba(16,24,40,.08);
+      backdrop-filter:blur(18px);
+    }
+
+    .brand{
+      display:flex;
+      align-items:center;
+      gap:12px;
+    }
+
+    .brand img{
+      width:42px;
+      height:42px;
+      object-fit:contain;
+    }
+
+    .brand strong{
+      display:block;
+      letter-spacing:-.04em;
+    }
+
+    .brand span{
+      display:block;
+      color:var(--muted);
+      font-size:.82rem;
+      font-weight:700;
+    }
+
+    .btn{
+      min-height:42px;
+      border:1px solid var(--line);
+      border-radius:14px;
+      padding:0 15px;
+      background:#fff;
+      color:#344054;
+      font:inherit;
+      font-weight:900;
+      cursor:pointer;
+      text-decoration:none;
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      gap:8px;
+      transition:.16s ease;
+    }
+
+    .btn:hover{
+      transform:translateY(-1px);
+      box-shadow:0 10px 18px rgba(16,24,40,.08);
+    }
+
+    .btn:disabled{
+      opacity:.62;
+      cursor:not-allowed;
+      transform:none;
+      box-shadow:none;
+    }
+
+    .btn-primary{
+      background:linear-gradient(135deg,var(--dark),var(--dark2));
+      color:#fff;
+      border-color:transparent;
+    }
+
+    .card{
+      overflow:hidden;
+      background:rgba(255,255,255,.93);
+      border:1px solid rgba(255,255,255,.92);
+      border-radius:30px;
+      box-shadow:var(--shadow);
+    }
+
+    .hero{
+      padding:28px;
+      color:#fff;
+      background:
+        linear-gradient(135deg,rgba(17,24,39,.98),rgba(55,65,81,.96)),
+        radial-gradient(circle at 24% 24%,rgba(255,255,255,.17),transparent 32%);
+    }
+
+    .hero h1{
+      margin:0;
+      font-size:clamp(2.1rem,5vw,4.4rem);
+      line-height:.96;
+      letter-spacing:-.075em;
+    }
+
+    .hero p{
+      max-width:780px;
+      margin:16px 0 0;
+      color:#d1d5db;
+      line-height:1.65;
+    }
+
+    .body{
+      padding:22px;
+      display:grid;
+      grid-template-columns:minmax(0,1fr) 330px;
+      gap:18px;
+      align-items:start;
+    }
+
+    .notice{
+      display:none;
+      grid-column:1/-1;
+      padding:13px 15px;
+      border-radius:16px;
+      font-weight:800;
+      line-height:1.45;
+      white-space:pre-wrap;
+    }
+
+    .notice.show{display:block}
+    .notice.success{background:var(--good-bg);color:var(--good);border:1px solid #abefc6}
+    .notice.error{background:var(--bad-bg);color:var(--bad);border:1px solid #fecdca}
+    .notice.warning{background:var(--warn-bg);color:var(--warn);border:1px solid #fedf89}
+
+    .simulation{
+      min-height:650px;
+      display:flex;
+      flex-direction:column;
+      border:1px solid var(--line);
+      border-radius:24px;
+      background:#fff;
+      overflow:hidden;
+    }
+
+    .sim-head{
+      padding:16px 18px;
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:12px;
+      border-bottom:1px solid var(--line);
+      background:#f9fafb;
+    }
+
+    .sim-title strong{
+      display:block;
+      letter-spacing:-.03em;
+    }
+
+    .sim-title span{
+      display:block;
+      color:var(--muted);
+      font-size:.82rem;
+      font-weight:700;
+      margin-top:4px;
+    }
+
+    .progress{
+      min-width:170px;
+      height:10px;
+      border-radius:999px;
+      background:#e5e7eb;
+      overflow:hidden;
+    }
+
+    .progress span{
+      display:block;
+      height:100%;
+      width:0%;
+      background:linear-gradient(135deg,#111827,#2563eb);
+      transition:.35s ease;
+    }
+
+    .chat{
+      flex:1;
+      padding:18px;
+      display:flex;
+      flex-direction:column;
+      gap:13px;
+      background:
+        linear-gradient(180deg,#fff,#f9fafb);
+      overflow:auto;
+    }
+
+    .bubble-row{
+      display:flex;
+      gap:10px;
+      align-items:flex-end;
+      animation:rise .28s ease both;
+    }
+
+    .bubble-row.agent{
+      justify-content:flex-start;
+    }
+
+    .bubble-row.candidate{
+      justify-content:flex-end;
+    }
+
+    .avatar{
+      width:36px;
+      height:36px;
+      border-radius:50%;
+      display:grid;
+      place-items:center;
+      color:#fff;
+      font-weight:900;
+      background:linear-gradient(135deg,#b42318,#f97316);
+      flex:0 0 auto;
+    }
+
+    .avatar.system{
+      background:linear-gradient(135deg,#111827,#374151);
+    }
+
+    .bubble{
+      max-width:min(680px,82%);
+      padding:13px 15px;
+      border-radius:18px;
+      line-height:1.58;
+      font-size:.94rem;
+      white-space:pre-wrap;
+    }
+
+    .bubble.customer{
+      border-bottom-left-radius:6px;
+      background:#fff7ed;
+      color:#7c2d12;
+      border:1px solid #fed7aa;
+    }
+
+    .bubble.system{
+      border-bottom-left-radius:6px;
+      background:#eef4ff;
+      color:#3538cd;
+      border:1px solid #c7d7fe;
+    }
+
+    .bubble.candidate{
+      border-bottom-right-radius:6px;
+      background:#111827;
+      color:#fff;
+    }
+
+    .typing{
+      display:inline-flex;
+      gap:4px;
+      align-items:center;
+    }
+
+    .typing i{
+      width:7px;
+      height:7px;
+      border-radius:50%;
+      background:#f97316;
+      animation:pulse 1s infinite ease-in-out;
+    }
+
+    .typing i:nth-child(2){animation-delay:.15s}
+    .typing i:nth-child(3){animation-delay:.3s}
+
+    .composer{
+      padding:16px;
+      border-top:1px solid var(--line);
+      background:#fff;
+      display:grid;
+      gap:10px;
+    }
+
+    textarea{
+      width:100%;
+      min-height:132px;
+      padding:14px;
+      border:1px solid var(--line);
+      border-radius:18px;
+      font:inherit;
+      line-height:1.6;
+      resize:vertical;
+      outline:none;
+    }
+
+    textarea:focus{
+      border-color:#9ca3af;
+      box-shadow:0 0 0 4px rgba(156,163,175,.18);
+    }
+
+    .composer-foot{
+      display:flex;
+      justify-content:space-between;
+      gap:10px;
+      align-items:center;
+      flex-wrap:wrap;
+    }
+
+    .hint{
+      color:var(--muted);
+      font-size:.82rem;
+      line-height:1.45;
+    }
+
+    .side{
+      display:grid;
+      gap:14px;
+    }
+
+    .side-card{
+      padding:16px;
+      border:1px solid var(--line);
+      border-radius:22px;
+      background:#fff;
+    }
+
+    .side-card h3{
+      margin:0 0 10px;
+      font-size:1rem;
+      letter-spacing:-.03em;
+    }
+
+    .stat-grid{
+      display:grid;
+      grid-template-columns:1fr 1fr;
+      gap:10px;
+    }
+
+    .stat{
+      padding:12px;
+      border-radius:16px;
+      background:#f9fafb;
+      border:1px solid var(--line);
+    }
+
+    .stat span{
+      display:block;
+      color:var(--muted);
+      font-size:.72rem;
+      font-weight:900;
+      text-transform:uppercase;
+      letter-spacing:.06em;
+      margin-bottom:6px;
+    }
+
+    .stat strong{
+      font-size:1.4rem;
+      letter-spacing:-.04em;
+    }
+
+    .scenario-list{
+      display:grid;
+      gap:8px;
+    }
+
+    .scenario-pill{
+      padding:10px 11px;
+      border-radius:14px;
+      border:1px solid var(--line);
+      background:#f9fafb;
+      color:#344054;
+      font-size:.83rem;
+      font-weight:800;
+    }
+
+    .scenario-pill.active{
+      background:#111827;
+      color:#fff;
+      border-color:#111827;
+    }
+
+    .scenario-pill.done{
+      background:#ecfdf3;
+      color:#067647;
+      border-color:#abefc6;
+    }
+
+    .result{
+      display:none;
+      grid-column:1/-1;
+      padding:18px;
+      border-radius:22px;
+      border:1px solid var(--line);
+      background:#f9fafb;
+    }
+
+    .result.show{display:block}
+    .score-row{
+      display:grid;
+      grid-template-columns:repeat(4,1fr);
+      gap:10px;
+      margin-top:12px;
+    }
+
+    @keyframes pulse{
+      0%,80%,100%{opacity:.35;transform:translateY(0)}
+      40%{opacity:1;transform:translateY(-3px)}
+    }
+
+    @keyframes rise{
+      from{opacity:0;transform:translateY(8px)}
+      to{opacity:1;transform:translateY(0)}
+    }
+
+    @media(max-width:900px){
+      .body{grid-template-columns:1fr}
+      .score-row{grid-template-columns:repeat(2,1fr)}
+    }
+
+    @media(max-width:640px){
+      .shell{padding:14px}
+      .topbar{align-items:flex-start;flex-direction:column}
+      .hero,.body{padding:18px}
+      .stat-grid,.score-row{grid-template-columns:1fr}
+      .bubble{max-width:90%}
+    }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <header class="topbar">
+      <div class="brand">
+        <img src="logo.svg" alt="BuzzHire" onerror="this.style.display='none'" />
+        <div>
+          <strong>BuzzHire</strong>
+          <span>Customer service proof simulation</span>
+        </div>
+      </div>
+      <a class="btn" href="recruiter-dashboard.html">Back to Dashboard</a>
+    </header>
+
+    <section class="card">
+      <div class="hero">
+        <h1>Customer Service Simulation</h1>
+        <p>
+          Candidates respond to realistic customer situations in their own words.
+          BuzzHire captures communication, empathy, problem solving, and judgment evidence.
+        </p>
+      </div>
+
+      <div class="body">
+        <div id="notice" class="notice"></div>
+
+        <section class="simulation">
+          <div class="sim-head">
+            <div class="sim-title">
+              <strong id="simTitle">Ready to begin</strong>
+              <span id="simSubtitle">Interactive typed response assessment</span>
+            </div>
+            <div class="progress" aria-label="Assessment progress">
+              <span id="progressBar"></span>
+            </div>
+          </div>
+
+          <div id="chat" class="chat"></div>
+
+          <div class="composer">
+            <textarea id="candidateResponse" placeholder="Type your response to the customer here..." disabled></textarea>
+            <div class="composer-foot">
+              <div class="hint" id="responseHint">Click Start Simulation to begin. Voice playback uses your browser speech engine.</div>
+              <div class="actions">
+                <button class="btn" id="replayBtn" type="button" disabled>Replay Audio</button>
+                <button class="btn btn-primary" id="primaryBtn" type="button">Start Simulation</button>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <aside class="side">
+          <div class="side-card">
+            <h3>Candidate</h3>
+            <div class="hint" id="candidateMeta">Loading application details...</div>
+          </div>
+
+          <div class="side-card">
+            <h3>Live Signals</h3>
+            <div class="stat-grid">
+              <div class="stat"><span>Scenario</span><strong id="scenarioCount">0/4</strong></div>
+              <div class="stat"><span>Time</span><strong id="timer">0s</strong></div>
+              <div class="stat"><span>Words</span><strong id="wordCount">0</strong></div>
+              <div class="stat"><span>Status</span><strong id="statusLabel">Ready</strong></div>
+            </div>
+          </div>
+
+          <div class="side-card">
+            <h3>Scenarios</h3>
+            <div id="scenarioList" class="scenario-list"></div>
+          </div>
+
+          <div class="side-card">
+            <h3>Scoring</h3>
+            <div class="hint">
+              First version uses deterministic scoring. Next upgrade can call Gemini to evaluate tone, empathy, policy judgment, and authenticity in depth.
+            </div>
+          </div>
+        </aside>
+
+        <section id="resultBox" class="result"></section>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const SUPABASE_URL = "https://dilalntcxmvdcmwxjcct.supabase.co";
+    const SUPABASE_ANON_KEY = "sb_publishable_HrLVIUwnaRo54yijtrbWBQ_1aeb4ezs";
+    const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+    const params = new URLSearchParams(window.location.search);
+    const applicationId = params.get("application_id") || params.get("id") || "";
+    const profileIdParam = params.get("applicant_profile_id") || "";
+    const jobIdParam = params.get("job_id") || "";
+
+    const scenarios = [
+      {
+        title: "Delayed Refund",
+        customer: "I've been waiting two weeks for my refund and nobody is helping me. This is unacceptable. I want this fixed now.",
+        expected: ["sorry", "apologize", "understand", "check", "refund", "account", "update", "resolve", "help", "follow"]
+      },
+      {
+        title: "Billing Confusion",
+        customer: "Why was I charged twice? I already paid last week. I need someone to explain this clearly because I am getting frustrated.",
+        expected: ["understand", "review", "billing", "charge", "account", "verify", "explain", "correct", "refund", "receipt"]
+      },
+      {
+        title: "Policy Conflict",
+        customer: "Your policy makes no sense. I want a replacement today even if the warranty expired. I have been a loyal customer.",
+        expected: ["understand", "policy", "warranty", "options", "check", "replacement", "alternative", "supervisor", "help", "eligible"]
+      },
+      {
+        title: "Escalation Judgment",
+        customer: "I've already spoken to three agents. If you cannot fix this, transfer me to a manager immediately.",
+        expected: ["apologize", "review", "case", "manager", "escalate", "resolve", "history", "priority", "ownership", "help"]
+      }
+    ];
+
+    const state = {
+      application: null,
+      currentIndex: -1,
+      responses: [],
+      startedAt: null,
+      completedAt: null,
+      scenarioStartedAt: null,
+      timerId: null,
+      completed: false
+    };
+
+    const els = {
+      notice: document.getElementById("notice"),
+      simTitle: document.getElementById("simTitle"),
+      simSubtitle: document.getElementById("simSubtitle"),
+      progressBar: document.getElementById("progressBar"),
+      chat: document.getElementById("chat"),
+      candidateResponse: document.getElementById("candidateResponse"),
+      responseHint: document.getElementById("responseHint"),
+      replayBtn: document.getElementById("replayBtn"),
+      primaryBtn: document.getElementById("primaryBtn"),
+      candidateMeta: document.getElementById("candidateMeta"),
+      scenarioCount: document.getElementById("scenarioCount"),
+      timer: document.getElementById("timer"),
+      wordCount: document.getElementById("wordCount"),
+      statusLabel: document.getElementById("statusLabel"),
+      scenarioList: document.getElementById("scenarioList"),
+      resultBox: document.getElementById("resultBox")
+    };
+
+    function showNotice(message, type = "warning") {
+      els.notice.textContent = message;
+      els.notice.className = `notice show ${type}`;
+    }
+
+    function clearNotice() {
+      els.notice.textContent = "";
+      els.notice.className = "notice";
+    }
+
+    function safeText(value) {
+      return String(value || "").trim();
+    }
+
+    function words(value) {
+      const text = safeText(value).replace(/\\s+/g, " ");
+      return text ? text.split(" ") : [];
+    }
+
+    function addBubble(role, text) {
+      const row = document.createElement("div");
+      row.className = `bubble-row ${role === "candidate" ? "candidate" : "agent"}`;
+
+      if (role !== "candidate") {
+        const avatar = document.createElement("div");
+        avatar.className = `avatar ${role === "system" ? "system" : ""}`;
+        avatar.textContent = role === "system" ? "B" : "C";
+        row.appendChild(avatar);
+      }
+
+      const bubble = document.createElement("div");
+      bubble.className = `bubble ${role === "candidate" ? "candidate" : role === "system" ? "system" : "customer"}`;
+      bubble.textContent = text;
+      row.appendChild(bubble);
+
+      els.chat.appendChild(row);
+      els.chat.scrollTop = els.chat.scrollHeight;
+    }
+
+    function addTypingBubble() {
+      const row = document.createElement("div");
+      row.className = "bubble-row agent";
+      row.id = "typingBubble";
+
+      const avatar = document.createElement("div");
+      avatar.className = "avatar";
+      avatar.textContent = "C";
+
+      const bubble = document.createElement("div");
+      bubble.className = "bubble customer";
+      bubble.innerHTML = '<span class="typing"><i></i><i></i><i></i></span>';
+
+      row.appendChild(avatar);
+      row.appendChild(bubble);
+      els.chat.appendChild(row);
+      els.chat.scrollTop = els.chat.scrollHeight;
+    }
+
+    function removeTypingBubble() {
+      const el = document.getElementById("typingBubble");
+      if (el) el.remove();
+    }
+
+    function speak(text) {
+      if (!("speechSynthesis" in window)) return;
+      window.speechSynthesis.cancel();
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.rate = 0.95;
+      utterance.pitch = 1;
+      utterance.volume = 1;
+      window.speechSynthesis.speak(utterance);
+    }
+
+    function currentScenario() {
+      return scenarios[state.currentIndex] || null;
+    }
+
+    function renderScenarioList() {
+      els.scenarioList.innerHTML = scenarios.map((item, index) => {
+        const cls = index < state.currentIndex ? "done" : index === state.currentIndex ? "active" : "";
+        return `<div class="scenario-pill ${cls}">${index + 1}. ${item.title}</div>`;
+      }).join("");
+    }
+
+    function updateStats() {
+      const elapsed = state.startedAt ? Math.round((Date.now() - state.startedAt.getTime()) / 1000) : 0;
+      els.timer.textContent = `${elapsed}s`;
+      els.scenarioCount.textContent = `${Math.max(0, state.currentIndex + 1)}/${scenarios.length}`;
+      els.wordCount.textContent = String(words(els.candidateResponse.value).length);
+      els.progressBar.style.width = `${Math.max(0, (state.currentIndex / scenarios.length) * 100)}%`;
+    }
+
+    function startTimer() {
+      clearInterval(state.timerId);
+      state.timerId = setInterval(updateStats, 1000);
+    }
+
+    function startSimulation() {
+      clearNotice();
+      state.startedAt = new Date();
+      state.responses = [];
+      state.currentIndex = -1;
+      state.completed = false;
+
+      els.chat.innerHTML = "";
+      els.resultBox.className = "result";
+      els.resultBox.innerHTML = "";
+      els.statusLabel.textContent = "Active";
+      els.primaryBtn.textContent = "Submit Response";
+      els.candidateResponse.disabled = false;
+      els.replayBtn.disabled = false;
+
+      addBubble("system", "Welcome to the BuzzHire Customer Service Simulation. Read or listen to each customer message, then type the response you would send as the agent.");
+      startTimer();
+      nextScenario();
+    }
+
+    function nextScenario() {
+      state.currentIndex += 1;
+
+      if (state.currentIndex >= scenarios.length) {
+        completeAssessment();
+        return;
+      }
+
+      const scenario = currentScenario();
+      state.scenarioStartedAt = new Date();
+      els.candidateResponse.value = "";
+      els.candidateResponse.disabled = true;
+      els.primaryBtn.disabled = true;
+      els.simTitle.textContent = scenario.title;
+      els.simSubtitle.textContent = `Scenario ${state.currentIndex + 1} of ${scenarios.length}`;
+      els.responseHint.textContent = "Customer is typing...";
+      renderScenarioList();
+      updateStats();
+
+      addTypingBubble();
+
+      setTimeout(() => {
+        removeTypingBubble();
+        addBubble("customer", scenario.customer);
+        speak(scenario.customer);
+        els.candidateResponse.disabled = false;
+        els.primaryBtn.disabled = false;
+        els.candidateResponse.focus();
+        els.responseHint.textContent = "Type a professional response. Aim for empathy, ownership, clarity, and a next step.";
+      }, 950);
+    }
+
+    function scoreResponse(response, scenario) {
+      const text = safeText(response).toLowerCase();
+      const wordCount = words(text).length;
+      const expectedHits = scenario.expected.filter(term => text.includes(term)).length;
+
+      let empathy = 35;
+      let communication = 35;
+      let problem = 35;
+      let grammar = 70;
+      let policy = 35;
+      let deEscalation = 35;
+
+      if (/sorry|apologize|understand|frustrat|appreciate|thank/.test(text)) empathy += 35;
+      if (/i can help|i will|let me|i'll|we can|next step|update/.test(text)) problem += 30;
+      if (/check|review|verify|account|case|details|order|refund|billing|warranty/.test(text)) problem += 25;
+      if (/policy|eligible|option|alternative|supervisor|manager|escalat|replacement/.test(text)) policy += 35;
+      if (/calm|priority|resolve|ownership|personally|follow up|timeline/.test(text)) deEscalation += 30;
+
+      if (wordCount >= 35) communication += 25;
+      else if (wordCount >= 20) communication += 15;
+      else communication -= 15;
+
+      communication += Math.min(20, expectedHits * 4);
+      empathy += Math.min(15, expectedHits * 3);
+
+      const sentences = response.split(/[.!?]/).map(s => s.trim()).filter(Boolean);
+      if (sentences.length >= 2) grammar += 10;
+      if (/[a-z]/.test(response) && /[.!?]/.test(response)) grammar += 10;
+      if (text.includes("can't") || text.includes("not my") || text.includes("calm down")) deEscalation -= 25;
+      if (wordCount < 10) {
+        empathy -= 20;
+        communication -= 25;
+        problem -= 20;
+      }
+
+      const clamp = n => Math.max(0, Math.min(100, Math.round(n)));
+
+      const scores = {
+        empathy_score: clamp(empathy),
+        communication_score: clamp(communication),
+        problem_solving_score: clamp(problem),
+        grammar_score: clamp(grammar),
+        policy_judgment_score: clamp(policy),
+        de_escalation_score: clamp(deEscalation)
+      };
+
+      const overall = Math.round(
+        (
+          scores.empathy_score +
+          scores.communication_score +
+          scores.problem_solving_score +
+          scores.grammar_score +
+          scores.policy_judgment_score +
+          scores.de_escalation_score
+        ) / 6
+      );
+
+      return {
+        ...scores,
+        overall_score: overall,
+        expected_hits: expectedHits,
+        word_count: wordCount,
+        feedback: buildFeedback(scores, overall)
+      };
+    }
+
+    function buildFeedback(scores, overall) {
+      if (overall >= 85) return "Strong customer handling. Response shows empathy, ownership, clarity, and practical next steps.";
+      if (overall >= 70) return "Good baseline response. Candidate shows useful support instincts but may need more specific ownership or policy language.";
+      if (overall >= 55) return "Usable but needs development. Response may be too generic, short, or missing a clear resolution path.";
+      return "Weak response. Candidate may need coaching on empathy, de-escalation, and structured customer handling.";
+    }
+
+    function submitCurrentResponse() {
+      if (state.currentIndex < 0) return startSimulation();
+
+      const scenario = currentScenario();
+      const response = safeText(els.candidateResponse.value);
+
+      if (!response || words(response).length < 8) {
+        showNotice("Please type a fuller response before continuing.", "warning");
+        return;
+      }
+
+      const completedAt = new Date();
+      const result = scoreResponse(response, scenario);
+
+      state.responses.push({
+        scenario_index: state.currentIndex + 1,
+        scenario_title: scenario.title,
+        customer_message: scenario.customer,
+        candidate_response: response,
+        started_at: state.scenarioStartedAt?.toISOString() || null,
+        completed_at: completedAt.toISOString(),
+        duration_seconds: state.scenarioStartedAt ? Math.round((completedAt.getTime() - state.scenarioStartedAt.getTime()) / 1000) : null,
+        scores: result
+      });
+
+      addBubble("candidate", response);
+      els.candidateResponse.value = "";
+      updateStats();
+
+      setTimeout(nextScenario, 550);
+    }
+
+    function average(key) {
+      if (!state.responses.length) return 0;
+      return Math.round(state.responses.reduce((sum, item) => sum + Number(item.scores[key] || 0), 0) / state.responses.length);
+    }
+
+    async function completeAssessment() {
+      clearInterval(state.timerId);
+      window.speechSynthesis?.cancel?.();
+
+      state.completed = true;
+      state.completedAt = new Date();
+
+      els.candidateResponse.disabled = true;
+      els.primaryBtn.disabled = true;
+      els.replayBtn.disabled = true;
+      els.statusLabel.textContent = "Done";
+      els.progressBar.style.width = "100%";
+      els.simTitle.textContent = "Assessment complete";
+      els.simSubtitle.textContent = "Saving evidence...";
+      renderScenarioList();
+      addBubble("system", "Thank you. Your simulation is complete. BuzzHire is saving your assessment result.");
+
+      const overall = average("overall_score");
+      const payload = {
+        applicant_profile_id: state.application?.applicant_profile_id || profileIdParam || null,
+        application_id: state.application?.id || applicationId || null,
+        job_id: state.application?.job_id || jobIdParam || null,
+        assessment_type: "customer_service_simulation",
+        overall_score: overall,
+        empathy_score: average("empathy_score"),
+        communication_score: average("communication_score"),
+        problem_solving_score: average("problem_solving_score"),
+        grammar_score: average("grammar_score"),
+        policy_judgment_score: average("policy_judgment_score"),
+        de_escalation_score: average("de_escalation_score"),
+        passed: overall >= 70,
+        scenario_results: state.responses,
+        ai_feedback: state.responses.map(item => `${item.scenario_title}: ${item.scores.feedback}`).join("\\n"),
+        started_at: state.startedAt?.toISOString() || null,
+        completed_at: state.completedAt.toISOString(),
+        metadata: {
+          source: "customer-service-simulation.html",
+          scoring_version: "deterministic-v1",
+          browser_tts: "speechSynthesis" in window,
+          user_agent: navigator.userAgent
+        }
+      };
+
+      const { error } = await supabaseClient
+        .from("candidate_customer_service_assessments")
+        .insert([payload]);
+
+      if (error) {
+        showNotice(`Assessment complete but could not save: ${error.message}`, "error");
+      } else {
+        showNotice("Customer service simulation saved as candidate evidence.", "success");
+      }
+
+      renderResult(payload, Boolean(error));
+    }
+
+    function renderResult(payload, hadError) {
+      els.resultBox.className = "result show";
+      els.resultBox.innerHTML = `
+        <h2>${payload.passed ? "Passed" : "Needs Review"}</h2>
+        <p>${hadError ? "The assessment was scored locally, but saving failed." : "The assessment was saved to BuzzHire evidence."}</p>
+        <div class="score-row">
+          <div class="stat"><span>Overall</span><strong>${payload.overall_score}</strong></div>
+          <div class="stat"><span>Empathy</span><strong>${payload.empathy_score}</strong></div>
+          <div class="stat"><span>Clarity</span><strong>${payload.communication_score}</strong></div>
+          <div class="stat"><span>Problem Solving</span><strong>${payload.problem_solving_score}</strong></div>
+          <div class="stat"><span>Grammar</span><strong>${payload.grammar_score}</strong></div>
+          <div class="stat"><span>Policy Judgment</span><strong>${payload.policy_judgment_score}</strong></div>
+          <div class="stat"><span>De-escalation</span><strong>${payload.de_escalation_score}</strong></div>
+          <div class="stat"><span>Scenarios</span><strong>${state.responses.length}</strong></div>
+        </div>
+      `;
+    }
+
+    async function loadApplication() {
+      if (!applicationId) {
+        els.candidateMeta.textContent = "No application_id provided. You can still save if applicant_profile_id and job_id are provided in the URL.";
+        return;
+      }
+
+      const { data, error } = await supabaseClient
+        .from("applications")
+        .select("id,email,job_id,job_title,applicant_profile_id,status")
+        .eq("id", applicationId)
+        .single();
+
+      if (error || !data) {
+        showNotice(`Unable to load application: ${error?.message || "Not found"}`, "error");
+        return;
+      }
+
+      state.application = data;
+      els.candidateMeta.textContent = `${data.email || "Candidate"} • ${data.job_title || "Role"}`;
+    }
+
+    els.primaryBtn.addEventListener("click", submitCurrentResponse);
+    els.replayBtn.addEventListener("click", () => {
+      const scenario = currentScenario();
+      if (scenario) speak(scenario.customer);
+    });
+
+    els.candidateResponse.addEventListener("input", updateStats);
+    els.candidateResponse.addEventListener("paste", event => {
+      event.preventDefault();
+      showNotice("Paste is disabled for this proof simulation.", "warning");
+    });
+
+    renderScenarioList();
+    updateStats();
+    loadApplication();
+  </script>
+</body>
+</html>
