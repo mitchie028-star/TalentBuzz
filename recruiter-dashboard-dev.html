@@ -1439,18 +1439,36 @@
           els.parseResumeBtn.textContent = 'Parsing...';
         }
 
-        const { data, error } = await supabaseClient.functions.invoke('parse-resume-gemini', {
-          body: {
-            applicant_profile_id: row.profile.id,
-            resume_path: state.selectedResumePath
-          }
-        });
+        const sessionResult = await supabaseClient.auth.getSession();
+const accessToken = sessionResult?.data?.session?.access_token;
 
-        if(error)throw error;
+const response = await fetch(`${CONFIG.SUPABASE_URL}/functions/v1/parse-resume-gemini`, {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json',
+    'apikey': CONFIG.SUPABASE_ANON_KEY,
+    'Authorization': `Bearer ${accessToken || CONFIG.SUPABASE_ANON_KEY}`
+  },
+  body: JSON.stringify({
+    applicant_profile_id: row.profile.id,
+    resume_path: state.selectedResumePath
+  })
+});
 
-        if(!data?.ok){
-          throw new Error(data?.error || 'Resume parsing failed.');
-        }
+const resultText = await response.text();
+
+let result;
+try {
+  result = JSON.parse(resultText);
+} catch {
+  result = { ok: false, error: resultText };
+}
+
+console.log('Parse resume response:', result);
+
+if (!response.ok || !result?.ok) {
+  throw new Error(result?.error || `Function failed with status ${response.status}`);
+}
 
         showNotice('Resume parsed successfully.', 'success');
 
