@@ -1366,128 +1366,192 @@
       els.candidateModal.classList.remove('show');
     }
 
-    async function uploadResumeForSelected(useModal=false){
-      const row = state.allRows.find(item => item.id === state.selectedId);
-      if(!row)return showNotice('Select a candidate first.', 'error');
-      if(!row.profile?.id)return showNotice('This candidate does not have an applicant profile ID.', 'error');
+ function getReadableError(error){
+  if(!error)return 'Unknown error.';
 
-      const input = useModal ? els.modalResumeUploadInput : els.resumeUploadInput;
-      const button = useModal ? els.modalUploadResumeBtn : els.uploadResumeBtn;
-      const file = input?.files?.[0];
+  if(typeof error === 'string'){
+    return error;
+  }
 
-      if(!file)return showNotice('Choose a resume file first.', 'error');
+  if(error?.message){
+    return error.message;
+  }
 
-      const uploadPath = getResumeUploadPath(row.profile, file);
+  if(error?.error){
+    if(typeof error.error === 'string')return error.error;
+    if(error.error?.message)return error.error.message;
 
-      try{
-        button.disabled = true;
-        button.textContent = 'Uploading...';
-
-        const { error: uploadError } = await supabaseClient.storage
-          .from(CONFIG.RESUME_BUCKET)
-          .upload(uploadPath, file, { upsert: true });
-
-        if(uploadError)throw uploadError;
-
-        const { error: updateError } = await supabaseClient
-          .from('applicant_profiles')
-          .update({
-            resume_path: uploadPath,
-            resume_file_name: file.name,
-            updated_at: new Date().toISOString()
-          })
-          .eq('id', row.profile.id);
-
-        if(updateError)throw updateError;
-
-        showNotice('Resume uploaded. Parsing now...', 'success');
-
-        state.selectedResumePath = uploadPath;
-        const signedUrl = await tryCreateSignedUrl(uploadPath);
-        state.selectedResumeUrl = signedUrl || '';
-
-        input.value = '';
-
-        await parseSelectedResume();
-      }catch(error){
-        console.error(error);
-        showNotice(`Unable to upload resume: ${error.message || error}`, 'error');
-      }finally{
-        button.disabled = false;
-        button.textContent = 'Upload / Replace Resume';
-      }
+    try{
+      return JSON.stringify(error.error, null, 2);
+    }catch{
+      return String(error.error);
     }
+  }
 
-    async function parseSelectedResume(){
-      const row = state.allRows.find(item => item.id === state.selectedId);
-
-      if(!row){
-        return showNotice('Select a candidate first.', 'error');
-      }
-
-      if(!row.profile?.id){
-        return showNotice('This candidate does not have an applicant profile ID.', 'error');
-      }
-
-      if(!state.selectedResumePath){
-        return showNotice('Resume path is missing. Open the candidate first so BuzzHire can resolve the resume.', 'error');
-      }
-
-      try{
-        if(els.parseResumeBtn){
-          els.parseResumeBtn.disabled = true;
-          els.parseResumeBtn.textContent = 'Parsing...';
-        }
-
-        const sessionResult = await supabaseClient.auth.getSession();
-const accessToken = sessionResult?.data?.session?.access_token;
-
-const response = await fetch(`${CONFIG.SUPABASE_URL}/functions/v1/parse-resume-gemini`, {
-  method: 'POST',
-  headers: {
-    'Content-Type': 'application/json',
-    'apikey': CONFIG.SUPABASE_ANON_KEY,
-    'Authorization': `Bearer ${accessToken || CONFIG.SUPABASE_ANON_KEY}`
-  },
-  body: JSON.stringify({
-    applicant_profile_id: row.profile.id,
-    resume_path: state.selectedResumePath
-  })
-});
-
-const resultText = await response.text();
-
-let result;
-try {
-  result = JSON.parse(resultText);
-} catch {
-  result = { ok: false, error: resultText };
+  try{
+    return JSON.stringify(error, null, 2);
+  }catch{
+    return String(error);
+  }
 }
 
-console.log('Parse resume response:', result);
+async function uploadResumeForSelected(useModal=false){
+  const row = state.allRows.find(item => item.id === state.selectedId);
 
-if (!response.ok || !result?.ok) {
-  throw new Error(result?.error || `Function failed with status ${response.status}`);
+  if(!row){
+    return showNotice('Select a candidate first.', 'error');
+  }
+
+  if(!row.profile?.id){
+    return showNotice('This candidate does not have an applicant profile ID.', 'error');
+  }
+
+  const input = useModal ? els.modalResumeUploadInput : els.resumeUploadInput;
+  const button = useModal ? els.modalUploadResumeBtn : els.uploadResumeBtn;
+  const file = input?.files?.[0];
+
+  if(!file){
+    return showNotice('Choose a resume file first.', 'error');
+  }
+
+  const uploadPath = getResumeUploadPath(row.profile, file);
+
+  try{
+    if(button){
+      button.disabled = true;
+      button.textContent = 'Uploading...';
+    }
+
+    const { error: uploadError } = await supabaseClient.storage
+      .from(CONFIG.RESUME_BUCKET)
+      .upload(uploadPath, file, { upsert: true });
+
+    if(uploadError){
+      throw uploadError;
+    }
+
+    const { error: updateError } = await supabaseClient
+      .from('applicant_profiles')
+      .update({
+        resume_path: uploadPath,
+        resume_file_name: file.name,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', row.profile.id);
+
+    if(updateError){
+      throw updateError;
+    }
+
+    state.selectedResumePath = uploadPath;
+
+    const signedUrl = await tryCreateSignedUrl(uploadPath);
+    state.selectedResumeUrl = signedUrl || '';
+
+    if(input){
+      input.value = '';
+    }
+
+    showNotice('Resume uploaded. Parsing now...', 'success');
+
+    await parseSelectedResume();
+  }catch(error){
+    console.error('Upload resume failed:', error);
+    showNotice(`Unable to upload resume: ${getReadableError(error)}`, 'error');
+  }finally{
+    if(button){
+      button.disabled = false;
+      button.textContent = 'Upload / Replace Resume';
+    }
+  }
 }
 
-        showNotice('Resume parsed successfully.', 'success');
+async function parseSelectedResume(){
+  const row = state.allRows.find(item => item.id === state.selectedId);
 
-        await loadDashboard();
-        await openDrawer(row.id);
-        if(els.candidateModal?.classList.contains('show')){
-          const refreshed = state.allRows.find(item => item.id === row.id);
-          fillCandidateModal(refreshed);
-        }
-      }catch(error){
-        console.error(error);
-        showNotice(`Unable to parse resume: ${error.message || error}`, 'error');
-      }finally{
-        if(els.parseResumeBtn){
-          els.parseResumeBtn.disabled = false;
-          els.parseResumeBtn.textContent = 'Parse Resume';
-        }
-      }
+  if(!row){
+    return showNotice('Select a candidate first.', 'error');
+  }
+
+  if(!row.profile?.id){
+    return showNotice('This candidate does not have an applicant profile ID.', 'error');
+  }
+
+  if(!state.selectedResumePath){
+    return showNotice('Resume path is missing. Open the candidate first so BuzzHire can resolve the resume.', 'error');
+  }
+
+  try{
+    if(els.parseResumeBtn){
+      els.parseResumeBtn.disabled = true;
+      els.parseResumeBtn.textContent = 'Parsing...';
     }
+
+    if(els.modalParseResumeBtn){
+      els.modalParseResumeBtn.disabled = true;
+      els.modalParseResumeBtn.textContent = 'Parsing...';
+    }
+
+    const sessionResult = await supabaseClient.auth.getSession();
+    const accessToken = sessionResult?.data?.session?.access_token;
+
+    const response = await fetch(`${CONFIG.SUPABASE_URL}/functions/v1/parse-resume-gemini`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'apikey': CONFIG.SUPABASE_ANON_KEY,
+        'Authorization': `Bearer ${accessToken || CONFIG.SUPABASE_ANON_KEY}`
+      },
+      body: JSON.stringify({
+        applicant_profile_id: row.profile.id,
+        resume_path: state.selectedResumePath
+      })
+    });
+
+    const resultText = await response.text();
+
+    let result;
+    try{
+      result = JSON.parse(resultText);
+    }catch{
+      result = {
+        ok: false,
+        error: resultText
+      };
+    }
+
+    console.log('Parse resume response:', result);
+
+    if(!response.ok || !result?.ok){
+      throw result || {
+        error: `Function failed with status ${response.status}`
+      };
+    }
+
+    showNotice('Resume parsed successfully.', 'success');
+
+    await loadDashboard();
+    await openDrawer(row.id);
+
+    if(els.candidateModal?.classList.contains('show')){
+      const refreshed = state.allRows.find(item => item.id === row.id);
+      fillCandidateModal(refreshed);
+    }
+  }catch(error){
+    console.error('Parse resume failed:', error);
+    showNotice(`Unable to parse resume: ${getReadableError(error)}`, 'error');
+  }finally{
+    if(els.parseResumeBtn){
+      els.parseResumeBtn.disabled = false;
+      els.parseResumeBtn.textContent = 'Parse Resume';
+    }
+
+    if(els.modalParseResumeBtn){
+      els.modalParseResumeBtn.disabled = false;
+      els.modalParseResumeBtn.textContent = 'Parse Resume';
+    }
+  }
+}
 
     async function saveSelectedRow(){
       const row=state.allRows.find(item=>item.id===state.selectedId);if(!row)return;
