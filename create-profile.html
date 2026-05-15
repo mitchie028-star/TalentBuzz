@@ -968,6 +968,33 @@ body{
   }
 }
 
+
+/* Simple process overrides */
+.resume-first-box{
+  margin-bottom:16px;
+  border-color:#d8dcff;
+  background:linear-gradient(180deg,#ffffff 0%,#f8f9ff 100%);
+}
+
+.auth-entry .oauth-grid{
+  grid-template-columns:1fr;
+}
+
+.auth-entry .oauth-btn{
+  min-height:54px !important;
+}
+
+#profile_photo,
+label[for="profile_photo"]{
+  display:none !important;
+}
+
+@media (min-width:720px){
+  .email-inline{
+    grid-template-columns:1fr;
+  }
+}
+
 </style>
 </head>
 <body>
@@ -1018,7 +1045,7 @@ body{
           <div class="step-header">
             <h2 class="step-title">Start your profile</h2>
             <p class="step-desc">
-              Choose the fastest way to get started. Google and LinkedIn are recommended for quicker sign-in, while email works well if you prefer to create an account manually.
+              Start by uploading your resume, then sign in so we can save your profile.
             </p>
           </div>
 
@@ -1026,10 +1053,28 @@ body{
             <div class="auth-entry-head">
               <div class="auth-entry-copy">
                 <h3>Continue instantly</h3>
-                <p>Use Google, LinkedIn, GitHub, email, or upload a resume to pre-fill your profile.</p>
+                <p>Upload your resume first for faster auto-fill, then sign in with Google, LinkedIn, GitHub, or email.</p>
               </div>
-              <div class="auth-badge">Fastest options</div>
+              <div class="auth-badge">Sign in</div>
             </div>
+
+
+            <div class="upload-box resume-first-box">
+              <label for="resume">Upload resume first <span style="color:var(--muted);font-weight:700;">(recommended)</span></label>
+              <input id="resume" type="file" accept=".pdf,.doc,.docx,.txt">
+              <div class="upload-note">Upload your resume to auto-fill your name, contact details, skills, and experience summary. You can edit everything before saving.</div>
+            </div>
+
+            <div id="resumeInsightCard" class="insight-card">
+              <h3>BuzzHire match preview</h3>
+              <div class="insight-row" id="scoreRow"></div>
+              <div class="insight-row" id="topRoleRow"></div>
+              <div class="insight-row" id="skillsRow"></div>
+              <div class="insight-row" id="suggestedRolesRow"></div>
+              <div class="match-list" id="matchedJobsList"></div>
+            </div>
+
+            <div class="oauth-divider">or sign in to continue</div>
 
             <div class="oauth-grid">
               <button type="button" class="oauth-btn google" id="googleLoginBtn">
@@ -1046,7 +1091,7 @@ body{
               </button>
             </div>
 
-            <div class="oauth-divider">or continue with email</div>
+            <div class="oauth-divider">or use email</div>
 
             <div class="email-inline">
               <div class="field">
@@ -1084,14 +1129,6 @@ body{
           </div>
 
           <div class="grid">
-            <div class="field full">
-              <label for="profile_photo">Profile Photo</label>
-              <div class="photo-wrap">
-                <div class="photo-preview" id="photoPreview">BH</div>
-                <div style="flex:1; min-width:240px;">
-                  <input id="profile_photo" type="file" accept="image/jpeg,image/png,image/webp">
-                  <div class="hint">Optional. Upload a clear professional photo. JPG, PNG, or WEBP.</div>
-                </div>
               </div>
             </div>
             <div class="field full"><label for="full_name">Full Name</label><input id="full_name" required></div>
@@ -1134,21 +1171,6 @@ body{
           <div class="step-header">
             <h2 class="step-title">Resume and final details</h2>
             <p class="step-desc">Add a resume if you have one, then include any optional links or details that can strengthen your profile.</p>
-          </div>
-
-          <div class="upload-box">
-            <label for="resume">Resume <span style="color:var(--muted);font-weight:700;">(optional)</span></label>
-            <input id="resume" type="file" accept=".pdf,.doc,.docx,.txt">
-            <div class="upload-note">Optional. You can upload your resume now or add it later from your dashboard. Accepted formats: PDF, DOC, DOCX, TXT.</div>
-          </div>
-
-          <div id="resumeInsightCard" class="insight-card">
-            <h3>BuzzHire match preview</h3>
-            <div class="insight-row" id="scoreRow"></div>
-            <div class="insight-row" id="topRoleRow"></div>
-            <div class="insight-row" id="skillsRow"></div>
-            <div class="insight-row" id="suggestedRolesRow"></div>
-            <div class="match-list" id="matchedJobsList"></div>
           </div>
 
           <div class="grid" style="margin-top:16px;">
@@ -1520,11 +1542,11 @@ function getRecruiterOnlineStatus(){
     steps.forEach((step, index) => { step.classList.toggle('active', index + 1 === currentStep); });
     updateProgressConfig(); backBtn.style.display = currentStep === 1 ? 'none' : 'inline-flex'; nextBtn.style.display = currentStep === 3 ? 'none' : 'inline-flex'; saveBtn.style.display = currentStep === 3 ? 'inline-flex' : 'none';
   }
-  function ensureStepOneAccess() { if (currentUser) return true; if (emailMethodSelected) return true; throw new Error('Choose a sign-in method first. Use email + password, Google, LinkedIn, or GitHub.'); }
+  function ensureStepOneAccess() { if (currentUser) return true; if (emailMethodSelected) return true; if (resumeInput?.files?.[0]) return true; throw new Error('Upload your resume or choose a sign-in method first.'); }
   function validateCurrentStep() {
-    if (currentStep === 1) { const email = getEmailInput().value.trim().toLowerCase(); if (!email) throw new Error('Email is required.'); if (!isValidEmail(email)) throw new Error('Please enter a valid email address.'); ensureStepOneAccess(); }
+    if (currentStep === 1) { const email = getEmailInput().value.trim().toLowerCase(); if (email && !isValidEmail(email)) throw new Error('Please enter a valid email address.'); ensureStepOneAccess(); }
     if (currentStep === 2) {
-      const fullName = getFullNameInput().value.trim(); const phone = normalizePhone(document.getElementById('phone').value); const targetRole = getTargetRoleInput().value.trim(); const profilePhoto = profilePhotoInput.files[0];
+      const fullName = getFullNameInput().value.trim(); const phone = normalizePhone(document.getElementById('phone').value); const targetRole = getTargetRoleInput().value.trim(); const profilePhoto = profilePhotoInput?.files?.[0];
       if (!fullName) throw new Error('Please enter your full name.'); if (!targetRole) throw new Error('Please select your target role.'); if (phone && !validatePhone(phone)) throw new Error('Please enter a valid phone number with 7 to 15 digits. You can use your local format or include a country code.'); if (profilePhoto) validateImageFile(profilePhoto);
     }
     if (currentStep === 3) {
@@ -1974,7 +1996,7 @@ function getRecruiterOnlineStatus(){
       document.getElementById('portfolio').value,
       document.getElementById('experience').value,
       resumeInput?.files?.[0]?.name,
-      profilePhotoInput?.files?.[0]?.name
+      ''
     ].some(value => String(value || '').trim());
 
     if (!force && !hasMeaningfulInput && currentStep === 1) return null;
@@ -2045,7 +2067,7 @@ function getRecruiterOnlineStatus(){
       }
     });
 
-    profilePhotoInput?.addEventListener('change', () => queueDraftSave(true));
+    
     resumeInput?.addEventListener('change', () => queueDraftSave(true));
     window.addEventListener('beforeunload', () => {
       if (draftSaveTimer) {
@@ -2082,6 +2104,24 @@ function getRecruiterOnlineStatus(){
 
     queueDraftSave(true);
   }
+
+  async function continueToBasicDetailsAfterAuth(user) {
+    if (!user) return;
+
+    applyOAuthDefaults(user);
+    syncAuthModeUI();
+
+    const email = getEmailInput().value.trim().toLowerCase();
+    if (email) {
+      await hydrateProfileByEmail(email);
+      await resolveRecruiterAttribution(email);
+    }
+
+    currentStep = 2;
+    updateStepUI();
+    clearMessage();
+  }
+
 
 
   function getCurrentProfileStepLabel(){ return `Step ${currentStep}`; }
@@ -2404,7 +2444,7 @@ function getRecruiterOnlineStatus(){
       try {
         const parsed = await parseResumeWithGemini(file);
         applyParsedResumeToForm(parsed);
-        showMessage('Resume parsed successfully. Please review the auto-filled fields.', 'success');
+        showMessage('Resume parsed successfully. Review the auto-filled fields.', 'success'); currentStep = 2; updateStepUI();
       } catch (parseError) {
         console.warn('Resume parser failed, using local matching fallback:', parseError);
         showMessage('Resume attached. We could not fully parse it, but we will still use it for matching.', 'info');
@@ -2416,17 +2456,11 @@ function getRecruiterOnlineStatus(){
       renderResumeInsights();
     }
   });
-  profilePhotoInput.addEventListener('change', (e) => {
-    const file = e.target.files[0]; if (!file) { pendingProfilePhotoDataUrl = null; updatePhotoPreviewFromName(); return; }
-    try { validateImageFile(file); const reader = new FileReader(); reader.onload = function(evt) { pendingProfilePhotoDataUrl = evt.target?.result || null; photoPreview.innerHTML = `<img src="${pendingProfilePhotoDataUrl}" alt="Profile preview">`; }; reader.readAsDataURL(file); }
-    catch (err) { showMessage(err.message || 'Invalid image file.', 'error'); e.target.value = ''; pendingProfilePhotoDataUrl = null; updatePhotoPreviewFromName(); }
-  });
-
-  form.addEventListener('submit', async (e) => {
+form.addEventListener('submit', async (e) => {
     e.preventDefault(); clearMessage();
     try {
       validateCurrentStep(); setSavingState(true);
-      const full_name = getFullNameInput().value.trim(); const email = getEmailInput().value.trim().toLowerCase(); const phone = normalizePhone(document.getElementById('phone').value); const location = document.getElementById('location').value.trim(); const target_role = getTargetRoleInput().value.trim(); const salaryRaw = document.getElementById('salary').value.trim(); const work_setup = document.getElementById('work_setup').value.trim(); const linkedin = document.getElementById('linkedin').value.trim(); const portfolio = document.getElementById('portfolio').value.trim(); const experience = document.getElementById('experience').value.trim(); const resumeFile = resumeInput.files[0]; const profilePhotoFile = profilePhotoInput.files[0]; const password = document.getElementById('password').value; const confirmPassword = document.getElementById('confirm_password').value;
+      const full_name = getFullNameInput().value.trim(); const email = getEmailInput().value.trim().toLowerCase(); const phone = normalizePhone(document.getElementById('phone').value); const location = document.getElementById('location').value.trim(); const target_role = getTargetRoleInput().value.trim(); const salaryRaw = document.getElementById('salary').value.trim(); const work_setup = document.getElementById('work_setup').value.trim(); const linkedin = document.getElementById('linkedin').value.trim(); const portfolio = document.getElementById('portfolio').value.trim(); const experience = document.getElementById('experience').value.trim(); const resumeFile = resumeInput.files[0]; const profilePhotoFile = profilePhotoInput?.files?.[0]; const password = document.getElementById('password').value; const confirmPassword = document.getElementById('confirm_password').value;
       if (!full_name) throw new Error('Full name is required.'); if (!email) throw new Error('Email is required.'); if (!isValidEmail(email)) throw new Error('Please enter a valid email address.'); if (!target_role) throw new Error('Please select your target role.'); if (phone && !validatePhone(phone)) throw new Error('Please enter a valid phone number with 7 to 15 digits. You can use your local format or include a country code.');
       if (!currentUser && emailMethodSelected) {
         if (!password) throw new Error('Please create a password.'); if (password.length < 8) throw new Error('Password must be at least 8 characters.'); if (password !== confirmPassword) throw new Error('Passwords do not match.');
@@ -2553,13 +2587,7 @@ function getRecruiterOnlineStatus(){
       currentUser = session?.user || currentUser || null;
 
       if (currentUser) {
-        applyOAuthDefaults(currentUser);
-        syncAuthModeUI();
-
-        const email = getEmailInput().value.trim().toLowerCase();
-        if (email) {
-          await hydrateProfileByEmail(email);
-        }
+        await continueToBasicDetailsAfterAuth(currentUser);
       }
     } catch (error) {
       console.warn('Unable to hydrate OAuth profile defaults:', error);
