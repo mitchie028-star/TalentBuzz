@@ -1,1 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Typing Test | BuzzHire</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800;900&display=swap" rel="stylesheet">
+  <style>
+    :root{--bg:#f6f7fb;--card:#fff;--text:#101828;--muted:#667085;--line:#e5e7eb;--good:#067647;--bad:#b42318;--warn:#b54708}
+    *{box-sizing:border-box}
+    body{margin:0;min-height:100vh;font-family:Inter,system-ui,sans-serif;background:var(--bg);color:var(--text)}
+    .shell{max-width:980px;margin:0 auto;padding:24px}
+    .top{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:16px;padding:16px 18px;background:#fff;border:1px solid var(--line);border-radius:22px;box-shadow:0 14px 40px rgba(16,24,40,.08)}
+    .brand{display:flex;gap:12px;align-items:center}.brand img{width:42px;height:42px;object-fit:contain}.brand strong{display:block}.brand span{display:block;color:var(--muted);font-size:.82rem;font-weight:700}
+    .card{background:#fff;border:1px solid var(--line);border-radius:28px;overflow:hidden;box-shadow:0 24px 70px rgba(16,24,40,.1)}
+    .hero{padding:28px;background:linear-gradient(135deg,#111827,#374151);color:#fff}.hero h1{margin:0;font-size:clamp(2rem,5vw,4rem);letter-spacing:-.07em;line-height:.96}.hero p{color:#d1d5db;line-height:1.6}
+    .body{padding:22px;display:grid;gap:16px}.notice{display:none;padding:12px 14px;border-radius:14px;font-weight:800}.notice.show{display:block}.notice.success{background:#ecfdf3;color:var(--good)}.notice.error{background:#fef3f2;color:var(--bad)}.notice.warning{background:#fffaeb;color:var(--warn)}
+    .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}.stat{padding:14px;border:1px solid var(--line);border-radius:18px;background:#fff}.stat span{display:block;color:var(--muted);font-size:.74rem;font-weight:900;text-transform:uppercase;letter-spacing:.07em}.stat strong{font-size:1.6rem}
+    .panel{display:grid;gap:14px;padding:16px;border:1px solid var(--line);border-radius:20px;background:#fff}.sample{padding:18px;background:#f9fafb;border:1px solid var(--line);border-radius:16px;line-height:1.8;user-select:none}
+    textarea{width:100%;min-height:170px;padding:15px;border:1px solid var(--line);border-radius:16px;font:inherit;line-height:1.6;resize:vertical}
+    .actions{display:flex;gap:10px;flex-wrap:wrap}.btn{min-height:42px;border:1px solid var(--line);border-radius:14px;padding:0 15px;background:#fff;font-weight:900;cursor:pointer;text-decoration:none;color:#344054}.btn-primary{background:linear-gradient(135deg,#111827,#374151);color:#fff;border-color:transparent}.btn:disabled{opacity:.6;cursor:not-allowed}
+    .result{display:none;padding:16px;border-radius:18px}.result.show{display:block}.result.pass{background:#ecfdf3;color:var(--good)}.result.fail{background:#fef3f2;color:var(--bad)}.small{color:var(--muted);font-size:.86rem;line-height:1.5}
+    @media(max-width:700px){.stats{grid-template-columns:repeat(2,1fr)}.top{align-items:flex-start;flex-direction:column}}
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <header class="top">
+      <div class="brand"><img src="logo.svg" alt="BuzzHire" onerror="this.style.display='none'"><div><strong>BuzzHire</strong><span>Typing proof assessment</span></div></div>
+      <a class="btn" href="recruiter-dashboard.html">Back to Dashboard</a>
+    </header>
+
+    <section class="card">
+      <div class="hero"><h1>Typing Test</h1><p>Verify typing speed and accuracy as candidate evidence. Results are saved to Supabase.</p></div>
+      <div class="body">
+        <div id="notice" class="notice"></div>
+        <div class="stats">
+          <div class="stat"><span>Required</span><strong id="requiredWpm">35</strong></div>
+          <div class="stat"><span>Timer</span><strong id="timer">60s</strong></div>
+          <div class="stat"><span>WPM</span><strong id="wpm">0</strong></div>
+          <div class="stat"><span>Accuracy</span><strong id="accuracy">100%</strong></div>
+        </div>
+        <div class="panel">
+          <div><strong id="candidateLabel">Candidate typing test</strong><div class="small" id="jobLabel">Loading application details...</div></div>
+          <div id="sampleText" class="sample">Customer service requires accuracy, patience, and clear communication. A strong representative listens carefully, confirms important details, documents each interaction properly, and resolves issues while maintaining a professional tone throughout the conversation.</div>
+          <textarea id="typedText" placeholder="Click Start Test, then type the paragraph above exactly as shown." disabled></textarea>
+          <div class="actions">
+            <button class="btn btn-primary" id="startBtn" type="button">Start Test</button>
+            <button class="btn" id="submitBtn" type="button" disabled>Submit Result</button>
+            <button class="btn" id="resetBtn" type="button">Reset</button>
+          </div>
+          <div id="resultBox" class="result"></div>
+          <div class="small">Paste and drag/drop are disabled. Use URL params: ?application_id=...&required_wpm=35</div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const SUPABASE_URL = "https://dilalntcxmvdcmwxjcct.supabase.co";
+    const SUPABASE_ANON_KEY = "sb_publishable_HrLVIUwnaRo54yijtrbWBQ_1aeb4ezs";
+    const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+    const params = new URLSearchParams(window.location.search);
+    const applicationId = params.get("application_id") || params.get("id") || "";
+    const profileIdParam = params.get("applicant_profile_id") || "";
+    const jobIdParam = params.get("job_id") || "";
+    const TEST_SECONDS = Number(params.get("duration") || "60");
+
+    const state = {
+      application:null,
+      requiredWpm:Number(params.get("required_wpm") || "35"),
+      started:false,
+      completed:false,
+      startedAt:null,
+      completedAt:null,
+      remaining:TEST_SECONDS,
+      timerId:null
+    };
+
+    const els = {
+      notice:document.getElementById("notice"),
+      requiredWpm:document.getElementById("requiredWpm"),
+      timer:document.getElementById("timer"),
+      wpm:document.getElementById("wpm"),
+      accuracy:document.getElementById("accuracy"),
+      candidateLabel:document.getElementById("candidateLabel"),
+      jobLabel:document.getElementById("jobLabel"),
+      sampleText:document.getElementById("sampleText"),
+      typedText:document.getElementById("typedText"),
+      startBtn:document.getElementById("startBtn"),
+      submitBtn:document.getElementById("submitBtn"),
+      resetBtn:document.getElementById("resetBtn"),
+      resultBox:document.getElementById("resultBox")
+    };
+
+    function showNotice(message,type="warning"){els.notice.textContent=message;els.notice.className=`notice show ${type}`}
+    function clearNotice(){els.notice.textContent="";els.notice.className="notice"}
+    function normalizeText(v){return String(v||"").replace(/\s+/g," ").trim()}
+    function words(v){const t=normalizeText(v);return t?t.split(" "):[]}
+
+    function calculateScore(){
+      const source=words(els.sampleText.textContent);
+      const typed=words(els.typedText.value);
+      let correct=0, incorrect=0;
+      typed.forEach((word,i)=>{ if(word===source[i]) correct++; else incorrect++; });
+      const elapsed=state.startedAt ? Math.max(1,Math.min(TEST_SECONDS,Math.round((Date.now()-state.startedAt.getTime())/1000))) : TEST_SECONDS;
+      const minutes=elapsed/60;
+      const gross=minutes>0 ? typed.length/minutes : 0;
+      const accuracy=typed.length ? (correct/typed.length)*100 : 100;
+      const net=Math.max(0,Math.round(gross*(accuracy/100)));
+      return {achieved_wpm:net,gross_wpm:Math.round(gross),accuracy:Math.round(accuracy),total_words:typed.length,correct_words:correct,incorrect_words:incorrect,duration_seconds:elapsed,passed:net>=state.requiredWpm && accuracy>=90};
+    }
+
+    function updateStats(){const s=calculateScore();els.wpm.textContent=s.achieved_wpm;els.accuracy.textContent=s.accuracy+"%";els.timer.textContent=state.remaining+"s";}
+
+    async function loadApplication(){
+      els.requiredWpm.textContent=state.requiredWpm;
+      if(!applicationId){els.jobLabel.textContent="No application_id provided. Result can still save with applicant_profile_id and job_id in the URL.";return;}
+      const {data,error}=await supabaseClient.from("applications").select("id,email,job_id,job_title,applicant_profile_id,status").eq("id",applicationId).single();
+      if(error||!data){showNotice("Unable to load application: "+(error?.message||"Not found"),"error");return;}
+      state.application=data;
+      els.candidateLabel.textContent=data.email||"Candidate typing test";
+      els.jobLabel.textContent=(data.job_title||"Role")+" • Application "+data.id;
+    }
+
+    function startTest(){
+      clearNotice();
+      if(state.started||state.completed)return;
+      state.started=true;state.startedAt=new Date();state.remaining=TEST_SECONDS;
+      els.typedText.disabled=false;els.typedText.value="";els.typedText.focus();els.startBtn.disabled=true;els.submitBtn.disabled=false;els.resultBox.className="result";els.resultBox.textContent="";
+      updateStats();
+      state.timerId=setInterval(()=>{state.remaining--;updateStats();if(state.remaining<=0)submitResult();},1000);
+    }
+
+    function resetTest(){
+      clearInterval(state.timerId);
+      state.started=false;state.completed=false;state.startedAt=null;state.completedAt=null;state.remaining=TEST_SECONDS;
+      els.typedText.disabled=true;els.typedText.value="";els.startBtn.disabled=false;els.submitBtn.disabled=true;els.resultBox.className="result";els.resultBox.textContent="";
+      updateStats();clearNotice();
+    }
+
+    async function submitResult(){
+      if(state.completed)return;
+      clearInterval(state.timerId);
+      state.completed=true;state.completedAt=new Date();els.typedText.disabled=true;els.submitBtn.disabled=true;
+      const score=calculateScore();
+      const payload={
+        applicant_profile_id:state.application?.applicant_profile_id||profileIdParam||null,
+        application_id:state.application?.id||applicationId||null,
+        job_id:state.application?.job_id||jobIdParam||null,
+        required_wpm:state.requiredWpm,
+        achieved_wpm:score.achieved_wpm,
+        accuracy:score.accuracy,
+        total_words:score.total_words,
+        correct_words:score.correct_words,
+        incorrect_words:score.incorrect_words,
+        duration_seconds:score.duration_seconds,
+        passed:score.passed,
+        test_text:normalizeText(els.sampleText.textContent),
+        typed_text:els.typedText.value,
+        started_at:state.startedAt?state.startedAt.toISOString():null,
+        completed_at:state.completedAt.toISOString(),
+        metadata:{gross_wpm:score.gross_wpm,source:"typing-test.html",user_agent:navigator.userAgent}
+      };
+      const {error}=await supabaseClient.from("candidate_typing_tests").insert([payload]);
+      if(error)showNotice("Result calculated but could not save: "+error.message,"error");
+      else showNotice("Typing test result saved as candidate evidence.","success");
+      els.resultBox.className="result show "+(score.passed?"pass":"fail");
+      els.resultBox.innerHTML=`<strong>${score.passed?"Passed":"Did not pass yet"}</strong><br>Required: ${state.requiredWpm} WPM<br>Result: ${score.achieved_wpm} WPM<br>Accuracy: ${score.accuracy}%<br>Correct words: ${score.correct_words}<br>Incorrect words: ${score.incorrect_words}`;
+    }
+
+    els.startBtn.addEventListener("click",startTest);
+    els.resetBtn.addEventListener("click",resetTest);
+    els.submitBtn.addEventListener("click",submitResult);
+    els.typedText.addEventListener("input",updateStats);
+    els.typedText.addEventListener("paste",e=>{e.preventDefault();showNotice("Paste is disabled for this typing proof test.","warning")});
+    els.typedText.addEventListener("drop",e=>{e.preventDefault();showNotice("Drag-and-drop text is disabled for this typing proof test.","warning")});
+    updateStats();loadApplication();
+  </script>
+</body>
+</html>
 
