@@ -2,11 +2,11 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Add / Edit Candidate | TalentBuzz</title>
+  <title>Add / Edit Candidate | BuzzHire</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta
     name="description"
-    content="Create or edit a candidate profile and application inside TalentBuzz."
+    content="Create or edit a candidate profile and application inside BuzzHire."
   />
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -199,6 +199,36 @@
       flex-wrap: wrap;
     }
 
+
+    .ai-card {
+      display: none;
+      margin-top: 14px;
+      padding: 16px;
+      border: 1px solid #c7d2fe;
+      border-radius: 16px;
+      background: #eef2ff;
+      color: #1e1b4b;
+      line-height: 1.6;
+    }
+
+    .ai-card.show { display: block; }
+
+    .ai-card h3 {
+      margin: 0 0 8px;
+      font-size: 1rem;
+      letter-spacing: -0.02em;
+    }
+
+    .ai-card ul {
+      margin: 8px 0 0;
+      padding-left: 18px;
+    }
+
+    .ai-card .muted {
+      color: #4338ca;
+      font-size: 0.86rem;
+    }
+
     .mini-btn {
       padding: 6px 10px;
       font-size: 0.8rem;
@@ -350,14 +380,15 @@
             </div>
             <input id="resume" type="file" accept=".pdf,.doc,.docx,.txt" style="display:none;" />
             <div class="helper">
-              Uploads to the <strong>resumes</strong> bucket. Parse Resume sends the storage <strong>path</strong>, not the signed URL.
+              Upload a resume to auto-fill the candidate profile using BuzzHire AI.
             </div>
             <div id="resumePreview" class="resume-preview"></div>
+            <div id="aiSummaryCard" class="ai-card"></div>
           </div>
         </div>
 
         <div class="actions">
-          <button type="button" class="btn btn-warning" id="parseResumeBtn">Parse Resume</button>
+          <button type="button" class="btn btn-warning" id="parseResumeBtn">Parse Resume Again</button>
           <button type="submit" class="btn btn-primary" id="saveBtn">Save Candidate</button>
           <button type="button" class="btn btn-outline" id="saveAddAnotherBtn">Save & Add Another</button>
           <button type="button" class="btn btn-info" id="resendEmailBtn" style="display:none;">Resend Confirmation Email</button>
@@ -399,6 +430,7 @@
         resumeInput: document.getElementById("resume"),
         resumeDropZone: document.getElementById("resumeDropZone"),
         resumePreview: document.getElementById("resumePreview"),
+        aiSummaryCard: document.getElementById("aiSummaryCard"),
         fullName: document.getElementById("full_name"),
         email: document.getElementById("email"),
         phone: document.getElementById("phone"),
@@ -422,7 +454,9 @@
           parsed_resume_json: null,
           current_title: null,
           years_experience: null,
-          skills: null
+          skills: null,
+          uploaded_resume_path: null,
+          uploaded_resume_file_name: null
         }
       };
 
@@ -496,8 +530,15 @@
           parsed_resume_json: null,
           current_title: null,
           years_experience: null,
-          skills: null
+          skills: null,
+          uploaded_resume_path: null,
+          uploaded_resume_file_name: null
         };
+
+        if (els.aiSummaryCard) {
+          els.aiSummaryCard.className = "ai-card";
+          els.aiSummaryCard.innerHTML = "";
+        }
       }
 
       function resetFormForNextEntry() {
@@ -626,10 +667,50 @@
         });
       }
 
+      function safeHtml(value) {
+        return String(value || "")
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;")
+          .replace(/'/g, "&#39;");
+      }
+
+      function normalizeYears(value) {
+        const raw = String(value ?? "").toLowerCase().trim();
+        if (!raw) return null;
+        if (raw.includes("less than")) return 0;
+        const match = raw.match(/\d+/);
+        return match ? Number(match[0]) : null;
+      }
+
+      function getReadableError(error) {
+        if (!error) return "Unknown error.";
+        if (typeof error === "string") return error;
+        if (error.message) return error.message;
+
+        if (error.error) {
+          if (typeof error.error === "string") return error.error;
+          if (error.error.message) return error.error.message;
+          try { return JSON.stringify(error.error, null, 2); } catch { return String(error.error); }
+        }
+
+        try { return JSON.stringify(error, null, 2); } catch { return String(error); }
+      }
+
       async function uploadResume(file, emailOrFallback = "unknown") {
-        const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
-        const safeEmail = String(emailOrFallback).replace(/[^a-zA-Z0-9._-]/g, "_");
-        const path = `manual/${safeEmail}/${Date.now()}-${safeName}`;
+        const safeName = file.name
+          .replace(/\s+/g, "_")
+          .replace(/[^a-zA-Z0-9._-]/g, "_");
+
+        const safeEmail = String(emailOrFallback || "unknown")
+          .toLowerCase()
+          .replace(/@/g, "_")
+          .replace(/[^a-zA-Z0-9._-]/g, "_")
+          .replace(/_+/g, "_")
+          .replace(/^_+|_+$/g, "");
+
+        const path = `manual/${safeEmail || "unknown"}/${Date.now()}-${safeName}`;
 
         const { error } = await supabaseClient
           .storage
@@ -638,71 +719,167 @@
 
         if (error) throw error;
 
-        const { data } = supabaseClient.storage.from("resumes").getPublicUrl(path);
-
         return {
           path,
-          url: data.publicUrl
+          fileName: file.name
         };
       }
 
+      function renderAiSummaryCard(parsed) {
+        if (!els.aiSummaryCard) return;
+
+        if (!parsed) {
+          els.aiSummaryCard.className = "ai-card";
+          els.aiSummaryCard.innerHTML = "";
+          return;
+        }
+
+        const skills = Array.isArray(parsed.skills)
+          ? parsed.skills.slice(0, 10)
+          : String(parsed.skills || "")
+              .split(",")
+              .map(item => item.trim())
+              .filter(Boolean)
+              .slice(0, 10);
+
+        const suggestedRoles = Array.isArray(parsed.suggested_roles)
+          ? parsed.suggested_roles.slice(0, 5)
+          : [];
+
+        const redFlags = Array.isArray(parsed.red_flags)
+          ? parsed.red_flags.filter(Boolean).slice(0, 5)
+          : [];
+
+        els.aiSummaryCard.className = "ai-card show";
+        els.aiSummaryCard.innerHTML = `
+          <h3>AI Resume Summary</h3>
+          <div class="muted">Review this before saving the candidate.</div>
+          <ul>
+            ${parsed.current_title ? `<li><strong>Current title:</strong> ${safeHtml(parsed.current_title)}</li>` : ""}
+            ${parsed.years_of_experience !== undefined && parsed.years_of_experience !== null ? `<li><strong>Experience:</strong> ${safeHtml(parsed.years_of_experience)}</li>` : ""}
+            ${skills.length ? `<li><strong>Skills:</strong> ${skills.map(safeHtml).join(", ")}</li>` : ""}
+            ${suggestedRoles.length ? `<li><strong>Suggested roles:</strong> ${suggestedRoles.map(safeHtml).join(", ")}</li>` : ""}
+            ${redFlags.length ? `<li><strong>Red flags:</strong> ${redFlags.map(safeHtml).join(", ")}</li>` : ""}
+          </ul>
+          ${parsed.summary ? `<p>${safeHtml(parsed.summary)}</p>` : ""}
+        `;
+      }
+
       function fillParsedFields(parsed) {
+        if (!parsed) return;
+
         if (parsed.full_name) els.fullName.value = parsed.full_name;
         if (parsed.email) els.email.value = parsed.email;
         if (parsed.phone) els.phone.value = parsed.phone;
         if (parsed.location) els.location.value = parsed.location;
-        if (parsed.experience_summary) els.experienceSummary.value = parsed.experience_summary;
+
+        const summary = parsed.summary || parsed.experience_summary || parsed.raw_resume_text || "";
+        if (summary) els.experienceSummary.value = summary;
+
         if (parsed.current_title) els.currentTitle.value = parsed.current_title;
+
         if (parsed.skills) {
           els.skills.value = Array.isArray(parsed.skills)
             ? parsed.skills.join(", ")
             : parsed.skills;
         }
-        if (parsed.years_experience !== undefined && parsed.years_experience !== null) {
-          els.yearsExperience.value = parsed.years_experience;
+
+        const normalizedYears = normalizeYears(
+          parsed.years_of_experience ?? parsed.years_experience
+        );
+
+        if (normalizedYears !== null) {
+          els.yearsExperience.value = normalizedYears;
         }
 
         state.parsedResume = {
-          raw_resume_text: parsed.raw_resume_text || null,
-          parsed_resume_json: parsed.parsed_resume_json || parsed || null,
+          ...state.parsedResume,
+          raw_resume_text: summary || null,
+          parsed_resume_json: parsed || null,
           current_title: parsed.current_title || null,
-          years_experience: parsed.years_experience ?? null,
-          skills: Array.isArray(parsed.skills) ? parsed.skills.join(", ") : parsed.skills || null
+          years_experience: normalizedYears,
+          skills: Array.isArray(parsed.skills)
+            ? parsed.skills.join(", ")
+            : parsed.skills || null
+        };
+
+        renderAiSummaryCard(parsed);
+      }
+
+      async function invokeGeminiParser({ applicantProfileId = null, resumePath }) {
+        const sessionResult = await supabaseClient.auth.getSession();
+        const accessToken = sessionResult?.data?.session?.access_token;
+
+        const response = await fetch(`${SUPABASE_URL}/functions/v1/parse-resume-gemini`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "apikey": SUPABASE_ANON_KEY,
+            "Authorization": `Bearer ${accessToken || SUPABASE_ANON_KEY}`
+          },
+          body: JSON.stringify({
+            applicant_profile_id: applicantProfileId || "00000000-0000-0000-0000-000000000000",
+            resume_path: resumePath,
+            preview_only: !applicantProfileId
+          })
+        });
+
+        const resultText = await response.text();
+
+        let result;
+        try {
+          result = JSON.parse(resultText);
+        } catch {
+          result = { ok: false, error: resultText };
+        }
+
+        if (!response.ok || !result?.ok) {
+          throw new Error(getReadableError(result));
+        }
+
+        return result.parsed;
+      }
+
+      async function uploadAndParseSelectedResume({ silent = false } = {}) {
+        const resumeFile = els.resumeInput.files[0];
+
+        if (!resumeFile) {
+          if (!silent) showNotice("Please upload a resume first.", "warning");
+          return null;
+        }
+
+        validateResumeFile(resumeFile);
+
+        const emailValue = els.email.value.trim().toLowerCase() || "unknown";
+        const uploaded = await uploadResume(resumeFile, emailValue);
+
+        state.parsedResume.uploaded_resume_path = uploaded.path;
+        state.parsedResume.uploaded_resume_file_name = uploaded.fileName;
+
+        const parsed = await invokeGeminiParser({
+          resumePath: uploaded.path
+        });
+
+        fillParsedFields(parsed);
+
+        return {
+          uploaded,
+          parsed
         };
       }
 
       async function parseResume() {
         clearNotice();
 
-        const resumeFile = els.resumeInput.files[0];
-        if (!resumeFile) {
-          showNotice("Please upload a resume first.", "warning");
-          return;
-        }
-
         try {
-          validateResumeFile(resumeFile);
           setBusyState({ parsing: true });
 
-          const emailValue = els.email.value.trim().toLowerCase() || "unknown";
-          const uploaded = await uploadResume(resumeFile, emailValue);
+          await uploadAndParseSelectedResume();
 
-          const { data, error } = await supabaseClient.functions.invoke("parse-resume", {
-            body: { resume_path: uploaded.path }
-          });
-
-          if (error) {
-            throw new Error(error.message || "Resume parsing function returned an error.");
-          }
-
-          if (!data?.success) {
-            throw new Error(data?.error || "Resume parsing failed.");
-          }
-
-          fillParsedFields(data.data);
           showNotice("Resume parsed successfully. Please review the auto-filled fields.", "success");
         } catch (error) {
-          showNotice(error.message || "Resume parsing failed.", "warning");
+          console.error("Resume parsing failed:", error);
+          showNotice(getReadableError(error) || "Resume parsing failed.", "warning");
         } finally {
           setBusyState();
         }
@@ -805,7 +982,7 @@
         els.email.value = profile?.email || data.email || "";
         els.phone.value = profile?.phone || "";
         els.location.value = profile?.location || "";
-        els.experienceSummary.value = profile?.experience_summary || "";
+        els.experienceSummary.value = profile?.experience_summary || profile?.raw_resume_text || "";
         els.yearsExperience.value = profile?.years_of_experience ?? "";
         els.currentTitle.value = profile?.current_title || "";
         els.skills.value = profile?.skills || "";
@@ -822,6 +999,10 @@
 
         if (matchingOption) {
           els.jobSelect.value = matchingOption.value;
+        }
+
+        if (profile?.parsed_resume_json) {
+          fillParsedFields(profile.parsed_resume_json);
         }
 
         showNotice("Editing candidate. Changes will update Supabase.", "info");
@@ -862,12 +1043,18 @@
 
           const existingProfileId = state.currentProfile?.id || null;
           let resume_path = state.currentProfile?.resume_path || null;
-          let resume_url = state.currentProfile?.resume_url || null;
+          let resume_file_name = state.currentProfile?.resume_file_name || null;
 
-          if (resumeFile) {
-            const uploaded = await uploadResume(resumeFile, email);
-            resume_path = uploaded.path;
-            resume_url = uploaded.url;
+          if (resumeFile && !state.parsedResume.uploaded_resume_path) {
+            const parsedResult = await uploadAndParseSelectedResume({ silent: true });
+
+            if (parsedResult?.uploaded?.path) {
+              resume_path = parsedResult.uploaded.path;
+              resume_file_name = parsedResult.uploaded.fileName;
+            }
+          } else if (state.parsedResume.uploaded_resume_path) {
+            resume_path = state.parsedResume.uploaded_resume_path;
+            resume_file_name = state.parsedResume.uploaded_resume_file_name;
           }
 
           const profilePayload = {
@@ -880,7 +1067,7 @@
             current_title,
             skills,
             resume_path,
-            resume_url,
+            resume_file_name,
             raw_resume_text: state.parsedResume.raw_resume_text,
             parsed_resume_json: state.parsedResume.parsed_resume_json
           };
@@ -1059,6 +1246,7 @@
             validateResumeFile(els.resumeInput.files[0]);
             showResumePreview(els.resumeInput.files[0]);
             resetParsedState();
+            parseResume();
           } catch (error) {
             els.resumeInput.value = "";
             els.resumePreview.innerHTML = "";
@@ -1090,6 +1278,7 @@
           els.resumeInput.files = files;
           showResumePreview(files[0]);
           resetParsedState();
+          parseResume();
         } catch (error) {
           els.resumeInput.value = "";
           els.resumePreview.innerHTML = "";
