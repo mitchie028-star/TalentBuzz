@@ -195,8 +195,15 @@
       max-width: 760px;
     }
 
+    .hero-signals {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-top: 14px;
+    }
+
     .fit-card {
-      min-width: 220px;
+      min-width: 250px;
       border: 1px solid var(--line);
       border-radius: 18px;
       padding: 15px;
@@ -218,6 +225,20 @@
       line-height: 1.1;
       font-weight: 500;
       letter-spacing: -0.04em;
+    }
+
+    .score-line {
+      margin-top: 10px;
+      font-size: 0.82rem;
+      color: var(--muted);
+    }
+
+    .score-line strong {
+      display: inline;
+      color: var(--ink);
+      font-size: 0.9rem;
+      font-weight: 600;
+      letter-spacing: -0.02em;
     }
 
     .fit-card small {
@@ -601,13 +622,20 @@
         <p class="eyebrow">Sift Intelligence Report</p>
         <h1 id="candidateName">Candidate Review</h1>
         <p id="candidateSubtitle">
-          Proof-based hiring report built from role-specific assessment evidence, Sift Conversation responses, and communication readiness signals.
+          Proof-based hiring report built from role-specific assessment evidence, Sift Conversation responses, and recruiter intelligence signals.
         </p>
+        <div class="hero-signals" id="heroSignals"></div>
       </div>
 
       <div class="fit-card">
-        <span>Overall Fit</span>
+        <span>Recruiter Recommendation</span>
         <strong id="overallFitLabel">Review Needed</strong>
+
+        <div class="score-line">
+          Score:
+          <strong id="overallScoreValue">—</strong>
+        </div>
+
         <small id="overallFitReason">
           Based on assessment evidence, conversation context, and role alignment.
         </small>
@@ -666,7 +694,7 @@
               <div class="info-row"><span>Application status</span><span id="applicationStatus">—</span></div>
               <div class="info-row"><span>Profile headline</span><span id="profileHeadline">—</span></div>
               <div class="info-row"><span>Work setup</span><span id="workSetup">—</span></div>
-              <div class="info-row"><span>Recommendation</span><span id="recommendation">—</span></div>
+              <div class="info-row"><span>Hiring signal</span><span id="recommendation">—</span></div>
             </div>
           </div>
         </div>
@@ -688,6 +716,7 @@
                   <span id="timelineProfile">Candidate profile and resume data reviewed.</span>
                 </div>
               </div>
+
               <div class="proof-step">
                 <span class="proof-dot">✓</span>
                 <div>
@@ -695,735 +724,8 @@
                   <span id="timelineAssessment">Assessment evidence captured from practical role scenarios.</span>
                 </div>
               </div>
+
               <div class="proof-step">
                 <span class="proof-dot">✓</span>
                 <div>
-                  <strong>Sift Conversation</strong>
-                  <span id="timelineConversation">Voice responses, transcripts, and communication signals reviewed.</span>
-                </div>
-              </div>
-              <div class="proof-step">
-                <span class="proof-dot">✓</span>
-                <div>
-                  <strong>Recruiter intelligence</strong>
-                  <span>Overall fit is interpreted from proof, context, and response quality.</span>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section class="grid two">
-        <div class="card">
-          <div class="card-head">
-            <div>
-              <h2 class="card-title">Evidence Highlights</h2>
-              <p class="card-subtitle">Positive proof signals found in the candidate journey.</p>
-            </div>
-          </div>
-          <div class="card-body">
-            <ul class="evidence-list" id="strengthsList"></ul>
-          </div>
-        </div>
-
-        <div class="card">
-          <div class="card-head">
-            <div>
-              <h2 class="card-title">Validation Notes</h2>
-              <p class="card-subtitle">Items recruiters may want to verify or clarify.</p>
-            </div>
-          </div>
-          <div class="card-body">
-            <ul class="evidence-list" id="concernsList"></ul>
-          </div>
-        </div>
-      </section>
-
-      <section class="card">
-        <div class="card-head">
-          <div>
-            <h2 class="card-title">Recruiter Summary</h2>
-            <p class="card-subtitle">Contextual interpretation of fit, readiness, and hiring evidence.</p>
-          </div>
-          <span class="badge" id="recommendationBadge">Review</span>
-        </div>
-
-        <div class="card-body">
-          <p class="empty-note" id="summaryText">No summary available yet.</p>
-          <p class="copy-note" id="recommendationReason"></p>
-        </div>
-      </section>
-
-      <section class="card">
-        <div class="card-head">
-          <div>
-            <h2 class="card-title">Assessment Evidence</h2>
-            <p class="card-subtitle">Practical responses from role-specific scenarios and written tasks.</p>
-          </div>
-        </div>
-
-        <div class="card-body">
-          <div class="assessment-list" id="assessmentList"></div>
-        </div>
-      </section>
-
-      <section class="card">
-        <div class="card-head">
-          <div>
-            <h2 class="card-title">Sift Conversation Intelligence</h2>
-            <p class="card-subtitle">Audio playback, transcripts, and response-level observations.</p>
-          </div>
-        </div>
-
-        <div class="card-body">
-          <div class="conversation-list" id="conversationList"></div>
-        </div>
-      </section>
-    </section>
-  </main>
-
-  <script>
-    const SUPABASE_URL = "https://dilalntcxmvdcmwxjcct.supabase.co";
-    const SUPABASE_ANON_KEY = "sb_publishable_HrLVIUwnaRo54yijtrbWBQ_1aeb4ezs";
-
-    const supabaseClient = window.supabase.createClient(
-      SUPABASE_URL,
-      SUPABASE_ANON_KEY
-    );
-
-    const params = new URLSearchParams(window.location.search);
-
-    const applicationId = params.get("application_id");
-    const conversationId = params.get("conversation_id") || params.get("id");
-
-    const els = {
-      statusBox: document.getElementById("statusBox"),
-      heroSection: document.getElementById("heroSection"),
-      content: document.getElementById("content"),
-      candidateName: document.getElementById("candidateName"),
-      candidateSubtitle: document.getElementById("candidateSubtitle"),
-      overallFitLabel: document.getElementById("overallFitLabel"),
-      overallFitReason: document.getElementById("overallFitReason"),
-      communicationReadiness: document.getElementById("communicationReadiness"),
-      alignmentReadiness: document.getElementById("alignmentReadiness"),
-      evidenceDepth: document.getElementById("evidenceDepth"),
-      riskReadiness: document.getElementById("riskReadiness"),
-      communicationBar: document.getElementById("communicationBar"),
-      alignmentBar: document.getElementById("alignmentBar"),
-      evidenceBar: document.getElementById("evidenceBar"),
-      riskBar: document.getElementById("riskBar"),
-      candidateEmail: document.getElementById("candidateEmail"),
-      roleTitle: document.getElementById("roleTitle"),
-      applicationStatus: document.getElementById("applicationStatus"),
-      profileHeadline: document.getElementById("profileHeadline"),
-      workSetup: document.getElementById("workSetup"),
-      recommendation: document.getElementById("recommendation"),
-      statusBadge: document.getElementById("statusBadge"),
-      recommendationBadge: document.getElementById("recommendationBadge"),
-      strengthsList: document.getElementById("strengthsList"),
-      concernsList: document.getElementById("concernsList"),
-      summaryText: document.getElementById("summaryText"),
-      recommendationReason: document.getElementById("recommendationReason"),
-      timelineProfile: document.getElementById("timelineProfile"),
-      timelineAssessment: document.getElementById("timelineAssessment"),
-      timelineConversation: document.getElementById("timelineConversation"),
-      assessmentList: document.getElementById("assessmentList"),
-      conversationList: document.getElementById("conversationList"),
-      copySummaryBtn: document.getElementById("copySummaryBtn")
-    };
-
-    let state = {
-      application: null,
-      profile: null,
-      job: null,
-      conversation: null,
-      conversationQuestions: [],
-      conversationResponses: [],
-      assessment: null,
-      assessmentQuestions: [],
-      assessmentResponses: []
-    };
-
-    function showStatus(message, type = "info") {
-      els.statusBox.className = `status ${type}`;
-      els.statusBox.textContent = message;
-      els.statusBox.style.display = "block";
-    }
-
-    function hideStatus() {
-      els.statusBox.style.display = "none";
-    }
-
-    function safe(value, fallback = "—") {
-      return value === null || value === undefined || value === "" ? fallback : value;
-    }
-
-    function escapeHtml(value) {
-      return String(value ?? "")
-        .replaceAll("&", "&amp;")
-        .replaceAll("<", "&lt;")
-        .replaceAll(">", "&gt;")
-        .replaceAll('"', "&quot;")
-        .replaceAll("'", "&#039;");
-    }
-
-    function score(value) {
-      const number = Number(value || 0);
-      if (Number.isNaN(number)) return 0;
-      return Math.max(0, Math.min(100, Math.round(number)));
-    }
-
-    function avg(values) {
-      const clean = values.map(Number).filter(Number.isFinite);
-      if (!clean.length) return 0;
-      return clean.reduce((a, b) => a + b, 0) / clean.length;
-    }
-
-    function labelFromScore(value, risk = false) {
-      const s = score(value);
-
-      if (risk) {
-        if (s >= 65) return "Needs Validation";
-        if (s >= 35) return "Moderate";
-        return "Low";
-      }
-
-      if (s >= 85) return "Strong";
-      if (s >= 70) return "Good";
-      if (s >= 55) return "Developing";
-      if (s > 0) return "Limited";
-      return "Review Needed";
-    }
-
-    function overallFitLabel(value) {
-      const s = score(value);
-
-      if (s >= 85) return "Strong Fit";
-      if (s >= 72) return "Good Fit";
-      if (s >= 58) return "Potential Fit";
-      if (s > 0) return "Limited Alignment";
-      return "Review Needed";
-    }
-
-    function setMetric(labelEl, barEl, value, risk = false) {
-      const s = score(value);
-      labelEl.textContent = labelFromScore(s, risk);
-      barEl.style.width = `${s}%`;
-    }
-
-    function badgeClass(value) {
-      const text = String(value || "").toLowerCase();
-      if (text.includes("limited") || text.includes("risk") || text.includes("concern") || text.includes("needs")) return "red";
-      if (text.includes("potential") || text.includes("moderate") || text.includes("review") || text.includes("developing")) return "amber";
-      return "green";
-    }
-
-    function setBadge(el, text) {
-      el.className = `badge ${badgeClass(text)}`;
-      el.textContent = text || "Review";
-    }
-
-    function candidateDisplayName() {
-      const profile = state.profile || {};
-      const application = state.application || {};
-
-      return (
-        profile.full_name ||
-        profile.name ||
-        application.full_name ||
-        application.candidate_name ||
-        application.name ||
-        application.email ||
-        "Candidate Review"
-      );
-    }
-
-    function applicationRole() {
-      const app = state.application || {};
-      const job = state.job || {};
-
-      return job.title || job.job_title || app.job_title || "Role";
-    }
-
-    function responseForQuestion(questionId) {
-      return state.conversationResponses.find(row => row.question_id === questionId) || null;
-    }
-
-    function assessmentResponseForQuestion(questionId) {
-      return state.assessmentResponses.find(row => row.question_id === questionId) || null;
-    }
-
-    function renderList(el, items, emptyText) {
-      const clean = Array.isArray(items) ? items.filter(Boolean) : [];
-
-      el.innerHTML = clean.length
-        ? clean.map(item => `<li>${escapeHtml(item)}</li>`).join("")
-        : `<li>${escapeHtml(emptyText)}</li>`;
-    }
-
-    function buildEvidenceHighlights() {
-      const conv = state.conversation || {};
-      const responses = state.conversationResponses || [];
-      const generated = [];
-
-      if (Array.isArray(conv.strengths) && conv.strengths.length) {
-        return conv.strengths;
-      }
-
-      const goodComms = avg(responses.map(r => r.communication_score));
-      const goodAlignment = avg(responses.map(r => r.role_alignment_score));
-      const goodAuthenticity = avg(responses.map(r => r.authenticity_score));
-
-      if (goodComms >= 70) generated.push("Demonstrates clear communication across Sift Conversation responses.");
-      if (goodAlignment >= 70) generated.push("Shows role-relevant reasoning and alignment with the applied position.");
-      if (goodAuthenticity >= 70) generated.push("Provides enough specificity to support experience ownership.");
-      if (state.assessmentResponses.length) generated.push("Completed role-specific assessment tasks, creating practical hiring evidence.");
-
-      return generated;
-    }
-
-    function buildValidationNotes() {
-      const conv = state.conversation || {};
-      const responses = state.conversationResponses || [];
-      const generated = [];
-
-      if (Array.isArray(conv.concerns) && conv.concerns.length) {
-        return conv.concerns;
-      }
-
-      const risk = avg(responses.map(r => r.fraud_risk_score));
-      const missingTranscripts = responses.filter(r => !r.transcript).length;
-
-      if (risk >= 45) generated.push("Some response signals may benefit from recruiter validation.");
-      if (missingTranscripts > 0) generated.push("One or more recordings may still need transcription review.");
-      if (!generated.length) generated.push("No major validation concerns surfaced from available evidence.");
-
-      return generated;
-    }
-
-    function renderHeader() {
-      const app = state.application || {};
-      const profile = state.profile || {};
-      const conv = state.conversation || {};
-      const role = applicationRole();
-      const fitScore = score(conv.overall_score);
-
-      els.candidateName.textContent = candidateDisplayName();
-      els.candidateSubtitle.textContent = `${role} · ${safe(app.email || profile.email, "No email")}`;
-      els.overallFitLabel.textContent = overallFitLabel(fitScore);
-      els.overallFitReason.textContent =
-        "Based on assessment evidence, Sift Conversation responses, communication readiness, and contextual role alignment.";
-
-      setBadge(els.statusBadge, app.status || conv.status || "Review");
-      setBadge(els.recommendationBadge, conv.recruiter_recommendation || overallFitLabel(fitScore));
-    }
-
-    function renderSnapshot() {
-      const app = state.application || {};
-      const profile = state.profile || {};
-      const conv = state.conversation || {};
-
-      els.candidateEmail.textContent = safe(app.email || profile.email);
-      els.roleTitle.textContent = safe(applicationRole());
-      els.applicationStatus.textContent = safe(app.status || conv.status);
-      els.profileHeadline.textContent = safe(profile.headline || profile.target_role || profile.current_title);
-      els.workSetup.textContent = safe(profile.preferred_work_setup || profile.work_setup);
-      els.recommendation.textContent = safe(conv.recruiter_recommendation || overallFitLabel(conv.overall_score));
-    }
-
-    function renderMetrics() {
-      const conv = state.conversation || {};
-      const responses = state.conversationResponses || [];
-
-      const communication =
-        score(conv.communication_score) ||
-        avg(responses.map(r => r.communication_score));
-
-      const alignment =
-        score(conv.role_alignment_score) ||
-        avg(responses.map(r => r.role_alignment_score));
-
-      const evidence =
-        avg([
-          conv.authenticity_score,
-          conv.confidence_score,
-          avg(responses.map(r => r.authenticity_score)),
-          avg(responses.map(r => r.confidence_score))
-        ]);
-
-      const risk =
-        score(conv.fraud_risk_score) ||
-        avg(responses.map(r => r.fraud_risk_score));
-
-      setMetric(els.communicationReadiness, els.communicationBar, communication);
-      setMetric(els.alignmentReadiness, els.alignmentBar, alignment);
-      setMetric(els.evidenceDepth, els.evidenceBar, evidence);
-      setMetric(els.riskReadiness, els.riskBar, risk, true);
-    }
-
-    function renderTimeline() {
-      const profile = state.profile || {};
-      const assessmentCount = state.assessmentQuestions.length;
-      const conversationCount = state.conversationQuestions.length;
-      const responseCount = state.conversationResponses.filter(r => r.audio_url).length;
-
-      els.timelineProfile.textContent = profile.id
-        ? "Profile, resume, and candidate context were available for review."
-        : "Profile context was limited or unavailable.";
-
-      els.timelineAssessment.textContent = assessmentCount
-        ? `${assessmentCount} role-specific assessment prompt${assessmentCount === 1 ? "" : "s"} captured.`
-        : "No assessment evidence is available yet.";
-
-      els.timelineConversation.textContent = conversationCount
-        ? `${responseCount} of ${conversationCount} Sift Conversation response${conversationCount === 1 ? "" : "s"} recorded.`
-        : "No Sift Conversation questions are available yet.";
-    }
-
-    function renderSummary() {
-      const conv = state.conversation || {};
-      const fitLabel = overallFitLabel(conv.overall_score);
-
-      els.summaryText.textContent =
-        conv.summary ||
-        `${candidateDisplayName()} is currently marked as ${fitLabel}. Recruiter review should consider the assessment evidence, Sift Conversation responses, and communication readiness indicators shown below.`;
-
-      els.recommendationReason.textContent =
-        conv.recommendation_reason ||
-        "Recommendation reasoning should be confirmed by reviewing the supporting evidence, transcripts, and practical assessment responses.";
-    }
-
-    function renderAssessmentEvidence() {
-      if (!state.assessmentQuestions.length) {
-        els.assessmentList.innerHTML =
-          `<p class="empty-note">No role-specific assessment evidence found yet.</p>`;
-        return;
-      }
-
-      els.assessmentList.innerHTML = state.assessmentQuestions.map((question, index) => {
-        const response = assessmentResponseForQuestion(question.id);
-        const answer =
-          response?.text_response ||
-          response?.answer_text ||
-          response?.response_text ||
-          "No written response found.";
-
-        return `
-          <article class="evidence-item">
-            <div class="evidence-meta">
-              <span class="badge">Assessment ${index + 1}</span>
-              <span class="badge">${escapeHtml((question.question_type || "scenario").replaceAll("_", " "))}</span>
-              <span class="badge">${escapeHtml(question.expected_response_type || "response")}</span>
-            </div>
-            <h3>${escapeHtml(question.question_text || "")}</h3>
-            <div class="answer-box">${escapeHtml(answer)}</div>
-          </article>
-        `;
-      }).join("");
-    }
-
-    function renderConversationEvidence() {
-      if (!state.conversationQuestions.length) {
-        els.conversationList.innerHTML =
-          `<p class="empty-note">No Sift Conversation questions found yet.</p>`;
-        return;
-      }
-
-      els.conversationList.innerHTML = state.conversationQuestions.map((question, index) => {
-        const response = responseForQuestion(question.id);
-        const evaluation = response?.ai_evaluation || {};
-        const transcript = response?.transcript || "Transcript not available yet.";
-        const feedback =
-          response?.ai_feedback ||
-          evaluation.feedback ||
-          "No response-level insight available yet.";
-
-        return `
-          <article class="evidence-item">
-            <div class="evidence-meta">
-              <span class="badge">Conversation ${index + 1}</span>
-              <span class="badge">${escapeHtml((question.question_type || "conversation").replaceAll("_", " "))}</span>
-              ${question.is_follow_up ? `<span class="badge amber">Follow-up</span>` : ""}
-            </div>
-
-            <h3>${escapeHtml(question.question_text || "")}</h3>
-
-            ${
-              response?.audio_url
-                ? `<audio controls src="${escapeHtml(response.audio_url)}"></audio>`
-                : `<p class="empty-note">No audio response available.</p>`
-            }
-
-            <div class="transcript">${escapeHtml(transcript)}</div>
-
-            <div class="mini-grid">
-              <div class="mini-score"><span>Clarity</span><strong>${labelFromScore(response?.communication_score)}</strong></div>
-              <div class="mini-score"><span>Alignment</span><strong>${labelFromScore(response?.role_alignment_score)}</strong></div>
-              <div class="mini-score"><span>Ownership</span><strong>${labelFromScore(response?.authenticity_score)}</strong></div>
-              <div class="mini-score"><span>Confidence</span><strong>${labelFromScore(response?.confidence_score)}</strong></div>
-              <div class="mini-score"><span>Risk</span><strong>${labelFromScore(response?.fraud_risk_score, true)}</strong></div>
-            </div>
-
-            <div class="insight-block">
-              <strong>Conversation insight</strong>
-              <p>${escapeHtml(feedback)}</p>
-            </div>
-          </article>
-        `;
-      }).join("");
-    }
-
-    function render() {
-      renderHeader();
-      renderSnapshot();
-      renderMetrics();
-      renderTimeline();
-      renderList(els.strengthsList, buildEvidenceHighlights(), "No evidence highlights available yet.");
-      renderList(els.concernsList, buildValidationNotes(), "No validation notes available yet.");
-      renderSummary();
-      renderAssessmentEvidence();
-      renderConversationEvidence();
-
-      hideStatus();
-      els.heroSection.style.display = "grid";
-      els.content.style.display = "grid";
-    }
-
-    async function loadConversation() {
-      if (conversationId) {
-        const { data, error } = await supabaseClient
-          .from("talent_conversations")
-          .select("*")
-          .eq("id", conversationId)
-          .maybeSingle();
-
-        if (error) throw error;
-        if (!data) throw new Error("Conversation not found.");
-
-        return data;
-      }
-
-      if (applicationId) {
-        const { data, error } = await supabaseClient
-          .from("talent_conversations")
-          .select(`
-            *,
-            talent_conversation_questions (
-              id
-            )
-          `)
-          .eq("application_id", applicationId)
-          .order("created_at", { ascending: false });
-
-        if (error) throw error;
-
-        const withQuestions = (data || []).find(row =>
-          Array.isArray(row.talent_conversation_questions) &&
-          row.talent_conversation_questions.length > 0
-        );
-
-        if (withQuestions) return withQuestions;
-
-        if (data && data.length) return data[0];
-
-        throw new Error("Conversation not found for this application.");
-      }
-
-      throw new Error("Missing conversation_id or application_id in the URL.");
-    }
-
-    async function loadApplication(applicationIdValue) {
-      if (!applicationIdValue) return null;
-
-      const { data, error } = await supabaseClient
-        .from("applications")
-        .select("*")
-        .eq("id", applicationIdValue)
-        .maybeSingle();
-
-      if (error) throw error;
-      return data;
-    }
-
-    async function loadProfile(profileId, email) {
-      if (profileId) {
-        const { data, error } = await supabaseClient
-          .from("applicant_profiles")
-          .select("*")
-          .eq("id", profileId)
-          .maybeSingle();
-
-        if (error) throw error;
-        if (data) return data;
-      }
-
-      if (email) {
-        const { data, error } = await supabaseClient
-          .from("applicant_profiles")
-          .select("*")
-          .eq("email", email)
-          .maybeSingle();
-
-        if (error) throw error;
-        return data;
-      }
-
-      return null;
-    }
-
-    async function loadJob(jobId) {
-      if (!jobId) return null;
-
-      const { data, error } = await supabaseClient
-        .from("jobs")
-        .select("*")
-        .eq("id", jobId)
-        .maybeSingle();
-
-      if (error) throw error;
-      return data;
-    }
-
-    async function loadConversationQuestions(conversationIdValue) {
-      const { data, error } = await supabaseClient
-        .from("talent_conversation_questions")
-        .select("*")
-        .eq("conversation_id", conversationIdValue)
-        .order("question_order", { ascending: true });
-
-      if (error) throw error;
-      return data || [];
-    }
-
-    async function loadConversationResponses(conversationIdValue) {
-      const { data, error } = await supabaseClient
-        .from("talent_conversation_responses")
-        .select("*")
-        .eq("conversation_id", conversationIdValue)
-        .order("created_at", { ascending: true });
-
-      if (error) throw error;
-      return data || [];
-    }
-
-    async function loadAssessment(applicationIdValue) {
-      if (!applicationIdValue) return null;
-
-      const { data, error } = await supabaseClient
-        .from("role_assessments")
-        .select(`
-          *,
-          role_assessment_questions (
-            id
-          )
-        `)
-        .eq("application_id", applicationIdValue)
-        .order("created_at", { ascending: false });
-
-      if (error) throw error;
-
-      const withQuestions = (data || []).find(row =>
-        Array.isArray(row.role_assessment_questions) &&
-        row.role_assessment_questions.length > 0
-      );
-
-      return withQuestions || data?.[0] || null;
-    }
-
-    async function loadAssessmentQuestions(assessmentIdValue) {
-      if (!assessmentIdValue) return [];
-
-      const { data, error } = await supabaseClient
-        .from("role_assessment_questions")
-        .select("*")
-        .eq("assessment_id", assessmentIdValue)
-        .order("question_order", { ascending: true });
-
-      if (error) throw error;
-      return data || [];
-    }
-
-    async function loadAssessmentResponses(assessmentIdValue) {
-      if (!assessmentIdValue) return [];
-
-      const { data, error } = await supabaseClient
-        .from("role_assessment_responses")
-        .select("*")
-        .eq("assessment_id", assessmentIdValue)
-        .order("created_at", { ascending: true });
-
-      if (error) throw error;
-      return data || [];
-    }
-
-    async function init() {
-      try {
-        showStatus("Loading Sift Intelligence Report...", "info");
-
-        state.conversation = await loadConversation();
-
-        state.application = await loadApplication(state.conversation.application_id);
-        state.profile = await loadProfile(
-          state.conversation.applicant_profile_id,
-          state.application?.email
-        );
-        state.job = await loadJob(
-          state.conversation.job_id ||
-          state.application?.job_id_uuid ||
-          state.application?.job_id
-        );
-
-        state.conversationQuestions = await loadConversationQuestions(state.conversation.id);
-        state.conversationResponses = await loadConversationResponses(state.conversation.id);
-
-        state.assessment = await loadAssessment(state.conversation.application_id);
-        state.assessmentQuestions = await loadAssessmentQuestions(state.assessment?.id);
-        state.assessmentResponses = await loadAssessmentResponses(state.assessment?.id);
-
-        render();
-      } catch (error) {
-        console.error(error);
-        showStatus(error.message || "Unable to load candidate review.", "error");
-      }
-    }
-
-    function buildSummaryText() {
-      const conv = state.conversation || {};
-      const app = state.application || {};
-      const profile = state.profile || {};
-
-      return [
-        `Candidate: ${candidateDisplayName()}`,
-        `Role: ${applicationRole()}`,
-        `Email: ${app.email || profile.email || "N/A"}`,
-        `Overall Fit: ${overallFitLabel(conv.overall_score)}`,
-        `Recommendation: ${conv.recruiter_recommendation || "N/A"}`,
-        "",
-        `Recruiter Summary:`,
-        conv.summary || "N/A",
-        "",
-        `Evidence Highlights:`,
-        buildEvidenceHighlights().join("; ") || "N/A",
-        "",
-        `Validation Notes:`,
-        buildValidationNotes().join("; ") || "N/A"
-      ].join("\n");
-    }
-
-    els.copySummaryBtn.addEventListener("click", async () => {
-      try {
-        await navigator.clipboard.writeText(buildSummaryText());
-        els.copySummaryBtn.textContent = "Copied";
-        setTimeout(() => {
-          els.copySummaryBtn.textContent = "Copy report";
-        }, 1200);
-      } catch (_error) {
-        alert("Unable to copy report.");
-      }
-    });
-
-    init();
-  </script>
-</body>
-</html>
+                  <strong
