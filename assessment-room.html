@@ -1,4 +1,4 @@
-`<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
@@ -711,10 +711,15 @@
       const tags = [];
 
       if (metadata.skill_tested) tags.push(metadata.skill_tested);
+      if (Array.isArray(metadata.evaluation_focus)) {
+        metadata.evaluation_focus.slice(0, 3).forEach(item => {
+          if (item) tags.push(item);
+        });
+      }
       if (question.question_type) tags.push(question.question_type);
       if (question.expected_response_type) tags.push(`${question.expected_response_type} response`);
 
-      return tags.slice(0, 4);
+      return [...new Set(tags.filter(Boolean))].slice(0, 5);
     }
 
     function currentQuestion() {
@@ -722,11 +727,11 @@
     }
 
     function answerFor(questionId) {
-      return responses[questionId] || "";
+      return responses[questionId]?.text_response || responses[questionId] || "";
     }
 
     function answeredCount() {
-      return questions.filter(q => answerFor(q.id).trim()).length;
+      return questions.filter(q => String(answerFor(q.id)).trim()).length;
     }
 
     function setLoading(title, message = "") {
@@ -751,6 +756,14 @@
       els.assessmentStatus.textContent = "Assessment submitted";
     }
 
+    function updateProgress() {
+      const total = questions.length || 1;
+      const answered = answeredCount();
+
+      els.progressMeta.textContent = `${answered} of ${total} answered`;
+      els.progressFill.style.width = `${Math.round((answered / total) * 100)}%`;
+    }
+
     function renderQuestion() {
       const question = currentQuestion();
 
@@ -764,11 +777,9 @@
 
       const total = questions.length;
       const current = currentIndex + 1;
-      const answered = answeredCount();
 
       els.progressLabel.textContent = `Question ${current} of ${total}`;
-      els.progressMeta.textContent = `${answered} of ${total} answered`;
-      els.progressFill.style.width = `${Math.round((answered / total) * 100)}%`;
+      updateProgress();
 
       els.questionKicker.textContent = getQuestionTitle(question);
       els.questionText.textContent = question.question_text || "";
@@ -779,7 +790,7 @@
 
       els.answerInput.value = answerFor(question.id);
 
-      els.backBtn.disabled = currentIndex === 0;
+      els.backBtn.disabled = currentIndex === 0 || saving;
       els.nextBtn.textContent = currentIndex === total - 1 ? "Review" : "Next";
     }
 
@@ -864,41 +875,96 @@
 
       (data || []).forEach(row => {
         if (row.question_id) {
-          responses[row.question_id] = row.text_response || "";
+          responses[row.question_id] = row;
         }
       });
     }
 
-    async function saveCurrentAnswer() {
+    async function saveCurrentAnswer(options = {}) {
       const question = currentQuestion();
       if (!question) return false;
 
       const text = els.answerInput.value.trim();
-      responses[question.id] = text;
+      responses[question.id] = {
+        ...(responses[question.id] || {}),
+        assessment_id: assessment.id,
+        question_id: question.id,
+        text_response: text
+      };
+
+      updateProgress();
 
       if (!text) {
         showStatus("Please enter a response before saving.", "error");
         return false;
       }
 
+      if (saving) return false;
+
       saving = true;
       els.saveBtn.disabled = true;
       els.nextBtn.disabled = true;
+      els.backBtn.disabled = true;
+
+      if (!options.silent) {
+        showStatus("Saving answer...", "info");
+      }
 
       try {
-        const { error } = await supabaseClient
-          .from("role_assessment_responses")
-          .upsert({
-            assessment_id: assessment.id,
-            question_id: question.id,
-            text_response: text
-          }, {
-            onConflict: "assessment_id,question_id"
-          });
+        const payload = {
+          assessment_id: assessment.id,
+          question_id: question.id,
+          text_response: text
+        };
 
-        if (error) throw error;
+        let savedRow = null;
 
-        showStatus("Answer saved.", "success");
+        const existingResponse = responses[question.id]?.id;
+
+        if (existingResponse) {
+          const { data, error } = await supabaseClient
+            .from("role_assessment_responses")
+            .update({
+              text_response: text
+            })
+            .eq("id", existingResponse)
+            .select()
+            .maybeSingle();
+
+          if (error) throw error;
+          savedRow = data;
+        } else {
+          const { data, error } = await supabaseClient
+            .from("role_assessment_responses")
+            .upsert(payload, {
+              onConflict: "assessment_id,question_id"
+            })
+            .select()
+            .maybeSingle();
+
+          if (error) {
+            const { data: inserted, error: insertError } = await supabaseClient
+              .from("role_assessment_responses")
+              .insert(payload)
+              .select()
+              .maybeSingle();
+
+            if (insertError) throw error;
+            savedRow = inserted;
+          } else {
+            savedRow = data;
+          }
+        }
+
+        responses[question.id] = savedRow || {
+          ...payload,
+          id: existingResponse || null
+        };
+
+        if (!options.silent) {
+          showStatus("Answer saved.", "success");
+        }
+
         return true;
       } catch (error) {
         console.error(error);
@@ -908,13 +974,7 @@
         saving = false;
         els.saveBtn.disabled = false;
         els.nextBtn.disabled = false;
-        if (assessment.status === "completed") {
-          markAssessmentComplete();
-          showReview();
-          return;
-        }
-
-        renderQuestion();
+        els.backBtn.disabled = currentIndex === 0;
       }
     }
 
@@ -925,7 +985,7 @@
       clearSummaryStatus();
 
       els.reviewList.innerHTML = questions.map((question, index) => {
-        const answer = answerFor(question.id).trim() || "No answer provided.";
+        const answer = String(answerFor(question.id)).trim() || "No answer provided.";
         return `
           <div class="review-item">
             <strong>Question ${index + 1}: ${escapeHtml(getQuestionTitle(question))}</strong>
@@ -933,10 +993,21 @@
           </div>
         `;
       }).join("");
+
+      window.scrollTo({ top: 0, behavior: "smooth" });
     }
 
     async function submitAssessment() {
-      const missing = questions.filter(q => !answerFor(q.id).trim());
+      const activeQuestion = currentQuestion();
+
+      if (activeQuestion && els.assessmentCard.style.display !== "none") {
+        responses[activeQuestion.id] = {
+          ...(responses[activeQuestion.id] || {}),
+          text_response: els.answerInput.value.trim()
+        };
+      }
+
+      const missing = questions.filter(q => !String(answerFor(q.id)).trim());
 
       if (missing.length) {
         showSummaryStatus("Please answer all questions before submitting.", "error");
@@ -958,6 +1029,7 @@
 
         if (error) throw error;
 
+        assessment.status = "completed";
         markAssessmentComplete();
         showSummaryStatus("Assessment submitted successfully. Your Talent Conversation is next.", "success");
 
@@ -1014,6 +1086,10 @@
           })
           .eq("id", assessment.id);
 
+        if (assessment.status === "completed") {
+          markAssessmentComplete();
+        }
+
         renderQuestion();
       } catch (error) {
         console.error(error);
@@ -1024,27 +1100,34 @@
       }
     }
 
-    els.saveBtn.addEventListener("click", saveCurrentAnswer);
+    els.saveBtn.addEventListener("click", async () => {
+      await saveCurrentAnswer();
+    });
 
     els.nextBtn.addEventListener("click", async () => {
       const question = currentQuestion();
-      const text = els.answerInput.value.trim();
-
       if (!question) return;
+
+      const text = els.answerInput.value.trim();
 
       if (!text) {
         showStatus("Please enter a response before continuing.", "error");
         return;
       }
 
-      responses[question.id] = text;
-      const saved = await saveCurrentAnswer();
+      responses[question.id] = {
+        ...(responses[question.id] || {}),
+        text_response: text
+      };
+
+      const saved = await saveCurrentAnswer({ silent: true });
 
       if (!saved) return;
 
       if (currentIndex < questions.length - 1) {
         currentIndex += 1;
         renderQuestion();
+        window.scrollTo({ top: 0, behavior: "smooth" });
       } else {
         showReview();
       }
@@ -1052,30 +1135,39 @@
 
     els.backBtn.addEventListener("click", () => {
       const question = currentQuestion();
+
       if (question) {
-        responses[question.id] = els.answerInput.value.trim();
+        responses[question.id] = {
+          ...(responses[question.id] || {}),
+          text_response: els.answerInput.value.trim()
+        };
       }
 
       if (currentIndex > 0) {
         currentIndex -= 1;
         renderQuestion();
+        window.scrollTo({ top: 0, behavior: "smooth" });
       }
     });
 
     els.editLastBtn.addEventListener("click", () => {
       currentIndex = Math.max(0, questions.length - 1);
       renderQuestion();
+      window.scrollTo({ top: 0, behavior: "smooth" });
     });
 
     els.submitBtn.addEventListener("click", submitAssessment);
 
     els.answerInput.addEventListener("input", () => {
       const question = currentQuestion();
+
       if (question) {
-        responses[question.id] = els.answerInput.value;
-        const total = questions.length;
-        els.progressMeta.textContent = `${answeredCount()} of ${total} answered`;
-        els.progressFill.style.width = `${Math.round((answeredCount() / total) * 100)}%`;
+        responses[question.id] = {
+          ...(responses[question.id] || {}),
+          text_response: els.answerInput.value
+        };
+
+        updateProgress();
       }
     });
 
