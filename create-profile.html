@@ -919,30 +919,144 @@
       });
     }
 
-    function normalizeParsedResumePayload(data) {
-      const raw = data?.parsed || data?.resume || data?.data || data || {};
-      const skillsValue = raw.skills || raw.extracted_skills || raw.skill_keywords || [];
-      const skills = Array.isArray(skillsValue)
-        ? skillsValue
-        : String(skillsValue || "").split(",").map(s => s.trim()).filter(Boolean);
+    function tryParseJsonString(value) {
+      if (typeof value !== "string") return value;
 
-      const suggestedValue = raw.suggested_roles || raw.suggestedRoles || raw.target_roles || [];
-      const suggestedRoles = Array.isArray(suggestedValue)
-        ? suggestedValue
-        : String(suggestedValue || "").split(",").map(s => s.trim()).filter(Boolean);
+      const text = value.trim();
+      if (!text) return {};
+
+      try {
+        return JSON.parse(text);
+      } catch (_) {
+        const match = text.match(/\{[\s\S]*\}/);
+        if (match) {
+          try {
+            return JSON.parse(match[0]);
+          } catch (_) {}
+        }
+      }
+
+      return { resume_text: text };
+    }
+
+    function firstObject(...values) {
+      for (const value of values) {
+        if (!value) continue;
+
+        const parsed = tryParseJsonString(value);
+
+        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+          return parsed;
+        }
+      }
+
+      return {};
+    }
+
+    function normalizeArrayValue(value) {
+      if (!value) return [];
+      if (Array.isArray(value)) return value.map(item => String(item).trim()).filter(Boolean);
+
+      if (typeof value === "object") {
+        return Object.values(value).map(item => String(item).trim()).filter(Boolean);
+      }
+
+      return String(value)
+        .split(/,|\n|;/)
+        .map(item => item.trim())
+        .filter(Boolean);
+    }
+
+    function normalizeParsedResumePayload(data) {
+      console.log("parse-resume-gemini response:", data);
+
+      const geminiText =
+        data?.candidates?.[0]?.content?.parts?.[0]?.text ||
+        data?.response?.candidates?.[0]?.content?.parts?.[0]?.text ||
+        data?.gemini?.candidates?.[0]?.content?.parts?.[0]?.text ||
+        data?.text ||
+        data?.raw_text ||
+        "";
+
+      const raw = firstObject(
+        data?.parsed,
+        data?.resume,
+        data?.profile,
+        data?.candidate,
+        data?.candidate_profile,
+        data?.result,
+        data?.data,
+        data?.output,
+        data?.json,
+        geminiText,
+        data
+      );
+
+      const nested = firstObject(
+        raw.parsed,
+        raw.resume,
+        raw.profile,
+        raw.candidate,
+        raw.candidate_profile,
+        raw.result,
+        raw.data,
+        raw.output,
+        raw.json,
+        raw
+      );
+
+      const skills = normalizeArrayValue(
+        nested.skills ||
+        nested.extracted_skills ||
+        nested.skill_keywords ||
+        nested.technical_skills ||
+        nested.core_skills
+      );
+
+      const suggestedRoles = normalizeArrayValue(
+        nested.suggested_roles ||
+        nested.suggestedRoles ||
+        nested.target_roles ||
+        nested.recommended_roles ||
+        nested.role_matches
+      );
+
+      const fullName =
+        nested.full_name ||
+        nested.name ||
+        nested.candidate_name ||
+        nested.candidateName ||
+        [nested.first_name, nested.last_name].filter(Boolean).join(" ");
 
       return {
-        full_name: raw.full_name || raw.name || raw.candidate_name || "",
-        email: raw.email || "",
-        phone: raw.phone || raw.phone_number || "",
-        location: raw.location || raw.address || "",
-        current_title: raw.current_title || raw.title || raw.latest_title || raw.headline || "",
-        experience_summary: raw.experience_summary || raw.summary || raw.professional_summary || "",
+        full_name: fullName || "",
+        email: nested.email || nested.email_address || "",
+        phone: nested.phone || nested.phone_number || nested.mobile || nested.contact_number || "",
+        location: nested.location || nested.address || nested.city || "",
+        current_title: nested.current_title || nested.title || nested.latest_title || nested.headline || nested.current_role || "",
+        experience_summary:
+          nested.experience_summary ||
+          nested.summary ||
+          nested.professional_summary ||
+          nested.profile_summary ||
+          nested.about ||
+          "",
         skills,
         suggested_roles: suggestedRoles,
-        resume_text: raw.resume_text || raw.raw_text || raw.text || "",
-        ai_score: Number(raw.ai_score || raw.profile_fit_score || raw.score || 0),
-        top_match_role: raw.top_match_role || raw.current_title || raw.title || ""
+        resume_text:
+          nested.resume_text ||
+          nested.raw_text ||
+          nested.text ||
+          geminiText ||
+          "",
+        ai_score: Number(nested.ai_score || nested.profile_fit_score || nested.score || 0),
+        top_match_role:
+          nested.top_match_role ||
+          nested.current_title ||
+          nested.title ||
+          nested.current_role ||
+          suggestedRoles[0] ||
+          ""
       };
     }
 
@@ -962,7 +1076,10 @@
         }
       });
 
-      if (error) throw error;
+      if (error) {
+        const message = error.context?.error || error.message || "Resume parser is unavailable.";
+        throw new Error(message);
+      }
       if (data?.error) throw new Error(data.error);
 
       return normalizeParsedResumePayload(data);
@@ -1016,7 +1133,19 @@
     }
 
     function applyParsedResume(parsed) {
-      if (!parsed) return;
+      if (!parsed) return false;
+
+      const extractedValues = [
+        parsed.full_name,
+        parsed.email,
+        parsed.phone,
+        parsed.location,
+        parsed.current_title,
+        parsed.top_match_role,
+        parsed.experience_summary,
+        ...(parsed.skills || []),
+        ...(parsed.suggested_roles || [])
+      ].filter(Boolean);
 
       if (parsed.full_name && !els.fullName.value.trim()) els.fullName.value = parsed.full_name;
       if (parsed.email && !els.email.value.trim()) els.email.value = parsed.email.toLowerCase();
@@ -1036,6 +1165,7 @@
       };
 
       renderResumeInsights();
+      return extractedValues.length > 0;
     }
 
     function escapeHtml(value) {
@@ -1294,19 +1424,41 @@
 
       try {
         validateResumeFile(file);
-        showMessage("Parsing your resume and preparing your profile...", "info");
-
-        const parsed = await parseResumeWithGemini(file);
-        applyParsedResume(parsed);
 
         startMode = "upload";
-        showMessage("Resume parsed successfully. Please review your details.", "success");
+        resumeAnalysis = {
+          ...resumeAnalysis,
+          has_resume: true
+        };
+
+        showMessage("Parsing your resume and preparing your profile...", "info");
+
+        try {
+          const parsed = await parseResumeWithGemini(file);
+          const didExtract = applyParsedResume(parsed);
+
+          if (didExtract) {
+            showMessage("Resume parsed successfully. Please review your details.", "success");
+          } else {
+            showMessage(
+              "Resume was read, but no profile fields were extracted. Please fill out the details manually.",
+              "info"
+            );
+          }
+        } catch (parseError) {
+          console.error("Resume parsing failed:", parseError);
+
+          showMessage(
+            "Resume uploaded. Auto-fill is temporarily unavailable, so please complete the profile details manually.",
+            "info"
+          );
+        }
 
         currentStep = 2;
         updateProgress();
       } catch (error) {
         console.error(error);
-        showMessage(error.message || "Unable to parse resume. You can still continue manually.", "error");
+        showMessage(error.message || "Please upload a valid resume file.", "error");
       }
     });
 
