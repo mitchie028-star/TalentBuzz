@@ -1,1 +1,465 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Candidate Review | TalentBuzz</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
 
+  <style>
+    :root {
+      --ink:#1f2937; --ink-strong:#111827; --muted:#6b7280; --muted-light:#9ca3af;
+      --line:#e5e7eb; --soft:#f9fafb; --soft-2:#f3f4f6; --white:#fff;
+      --green:#16a34a; --green-soft:#ecfdf3; --green-line:#bbf7d0;
+      --amber:#b45309; --amber-soft:#fffbeb; --red:#b42318; --red-soft:#fef2f2;
+      --shadow:0 10px 30px rgba(17,24,39,.04); --radius:20px; --max:1120px;
+    }
+    *{box-sizing:border-box}
+    body{margin:0;min-height:100vh;font-family:Inter,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#fff;color:var(--ink);-webkit-font-smoothing:antialiased;font-size:14px;font-weight:400}
+    .page{width:min(var(--max),calc(100% - 32px));margin:0 auto;padding:30px 0 54px}
+    .topbar{display:flex;justify-content:space-between;align-items:center;gap:14px;margin-bottom:28px;flex-wrap:wrap}
+    .brand{display:inline-flex;align-items:center;gap:11px;color:var(--ink);text-decoration:none}
+    .brand-logo{width:34px;height:34px;border-radius:12px;background:transparent;display:grid;place-items:center;flex:0 0 auto}
+    .brand-logo-image{width:22px;height:22px;object-fit:contain;display:block;background:transparent}
+    .brand-name{font-size:.95rem;font-weight:500;letter-spacing:-.018em;color:var(--ink)}
+    .top-actions{display:flex;gap:10px;flex-wrap:wrap}
+    .hero{margin-bottom:18px;display:flex;justify-content:space-between;gap:18px;align-items:flex-end;flex-wrap:wrap}
+    .hero h1{margin:0;font-size:1.48rem;line-height:1.25;letter-spacing:-.035em;font-weight:500;color:var(--ink)}
+    .hero p{margin:8px 0 0;color:var(--muted);line-height:1.6;font-size:.9rem;max-width:720px}
+    .score-hero{min-width:170px;border:1px solid var(--line);border-radius:18px;padding:14px;background:#fff;box-shadow:var(--shadow)}
+    .score-hero span{display:block;color:var(--muted);font-size:.74rem;margin-bottom:4px}
+    .score-hero strong{color:var(--ink-strong);font-size:1.65rem;font-weight:500;letter-spacing:-.04em}
+    .grid{display:grid;gap:16px}
+    .grid.two{grid-template-columns:1.1fr .9fr;align-items:start}
+    .grid.cards{grid-template-columns:repeat(4,minmax(0,1fr))}
+    .card{border:1px solid var(--line);border-radius:var(--radius);background:#fff;box-shadow:var(--shadow);overflow:hidden}
+    .card-body{padding:20px}
+    .card-head{padding:17px 20px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap}
+    .card-title{margin:0;color:var(--ink);font-size:.95rem;font-weight:500;letter-spacing:-.015em}
+    .card-subtitle{margin:4px 0 0;color:var(--muted);font-size:.78rem;line-height:1.45}
+    .metric{display:grid;gap:8px}
+    .metric-label{color:var(--muted);font-size:.76rem}
+    .metric-value{color:var(--ink-strong);font-size:1.28rem;line-height:1;font-weight:500;letter-spacing:-.035em}
+    .bar{width:100%;height:5px;border-radius:999px;background:var(--soft-2);overflow:hidden}
+    .bar-fill{height:100%;width:0%;border-radius:inherit;background:var(--green);transition:width .2s ease}
+    .bar-fill.risk{background:var(--red)}
+    .info-list{display:grid;gap:11px}
+    .info-row{display:grid;grid-template-columns:132px 1fr;gap:12px;font-size:.85rem;line-height:1.45}
+    .info-row span:first-child{color:var(--muted)}
+    .info-row span:last-child{color:var(--ink)}
+    .badge{display:inline-flex;align-items:center;border-radius:999px;padding:6px 9px;font-size:.74rem;font-weight:500;border:1px solid var(--line);color:var(--muted);background:#fff}
+    .badge.green{color:#166534;border-color:var(--green-line);background:var(--green-soft)}
+    .badge.amber{color:var(--amber);border-color:#fde68a;background:var(--amber-soft)}
+    .badge.red{color:var(--red);border-color:#fecaca;background:var(--red-soft)}
+    .insight-list{margin:0;padding:0;list-style:none;display:grid;gap:9px}
+    .insight-list li{border:1px solid var(--line);border-radius:14px;background:var(--soft);padding:11px 12px;color:var(--ink);line-height:1.5;font-size:.84rem}
+    .empty-note{color:var(--muted);line-height:1.6;font-size:.86rem}
+    .conversation-list{display:grid;gap:12px}
+    .conversation-item{border:1px solid var(--line);border-radius:17px;padding:14px;background:#fff}
+    .conversation-item h3{margin:0 0 8px;color:var(--ink);font-size:.92rem;line-height:1.5;font-weight:500}
+    .conversation-meta{display:flex;gap:7px;flex-wrap:wrap;margin-bottom:12px}
+    audio{width:100%;margin:4px 0 12px}
+    .transcript{border:1px solid var(--line);border-radius:14px;background:var(--soft);padding:12px;color:var(--ink);line-height:1.6;font-size:.84rem;white-space:pre-line}
+    .mini-grid{margin-top:12px;display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px}
+    .mini-score{border:1px solid var(--line);border-radius:12px;padding:9px;background:#fff}
+    .mini-score span{display:block;color:var(--muted);font-size:.68rem;margin-bottom:4px}
+    .mini-score strong{color:var(--ink);font-size:.92rem;font-weight:500}
+    .talent-insights{margin-top:12px;border-top:1px solid var(--line);padding-top:12px;display:grid;gap:8px}
+    .talent-insights strong{color:var(--ink);font-size:.82rem;font-weight:500}
+    .talent-insights p{margin:0;color:var(--muted);line-height:1.55;font-size:.82rem}
+    .status{display:none;padding:13px 14px;border-radius:14px;line-height:1.55;font-size:.84rem;margin-bottom:16px}
+    .status.info{display:block;background:var(--soft);border:1px solid var(--line);color:var(--muted)}
+    .status.error{display:block;background:var(--red-soft);border:1px solid #fecaca;color:var(--red)}
+    button,.btn{min-height:40px;border-radius:12px;border:1px solid var(--line);background:#fff;color:var(--ink);padding:0 14px;font:inherit;font-size:.82rem;font-weight:500;cursor:pointer;text-decoration:none;display:inline-flex;align-items:center;justify-content:center;transition:.16s ease}
+    button:hover,.btn:hover{border-color:#d1d5db;background:var(--soft)}
+    .btn-primary{background:var(--ink-strong);color:#fff;border-color:var(--ink-strong)}
+    .btn-primary:hover{background:#1f2937;border-color:#1f2937}
+    @media(max-width:900px){.grid.two,.grid.cards{grid-template-columns:1fr}.mini-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+    @media(max-width:620px){.page{width:min(var(--max),calc(100% - 24px));padding-top:22px}.hero h1{font-size:1.28rem}.card-body,.card-head{padding:17px}.info-row{grid-template-columns:1fr;gap:4px}.top-actions,.top-actions .btn{width:100%}}
+  </style>
+</head>
+
+<body>
+  <main class="page">
+    <div class="topbar">
+      <a class="brand" href="dashboard.html">
+        <span class="brand-logo" aria-hidden="true">
+          <img src="logo.svg" alt="TalentBuzz Logo" class="brand-logo-image" />
+        </span>
+        <span class="brand-name">TalentBuzz</span>
+      </a>
+
+      <div class="top-actions">
+        <a class="btn" href="dashboard.html">Dashboard</a>
+        <button type="button" class="btn-primary" id="copySummaryBtn">Copy summary</button>
+      </div>
+    </div>
+
+    <div id="statusBox" class="status info">Loading candidate review...</div>
+
+    <section class="hero" id="heroSection" style="display:none;">
+      <div>
+        <h1 id="candidateName">Candidate Review</h1>
+        <p id="candidateSubtitle">Review candidate signals, conversation recordings, and Talent Insights.</p>
+      </div>
+      <div class="score-hero">
+        <span>Overall fit</span>
+        <strong id="overallFit">0</strong>
+      </div>
+    </section>
+
+    <section class="grid" id="content" style="display:none;">
+      <section class="grid cards">
+        <div class="card"><div class="card-body metric"><span class="metric-label">Talent Conversation</span><strong class="metric-value" id="conversationScore">0</strong><div class="bar"><div class="bar-fill" id="conversationBar"></div></div></div></div>
+        <div class="card"><div class="card-body metric"><span class="metric-label">Communication</span><strong class="metric-value" id="communicationScore">0</strong><div class="bar"><div class="bar-fill" id="communicationBar"></div></div></div></div>
+        <div class="card"><div class="card-body metric"><span class="metric-label">Role Alignment</span><strong class="metric-value" id="alignmentScore">0</strong><div class="bar"><div class="bar-fill" id="alignmentBar"></div></div></div></div>
+        <div class="card"><div class="card-body metric"><span class="metric-label">Fraud Risk</span><strong class="metric-value" id="fraudRiskScore">0</strong><div class="bar"><div class="bar-fill risk" id="fraudRiskBar"></div></div></div></div>
+      </section>
+
+      <section class="grid two">
+        <div class="card">
+          <div class="card-head">
+            <div><h2 class="card-title">Candidate details</h2><p class="card-subtitle">Application and profile context.</p></div>
+            <span class="badge" id="statusBadge">Review</span>
+          </div>
+          <div class="card-body">
+            <div class="info-list">
+              <div class="info-row"><span>Email</span><span id="candidateEmail">—</span></div>
+              <div class="info-row"><span>Role</span><span id="roleTitle">—</span></div>
+              <div class="info-row"><span>Application status</span><span id="applicationStatus">—</span></div>
+              <div class="info-row"><span>Recommendation</span><span id="recommendation">—</span></div>
+              <div class="info-row"><span>Hiring signal</span><span id="hiringSignal">—</span></div>
+              <div class="info-row"><span>Risk level</span><span id="riskLevel">—</span></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head">
+            <div><h2 class="card-title">Talent Insights</h2><p class="card-subtitle">Summary and recommendation logic.</p></div>
+          </div>
+          <div class="card-body">
+            <div class="info-list">
+              <div><span class="badge green" id="recommendationBadge">Recommendation</span></div>
+              <p class="empty-note" id="recommendationReason">No recommendation reason available yet.</p>
+              <p class="empty-note" id="summaryText">No summary available yet.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="grid two">
+        <div class="card">
+          <div class="card-head"><div><h2 class="card-title">Strengths</h2><p class="card-subtitle">Positive hiring signals detected.</p></div></div>
+          <div class="card-body"><ul class="insight-list" id="strengthsList"></ul></div>
+        </div>
+        <div class="card">
+          <div class="card-head"><div><h2 class="card-title">Concerns</h2><p class="card-subtitle">Items that may need recruiter validation.</p></div></div>
+          <div class="card-body"><ul class="insight-list" id="concernsList"></ul></div>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="card-head">
+          <div><h2 class="card-title">Talent Conversation Review</h2><p class="card-subtitle">Audio playback, transcript, and response-level Talent Insights.</p></div>
+        </div>
+        <div class="card-body"><div class="conversation-list" id="conversationList"></div></div>
+      </section>
+    </section>
+  </main>
+
+  <script>
+    const SUPABASE_URL = "https://dilalntcxmvdcmwxjcct.supabase.co";
+    const SUPABASE_ANON_KEY = "sb_publishable_HrLVIUwnaRo54yijtrbWBQ_1aeb4ezs";
+    const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+    const params = new URLSearchParams(window.location.search);
+    const applicationId = params.get("application_id");
+    const conversationId = params.get("conversation_id") || params.get("id");
+
+    const els = {
+      statusBox: document.getElementById("statusBox"),
+      heroSection: document.getElementById("heroSection"),
+      content: document.getElementById("content"),
+      candidateName: document.getElementById("candidateName"),
+      candidateSubtitle: document.getElementById("candidateSubtitle"),
+      overallFit: document.getElementById("overallFit"),
+      conversationScore: document.getElementById("conversationScore"),
+      communicationScore: document.getElementById("communicationScore"),
+      alignmentScore: document.getElementById("alignmentScore"),
+      fraudRiskScore: document.getElementById("fraudRiskScore"),
+      conversationBar: document.getElementById("conversationBar"),
+      communicationBar: document.getElementById("communicationBar"),
+      alignmentBar: document.getElementById("alignmentBar"),
+      fraudRiskBar: document.getElementById("fraudRiskBar"),
+      candidateEmail: document.getElementById("candidateEmail"),
+      roleTitle: document.getElementById("roleTitle"),
+      applicationStatus: document.getElementById("applicationStatus"),
+      recommendation: document.getElementById("recommendation"),
+      hiringSignal: document.getElementById("hiringSignal"),
+      riskLevel: document.getElementById("riskLevel"),
+      recommendationReason: document.getElementById("recommendationReason"),
+      summaryText: document.getElementById("summaryText"),
+      strengthsList: document.getElementById("strengthsList"),
+      concernsList: document.getElementById("concernsList"),
+      conversationList: document.getElementById("conversationList"),
+      statusBadge: document.getElementById("statusBadge"),
+      recommendationBadge: document.getElementById("recommendationBadge"),
+      copySummaryBtn: document.getElementById("copySummaryBtn")
+    };
+
+    let state = { application:null, profile:null, job:null, conversation:null, questions:[], responses:[] };
+
+    function showStatus(message, type = "info") {
+      els.statusBox.className = `status ${type}`;
+      els.statusBox.textContent = message;
+      els.statusBox.style.display = "block";
+    }
+
+    function hideStatus() { els.statusBox.style.display = "none"; }
+
+    function safe(value, fallback = "—") {
+      return value === null || value === undefined || value === "" ? fallback : value;
+    }
+
+    function score(value) {
+      const number = Number(value || 0);
+      if (Number.isNaN(number)) return 0;
+      return Math.max(0, Math.min(100, Math.round(number)));
+    }
+
+    function setScore(valueEl, barEl, value) {
+      const s = score(value);
+      valueEl.textContent = s;
+      barEl.style.width = `${s}%`;
+    }
+
+    function badgeClass(value) {
+      const text = String(value || "").toLowerCase();
+      if (text.includes("risk") || text.includes("high") || text.includes("concern")) return "red";
+      if (text.includes("moderate") || text.includes("review")) return "amber";
+      return "green";
+    }
+
+    function setBadge(el, text) {
+      el.className = `badge ${badgeClass(text)}`;
+      el.textContent = text || "Review";
+    }
+
+    function escapeHtml(value) {
+      return String(value ?? "")
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#039;");
+    }
+
+    function renderList(el, items, emptyText) {
+      const clean = Array.isArray(items) ? items.filter(Boolean) : [];
+      el.innerHTML = clean.length
+        ? clean.map(item => `<li>${escapeHtml(item)}</li>`).join("")
+        : `<li>${escapeHtml(emptyText)}</li>`;
+    }
+
+    function candidateDisplayName() {
+      const profile = state.profile || {};
+      const application = state.application || {};
+      return profile.full_name || profile.name || application.full_name || application.candidate_name || application.name || application.email || "Candidate Review";
+    }
+
+    function renderHeader() {
+      const app = state.application || {};
+      const job = state.job || {};
+      const conv = state.conversation || {};
+      const profile = state.profile || {};
+
+      els.candidateName.textContent = candidateDisplayName();
+      els.candidateSubtitle.textContent = `${safe(job.title || app.job_title, "Role")} · ${safe(app.email || profile.email, "No email")}`;
+      els.overallFit.textContent = score(conv.overall_score);
+      els.candidateEmail.textContent = safe(app.email || profile.email);
+      els.roleTitle.textContent = safe(job.title || app.job_title);
+      els.applicationStatus.textContent = safe(app.status);
+      els.recommendation.textContent = safe(conv.recruiter_recommendation);
+      els.hiringSignal.textContent = safe(conv.hiring_signal);
+      els.riskLevel.textContent = safe(conv.risk_level);
+      setBadge(els.statusBadge, app.status || "Review");
+      setBadge(els.recommendationBadge, conv.recruiter_recommendation || "Review");
+      els.recommendationReason.textContent = conv.recommendation_reason || "No recommendation reason available yet.";
+      els.summaryText.textContent = conv.summary || "No conversation summary available yet.";
+    }
+
+    function renderScores() {
+      const conv = state.conversation || {};
+      setScore(els.conversationScore, els.conversationBar, conv.overall_score);
+      setScore(els.communicationScore, els.communicationBar, conv.communication_score);
+      setScore(els.alignmentScore, els.alignmentBar, conv.role_alignment_score);
+      setScore(els.fraudRiskScore, els.fraudRiskBar, conv.fraud_risk_score);
+    }
+
+    function responseForQuestion(questionId) {
+      return state.responses.find(row => row.question_id === questionId) || null;
+    }
+
+    function renderConversation() {
+      if (!state.questions.length) {
+        els.conversationList.innerHTML = `<p class="empty-note">No Talent Conversation questions found yet.</p>`;
+        return;
+      }
+
+      els.conversationList.innerHTML = state.questions.map((question, index) => {
+        const response = responseForQuestion(question.id);
+        const evaluation = response?.ai_evaluation || {};
+        const transcript = response?.transcript || "Transcript not available yet.";
+        const feedback = response?.ai_feedback || evaluation.feedback || "No Talent Insights available yet.";
+
+        return `
+          <article class="conversation-item">
+            <div class="conversation-meta">
+              <span class="badge">Question ${index + 1}</span>
+              <span class="badge">${escapeHtml((question.question_type || "conversation").replaceAll("_", " "))}</span>
+              ${question.is_follow_up ? `<span class="badge amber">Follow-up</span>` : ""}
+            </div>
+            <h3>${escapeHtml(question.question_text || "")}</h3>
+            ${response?.audio_url ? `<audio controls src="${escapeHtml(response.audio_url)}"></audio>` : `<p class="empty-note">No audio response available.</p>`}
+            <div class="transcript">${escapeHtml(transcript)}</div>
+            <div class="mini-grid">
+              <div class="mini-score"><span>Comms</span><strong>${score(response?.communication_score)}</strong></div>
+              <div class="mini-score"><span>Alignment</span><strong>${score(response?.role_alignment_score)}</strong></div>
+              <div class="mini-score"><span>Authenticity</span><strong>${score(response?.authenticity_score)}</strong></div>
+              <div class="mini-score"><span>Confidence</span><strong>${score(response?.confidence_score)}</strong></div>
+              <div class="mini-score"><span>Risk</span><strong>${score(response?.fraud_risk_score)}</strong></div>
+            </div>
+            <div class="talent-insights">
+              <strong>Talent Insights</strong>
+              <p>${escapeHtml(feedback)}</p>
+            </div>
+          </article>
+        `;
+      }).join("");
+    }
+
+    function render() {
+      renderHeader();
+      renderScores();
+      renderList(els.strengthsList, state.conversation?.strengths, "No strengths available yet.");
+      renderList(els.concernsList, state.conversation?.concerns, "No concerns available yet.");
+      renderConversation();
+      hideStatus();
+      els.heroSection.style.display = "flex";
+      els.content.style.display = "grid";
+    }
+
+    async function loadConversation() {
+      if (conversationId) {
+        const { data, error } = await supabaseClient.from("talent_conversations").select("*").eq("id", conversationId).maybeSingle();
+        if (error) throw error;
+        if (!data) throw new Error("Conversation not found.");
+        return data;
+      }
+
+      if (applicationId) {
+        const { data, error } = await supabaseClient.from("talent_conversations").select("*").eq("application_id", applicationId).order("created_at", { ascending: false }).limit(1);
+        if (error) throw error;
+        if (!data || !data.length) throw new Error("Conversation not found for this application.");
+        return data[0];
+      }
+
+      throw new Error("Missing conversation_id or application_id in the URL.");
+    }
+
+    async function loadApplication(applicationIdValue) {
+      if (!applicationIdValue) return null;
+      const { data, error } = await supabaseClient.from("applications").select("*").eq("id", applicationIdValue).maybeSingle();
+      if (error) throw error;
+      return data;
+    }
+
+    async function loadProfile(profileId, email) {
+      if (profileId) {
+        const { data, error } = await supabaseClient.from("applicant_profiles").select("*").eq("id", profileId).maybeSingle();
+        if (error) throw error;
+        if (data) return data;
+      }
+
+      if (email) {
+        const { data, error } = await supabaseClient.from("applicant_profiles").select("*").eq("email", email).maybeSingle();
+        if (error) throw error;
+        return data;
+      }
+
+      return null;
+    }
+
+    async function loadJob(jobId) {
+      if (!jobId) return null;
+      const { data, error } = await supabaseClient.from("jobs").select("*").eq("id", jobId).maybeSingle();
+      if (error) throw error;
+      return data;
+    }
+
+    async function loadQuestions(conversationIdValue) {
+      const { data, error } = await supabaseClient.from("talent_conversation_questions").select("*").eq("conversation_id", conversationIdValue).order("question_order", { ascending: true });
+      if (error) throw error;
+      return data || [];
+    }
+
+    async function loadResponses(conversationIdValue) {
+      const { data, error } = await supabaseClient.from("talent_conversation_responses").select("*").eq("conversation_id", conversationIdValue).order("created_at", { ascending: true });
+      if (error) throw error;
+      return data || [];
+    }
+
+    async function init() {
+      try {
+        showStatus("Loading candidate review...", "info");
+        state.conversation = await loadConversation();
+        state.application = await loadApplication(state.conversation.application_id);
+        state.profile = await loadProfile(state.conversation.applicant_profile_id, state.application?.email);
+        state.job = await loadJob(state.conversation.job_id || state.application?.job_id_uuid || state.application?.job_id);
+        state.questions = await loadQuestions(state.conversation.id);
+        state.responses = await loadResponses(state.conversation.id);
+        render();
+      } catch (error) {
+        console.error(error);
+        showStatus(error.message || "Unable to load candidate review.", "error");
+      }
+    }
+
+    function buildSummaryText() {
+      const conv = state.conversation || {};
+      const app = state.application || {};
+      const job = state.job || {};
+      return [
+        `Candidate: ${candidateDisplayName()}`,
+        `Role: ${job.title || app.job_title || "N/A"}`,
+        `Overall Fit: ${score(conv.overall_score)}`,
+        `Recommendation: ${conv.recruiter_recommendation || "N/A"}`,
+        `Hiring Signal: ${conv.hiring_signal || "N/A"}`,
+        `Risk Level: ${conv.risk_level || "N/A"}`,
+        "",
+        `Summary: ${conv.summary || "N/A"}`,
+        "",
+        `Recommendation Reason: ${conv.recommendation_reason || "N/A"}`,
+        "",
+        `Strengths: ${(conv.strengths || []).join("; ") || "N/A"}`,
+        `Concerns: ${(conv.concerns || []).join("; ") || "N/A"}`
+      ].join("\n");
+    }
+
+    els.copySummaryBtn.addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText(buildSummaryText());
+        els.copySummaryBtn.textContent = "Copied";
+        setTimeout(() => { els.copySummaryBtn.textContent = "Copy summary"; }, 1200);
+      } catch (_error) {
+        alert("Unable to copy summary.");
+      }
+    });
+
+    init();
+  </script>
+</body>
+</html>
