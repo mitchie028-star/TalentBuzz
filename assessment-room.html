@@ -818,15 +818,24 @@
     async function loadLatestAssessmentForApplication(appId) {
       const { data, error } = await supabaseClient
         .from("role_assessments")
-        .select("*")
+        .select(`
+          *,
+          role_assessment_questions (
+            id
+          )
+        `)
         .eq("application_id", appId)
-        .order("created_at", { ascending: false })
-        .limit(1);
+        .order("created_at", { ascending: false });
 
       if (error) throw error;
 
-      if (data && data.length) {
-        return data[0];
+      const assessmentWithQuestions = (data || []).find(row =>
+        Array.isArray(row.role_assessment_questions) &&
+        row.role_assessment_questions.length > 0
+      );
+
+      if (assessmentWithQuestions) {
+        return assessmentWithQuestions;
       }
 
       return await generateAssessmentForApplication(appId);
@@ -953,7 +962,8 @@
         showSummaryStatus("Assessment submitted successfully. Your Talent Conversation is next.", "success");
 
         setTimeout(() => {
-          window.location.href = `talent-conversation.html?application_id=${encodeURIComponent(assessment.application_id)}`;
+          window.location.href =
+            `talent-conversation.html?application_id=${encodeURIComponent(assessment.application_id)}`;
         }, 900);
       } catch (error) {
         console.error(error);
