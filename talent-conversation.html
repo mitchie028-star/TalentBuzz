@@ -1131,9 +1131,22 @@
         body: { application_id: appId }
       });
 
-      if (error) throw error;
-      if (!data?.ok) throw new Error(data?.error || "Unable to prepare conversation.");
-      return data.conversation;
+      if (error) {
+        const message =
+          error.context?.error ||
+          error.message ||
+          "Unable to prepare conversation.";
+        throw new Error(message);
+      }
+
+      if (!data?.ok) {
+        throw new Error(data?.error || "Unable to prepare conversation.");
+      }
+
+      return {
+        conversation: data.conversation,
+        questions: Array.isArray(data.questions) ? data.questions : []
+      };
     }
 
     async function loadConversationById(id) {
@@ -1163,7 +1176,10 @@
       );
 
       if (conversationWithQuestions) {
-        return conversationWithQuestions;
+        return {
+          conversation: conversationWithQuestions,
+          questions: []
+        };
       }
 
       return await generateConversationForApplication(appId);
@@ -1273,7 +1289,7 @@
         const { data: publicData } = supabaseClient.storage.from(AUDIO_BUCKET).getPublicUrl(filePath);
         const audioUrl = publicData?.publicUrl || filePath;
 
-        const { data, error } = await supabaseClient
+        let { data, error } = await supabaseClient
           .from("talent_conversation_responses")
           .upsert({
             conversation_id: conversation.id,
@@ -1285,6 +1301,18 @@
           .maybeSingle();
 
         if (error) throw error;
+
+        if (!data?.id) {
+          const lookup = await supabaseClient
+            .from("talent_conversation_responses")
+            .select("*")
+            .eq("conversation_id", conversation.id)
+            .eq("question_id", question.id)
+            .maybeSingle();
+
+          if (lookup.error) throw lookup.error;
+          data = lookup.data;
+        }
 
         responses[question.id] = data || {
           conversation_id: conversation.id,
@@ -1410,15 +1438,33 @@
 
         if (conversationId) {
           conversation = await loadConversationById(conversationId);
+          questions = await loadQuestions(conversation.id);
         } else if (applicationId) {
-          conversation = await loadLatestConversationForApplication(applicationId);
+          const loaded = await loadLatestConversationForApplication(applicationId);
+          conversation = loaded.conversation;
+          questions = loaded.questions || [];
+
+          if (!questions.length && conversation?.id) {
+            questions = await loadQuestions(conversation.id);
+          }
+
+          if (!questions.length) {
+            const generated = await generateConversationForApplication(applicationId);
+            conversation = generated.conversation;
+            questions = generated.questions || [];
+          }
         } else {
           setLoading("Conversation link is incomplete.", "Please return to your application and continue from there.");
           return;
         }
 
-        questions = await loadQuestions(conversation.id);
-        if (!questions.length) throw new Error("This conversation does not have questions yet.");
+        if (!conversation?.id) {
+          throw new Error("Conversation could not be prepared.");
+        }
+
+        if (!questions.length) {
+          throw new Error("This conversation does not have questions yet.");
+        }
 
         await loadExistingResponses(conversation.id);
 
