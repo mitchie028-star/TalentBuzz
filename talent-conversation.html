@@ -903,6 +903,26 @@
       els.summaryStatus.textContent = message;
     }
 
+    function describeSupabaseFunctionError(functionName, error, data) {
+      const details =
+        data?.error ||
+        error?.context?.error ||
+        error?.message ||
+        "The function returned a non-2xx response.";
+
+      return `${functionName} failed: ${details}`;
+    }
+
+    async function invokeEdgeFunction(functionName, body) {
+      const { data, error } = await supabaseClient.functions.invoke(functionName, { body });
+
+      if (error || data?.ok === false || data?.success === false) {
+        throw new Error(describeSupabaseFunctionError(functionName, error, data));
+      }
+
+      return data;
+    }
+
     function escapeHtml(value) {
       return String(value ?? "")
         .replaceAll("&", "&amp;")
@@ -1005,12 +1025,10 @@
       els.siftAudioStatus.textContent = "Preparing Sift voice...";
 
       try {
-        const { data, error } = await supabaseClient.functions.invoke("generate-sift-voice", {
-          body: { text: questionText }
-        });
+        const data = await invokeEdgeFunction("generate-sift-voice", { text: questionText });
 
-        if (error || !data?.ok || !data?.audio_base64) {
-          throw new Error(data?.error || error?.message || "Sift voice unavailable.");
+        if (!data?.audio_base64) {
+          throw new Error("generate-sift-voice returned no audio.");
         }
 
         const audioUrl = `data:${data.mime_type || "audio/mpeg"};base64,${data.audio_base64}`;
@@ -1127,21 +1145,7 @@
     async function generateConversationForApplication(appId) {
       setLoading("Preparing your Talent Conversation...", "We’re creating role-specific questions for your application.");
 
-      const { data, error } = await supabaseClient.functions.invoke("generate-talent-conversation", {
-        body: { application_id: appId }
-      });
-
-      if (error) {
-        const message =
-          error.context?.error ||
-          error.message ||
-          "Unable to prepare conversation.";
-        throw new Error(message);
-      }
-
-      if (!data?.ok) {
-        throw new Error(data?.error || "Unable to prepare conversation.");
-      }
+      const data = await invokeEdgeFunction("generate-talent-conversation", { application_id: appId });
 
       return {
         conversation: data.conversation,
@@ -1284,7 +1288,9 @@
           .from(AUDIO_BUCKET)
           .upload(filePath, currentAudioBlob, { contentType: "audio/webm", upsert: true });
 
-        if (uploadError) throw uploadError;
+        if (uploadError) {
+          throw new Error(`Recording upload failed: ${uploadError.message || JSON.stringify(uploadError)}`);
+        }
 
         const { data: publicData } = supabaseClient.storage.from(AUDIO_BUCKET).getPublicUrl(filePath);
         const audioUrl = publicData?.publicUrl || filePath;
@@ -1300,7 +1306,9 @@
           .select()
           .maybeSingle();
 
-        if (error) throw error;
+        if (error) {
+          throw new Error(`Saving response row failed: ${error.message || JSON.stringify(error)}`);
+        }
 
         if (!data?.id) {
           const lookup = await supabaseClient
@@ -1380,33 +1388,15 @@
 
           showSummaryStatus(`Transcribing response ${current} of ${total}...`, "info");
 
-          const { data: transcriptData, error: transcriptError } =
-            await supabaseClient.functions.invoke("transcribe-talent-response", {
-              body: { response_id: response.id }
-            });
-
-          if (transcriptError || !transcriptData?.ok) {
-            throw new Error(
-              transcriptData?.error ||
-              transcriptError?.message ||
-              "Unable to transcribe response."
-            );
-          }
+          await invokeEdgeFunction("transcribe-talent-response", {
+            response_id: response.id
+          });
 
           showSummaryStatus(`Processing response ${current} of ${total}...`, "info");
 
-          const { data: processData, error: processError } =
-            await supabaseClient.functions.invoke("process-talent-response", {
-              body: { response_id: response.id }
-            });
-
-          if (processError || !processData?.success) {
-            throw new Error(
-              processData?.error ||
-              processError?.message ||
-              "Unable to process response."
-            );
-          }
+          const processData = await invokeEdgeFunction("process-talent-response", {
+            response_id: response.id
+          });
 
           if (processData?.conversation) {
             conversation = processData.conversation;
