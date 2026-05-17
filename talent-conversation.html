@@ -675,7 +675,7 @@
       <div class="loading-row">
         <span class="spinner"></span>
         <span>
-          <strong id="emptyTitle">Loading assessment...</strong>
+          <strong id="emptyTitle">Loading Talent Conversation...</strong>
           <span id="emptyText">Please wait while we prepare your questions.</span>
         </span>
       </div>
@@ -1033,7 +1033,11 @@
 
       els.reviewList.innerHTML = questions.map((question, index) => {
         const response = responseFor(question.id);
-        const status = response?.audio_url ? "Recorded" : "No response recorded.";
+        let status = "No response recorded.";
+        if (response?.audio_url) status = "Recorded";
+        if (response?.transcript) status = "Recorded and transcribed";
+        if (response?.ai_evaluation) status = "Recorded, transcribed, and evaluated";
+
         return `
           <div class="review-item">
             <strong>Question ${index + 1}: ${escapeHtml(getQuestionTitle(question))}</strong>
@@ -1053,21 +1057,71 @@
 
       els.submitBtn.disabled = true;
       els.editLastBtn.disabled = true;
-      showSummaryStatus("Submitting conversation...", "info");
 
       try {
-        const { error } = await supabaseClient
-          .from("talent_conversations")
-          .update({ status: "completed", completed_at: new Date().toISOString() })
-          .eq("id", conversation.id);
+        const responseRows = Object.values(responses).filter(row => row?.id);
 
-        if (error) throw error;
+        if (!responseRows.length) {
+          throw new Error("No saved responses found. Please save your recordings first.");
+        }
+
+        for (let index = 0; index < responseRows.length; index += 1) {
+          const response = responseRows[index];
+          const current = index + 1;
+          const total = responseRows.length;
+
+          showSummaryStatus(`Transcribing response ${current} of ${total}...`, "info");
+
+          const { data: transcriptData, error: transcriptError } =
+            await supabaseClient.functions.invoke("transcribe-talent-response", {
+              body: { response_id: response.id }
+            });
+
+          if (transcriptError || !transcriptData?.ok) {
+            throw new Error(
+              transcriptData?.error ||
+              transcriptError?.message ||
+              "Unable to transcribe response."
+            );
+          }
+
+          showSummaryStatus(`Evaluating response ${current} of ${total}...`, "info");
+
+          const { data: evaluationData, error: evaluationError } =
+            await supabaseClient.functions.invoke("evaluate-talent-response", {
+              body: { response_id: response.id }
+            });
+
+          if (evaluationError || !evaluationData?.ok) {
+            throw new Error(
+              evaluationData?.error ||
+              evaluationError?.message ||
+              "Unable to evaluate response."
+            );
+          }
+        }
+
+        showSummaryStatus("Finalizing Talent Conversation...", "info");
+
+        const { data: finalData, error: finalError } =
+          await supabaseClient.functions.invoke("finalize-talent-conversation", {
+            body: { conversation_id: conversation.id }
+          });
+
+        if (finalError || !finalData?.ok) {
+          throw new Error(
+            finalData?.error ||
+            finalError?.message ||
+            "Unable to finalize conversation."
+          );
+        }
 
         markConversationComplete();
         showSummaryStatus("Talent Conversation submitted successfully.", "success");
 
         setTimeout(() => {
-          window.location.href = `dashboard.html?conversation_submitted=1&conversation_id=${encodeURIComponent(conversation.id)}`;
+          window.location.href =
+            `dashboard.html?conversation_submitted=1&conversation_id=${encodeURIComponent(conversation.id)}`;
         }, 1000);
       } catch (error) {
         console.error(error);
