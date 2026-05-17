@@ -806,7 +806,7 @@
 
     <section class="summary" id="summaryPanel">
       <h2>Review your Talent Conversation</h2>
-      <p>Please review your recordings before submitting. Once submitted, your conversation will move to final review.</p>
+      <p>Please review your recordings before submitting. Once submitted, your conversation will be processed and moved to final review.</p>
 
       <div class="review-list" id="reviewList"></div>
 
@@ -1365,35 +1365,28 @@
             );
           }
 
-          showSummaryStatus(`Evaluating response ${current} of ${total}...`, "info");
+          showSummaryStatus(`Processing response ${current} of ${total}...`, "info");
 
-          const { data: evaluationData, error: evaluationError } =
-            await supabaseClient.functions.invoke("evaluate-talent-response", {
+          const { data: processData, error: processError } =
+            await supabaseClient.functions.invoke("process-talent-response", {
               body: { response_id: response.id }
             });
 
-          if (evaluationError || !evaluationData?.ok) {
+          if (processError || !processData?.success) {
             throw new Error(
-              evaluationData?.error ||
-              evaluationError?.message ||
-              "Unable to evaluate response."
+              processData?.error ||
+              processError?.message ||
+              "Unable to process response."
             );
           }
-        }
 
-        showSummaryStatus("Finalizing Talent Conversation...", "info");
+          if (processData?.conversation) {
+            conversation = processData.conversation;
+          }
 
-        const { data: finalData, error: finalError } =
-          await supabaseClient.functions.invoke("finalize-talent-conversation", {
-            body: { conversation_id: conversation.id }
-          });
-
-        if (finalError || !finalData?.ok) {
-          throw new Error(
-            finalData?.error ||
-            finalError?.message ||
-            "Unable to finalize conversation."
-          );
+          if (processData?.recruiter_report_ready) {
+            showSummaryStatus("Recruiter report generated.", "success");
+          }
         }
 
         markConversationComplete();
@@ -1401,7 +1394,7 @@
 
         setTimeout(() => {
           window.location.href =
-            `candidate-review.html?conversation_id=${encodeURIComponent(conversation.id)}`;
+            `application-complete.html?conversation_id=${encodeURIComponent(conversation.id)}`;
         }, 1000);
       } catch (error) {
         console.error(error);
