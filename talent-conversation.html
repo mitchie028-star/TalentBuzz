@@ -139,8 +139,8 @@ audio{width:100%;margin-top:14px}
         <div class="sift-stage">
           <div class="sift-bubble">
             <div class="sift-speaker">
-              <span class="sift-avatar">S</span>
-              <span>Sift</span>
+              <span class="sift-avatar">T</span>
+              <span>TalentBuzz</span>
               <div class="sift-wave" id="siftWave" aria-hidden="true">
                 <span></span><span></span><span></span><span></span><span></span>
               </div>
@@ -152,9 +152,9 @@ audio{width:100%;margin-top:14px}
             <div class="metadata" id="metadata"></div>
 
             <div class="sift-audio-row">
-              <button type="button" id="playQuestionBtn">Play Sift question</button>
+              <button type="button" id="playQuestionBtn">Play question</button>
               <span class="sift-audio-status" id="siftAudioStatus">
-                Sift will ask each question out loud. Recording automatically starts after playback finishes.
+                TalentBuzz will ask each question out loud. Recording automatically starts after playback finishes.
               </span>
             </div>
 
@@ -180,7 +180,7 @@ audio{width:100%;margin-top:14px}
             </div>
 
             <div class="conversation-note">
-              Sift will automatically begin recording after each question finishes playing. Speak naturally and click “Finish response” when you are done.
+              Recording will automatically begin after each question finishes playing. Speak naturally and click “Finish response” when you are done.
             </div>
           </div>
         </div>
@@ -224,6 +224,8 @@ audio{width:100%;margin-top:14px}
   </main>
 
   <script>
+    console.log("TalentBuzz talent-conversation review-save v2026-05-18 loaded");
+
     const SUPABASE_URL = "https://dilalntcxmvdcmwxjcct.supabase.co";
     const SUPABASE_ANON_KEY = "sb_publishable_HrLVIUwnaRo54yijtrbWBQ_1aeb4ezs";
     const AUDIO_BUCKET = "talent-conversation-audio";
@@ -271,6 +273,7 @@ audio{width:100%;margin-top:14px}
     };
 
     let conversation = null;
+    let applicationContext = null;
     let questions = [];
     let responses = {};
     let currentIndex = 0;
@@ -424,7 +427,7 @@ audio{width:100%;margin-top:14px}
       if (!questionText) return null;
       if (questionAudioUrls[questionText]) return questionAudioUrls[questionText];
 
-      els.siftAudioStatus.textContent = "Preparing Sift voice...";
+      els.siftAudioStatus.textContent = "Preparing question audio...";
 
       try {
         const data = await invokeEdgeFunction("generate-sift-voice", { text: questionText });
@@ -437,7 +440,7 @@ audio{width:100%;margin-top:14px}
         questionAudioUrls[questionText] = audioUrl;
         return audioUrl;
       } catch (error) {
-        console.warn("Sift voice unavailable. Falling back to browser voice.", error);
+        console.warn("Question audio unavailable. Falling back to browser voice.", error);
         return null;
       }
     }
@@ -454,10 +457,10 @@ audio{width:100%;margin-top:14px}
       clearStatus();
 
       els.siftWave.classList.add("live");
-      els.siftAudioStatus.textContent = "Sift is asking the question...";
+      els.siftAudioStatus.textContent = "TalentBuzz is asking the question...";
       els.startRecordingBtn.disabled = true;
       els.stopRecordingBtn.disabled = true;
-      els.recordingStateText.textContent = "Listen to Sift first";
+      els.recordingStateText.textContent = "Listen to the question first";
 
       const audioUrl = await getSiftVoiceAudio(question.question_text);
 
@@ -544,8 +547,240 @@ audio{width:100%;margin-top:14px}
       }, 500);
     }
 
+
+    async function loadApplicationContext(appId) {
+      if (!appId) return null;
+
+      const { data: app, error: appError } = await supabaseClient
+        .from("applications")
+        .select("*")
+        .eq("id", appId)
+        .maybeSingle();
+
+      if (appError) {
+        console.warn("Unable to load application context:", appError);
+        return null;
+      }
+
+      if (!app) return null;
+
+      let profile = null;
+
+      if (app.applicant_profile_id) {
+        const { data } = await supabaseClient
+          .from("applicant_profiles")
+          .select("*")
+          .eq("id", app.applicant_profile_id)
+          .maybeSingle();
+
+        profile = data || null;
+      }
+
+      if (!profile && app.email) {
+        const { data } = await supabaseClient
+          .from("applicant_profiles")
+          .select("*")
+          .eq("email", app.email)
+          .maybeSingle();
+
+        profile = data || null;
+      }
+
+      return { app, profile };
+    }
+
+    function getCandidateEmail() {
+      return (
+        applicationContext?.app?.email ||
+        applicationContext?.profile?.email ||
+        conversation?.candidate_email ||
+        conversation?.email ||
+        ""
+      );
+    }
+
+    function getCandidateName() {
+      return (
+        applicationContext?.profile?.full_name ||
+        applicationContext?.profile?.name ||
+        applicationContext?.app?.candidate_name ||
+        applicationContext?.app?.full_name ||
+        conversation?.candidate_name ||
+        getCandidateEmail() ||
+        "Candidate"
+      );
+    }
+
+    function getTargetRole() {
+      return (
+        applicationContext?.app?.job_title ||
+        applicationContext?.profile?.target_role ||
+        applicationContext?.profile?.headline ||
+        applicationContext?.profile?.current_title ||
+        conversation?.role_title ||
+        "the role"
+      );
+    }
+
+    function normalizeArray(value) {
+      if (Array.isArray(value)) return value.filter(Boolean).map(item => String(item).trim()).filter(Boolean);
+      if (!value) return [];
+      return String(value)
+        .split(/\n|,|;/)
+        .map(item => item.trim())
+        .filter(Boolean);
+    }
+
+    function buildLocalReviewPayload(finalizeData = {}) {
+      const candidateName = getCandidateName();
+      const role = getTargetRole();
+      const answered = answeredCount();
+      const total = questions.length || answered || 1;
+      const completionScore = Math.round((answered / total) * 100);
+
+      const transcriptLines = questions.map((question, index) => {
+        const response = responseFor(question.id);
+        return `Question ${index + 1}: ${question.question_text || getQuestionTitle(question)}\nResponse recording: ${response?.audio_url || "No recording"}`;
+      });
+
+      const existingConversation = finalizeData?.conversation || conversation || {};
+
+      const summary =
+        existingConversation.summary ||
+        finalizeData.summary ||
+        `${candidateName} completed a Talent Conversation for ${role}. ${answered} of ${total} responses were recorded.`;
+
+      const strengths = normalizeArray(
+        existingConversation.strengths ||
+        finalizeData.strengths ||
+        [
+          applicationContext?.profile?.experience_summary,
+          applicationContext?.profile?.summary,
+          applicationContext?.profile?.headline,
+          answered === total ? "Completed all Talent Conversation responses." : ""
+        ]
+      );
+
+      const concerns = normalizeArray(
+        existingConversation.concerns ||
+        finalizeData.concerns ||
+        (
+          answered === total
+            ? ["Review recordings and transcript for final hiring decision."]
+            : ["Some Talent Conversation responses may be missing."]
+        )
+      );
+
+      const overallScore =
+        Number(existingConversation.overall_score || finalizeData.overall_score || completionScore || 0);
+
+      return {
+        application_id: applicationId || existingConversation.application_id || null,
+        candidate_email: getCandidateEmail() || existingConversation.candidate_email || null,
+        email: getCandidateEmail() || existingConversation.email || null,
+        candidate_name: candidateName,
+        summary,
+        strengths,
+        concerns,
+        transcript: existingConversation.transcript || finalizeData.transcript || transcriptLines.join("\n\n"),
+        recordings: Object.values(responses)
+          .filter(row => row?.audio_url)
+          .map(row => ({
+            question_id: row.question_id,
+            audio_url: row.audio_url,
+            duration_seconds: row.response_duration_seconds || null
+          })),
+        communication_score: Number(existingConversation.communication_score || finalizeData.communication_score || overallScore || 0),
+        role_alignment_score: Number(existingConversation.role_alignment_score || finalizeData.role_alignment_score || overallScore || 0),
+        authenticity_score: Number(existingConversation.authenticity_score || finalizeData.authenticity_score || overallScore || 0),
+        confidence_score: Number(existingConversation.confidence_score || finalizeData.confidence_score || overallScore || 0),
+        overall_score: overallScore,
+        hiring_signal: existingConversation.hiring_signal || finalizeData.hiring_signal || (overallScore >= 70 ? "Strong Review" : "Review Needed"),
+        recruiter_recommendation:
+          existingConversation.recruiter_recommendation ||
+          finalizeData.recruiter_recommendation ||
+          (overallScore >= 70 ? "Move Forward" : "Needs Review"),
+        recommendation_reason:
+          existingConversation.recommendation_reason ||
+          finalizeData.recommendation_reason ||
+          "Talent Conversation completed. Recruiter should review responses, profile, and role alignment before next step.",
+        status: "completed",
+        completed_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      };
+    }
+
+    async function updateConversationReviewPayload(payload) {
+      const fullPayload = { ...payload };
+
+      let result = await supabaseClient
+        .from("talent_conversations")
+        .update(fullPayload)
+        .eq("id", conversation.id)
+        .select()
+        .maybeSingle();
+
+      if (!result.error) return result.data;
+
+      console.warn("Full conversation review update failed, retrying with compatibility payload:", result.error);
+
+      const compatibilityPayload = {
+        application_id: fullPayload.application_id,
+        candidate_email: fullPayload.candidate_email,
+        candidate_name: fullPayload.candidate_name,
+        summary: fullPayload.summary,
+        status: "completed",
+        completed_at: fullPayload.completed_at,
+        updated_at: fullPayload.updated_at
+      };
+
+      Object.keys(compatibilityPayload).forEach(key => {
+        if (compatibilityPayload[key] === undefined) delete compatibilityPayload[key];
+      });
+
+      result = await supabaseClient
+        .from("talent_conversations")
+        .update(compatibilityPayload)
+        .eq("id", conversation.id)
+        .select()
+        .maybeSingle();
+
+      if (result.error) throw result.error;
+      return result.data;
+    }
+
+    async function ensureConversationLinked() {
+      if (!conversation?.id) return;
+
+      const payload = {
+        application_id: applicationId || conversation.application_id || null,
+        candidate_email: getCandidateEmail() || conversation.candidate_email || null,
+        email: getCandidateEmail() || conversation.email || null,
+        candidate_name: getCandidateName(),
+        updated_at: new Date().toISOString()
+      };
+
+      Object.keys(payload).forEach(key => {
+        if (payload[key] === undefined || payload[key] === null || payload[key] === "") delete payload[key];
+      });
+
+      if (!Object.keys(payload).length) return;
+
+      const { error } = await supabaseClient
+        .from("talent_conversations")
+        .update(payload)
+        .eq("id", conversation.id);
+
+      if (error) {
+        console.warn("Unable to link conversation with application/profile context:", error);
+      }
+    }
+
+
     async function generateConversationForApplication(appId) {
       setLoading("Preparing your Talent Conversation...", "We’re creating role-specific questions for your application.");
+
+      applicationContext = applicationContext || await loadApplicationContext(appId);
 
       const data = await invokeEdgeFunction("generate-talent-conversation", { application_id: appId });
 
@@ -786,11 +1021,27 @@ audio{width:100%;margin-top:14px}
         showSummaryStatus("Finalizing your Talent Conversation...", "info");
 
         const finalizeData = await invokeEdgeFunction("finalize-talent-conversation", {
-          conversation_id: conversation.id
+          conversation_id: conversation.id,
+          application_id: applicationId || conversation.application_id || null,
+          candidate_email: getCandidateEmail() || null,
+          candidate_name: getCandidateName()
         });
 
         if (finalizeData?.conversation) {
-          conversation = finalizeData.conversation;
+          conversation = {
+            ...conversation,
+            ...finalizeData.conversation
+          };
+        }
+
+        const reviewPayload = buildLocalReviewPayload(finalizeData);
+        const updatedConversation = await updateConversationReviewPayload(reviewPayload);
+
+        if (updatedConversation) {
+          conversation = {
+            ...conversation,
+            ...updatedConversation
+          };
         }
 
         markConversationComplete();
@@ -816,8 +1067,17 @@ audio{width:100%;margin-top:14px}
       try {
         setLoading("Loading Talent Conversation...", "Please wait while we prepare your questions.");
 
+        if (applicationId) {
+          applicationContext = await loadApplicationContext(applicationId);
+        }
+
         if (conversationId) {
           conversation = await loadConversationById(conversationId);
+
+          if (!applicationContext && conversation?.application_id) {
+            applicationContext = await loadApplicationContext(conversation.application_id);
+          }
+
           questions = await loadQuestions(conversation.id);
         } else if (applicationId) {
           const loaded = await loadLatestConversationForApplication(applicationId);
@@ -848,11 +1108,16 @@ audio{width:100%;margin-top:14px}
 
         await loadExistingResponses(conversation.id);
 
+        await ensureConversationLinked();
+
         if (conversation.summary) els.conversationIntro.textContent = conversation.summary;
 
         await supabaseClient
           .from("talent_conversations")
           .update({
+            application_id: applicationId || conversation.application_id || null,
+            candidate_email: getCandidateEmail() || conversation.candidate_email || null,
+            candidate_name: getCandidateName(),
             status: conversation.status === "completed" ? "completed" : "in_progress",
             started_at: conversation.started_at || new Date().toISOString()
           })
