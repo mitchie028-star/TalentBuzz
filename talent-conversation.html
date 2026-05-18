@@ -224,7 +224,7 @@ audio{width:100%;margin-top:14px}
   </main>
 
   <script>
-    console.log("TalentBuzz talent-conversation review-save v2026-05-18 loaded");
+    console.log("TalentBuzz talent-conversation multilingual orchestration v2026-05-18 loaded");
 
     const SUPABASE_URL = "https://dilalntcxmvdcmwxjcct.supabase.co";
     const SUPABASE_ANON_KEY = "sb_publishable_HrLVIUwnaRo54yijtrbWBQ_1aeb4ezs";
@@ -904,6 +904,7 @@ audio{width:100%;margin-top:14px}
       if (!question) return false;
 
       const existing = responseFor(question.id);
+
       if (!currentAudioBlob && existing?.audio_url) {
         showStatus("Response already saved.", "success");
         return true;
@@ -916,30 +917,40 @@ audio{width:100%;margin-top:14px}
 
       els.saveBtn.disabled = true;
       els.nextBtn.disabled = true;
-      showStatus("Uploading response...", "info");
 
       try {
+        showStatus("Uploading response...", "info");
+
         const filePath = `${conversation.id}/${question.id}-${Date.now()}.webm`;
 
         const { error: uploadError } = await supabaseClient.storage
           .from(AUDIO_BUCKET)
-          .upload(filePath, currentAudioBlob, { contentType: "audio/webm", upsert: true });
+          .upload(filePath, currentAudioBlob, {
+            contentType: "audio/webm",
+            upsert: true
+          });
 
         if (uploadError) {
           throw new Error(`Recording upload failed: ${uploadError.message || JSON.stringify(uploadError)}`);
         }
 
-        const { data: publicData } = supabaseClient.storage.from(AUDIO_BUCKET).getPublicUrl(filePath);
+        const { data: publicData } = supabaseClient.storage
+          .from(AUDIO_BUCKET)
+          .getPublicUrl(filePath);
+
         const audioUrl = publicData?.publicUrl || filePath;
 
         let { data, error } = await supabaseClient
           .from("talent_conversation_responses")
-          .upsert({
-            conversation_id: conversation.id,
-            question_id: question.id,
-            audio_url: audioUrl,
-            response_duration_seconds: recordingSeconds || null
-          }, { onConflict: "conversation_id,question_id" })
+          .upsert(
+            {
+              conversation_id: conversation.id,
+              question_id: question.id,
+              audio_url: audioUrl,
+              response_duration_seconds: recordingSeconds || null
+            },
+            { onConflict: "conversation_id,question_id" }
+          )
           .select()
           .maybeSingle();
 
@@ -959,14 +970,59 @@ audio{width:100%;margin-top:14px}
           data = lookup.data;
         }
 
-        responses[question.id] = data || {
-          conversation_id: conversation.id,
-          question_id: question.id,
-          audio_url: audioUrl,
-          response_duration_seconds: recordingSeconds || null
-        };
+        if (!data?.id) {
+          throw new Error("Response record could not be created.");
+        }
 
-        showStatus("Response saved.", "success");
+        responses[question.id] = data;
+
+        showStatus("Analyzing your response...", "info");
+
+        try {
+          const transcriptionResult = await invokeEdgeFunction(
+            "transcribe-talent-response",
+            { response_id: data.id }
+          );
+
+          if (transcriptionResult?.response) {
+            responses[question.id] = transcriptionResult.response;
+          }
+
+          showStatus("Response transcribed successfully.", "success");
+        } catch (transcribeError) {
+          console.warn("transcribe-talent-response failed", transcribeError);
+          showStatus("Recording saved. Transcription may still be processing.", "info");
+        }
+
+        try {
+          showStatus("Evaluating response...", "info");
+
+          const latestResponse = responseFor(question.id) || data;
+          const responseIdForEvaluation = latestResponse.id || data.id;
+
+          const evaluationResult = await invokeEdgeFunction(
+            "evaluate-talent-response",
+            { response_id: responseIdForEvaluation }
+          );
+
+          if (evaluationResult?.response) {
+            responses[question.id] = evaluationResult.response;
+          }
+
+          const proficiency =
+            evaluationResult?.evaluation?.language_evaluation?.language_proficiency ||
+            evaluationResult?.response?.language_proficiency;
+
+          if (proficiency) {
+            showStatus(`Response analyzed • ${proficiency} language proficiency detected.`, "success");
+          } else {
+            showStatus("Response analyzed successfully.", "success");
+          }
+        } catch (evaluationError) {
+          console.warn("evaluate-talent-response failed", evaluationError);
+          showStatus("Recording saved. Recruiter analysis may still be processing.", "info");
+        }
+
         return true;
       } catch (error) {
         console.error(error);
@@ -988,8 +1044,15 @@ audio{width:100%;margin-top:14px}
         const response = responseFor(question.id);
         let status = "No response recorded.";
         if (response?.audio_url) status = "Recorded";
-        if (response?.transcript) status = "Recorded and transcribed";
-        if (response?.ai_evaluation) status = "Recorded, transcribed, and evaluated";
+        if (response?.transcript || response?.transcript_original || response?.transcript_english) {
+          status = "Recorded and transcribed";
+        }
+        if (response?.ai_evaluation) {
+          status = "Recorded, transcribed, and evaluated";
+        }
+        if (response?.language_proficiency) {
+          status += ` • ${response.language_proficiency} language proficiency`;
+        }
 
         return `
           <div class="review-item">
