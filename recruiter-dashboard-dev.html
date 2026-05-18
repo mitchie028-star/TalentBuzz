@@ -931,6 +931,8 @@
   </div>
 
   <script>
+    console.log('TalentBuzz recruiter-dashboard candidate review router v2026-05-18-02 loaded');
+
     const CONFIG = {
       SUPABASE_URL: window.TALENTBUZZ_SUPABASE_URL || localStorage.getItem('TALENTBUZZ_SUPABASE_URL') || '',
       SUPABASE_ANON_KEY: window.TALENTBUZZ_SUPABASE_ANON_KEY || localStorage.getItem('TALENTBUZZ_SUPABASE_ANON_KEY') || '',
@@ -1067,21 +1069,102 @@
       return {overall:Math.max(8,Math.min(100,score)), mode:'Base Match', profilePart:{score:Math.min(100,score)}, resumePart:{score:safeText(profile?.resume_path||profile?.resume_url||profile?.resume_file_name)?70:0}, reasons:evidence};
     }
 
-    const FOLLOW_UP_OPTIONS={needs_follow_up:'Needs Follow-up',due_today:'Due Today',overdue:'Overdue',followed_up:'Followed Up',none:'No Follow-up'};
-    function parseFollowUpDate(value){if(!value)return null;const d=new Date(value);return Number.isNaN(d.getTime())?null:d}
-    function getFollowUpInfo(app){
-      const required=app?.follow_up_required===true||String(app?.follow_up_required||'').toLowerCase()==='true';
-      const raw=safeText(app?.follow_up_status||'').toLowerCase();
-      const dueAt=app?.follow_up_date||app?.follow_up_due_at||null;
-      const dueDate=parseFollowUpDate(dueAt);
-      const now=new Date();const today=new Date(now.getFullYear(),now.getMonth(),now.getDate());const tomorrow=new Date(today.getTime()+86400000);
-      let key='none';
-      if(raw==='followed_up'||app?.last_followed_up_at)key='followed_up';
-      else if(raw==='needs_follow_up'||required||dueDate||app?.follow_up_note)key='needs_follow_up';
-      if(key==='needs_follow_up'&&dueDate){if(dueDate<today)key='overdue';else if(dueDate>=today&&dueDate<tomorrow)key='due_today'}
-      return {key,label:FOLLOW_UP_OPTIONS[key]||'No Follow-up',dueAt,note:safeText(app?.follow_up_note||'')};
+    const FOLLOW_UP_OPTIONS={
+      needs_follow_up:'Needs Follow-up',
+      due_today:'Due Today',
+      overdue:'Overdue',
+      followed_up:'Followed Up',
+      none:'No Follow-up'
+    };
+
+    function parseFollowUpDate(value){
+      if(!value)return null;
+      const d=new Date(value);
+      return Number.isNaN(d.getTime())?null:d;
     }
-    function getFollowUpTone(key){if(key==='overdue')return 'bad';if(key==='due_today'||key==='needs_follow_up')return 'warn';if(key==='followed_up')return 'good';return 'info'}
+
+    function isTruthyDb(value){
+      if(value === true)return true;
+      const text = String(value ?? '').trim().toLowerCase();
+      return ['true','t','1','yes','y'].includes(text);
+    }
+
+    function normalizeFollowUpStatus(value){
+      const text = safeText(value)
+        .toLowerCase()
+        .replace(/\s+/g,'_')
+        .replace(/-/g,'_');
+
+      if(['needs_follow_up','follow_up','for_follow_up','followup','pending_follow_up','pending'].includes(text))return 'needs_follow_up';
+      if(['due_today','today'].includes(text))return 'due_today';
+      if(['overdue','past_due'].includes(text))return 'overdue';
+      if(['followed_up','done','completed','complete','closed'].includes(text))return 'followed_up';
+      if(['none','no_follow_up','no_followup',''].includes(text))return '';
+      return text;
+    }
+
+    function getFollowUpInfo(app){
+      const required = isTruthyDb(app?.follow_up_required);
+      const raw = normalizeFollowUpStatus(app?.follow_up_status);
+      const dueAt = app?.follow_up_due_at || app?.follow_up_date || null;
+      const dueDate = parseFollowUpDate(dueAt);
+      const note = safeText(app?.follow_up_note || '');
+
+      const now = new Date();
+      const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      const tomorrow = new Date(today.getTime() + 86400000);
+
+      let key = 'none';
+
+      if(raw === 'followed_up' || app?.last_followed_up_at){
+        key = 'followed_up';
+      }else if(raw === 'overdue'){
+        key = 'overdue';
+      }else if(raw === 'due_today'){
+        key = 'due_today';
+      }else if(raw === 'needs_follow_up' || required || dueDate || note){
+        key = 'needs_follow_up';
+      }
+
+      if(key === 'needs_follow_up' && dueDate){
+        if(dueDate < today)key = 'overdue';
+        else if(dueDate >= today && dueDate < tomorrow)key = 'due_today';
+      }
+
+      return {
+        key,
+        label: FOLLOW_UP_OPTIONS[key] || 'No Follow-up',
+        dueAt,
+        note,
+        required
+      };
+    }
+
+    function hasOpenFollowUp(rowOrApp){
+      const app = rowOrApp?.app || rowOrApp || {};
+      const info = rowOrApp?.followUp || getFollowUpInfo(app);
+      const raw = normalizeFollowUpStatus(app.follow_up_status);
+
+      const hasSignal = (
+        ['overdue','due_today','needs_follow_up'].includes(info?.key) ||
+        ['overdue','due_today','needs_follow_up'].includes(raw) ||
+        isTruthyDb(app.follow_up_required) ||
+        !!app.follow_up_due_at ||
+        !!app.follow_up_date ||
+        !!safeText(app.follow_up_note)
+      );
+
+      const isClosed = info?.key === 'followed_up' || raw === 'followed_up' || !!app.last_followed_up_at;
+
+      return hasSignal && !isClosed;
+    }
+
+    function getFollowUpTone(key){
+      if(key==='overdue')return 'bad';
+      if(key==='due_today'||key==='needs_follow_up')return 'warn';
+      if(key==='followed_up')return 'good';
+      return 'info';
+    }
 
     function cleanResumePath(path){
       let value=safeText(path);
@@ -1334,7 +1417,7 @@
         if(query&&!hay.includes(query))return false;
         if(status&&normalizeStatus(row.status)!==status)return false;
         if(recruiter&&row.recruiter.toLowerCase()!==recruiter)return false;
-        if(followUp){ if(followUp==='all_open'){ if(!['overdue','due_today','needs_follow_up'].includes(row.followUp?.key))return false; } else if(row.followUp?.key!==followUp)return false; }
+        if(followUp){ if(followUp==='all_open'){ if(!hasOpenFollowUp(row))return false; } else if(row.followUp?.key!==followUp)return false; }
         if(job&&row.jobTitle.toLowerCase()!==job)return false;
         if(client&&row.clientName.toLowerCase()!==client)return false;
         if(scoreFilter&&scoreTier(row.score.overall)!==scoreFilter)return false;
@@ -1350,7 +1433,7 @@
       els.kpiUnassigned.textContent=count(r=>r.recruiter==='Unassigned');
       els.kpiInterview.textContent=count(r=>['for interview','shortlisted','assessment'].includes(normalizeStatus(r.status)));
       els.kpiOffered.textContent=count(r=>normalizeStatus(r.status)==='offered jo');
-      const followUpCount=count(r=>['overdue','due_today','needs_follow_up'].includes(r.followUp?.key));
+      const followUpCount=count(r=>hasOpenFollowUp(r));
       const reviewCount=count(r=>['submitted',''].includes(normalizeStatus(r.status)));
       if(els.kpiFollowUp)els.kpiFollowUp.textContent=followUpCount;
       if(els.kpiReview)els.kpiReview.textContent=reviewCount;
@@ -1691,15 +1774,26 @@ async function parseSelectedResume(){
 }
 
 
-    function openCandidateReviewForSelected(){
-      const row=state.allRows.find(item=>item.id===state.selectedId);
-      if(!row)return showNotice('Open a candidate first.', 'error');
-      const conversationId=row.app?.conversation_id || row.app?.talent_conversation_id || row.app?.latest_conversation_id || '';
-      if(conversationId){
-        window.location.href=`candidate-review.html?conversation_id=${encodeURIComponent(conversationId)}`;
+    async function openCandidateReviewForSelected(){
+      const row = state.allRows.find(item => item.id === state.selectedId);
+
+      if (!row) {
+        showNotice('Open a candidate first.', 'error');
         return;
       }
-      showNotice('Candidate review is available after the Talent Conversation is completed.', 'info');
+
+      const appId = row.id || row.app?.id || '';
+
+      if (!appId) {
+        showNotice('Unable to open Candidate Review because this row has no application ID.', 'error');
+        return;
+      }
+
+      console.log('Opening Candidate Review by application_id:', appId);
+
+      window.location.assign(
+        `candidate-review.html?application_id=${encodeURIComponent(appId)}&v=${Date.now()}`
+      );
     }
 
     function getFollowUpFormValues(modalOpen=false){
@@ -1778,6 +1872,19 @@ async function parseSelectedResume(){
     function updateLiveStatusLabel(){if(!dashboardLastSyncedAt){els.liveStatusText.textContent='Live';return}const seconds=Math.max(0,Math.floor((Date.now()-dashboardLastSyncedAt.getTime())/1000));els.liveStatusText.textContent=seconds<10?'Live':`Synced ${seconds}s ago`}
     function markDashboardSynced(){dashboardLastSyncedAt=new Date();updateLiveStatusLabel()}
 
+    function openCandidateReviewByApplicationId(applicationId){
+      if (!applicationId) {
+        showNotice('Unable to open Candidate Review because this row has no application ID.', 'error');
+        return;
+      }
+
+      console.log('Direct Candidate Review route:', applicationId);
+
+      window.location.assign(
+        `candidate-review.html?application_id=${encodeURIComponent(applicationId)}&v=${Date.now()}`
+      );
+    }
+
     function bindEvents(){
       [els.searchInput,els.statusFilter,els.recruiterFilter,els.followUpFilter,els.jobFilter,els.clientFilter,els.scoreFilter].forEach(el=>{el?.addEventListener('input',applyFilters);el?.addEventListener('change',applyFilters)});
       document.querySelectorAll('[data-quick-filter]').forEach(btn=>btn.addEventListener('click',()=>{
@@ -1789,14 +1896,14 @@ async function parseSelectedResume(){
         applyFilters();
         document.getElementById('pipeline')?.scrollIntoView({behavior:'smooth'});
       }));
-      els.clearFiltersBtn.addEventListener('click',clearFilters);els.closeDrawerBtn.addEventListener('click',closeDrawer);els.prevBtn.addEventListener('click',()=>openSelectedOffset(-1));els.nextBtn.addEventListener('click',()=>openSelectedOffset(1));els.openCandidateWorkspaceBtn.addEventListener('click',openCandidateModal); els.openCandidateReviewBtn?.addEventListener('click',openCandidateReviewForSelected);
+      els.clearFiltersBtn.addEventListener('click',clearFilters);els.closeDrawerBtn.addEventListener('click',closeDrawer);els.prevBtn.addEventListener('click',()=>openSelectedOffset(-1));els.nextBtn.addEventListener('click',()=>openSelectedOffset(1));els.openCandidateWorkspaceBtn.addEventListener('click',openCandidateModal); els.openCandidateReviewBtn?.addEventListener('click',()=>openCandidateReviewByApplicationId(state.selectedId));
       els.headerLogoutBtn.addEventListener('click',handleLogout);els.sidebarSourcingBtn?.addEventListener('click',()=>showNotice('Sourcing link will be added after the base dashboard is stable.','info'));
       els.applicationsTable.addEventListener('click',async event=>{
         const button=event.target.closest('button[data-action]');const tr=event.target.closest('tr[data-id]');if(!tr)return;const id=tr.getAttribute('data-id');
         if(!button)return openDrawer(id);
         const action=button.getAttribute('data-action');
         if(action==='open')return openDrawer(id);
-        if(action==='review'){ await openDrawer(id); return openCandidateReviewForSelected(); }
+        if(action==='review'){ return openCandidateReviewByApplicationId(id); }
       });
       els.viewResumeBtn?.addEventListener('click',()=>openResumeModal(state.selectedResumeUrl,state.selectedResumePath||'Resume Viewer')); els.downloadResumeBtn?.addEventListener('click',()=>downloadResumeFile(state.selectedResumeUrl,state.selectedResumePath,'resume')); els.markNeedsFollowUpBtn?.addEventListener('click',()=>setFollowUpQuick('needs_follow_up')); els.markFollowedUpBtn?.addEventListener('click',()=>setFollowUpQuick('followed_up')); els.parseResumeBtn?.addEventListener('click',parseSelectedResume);
       els.uploadResumeBtn?.addEventListener('click',()=>uploadResumeForSelected(false));
