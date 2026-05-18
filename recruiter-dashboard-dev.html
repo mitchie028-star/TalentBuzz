@@ -932,7 +932,7 @@
   </div>
 
   <script>
-    console.log('TalentBuzz recruiter-dashboard candidate search + follow-up tracking v2026-05-18 loaded');
+    console.log('TalentBuzz recruiter-dashboard follow-up table display fix v2026-05-18 loaded');
 
     const CONFIG = {
       SUPABASE_URL: window.TALENTBUZZ_SUPABASE_URL || localStorage.getItem('TALENTBUZZ_SUPABASE_URL') || '',
@@ -1104,12 +1104,24 @@
       return text;
     }
 
+    function noteSuggestsOpenFollowUp(app){
+      const noteText = [
+        app?.follow_up_note,
+        app?.stage_note_label,
+        app?.recruiter_notes
+      ].map(safeText).join(' ').toLowerCase();
+
+      return /\bfollow[-\s]?up\b|\bcallback\b|\bcall back\b|\bto call\b|\bneed to call\b|\bpending response\b|\bfor follow\b/.test(noteText);
+    }
+
+
     function getFollowUpInfo(app){
       const required = isTruthyDb(app?.follow_up_required);
       const raw = normalizeFollowUpStatus(app?.follow_up_status);
       const dueAt = app?.follow_up_due_at || app?.follow_up_date || null;
       const dueDate = parseFollowUpDate(dueAt);
-      const note = safeText(app?.follow_up_note || '');
+      const note = safeText(app?.follow_up_note || app?.stage_note_label || app?.recruiter_notes || '');
+      const noteFollowUp = noteSuggestsOpenFollowUp(app);
 
       const now = new Date();
       const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -1123,7 +1135,7 @@
         key = 'overdue';
       }else if(raw === 'due_today'){
         key = 'due_today';
-      }else if(raw === 'needs_follow_up' || required || dueDate || note){
+      }else if(raw === 'needs_follow_up' || required || dueDate || noteFollowUp || safeText(app?.follow_up_note)){
         key = 'needs_follow_up';
       }
 
@@ -1145,14 +1157,6 @@
       const app = rowOrApp?.app || rowOrApp || {};
       const info = rowOrApp?.followUp || getFollowUpInfo(app);
       const raw = normalizeFollowUpStatus(app.follow_up_status);
-      const noteText = [
-        app.follow_up_note,
-        app.stage_note_label,
-        app.recruiter_notes
-      ].map(safeText).join(' ').toLowerCase();
-
-      const noteSuggestsFollowUp =
-        /\bfollow[-\s]?up\b|\bcallback\b|\bcall back\b|\bto call\b|\bneed to call\b|\bpending response\b/.test(noteText);
 
       const hasSignal = (
         ['overdue','due_today','needs_follow_up'].includes(info?.key) ||
@@ -1161,7 +1165,7 @@
         !!app.follow_up_due_at ||
         !!app.follow_up_date ||
         !!safeText(app.follow_up_note) ||
-        noteSuggestsFollowUp
+        noteSuggestsOpenFollowUp(app)
       );
 
       const isClosed =
