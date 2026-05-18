@@ -1772,15 +1772,43 @@ async function parseSelectedResume(){
 }
 
 
-    function openCandidateReviewForSelected(){
+    async function openCandidateReviewForSelected(){
       const row=state.allRows.find(item=>item.id===state.selectedId);
-      if(!row)return showNotice('Open a candidate first.', 'error');
-      const conversationId=row.app?.conversation_id || row.app?.talent_conversation_id || row.app?.latest_conversation_id || '';
+
+      if(!row){
+        return showNotice('Open a candidate first.', 'error');
+      }
+
+      let conversationId =
+        row.app?.conversation_id ||
+        row.app?.talent_conversation_id ||
+        row.app?.latest_conversation_id ||
+        '';
+
+      if(!conversationId){
+        try{
+          const { data, error } = await supabaseClient
+            .from('talent_conversations')
+            .select('id')
+            .eq('application_id', row.id)
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+
+          if(error)throw error;
+
+          conversationId = data?.id || '';
+        }catch(error){
+          console.warn('Unable to find talent conversation by application_id:', error);
+        }
+      }
+
       if(conversationId){
         window.location.href=`candidate-review.html?conversation_id=${encodeURIComponent(conversationId)}`;
         return;
       }
-      showNotice('Candidate review is available after the Talent Conversation is completed.', 'info');
+
+      showNotice('No completed Talent Conversation was found for this application yet.', 'info');
     }
 
     function getFollowUpFormValues(modalOpen=false){
@@ -1870,7 +1898,7 @@ async function parseSelectedResume(){
         applyFilters();
         document.getElementById('pipeline')?.scrollIntoView({behavior:'smooth'});
       }));
-      els.clearFiltersBtn.addEventListener('click',clearFilters);els.closeDrawerBtn.addEventListener('click',closeDrawer);els.prevBtn.addEventListener('click',()=>openSelectedOffset(-1));els.nextBtn.addEventListener('click',()=>openSelectedOffset(1));els.openCandidateWorkspaceBtn.addEventListener('click',openCandidateModal); els.openCandidateReviewBtn?.addEventListener('click',openCandidateReviewForSelected);
+      els.clearFiltersBtn.addEventListener('click',clearFilters);els.closeDrawerBtn.addEventListener('click',closeDrawer);els.prevBtn.addEventListener('click',()=>openSelectedOffset(-1));els.nextBtn.addEventListener('click',()=>openSelectedOffset(1));els.openCandidateWorkspaceBtn.addEventListener('click',openCandidateModal); els.openCandidateReviewBtn?.addEventListener('click',()=>openCandidateReviewForSelected());
       els.headerLogoutBtn.addEventListener('click',handleLogout);els.sidebarSourcingBtn?.addEventListener('click',()=>showNotice('Sourcing link will be added after the base dashboard is stable.','info'));
       els.applicationsTable.addEventListener('click',async event=>{
         const button=event.target.closest('button[data-action]');const tr=event.target.closest('tr[data-id]');if(!tr)return;const id=tr.getAttribute('data-id');
