@@ -931,6 +931,8 @@
   </div>
 
   <script>
+    console.log('TalentBuzz recruiter-dashboard candidate review router v2026-05-18-02 loaded');
+
     const CONFIG = {
       SUPABASE_URL: window.TALENTBUZZ_SUPABASE_URL || localStorage.getItem('TALENTBUZZ_SUPABASE_URL') || '',
       SUPABASE_ANON_KEY: window.TALENTBUZZ_SUPABASE_ANON_KEY || localStorage.getItem('TALENTBUZZ_SUPABASE_ANON_KEY') || '',
@@ -1776,11 +1778,22 @@ async function parseSelectedResume(){
       const row = state.allRows.find(item => item.id === state.selectedId);
 
       if (!row) {
-        return showNotice('Open a candidate first.', 'error');
+        showNotice('Open a candidate first.', 'error');
+        return;
       }
 
-      window.location.href =
-        `candidate-review.html?application_id=${encodeURIComponent(row.id)}`;
+      const appId = row.id || row.app?.id || '';
+
+      if (!appId) {
+        showNotice('Unable to open Candidate Review because this row has no application ID.', 'error');
+        return;
+      }
+
+      console.log('Opening Candidate Review by application_id:', appId);
+
+      window.location.assign(
+        `candidate-review.html?application_id=${encodeURIComponent(appId)}&v=${Date.now()}`
+      );
     }
 
     function getFollowUpFormValues(modalOpen=false){
@@ -1859,6 +1872,19 @@ async function parseSelectedResume(){
     function updateLiveStatusLabel(){if(!dashboardLastSyncedAt){els.liveStatusText.textContent='Live';return}const seconds=Math.max(0,Math.floor((Date.now()-dashboardLastSyncedAt.getTime())/1000));els.liveStatusText.textContent=seconds<10?'Live':`Synced ${seconds}s ago`}
     function markDashboardSynced(){dashboardLastSyncedAt=new Date();updateLiveStatusLabel()}
 
+    function openCandidateReviewByApplicationId(applicationId){
+      if (!applicationId) {
+        showNotice('Unable to open Candidate Review because this row has no application ID.', 'error');
+        return;
+      }
+
+      console.log('Direct Candidate Review route:', applicationId);
+
+      window.location.assign(
+        `candidate-review.html?application_id=${encodeURIComponent(applicationId)}&v=${Date.now()}`
+      );
+    }
+
     function bindEvents(){
       [els.searchInput,els.statusFilter,els.recruiterFilter,els.followUpFilter,els.jobFilter,els.clientFilter,els.scoreFilter].forEach(el=>{el?.addEventListener('input',applyFilters);el?.addEventListener('change',applyFilters)});
       document.querySelectorAll('[data-quick-filter]').forEach(btn=>btn.addEventListener('click',()=>{
@@ -1870,14 +1896,14 @@ async function parseSelectedResume(){
         applyFilters();
         document.getElementById('pipeline')?.scrollIntoView({behavior:'smooth'});
       }));
-      els.clearFiltersBtn.addEventListener('click',clearFilters);els.closeDrawerBtn.addEventListener('click',closeDrawer);els.prevBtn.addEventListener('click',()=>openSelectedOffset(-1));els.nextBtn.addEventListener('click',()=>openSelectedOffset(1));els.openCandidateWorkspaceBtn.addEventListener('click',openCandidateModal); els.openCandidateReviewBtn?.addEventListener('click',()=>openCandidateReviewForSelected());
+      els.clearFiltersBtn.addEventListener('click',clearFilters);els.closeDrawerBtn.addEventListener('click',closeDrawer);els.prevBtn.addEventListener('click',()=>openSelectedOffset(-1));els.nextBtn.addEventListener('click',()=>openSelectedOffset(1));els.openCandidateWorkspaceBtn.addEventListener('click',openCandidateModal); els.openCandidateReviewBtn?.addEventListener('click',()=>openCandidateReviewByApplicationId(state.selectedId));
       els.headerLogoutBtn.addEventListener('click',handleLogout);els.sidebarSourcingBtn?.addEventListener('click',()=>showNotice('Sourcing link will be added after the base dashboard is stable.','info'));
       els.applicationsTable.addEventListener('click',async event=>{
         const button=event.target.closest('button[data-action]');const tr=event.target.closest('tr[data-id]');if(!tr)return;const id=tr.getAttribute('data-id');
         if(!button)return openDrawer(id);
         const action=button.getAttribute('data-action');
         if(action==='open')return openDrawer(id);
-        if(action==='review'){ await openDrawer(id); return openCandidateReviewForSelected(); }
+        if(action==='review'){ return openCandidateReviewByApplicationId(id); }
       });
       els.viewResumeBtn?.addEventListener('click',()=>openResumeModal(state.selectedResumeUrl,state.selectedResumePath||'Resume Viewer')); els.downloadResumeBtn?.addEventListener('click',()=>downloadResumeFile(state.selectedResumeUrl,state.selectedResumePath,'resume')); els.markNeedsFollowUpBtn?.addEventListener('click',()=>setFollowUpQuick('needs_follow_up')); els.markFollowedUpBtn?.addEventListener('click',()=>setFollowUpQuick('followed_up')); els.parseResumeBtn?.addEventListener('click',parseSelectedResume);
       els.uploadResumeBtn?.addEventListener('click',()=>uploadResumeForSelected(false));
