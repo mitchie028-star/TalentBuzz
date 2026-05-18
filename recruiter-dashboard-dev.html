@@ -654,20 +654,20 @@
           <div class="panel-head">
             <div>
               <h2>Action Center</h2>
-              <p>Start with the candidates and conversations that need recruiter attention.</p>
+              <p>Prioritize profiles, follow-ups, and high-signal candidates that need recruiter action.</p>
             </div>
           </div>
           <div class="action-list">
             <button class="action-card" type="button" data-quick-filter="needs_review">
-              <span><strong>Candidates needing review</strong><span>New or submitted profiles waiting for action.</span></span>
+              <span><strong>Candidates needing review</strong><span>Submitted profiles ready for screening, review, or next-step decision.</span></span>
               <span class="count-pill" id="actionNeedsReview">0</span>
             </button>
             <button class="action-card" type="button" data-quick-filter="follow_up">
-              <span><strong>Follow-ups due</strong><span>Applicants needing recruiter follow-up today or overdue.</span></span>
+              <span><strong>Follow-ups due</strong><span>Applicants with open follow-up tasks, callbacks, or pending recruiter action.</span></span>
               <span class="count-pill" id="actionFollowUps">0</span>
             </button>
             <button class="action-card" type="button" data-quick-filter="high_match">
-              <span><strong>Strong-match candidates</strong><span>Strong candidate signal and ready for recruiter review.</span></span>
+              <span><strong>Strong-match candidates</strong><span>Candidates with stronger match signals based on profile and resume evidence.</span></span>
               <span class="count-pill" id="actionHighMatch">0</span>
             </button>
           </div>
@@ -677,16 +677,19 @@
           <div class="panel-head">
             <div>
               <h2>Pipeline Snapshot</h2>
-              <p>Clean daily view of recruiter workload.</p>
+              <p>Daily snapshot of pipeline movement and recruiter workload.</p>
             </div>
           </div>
-          <div class="metric-grid" style="grid-template-columns:repeat(2,minmax(0,1fr));">
+          <div class="metric-grid" style="grid-template-columns:repeat(3,minmax(0,1fr));">
             <div class="metric"><span>Active</span><strong id="kpiApplications">0</strong></div>
             <div class="metric"><span>Unassigned</span><strong id="kpiUnassigned">0</strong></div>
+            <div class="metric"><span>Review</span><strong id="kpiReview">0</strong></div>
+            <div class="metric"><span>Follow-up</span><strong id="kpiFollowUp">0</strong></div>
             <div class="metric"><span>Interview</span><strong id="kpiInterview">0</strong></div>
             <div class="metric"><span>Offered</span><strong id="kpiOffered">0</strong></div>
-            <div class="metric"><span>Follow-up</span><strong id="kpiFollowUp">0</strong></div>
-            <div class="metric"><span>Review</span><strong id="kpiReview">0</strong></div>
+            <div class="metric"><span>Hired</span><strong id="kpiHired">0</strong></div>
+            <div class="metric"><span>Onboarded</span><strong id="kpiOnboarded">0</strong></div>
+            <div class="metric"><span>Withdrawn</span><strong id="kpiWithdrawn">0</strong></div>
           </div>
         </aside>
       </section>
@@ -951,7 +954,7 @@
   </div>
 
   <script>
-    console.log('TalentBuzz recruiter-dashboard color + score tier update v2026-05-18 loaded');
+    console.log('TalentBuzz recruiter-dashboard action center snapshot update v2026-05-18 loaded');
 
     const CONFIG = {
       SUPABASE_URL: window.TALENTBUZZ_SUPABASE_URL || localStorage.getItem('TALENTBUZZ_SUPABASE_URL') || '',
@@ -961,7 +964,7 @@
     };
 
     const STATUS_OPTIONS = [
-      'submitted','for interview','shortlisted','endorsed','assessment','offered jo','onboarded','hired','on hold','need more profiles','rejected','failed paper screening','SMS Sent','Not Interested'
+      'submitted','for interview','shortlisted','endorsed','assessment','offered jo','onboarded','hired','withdrawn','on hold','need more profiles','rejected','failed paper screening','SMS Sent','Not Interested'
     ];
 
     const state = {
@@ -981,7 +984,7 @@
       sidebarUserName:$('sidebarUserName'), sidebarUserEmail:$('sidebarUserEmail'),
       searchInput:$('searchInput'), candidateNameFilter:$('candidateNameFilter'), statusFilter:$('statusFilter'), recruiterFilter:$('recruiterFilter'), followUpFilter:$('followUpFilter'), jobFilter:$('jobFilter'), clientFilter:$('clientFilter'), scoreFilter:$('scoreFilter'), clearFiltersBtn:$('clearFiltersBtn'),
       applicationsTable:$('applicationsTable'), tableCount:$('tableCount'), workspace:$('workspace'),
-      kpiApplications:$('kpiApplications'), kpiUnassigned:$('kpiUnassigned'), kpiInterview:$('kpiInterview'), kpiOffered:$('kpiOffered'), kpiFollowUp:$('kpiFollowUp'), kpiReview:$('kpiReview'),
+      kpiApplications:$('kpiApplications'), kpiUnassigned:$('kpiUnassigned'), kpiInterview:$('kpiInterview'), kpiOffered:$('kpiOffered'), kpiFollowUp:$('kpiFollowUp'), kpiReview:$('kpiReview'), kpiHired:$('kpiHired'), kpiOnboarded:$('kpiOnboarded'), kpiWithdrawn:$('kpiWithdrawn'),
       actionNeedsReview:$('actionNeedsReview'), actionFollowUps:$('actionFollowUps'), actionHighMatch:$('actionHighMatch'),
       drawerName:$('drawerName'), drawerMeta:$('drawerMeta'), drawerIndexMeta:$('drawerIndexMeta'), closeDrawerBtn:$('closeDrawerBtn'), prevBtn:$('prevBtn'), nextBtn:$('nextBtn'),
       overallScore:$('overallScore'), scoringMode:$('scoringMode'), profileScore:$('profileScore'), resumeScore:$('resumeScore'), overallReason:$('overallReason'),
@@ -1030,7 +1033,7 @@
     function getStatusTone(status){
       const value=normalizeStatus(status);
       if(['hired','onboarded','completed'].includes(value))return 'good';
-      if(['rejected','failed paper screening','withdrawn','no-show onboarding'].includes(value))return 'bad';
+      if(['rejected','failed paper screening','withdrawn','candidate withdrawn','not interested','no-show onboarding'].includes(value))return 'bad';
       if(['endorsed','for interview','shortlisted','assessment','offered jo','on hold','need more profiles'].includes(value))return 'warn';
       return 'info';
     }
@@ -1519,9 +1522,15 @@
       els.kpiInterview.textContent=count(r=>['for interview','shortlisted','assessment'].includes(normalizeStatus(r.status)));
       els.kpiOffered.textContent=count(r=>normalizeStatus(r.status)==='offered jo');
 
+      const hiredCount=count(r=>['hired'].includes(normalizeStatus(r.status)));
+      const onboardedCount=count(r=>['onboarded'].includes(normalizeStatus(r.status)));
+      const withdrawnCount=count(r=>['withdrawn','not interested','candidate withdrawn'].includes(normalizeStatus(r.status)));
       const followUpCount=count(r=>hasOpenFollowUp(r));
       const reviewCount=count(r=>['submitted',''].includes(normalizeStatus(r.status)));
 
+      if(els.kpiHired)els.kpiHired.textContent=hiredCount;
+      if(els.kpiOnboarded)els.kpiOnboarded.textContent=onboardedCount;
+      if(els.kpiWithdrawn)els.kpiWithdrawn.textContent=withdrawnCount;
       if(els.kpiFollowUp)els.kpiFollowUp.textContent=followUpCount;
       if(els.kpiReview)els.kpiReview.textContent=reviewCount;
 
