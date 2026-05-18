@@ -671,6 +671,12 @@
     const conversationId =
       params.get("conversation_id") || params.get("id");
 
+    const applicationId =
+      params.get("application_id") || params.get("app_id");
+
+    const applicationId =
+      params.get("application_id") || params.get("app_id");
+
     const els = {
       loadingState: document.getElementById("loadingState"),
       errorState: document.getElementById("errorState"),
@@ -784,20 +790,35 @@
     }
 
     async function loadConversation(){
-      if (!conversationId) {
-        throw new Error("Missing conversation_id in the page URL.");
+      if (conversationId) {
+        const { data, error } = await supabaseClient
+          .from("talent_conversations")
+          .select("*")
+          .eq("id", conversationId)
+          .maybeSingle();
+
+        if(error) throw error;
+        if(!data) throw new Error("Candidate review not found.");
+
+        return data;
       }
 
-      const { data, error } = await supabaseClient
-        .from("talent_conversations")
-        .select("*")
-        .eq("id", conversationId)
-        .maybeSingle();
+      if (applicationId) {
+        const { data, error } = await supabaseClient
+          .from("talent_conversations")
+          .select("*")
+          .eq("application_id", applicationId)
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
 
-      if(error) throw error;
-      if(!data) throw new Error("Candidate review not found.");
+        if(error) throw error;
+        if(!data) throw new Error("No Talent Conversation was found for this application.");
 
-      return data;
+        return data;
+      }
+
+      throw new Error("Missing conversation_id or application_id in the page URL.");
     }
 
     async function init(){
