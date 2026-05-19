@@ -785,6 +785,12 @@
       box-shadow:none!important;
     }
 
+
+    /* Status safety: show actual saved statuses, no display-stage remapping */
+    .field label[for="statusFilter"]::after{
+      content:"";
+    }
+
   </style>
 </head>
 <body class="auth-pending">
@@ -924,7 +930,7 @@
 
           <div class="filters">
             <div class="field"><label for="candidateNameFilter">Candidate Name</label><input id="candidateNameFilter" type="search" placeholder="Search candidate name" /></div>
-            <div class="field"><label for="statusFilter">Status</label><select id="statusFilter"><option value="">All statuses</option></select></div>
+            <div class="field"><label for="statusFilter">Actual Status</label><select id="statusFilter"><option value="">All statuses</option></select></div>
             <div class="field"><label for="recruiterFilter">Recruiter</label><select id="recruiterFilter"><option value="">All recruiters</option></select></div>
             <div class="field"><label for="followUpFilter">Follow-up</label><select id="followUpFilter"><option value="">All follow-ups</option><option value="all_open">All Open Follow-ups</option><option value="needs_follow_up">Needs Follow-up</option><option value="due_today">Due Today</option><option value="overdue">Overdue</option><option value="followed_up">Followed Up</option><option value="none">No Follow-up</option></select></div>
             <div class="field"><label for="jobFilter">Job</label><select id="jobFilter"><option value="">All jobs</option></select></div>
@@ -1176,7 +1182,7 @@
   </div>
 
   <script>
-    console.log('TalentBuzz recruiter-dashboard smart-display-statuses v2026-05-19 loaded');
+    console.log('TalentBuzz recruiter-dashboard-raw-status-safe v2026-05-19 loaded');
 
     const CONFIG = {
       SUPABASE_URL: window.TALENTBUZZ_SUPABASE_URL || localStorage.getItem('TALENTBUZZ_SUPABASE_URL') || '',
@@ -1186,63 +1192,8 @@
     };
 
     const STATUS_OPTIONS = [
-      'submitted',
-      'screening',
-      'endorsed',
-      'shortlisted',
-      'for interview',
-      'assessment',
-      'offered jo',
-      'hired',
-      'onboarded',
-      'on hold',
-      'withdrawn',
-      'rejected'
+      'submitted','for interview','shortlisted','endorsed','assessment','offered jo','onboarded','hired','withdrawn','on hold','need more profiles','rejected','failed paper screening','SMS Sent','Not Interested'
     ];
-
-    const STATUS_LABELS = {
-      submitted: 'New',
-      screening: 'Screening',
-      endorsed: 'Endorsed',
-      shortlisted: 'Shortlisted',
-      'for interview': 'Interview',
-      assessment: 'Assessment',
-      'offered jo': 'Offer',
-      hired: 'Hired',
-      onboarded: 'Onboarded',
-      'on hold': 'On Hold',
-      withdrawn: 'Withdrawn',
-      rejected: 'Rejected'
-    };
-
-    const STATUS_GROUP_MAP = {
-      'submitted': 'submitted',
-      'new': 'submitted',
-      'screening': 'screening',
-      'initial': 'screening',
-      'sms sent': 'screening',
-      'endorsed': 'endorsed',
-      'shortlisted': 'shortlisted',
-      'for interview': 'for interview',
-      'interview': 'for interview',
-      'final': 'for interview',
-      'assessment': 'assessment',
-      'offered jo': 'offered jo',
-      'offered': 'offered jo',
-      'job offer': 'offered jo',
-      'hired': 'hired',
-      'completed': 'hired',
-      'onboarded': 'onboarded',
-      'on hold': 'on hold',
-      'need more profiles': 'on hold',
-      'withdrawn': 'withdrawn',
-      'candidate withdrawn': 'withdrawn',
-      'not interested': 'withdrawn',
-      'rejected': 'rejected',
-      'failed paper screening': 'rejected',
-      'declined': 'rejected',
-      'no-show onboarding': 'rejected'
-    };
 
     const state = {
       allRows: [],
@@ -1349,10 +1300,10 @@
       }
 
       items.push({
-        title:`Status: ${escapeHtml(formatStatusLabel(getDisplayStatus(row)))}`,
+        title:`Status: ${escapeHtml(formatStatusLabel(row.status || 'submitted'))}`,
         time:row.app?.last_status_change_at || row.app?.updated_at || row.appliedAt,
-        text:`Current application stage is ${escapeHtml(formatStatusLabel(getDisplayStatus(row)))}.`,
-        tone:getStatusTone(getDisplayStatus(row))==='good'?'good':getStatusTone(getDisplayStatus(row))==='warn'?'warn':''
+        text:`Current application stage is ${escapeHtml(formatStatusLabel(row.status || 'submitted'))}.`,
+        tone:getStatusTone(row.status)==='good'?'good':getStatusTone(row.status)==='warn'?'warn':''
       });
 
       els.candidateTimeline.innerHTML=items.slice(0,6).map(item=>`
@@ -1382,40 +1333,16 @@
     }
     function uniq(values){return [...new Set(values.filter(Boolean))]}
     function normalizeStatus(value){return safeText(value).toLowerCase()}
-    function canonicalStatus(value){
-      const normalized = normalizeStatus(value);
-      if(!normalized)return 'submitted';
-      return STATUS_GROUP_MAP[normalized] || normalized;
-    }
-
-    function getDisplayStatus(row){
-      const raw = row?.status || row?.app?.client_feedback_status || row?.app?.status || 'submitted';
-      const base = canonicalStatus(raw);
-
-      if(['rejected','withdrawn','hired','onboarded','offered jo','for interview','assessment','endorsed','shortlisted','on hold'].includes(base)){
-        return base;
-      }
-
-      const hasRecruiterNote = !!safeText(row?.app?.recruiter_notes || row?.app?.stage_note_label);
-      const hasFollowUp = hasOpenFollowUp(row);
-      const hasResume = hasResumeEvidence(row?.profile);
-
-      if(base === 'submitted' && (hasRecruiterNote || hasFollowUp || hasResume)){
-        return 'screening';
-      }
-
-      return base;
-    }
     function formatStatusLabel(status){
-      const value = canonicalStatus(status);
+      const value=normalizeStatus(status);
       if(!value)return '—';
-      return STATUS_LABELS[value] || value.split(' ').map(w=>w?`${w[0].toUpperCase()}${w.slice(1)}`:'').join(' ');
+      return value.split(' ').map(w=>w?`${w[0].toUpperCase()}${w.slice(1)}`:'').join(' ');
     }
     function getStatusTone(status){
-      const value = canonicalStatus(status);
-      if(['hired','onboarded'].includes(value))return 'good';
-      if(['rejected','withdrawn'].includes(value))return 'bad';
-      if(['screening','shortlisted','endorsed','for interview','assessment','offered jo','on hold'].includes(value))return 'warn';
+      const value=normalizeStatus(status);
+      if(['hired','onboarded','completed'].includes(value))return 'good';
+      if(['rejected','failed paper screening','withdrawn','candidate withdrawn','not interested','no-show onboarding'].includes(value))return 'bad';
+      if(['endorsed','for interview','shortlisted','assessment','offered jo','on hold','need more profiles'].includes(value))return 'warn';
       return 'info';
     }
     function scoreTier(score){
@@ -1845,17 +1772,10 @@
       select.innerHTML=`<option value="">${placeholder}</option>`+uniq(values.map(safeText).filter(Boolean)).sort((a,b)=>a.localeCompare(b)).map(v=>`<option value="${escapeHtml(v)}">${escapeHtml(v)}</option>`).join('');
       if([...select.options].some(o=>o.value===current))select.value=current;
     }
-
-    function populateStatusSelect(select,placeholder){
-      if(!select)return;
-      const current=canonicalStatus(select.value);
-      select.innerHTML=`<option value="">${placeholder}</option>`+STATUS_OPTIONS.map(v=>`<option value="${escapeHtml(v)}">${escapeHtml(formatStatusLabel(v))}</option>`).join('');
-      if([...select.options].some(o=>o.value===current))select.value=current;
-    }
     function populateFilters(){
-      populateStatusSelect(els.statusFilter,'All statuses');
-      populateStatusSelect(els.editStatus,'Select status');
-      populateStatusSelect(els.modalEditStatus,'Select status');
+      populateSelect(els.statusFilter,[...STATUS_OPTIONS,...state.allRows.map(r=>r.status)],'All statuses');
+      populateSelect(els.editStatus,[...STATUS_OPTIONS,...state.allRows.map(r=>r.status)],'Select actual status');
+      populateSelect(els.modalEditStatus,[...STATUS_OPTIONS,...state.allRows.map(r=>r.status)],'Select actual status');
       populateSelect(els.recruiterFilter,state.allRows.map(r=>r.recruiter).filter(x=>x!=='Unassigned'),'All recruiters');
       populateSelect(els.jobFilter,state.allRows.map(r=>r.jobTitle).filter(x=>x!=='—'),'All jobs');
       populateSelect(els.clientFilter,state.allRows.map(r=>r.clientName).filter(x=>x!=='—'),'All clients');
@@ -1891,7 +1811,7 @@
 
         if(candidateQuery&&!candidateHay.includes(candidateQuery))return false;
         if(query&&!hay.includes(query))return false;
-        if(status&&getDisplayStatus(row)!==status)return false;
+        if(status&&normalizeStatus(row.status)!==status)return false;
         if(recruiter&&row.recruiter.toLowerCase()!==recruiter)return false;
         if(followUp){ if(followUp==='all_open'){ if(!hasOpenFollowUp(row))return false; } else if(row.followUp?.key!==followUp)return false; }
         if(job&&row.jobTitle.toLowerCase()!==job)return false;
@@ -1907,14 +1827,14 @@
       const count=fn=>rows.filter(fn).length;
       els.kpiApplications.textContent=rows.length;
       els.kpiUnassigned.textContent=count(r=>r.recruiter==='Unassigned');
-      els.kpiInterview.textContent=count(r=>['for interview','shortlisted','assessment'].includes(getDisplayStatus(r)));
-      els.kpiOffered.textContent=count(r=>getDisplayStatus(r)==='offered jo');
+      els.kpiInterview.textContent=count(r=>['for interview','shortlisted','assessment'].includes(normalizeStatus(r.status)));
+      els.kpiOffered.textContent=count(r=>normalizeStatus(r.status)==='offered jo');
 
-      const hiredCount=count(r=>['hired'].includes(getDisplayStatus(r)));
-      const onboardedCount=count(r=>['onboarded'].includes(getDisplayStatus(r)));
-      const withdrawnCount=count(r=>['withdrawn'].includes(getDisplayStatus(r)));
+      const hiredCount=count(r=>['hired'].includes(normalizeStatus(r.status)));
+      const onboardedCount=count(r=>['onboarded'].includes(normalizeStatus(r.status)));
+      const withdrawnCount=count(r=>['withdrawn','not interested','candidate withdrawn'].includes(normalizeStatus(r.status)));
       const followUpCount=count(r=>hasOpenFollowUp(r));
-      const reviewCount=count(r=>['submitted'].includes(getDisplayStatus(r)));
+      const reviewCount=count(r=>['submitted',''].includes(normalizeStatus(r.status)));
 
       if(els.kpiHired)els.kpiHired.textContent=hiredCount;
       if(els.kpiOnboarded)els.kpiOnboarded.textContent=onboardedCount;
@@ -1932,11 +1852,11 @@
       els.tableCount.textContent=`${state.filteredRows.length} candidate${state.filteredRows.length===1?'':'s'}`;
       if(!state.filteredRows.length){els.applicationsTable.innerHTML='<tr><td colspan="7" class="small">No candidates match the current filters.</td></tr>';return;}
       els.applicationsTable.innerHTML=state.filteredRows.map(row=>{
-        const displayStatus=getDisplayStatus(row);const tone=getStatusTone(displayStatus);const scoreTone=scoreTier(row.score.overall)==='strong'?'good':scoreTier(row.score.overall)==='moderate'?'warn':'bad';
+        const tone=getStatusTone(row.status);const scoreTone=scoreTier(row.score.overall)==='strong'?'good':scoreTier(row.score.overall)==='moderate'?'warn':'bad';
         return `<tr data-id="${escapeHtml(row.id)}" class="${row.id===state.selectedId?'active':''}">
           <td><div class="candidate-name">${escapeHtml(row.displayName)}</div><div class="small">${escapeHtml(row.profile?.email||row.app?.email||'—')}</div><div class="small">${escapeHtml(getLocation(row.profile)||'—')}</div></td>
           <td><div>${escapeHtml(row.jobTitle)}</div><div class="small">${escapeHtml(row.job?.work_setup||'')}</div></td>
-          <td><span class="pill ${tone}">${escapeHtml(formatStatusLabel(displayStatus))}</span></td>
+          <td><span class="pill ${tone}">${escapeHtml(formatStatusLabel(row.status||'submitted'))}</span></td>
           <td><span class="pill ${getFollowUpTone(row.followUp?.key)}">${escapeHtml(row.followUp?.label||'No Follow-up')}</span>${row.followUp?.dueAt?`<div class="small">${escapeHtml(formatDateTime(row.followUp.dueAt))}</div>`:''}</td>
           <td><span class="pill ${hasResumeEvidence(row.profile)?'resume':'missing'}">${hasResumeEvidence(row.profile)?'Resume':'Missing'}</span></td>
           <td><span class="pill ${scoreTone}">${row.score.overall}%</span></td>
@@ -1954,7 +1874,7 @@
       els.drawerName.textContent=row.displayName;els.drawerMeta.textContent=`${row.jobTitle} • ${row.clientName} • ${row.recruiter}`;
       els.overallScore.textContent=`${row.score.overall}%`;els.scoringMode.textContent=row.score.mode;els.profileScore.textContent=`${row.score.profilePart.score}%`;els.resumeScore.textContent=`${row.score.resumePart.score}%`;els.overallReason.textContent=row.score.reasons.join(' • ')||'Limited evidence';
       els.snapEmail.textContent=row.profile?.email||row.app?.email||'—';els.snapPhone.textContent=row.profile?.phone||'—';els.snapLocation.textContent=getLocation(row.profile)||'—';els.snapExperience.textContent=formatExperience(row.profile);els.snapJob.textContent=row.jobTitle;
-      els.editStatus.value=canonicalStatus(row.status||row.app?.status||'submitted');
+      els.editStatus.value=row.status||row.app?.status||'submitted';
       els.editNotes.value=row.app?.recruiter_notes||row.app?.stage_note_label||'';
       if(els.editFollowUpStatus)els.editFollowUpStatus.value=row.followUp?.key==='overdue'||row.followUp?.key==='due_today'?'needs_follow_up':(row.followUp?.key||'none');
       if(els.editFollowUpDate)els.editFollowUpDate.value=toDateInputValue(row.followUp?.dueAt);
@@ -2037,7 +1957,7 @@
       els.modalSnapExperience.textContent = formatExperience(row.profile);
       els.modalSnapJob.textContent = row.jobTitle;
 
-      els.modalEditStatus.value = canonicalStatus(row.status || row.app?.status || 'submitted');
+      els.modalEditStatus.value = row.status || row.app?.status || 'submitted';
       if(els.modalEditFollowUpStatus)els.modalEditFollowUpStatus.value = row.followUp?.key==='overdue'||row.followUp?.key==='due_today'?'needs_follow_up':(row.followUp?.key || 'none');
       if(els.modalEditFollowUpDate)els.modalEditFollowUpDate.value = toDateInputValue(row.followUp?.dueAt);
       if(els.modalEditFollowUpNote)els.modalEditFollowUpNote.value = row.followUp?.note || '';
