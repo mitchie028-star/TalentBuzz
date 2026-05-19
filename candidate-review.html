@@ -634,6 +634,15 @@
 
         <section class="card">
           <div class="card-head">
+            <strong>Assessment Evidence</strong>
+          </div>
+          <div class="card-body">
+            <div id="assessmentEvidenceList" class="evidence-list"></div>
+          </div>
+        </section>
+
+        <section class="card">
+          <div class="card-head">
             <strong>Conversation Evidence</strong>
           </div>
           <div class="card-body">
@@ -754,6 +763,7 @@
       recommendationReason: document.getElementById("recommendationReason"),
       strengthsList: document.getElementById("strengthsList"),
       concernsList: document.getElementById("concernsList"),
+      assessmentEvidenceList: document.getElementById("assessmentEvidenceList"),
       evidenceList: document.getElementById("evidenceList"),
       communicationReadiness: document.getElementById("communicationReadiness"),
       alignmentReadiness: document.getElementById("alignmentReadiness"),
@@ -1158,6 +1168,128 @@
       throw new Error("No completed candidate conversation report was found for this URL.");
     }
 
+    async function loadAssessmentEvidence(conversation, fallback) {
+      const appId =
+        conversation?.application_id ||
+        fallback?.app?.id ||
+        applicationId ||
+        null;
+
+      if (!appId) return [];
+
+      const { data: assessments, error: assessmentError } = await supabaseClient
+        .from("role_assessments")
+        .select("*")
+        .eq("application_id", appId)
+        .order("created_at", { ascending: false });
+
+      if (assessmentError) {
+        console.warn("Assessment lookup failed:", assessmentError);
+        return [];
+      }
+
+      const assessment = (assessments || [])[0];
+      if (!assessment?.id) return [];
+
+      const { data: questions, error: questionsError } = await supabaseClient
+        .from("role_assessment_questions")
+        .select("*")
+        .eq("assessment_id", assessment.id)
+        .order("question_order", { ascending: true });
+
+      if (questionsError) {
+        console.warn("Assessment questions lookup failed:", questionsError);
+        return [];
+      }
+
+      const { data: responses, error: responsesError } = await supabaseClient
+        .from("role_assessment_responses")
+        .select("*")
+        .eq("assessment_id", assessment.id)
+        .order("created_at", { ascending: true });
+
+      if (responsesError) {
+        console.warn("Assessment responses lookup failed:", responsesError);
+        return [];
+      }
+
+      const responseByQuestionId = {};
+      (responses || []).forEach(row => {
+        if (row.question_id) responseByQuestionId[row.question_id] = row;
+      });
+
+      return (questions || []).map((question, index) => ({
+        assessment,
+        question,
+        response:
+          responseByQuestionId[question.id] ||
+          (responses || [])[index] ||
+          null,
+      }));
+    }
+
+    function renderAssessmentEvidence(items) {
+      if (!els.assessmentEvidenceList) return;
+
+      if (!items.length) {
+        els.assessmentEvidenceList.innerHTML =
+          `<div class="empty-list">No role-specific assessment evidence has been loaded yet.</div>`;
+        return;
+      }
+
+      els.assessmentEvidenceList.innerHTML = items.map((item, index) => {
+        const question = item.question || {};
+        const response = item.response || {};
+
+        const questionText =
+          question.question_text ||
+          question.prompt ||
+          `Assessment question ${index + 1}`;
+
+        const answer =
+          response.text_response ||
+          response.answer_text ||
+          response.response_text ||
+          response.answer ||
+          response.content ||
+          "No written response found.";
+
+        const feedback =
+          response.ai_feedback ||
+          response.feedback ||
+          response.evaluation_summary ||
+          "";
+
+        const scoreValue =
+          response.score ||
+          response.overall_score ||
+          response.evaluation_score ||
+          null;
+
+        const type =
+          question.question_type ||
+          question.expected_response_type ||
+          "assessment";
+
+        return `
+          <article class="evidence-item">
+            <strong>${escapeHtml(questionText)}</strong>
+            <p>${escapeHtml(answer)}</p>
+
+            <p><br><strong>Type:</strong> ${escapeHtml(String(type).replaceAll("_", " "))}</p>
+
+            ${scoreValue !== null && scoreValue !== undefined && scoreValue !== "" ? `
+              <p><br><strong>Score:</strong> ${escapeHtml(scoreValue)}/100</p>
+            ` : ""}
+
+            ${feedback ? `
+              <p><br><strong>Assessment insight:</strong> ${escapeHtml(feedback)}</p>
+            ` : ""}
+          </article>
+        `;
+      }).join("");
+    }
+
     function renderEvidence(responses) {
       if (!els.evidenceList) return;
       if (!responses.length) {
@@ -1196,7 +1328,7 @@ English: ${transcriptEnglish}`
       }).join("");
     }
 
-    function renderConversation(conversation, responses) {
+    function renderConversation(conversation, responses, assessmentEvidence = []) {
       const overall = score(conversation.overall_score);
       const communication = score(conversation.communication_score);
       const alignment = score(conversation.role_alignment_score);
@@ -1312,6 +1444,7 @@ English: ${transcriptEnglish}`
         "No language observations available yet."
       );
 
+      renderAssessmentEvidence(assessmentEvidence);
       renderEvidence(responses);
 
       showReview();
@@ -1323,11 +1456,17 @@ English: ${transcriptEnglish}`
 
         const loaded = await loadConversation();
         const conversation = loaded.conversation;
+
         const responses = conversation?._isFallback
           ? []
           : await loadConversationResponses(conversation);
 
-        renderConversation(conversation, responses);
+        const assessmentEvidence = await loadAssessmentEvidence(
+          conversation,
+          loaded.fallback
+        );
+
+        renderConversation(conversation, responses, assessmentEvidence);
       } catch (error) {
         console.error(error);
         showError(error.message || "Unable to load candidate review.");
