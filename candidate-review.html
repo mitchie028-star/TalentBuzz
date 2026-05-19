@@ -2,9 +2,9 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Candidate Review | TalentBuzz</title>
+  <title>Sift Candidate Review | TalentBuzz</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="description" content="Structured candidate evaluation summary for TalentBuzz recruiters." />
+  <meta name="description" content="Proof-based candidate intelligence report for TalentBuzz recruiters." />
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
@@ -487,6 +487,39 @@
       background: var(--red-soft);
     }
 
+
+    .evidence-list {
+      display: grid;
+      gap: 12px;
+    }
+
+    .evidence-item {
+      border: 1px solid var(--line);
+      background: rgba(255,255,255,.78);
+      border-radius: 18px;
+      padding: 14px;
+    }
+
+    .evidence-item strong {
+      color: var(--ink-strong);
+      display: block;
+      margin-bottom: 7px;
+      line-height: 1.45;
+    }
+
+    .evidence-item p {
+      margin: 0;
+      color: var(--muted);
+      line-height: 1.6;
+      font-size: .85rem;
+      white-space: pre-line;
+    }
+
+    audio {
+      width: 100%;
+      margin-top: 10px;
+    }
+
     @media (max-width: 980px) {
       .hero,
       .layout {
@@ -555,11 +588,11 @@
       </div>
 
       <aside class="fit-card">
-        <span class="fit-label">Hiring Recommendation</span>
+        <span class="fit-label">Overall Fit</span>
         <strong id="overallFitLabel">Review Needed</strong>
 
         <div class="score-box">
-          <span class="fit-label">Candidate Score</span>
+          <span class="fit-label">Evidence Score</span>
           <div id="overallScoreValue" class="score-value">—</div>
         </div>
 
@@ -596,6 +629,15 @@
           </div>
           <div class="card-body">
             <ul id="concernsList"></ul>
+          </div>
+        </section>
+
+        <section class="card">
+          <div class="card-head">
+            <strong>Conversation Evidence</strong>
+          </div>
+          <div class="card-body">
+            <div id="evidenceList" class="evidence-list"></div>
           </div>
         </section>
       </div>
@@ -648,6 +690,29 @@
           </div>
         </section>
 
+        <section class="card">
+          <div class="card-head">
+            <strong>Language Readiness</strong>
+          </div>
+          <div class="card-body">
+            <div class="metric">
+              <div class="metric-top">
+                <span class="metric-label">Detected Language</span>
+                <strong class="metric-value" id="detectedLanguage">—</strong>
+              </div>
+            </div>
+
+            <div class="metric">
+              <div class="metric-top">
+                <span class="metric-label">Proficiency</span>
+                <strong class="metric-value" id="languageProficiency">—</strong>
+              </div>
+            </div>
+
+            <ul id="languageObservationsList"></ul>
+          </div>
+        </section>
+
         <section class="action-panel">
           <h3>Recruiter actions</h3>
           <p>Use this review to decide whether to shortlist, request follow-up, or move the candidate forward.</p>
@@ -658,7 +723,7 @@
   </main>
 
   <script>
-    console.log('TalentBuzz candidate-review application_id router v2026-05-18-02 loaded');
+    console.log("TalentBuzz candidate-review robust conversation router v2026-05-18-03 loaded");
 
     const SUPABASE_URL = "https://dilalntcxmvdcmwxjcct.supabase.co";
     const SUPABASE_ANON_KEY = "sb_publishable_HrLVIUwnaRo54yijtrbWBQ_1aeb4ezs";
@@ -670,11 +735,11 @@
 
     const params = new URLSearchParams(window.location.search);
 
-    const conversationId =
-      params.get("conversation_id") || params.get("id");
-    const applicationId =
-      params.get("application_id") || params.get("app_id");
-const els = {
+    const conversationId = params.get("conversation_id") || params.get("id");
+    const applicationId = params.get("application_id") || params.get("app_id");
+    const candidateEmailParam = params.get("email") || params.get("candidate_email");
+
+    const els = {
       loadingState: document.getElementById("loadingState"),
       errorState: document.getElementById("errorState"),
       reviewContent: document.getElementById("reviewContent"),
@@ -689,6 +754,7 @@ const els = {
       recommendationReason: document.getElementById("recommendationReason"),
       strengthsList: document.getElementById("strengthsList"),
       concernsList: document.getElementById("concernsList"),
+      evidenceList: document.getElementById("evidenceList"),
       communicationReadiness: document.getElementById("communicationReadiness"),
       alignmentReadiness: document.getElementById("alignmentReadiness"),
       evidenceDepth: document.getElementById("evidenceDepth"),
@@ -697,6 +763,9 @@ const els = {
       alignmentBar: document.getElementById("alignmentBar"),
       evidenceBar: document.getElementById("evidenceBar"),
       riskBar: document.getElementById("riskBar"),
+      detectedLanguage: document.getElementById("detectedLanguage"),
+      languageProficiency: document.getElementById("languageProficiency"),
+      languageObservationsList: document.getElementById("languageObservationsList")
     };
 
     function escapeHtml(value) {
@@ -708,35 +777,61 @@ const els = {
         .replaceAll("'", "&#039;");
     }
 
-    function score(value){
+    function score(value) {
       return Math.max(0, Math.min(100, Math.round(Number(value || 0))));
     }
 
-    function badgeClass(value){
-      const text = String(value || "").toLowerCase();
+    function text(value, fallback = "") {
+      const valueText = String(value ?? "").trim();
+      return valueText || fallback;
+    }
+
+    function normalizeArray(value) {
+      if (Array.isArray(value)) return value.map(item => text(item)).filter(Boolean);
+      if (!value) return [];
+      return String(value)
+        .split(/
+|,|;/)
+        .map(item => item.trim())
+        .filter(Boolean);
+    }
+
+    function badgeClass(value) {
+      const valueText = String(value || "").toLowerCase();
 
       if (
-        text.includes("risk") ||
-        text.includes("needs") ||
-        text.includes("limited")
+        valueText.includes("risk") ||
+        valueText.includes("needs") ||
+        valueText.includes("limited") ||
+        valueText.includes("manual")
       ) return "red";
 
       if (
-        text.includes("moderate") ||
-        text.includes("review")
+        valueText.includes("moderate") ||
+        valueText.includes("review") ||
+        valueText.includes("pending")
       ) return "amber";
 
       return "green";
     }
 
-    function labelFromScore(value){
-      const s = score(value);
+    function labelFromScore(value) {
+      const valueScore = score(value);
 
-      if (s >= 85) return "Strong";
-      if (s >= 70) return "Good";
-      if (s >= 55) return "Moderate";
+      if (valueScore >= 85) return "Strong";
+      if (valueScore >= 70) return "Good";
+      if (valueScore >= 55) return "Moderate";
+      if (valueScore > 0) return "Limited";
 
-      return "Limited";
+      return "Review Needed";
+    }
+
+    function fitLabel(conversation) {
+      return (
+        conversation.recruiter_recommendation ||
+        conversation.hiring_signal ||
+        "Review Needed"
+      );
     }
 
     function riskLabelToPercent(level) {
@@ -749,10 +844,9 @@ const els = {
       return 40;
     }
 
-    function renderList(el, items, fallback){
-      const clean = (items || [])
-        .map(item => String(item || "").trim())
-        .filter(Boolean);
+    function renderList(el, items, fallback) {
+      if (!el) return;
+      const clean = normalizeArray(items);
 
       if (!clean.length) {
         el.innerHTML = `<div class="empty-list">${escapeHtml(fallback)}</div>`;
@@ -786,13 +880,13 @@ const els = {
       els.reviewLayout.style.display = "grid";
     }
 
-    async function loadApplicationFallback(){
-      if (!applicationId) return null;
+    async function loadApplicationFallback(appId = applicationId) {
+      if (!appId) return null;
 
       const appResult = await supabaseClient
         .from("applications")
         .select("*")
-        .eq("id", applicationId)
+        .eq("id", appId)
         .maybeSingle();
 
       if (appResult.error) throw appResult.error;
@@ -829,7 +923,7 @@ const els = {
       return { app, profile };
     }
 
-    function buildPendingConversationReview(fallback){
+    function buildPendingConversationReview(fallback) {
       const app = fallback?.app || {};
       const profile = fallback?.profile || {};
 
@@ -853,10 +947,10 @@ const els = {
         candidate_email: app.email || profile.email || "",
         recruiter_recommendation: "Review Pending",
         recommendation_reason:
-          "No completed Talent Conversation review record is linked to this application yet. The application and profile were loaded successfully, but the conversation summary still needs to be saved or linked.",
+          "No completed Sift Conversation report is linked to this application yet.",
         overall_score: profile.ai_score || 0,
         summary:
-          `Application profile loaded for ${role}. Talent Conversation details are not linked to this application yet.`,
+          `Application profile loaded for ${role}. Sift Conversation details are not linked to this application yet.`,
         hiring_signal: "Review Pending",
         risk_level: "Moderate",
         strengths: [
@@ -866,171 +960,375 @@ const els = {
           "Profile information is available for recruiter review."
         ].filter(Boolean),
         concerns: [
-          "Talent Conversation summary was not found for this application.",
-          "Confirm that talent_conversations.application_id, candidate_email, or email is being saved when the conversation is completed."
+          "Sift Conversation summary was not found for this application.",
+          "Open this page with conversation_id if the conversation was completed but the application link is stale."
         ],
         communication_score: 0,
         role_alignment_score: profile.ai_score || 0,
         authenticity_score: 0,
         confidence_score: 0,
+        detected_language: "",
+        language_proficiency: "",
+        language_observations: [],
         _isFallback: true
       };
     }
 
-    async function loadConversation(){
-      console.log("Candidate Review params:", { conversationId, applicationId });
+    async function querySingleConversation(queryBuilder) {
+      const { data, error } = await queryBuilder
+        .order("updated_at", { ascending: false, nullsFirst: false })
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
 
-      if (conversationId) {
-        const { data, error } = await supabaseClient
+      if (error) {
+        console.warn("Conversation lookup failed:", error);
+        return null;
+      }
+
+      return data || null;
+    }
+
+    async function loadConversationById(id) {
+      if (!id) return null;
+
+      const { data, error } = await supabaseClient
+        .from("talent_conversations")
+        .select("*")
+        .eq("id", id)
+        .maybeSingle();
+
+      if (error) throw error;
+      return data || null;
+    }
+
+    async function loadConversationByApplication(appId) {
+      if (!appId) return null;
+
+      const completed = await querySingleConversation(
+        supabaseClient
           .from("talent_conversations")
           .select("*")
-          .eq("id", conversationId)
-          .maybeSingle();
+          .eq("application_id", appId)
+          .eq("status", "completed")
+      );
 
-        if (error) throw error;
-        if (data) return data;
+      if (completed) return completed;
+
+      return await querySingleConversation(
+        supabaseClient
+          .from("talent_conversations")
+          .select("*")
+          .eq("application_id", appId)
+      );
+    }
+
+    async function loadConversationByEmail(email) {
+      if (!email) return null;
+
+      const byCandidateEmail = await querySingleConversation(
+        supabaseClient
+          .from("talent_conversations")
+          .select("*")
+          .eq("candidate_email", email)
+          .eq("status", "completed")
+      );
+
+      if (byCandidateEmail) return byCandidateEmail;
+
+      const byEmail = await querySingleConversation(
+        supabaseClient
+          .from("talent_conversations")
+          .select("*")
+          .eq("email", email)
+          .eq("status", "completed")
+      );
+
+      if (byEmail) return byEmail;
+
+      const anyCandidateEmail = await querySingleConversation(
+        supabaseClient
+          .from("talent_conversations")
+          .select("*")
+          .eq("candidate_email", email)
+      );
+
+      if (anyCandidateEmail) return anyCandidateEmail;
+
+      return await querySingleConversation(
+        supabaseClient
+          .from("talent_conversations")
+          .select("*")
+          .eq("email", email)
+      );
+    }
+
+    async function loadApplicationByEmail(email) {
+      if (!email) return null;
+
+      const { data, error } = await supabaseClient
+        .from("applications")
+        .select("*")
+        .eq("email", email)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (error) {
+        console.warn("Application by email lookup failed:", error);
+        return null;
+      }
+
+      if (!data?.id) return null;
+      return await loadApplicationFallback(data.id);
+    }
+
+    async function loadConversationResponses(conversation) {
+      if (!conversation?.id) return [];
+
+      const { data, error } = await supabaseClient
+        .from("talent_conversation_responses")
+        .select(`
+          *,
+          talent_conversation_questions (
+            question_text,
+            question_type,
+            question_order
+          )
+        `)
+        .eq("conversation_id", conversation.id)
+        .order("created_at", { ascending: true });
+
+      if (error) {
+        console.warn("Response evidence lookup failed:", error);
+        return [];
+      }
+
+      return data || [];
+    }
+
+    async function loadConversation() {
+      console.log("Candidate Review params:", {
+        conversationId,
+        applicationId,
+        candidateEmailParam
+      });
+
+      if (conversationId) {
+        const byId = await loadConversationById(conversationId);
+        if (byId) return { conversation: byId, fallback: null };
       }
 
       let fallback = null;
 
       if (applicationId) {
-        const byApplication = await supabaseClient
-          .from("talent_conversations")
-          .select("*")
-          .eq("application_id", applicationId)
-          .order("created_at", { ascending: false })
-          .limit(1)
-          .maybeSingle();
+        const byApplication = await loadConversationByApplication(applicationId);
 
-        if (!byApplication.error && byApplication.data) {
-          return byApplication.data;
+        if (byApplication) {
+          return { conversation: byApplication, fallback: null };
         }
 
-        fallback = await loadApplicationFallback();
-
-        const app = fallback?.app || null;
-
-        if (app?.email) {
-          const emailCandidates = [app.email].filter(Boolean);
-
-          for (const email of emailCandidates) {
-            const byCandidateEmail = await supabaseClient
-              .from("talent_conversations")
-              .select("*")
-              .eq("candidate_email", email)
-              .order("created_at", { ascending: false })
-              .limit(1)
-              .maybeSingle();
-
-            if (!byCandidateEmail.error && byCandidateEmail.data) {
-              return byCandidateEmail.data;
-            }
-
-            const byEmail = await supabaseClient
-              .from("talent_conversations")
-              .select("*")
-              .eq("email", email)
-              .order("created_at", { ascending: false })
-              .limit(1)
-              .maybeSingle();
-
-            if (!byEmail.error && byEmail.data) {
-              return byEmail.data;
-            }
-          }
-        }
-
-        if (fallback?.app) {
-          return buildPendingConversationReview(fallback);
-        }
-
-        throw new Error("Application was not found.");
+        fallback = await loadApplicationFallback(applicationId);
       }
 
-      throw new Error("Missing conversation_id or application_id in the page URL.");
+      const appEmail =
+        candidateEmailParam ||
+        fallback?.app?.email ||
+        fallback?.profile?.email ||
+        "";
+
+      if (appEmail) {
+        const byEmail = await loadConversationByEmail(appEmail);
+
+        if (byEmail) {
+          return { conversation: byEmail, fallback: null };
+        }
+
+        if (!fallback) {
+          fallback = await loadApplicationByEmail(appEmail);
+        }
+      }
+
+      if (fallback?.app) {
+        return {
+          conversation: buildPendingConversationReview(fallback),
+          fallback
+        };
+      }
+
+      throw new Error("No completed candidate conversation report was found for this URL.");
     }
 
-    async function init(){
+    function renderEvidence(responses) {
+      if (!els.evidenceList) return;
+      if (!responses.length) {
+        els.evidenceList.innerHTML =
+          `<div class="empty-list">No response-level evidence has been loaded yet.</div>`;
+        return;
+      }
+
+      els.evidenceList.innerHTML = responses.map((row, index) => {
+        const question =
+          row.talent_conversation_questions?.question_text ||
+          `Conversation response ${index + 1}`;
+
+        const transcriptOriginal = text(row.transcript_original);
+        const transcriptEnglish = text(row.transcript_english || row.transcript);
+        const responseLanguage = text(row.response_language);
+        const proficiency = text(row.language_proficiency);
+        const feedback = text(row.ai_feedback);
+        const audioUrl = text(row.audio_url);
+
+        const transcriptBlock = transcriptOriginal && transcriptEnglish && transcriptOriginal !== transcriptEnglish
+          ? `Original${responseLanguage ? ` (${responseLanguage})` : ""}: ${transcriptOriginal}
+
+English: ${transcriptEnglish}`
+          : transcriptEnglish || transcriptOriginal || "Transcript not available.";
+
+        return `
+          <article class="evidence-item">
+            <strong>${escapeHtml(question)}</strong>
+            <p>${escapeHtml(transcriptBlock)}</p>
+            ${feedback ? `<p><br><strong>Insight:</strong> ${escapeHtml(feedback)}</p>` : ""}
+            ${proficiency ? `<p><br><strong>Language proficiency:</strong> ${escapeHtml(proficiency)}</p>` : ""}
+            ${audioUrl ? `<audio controls src="${escapeHtml(audioUrl)}"></audio>` : ""}
+          </article>
+        `;
+      }).join("");
+    }
+
+    function renderConversation(conversation, responses) {
+      const overall = score(conversation.overall_score);
+      const communication = score(conversation.communication_score);
+      const alignment = score(conversation.role_alignment_score);
+      const evidence = score(
+        (
+          Number(conversation.authenticity_score || 0) +
+          Number(conversation.confidence_score || 0)
+        ) / 2
+      );
+
+      const detectedLanguage =
+        conversation.detected_language ||
+        conversation.conversation_language ||
+        responses.map(row => row.response_language).filter(Boolean)[0] ||
+        "—";
+
+      const languageProficiency =
+        conversation.language_proficiency ||
+        responses.map(row => row.language_proficiency).filter(Boolean)[0] ||
+        "—";
+
+      const languageObservations =
+        normalizeArray(conversation.language_observations).length
+          ? normalizeArray(conversation.language_observations)
+          : responses.flatMap(row => normalizeArray(row.language_observations)).slice(0, 8);
+
+      els.candidateName.textContent =
+        conversation.candidate_name ||
+        conversation.candidate_email ||
+        conversation.email ||
+        "Candidate Review";
+
+      els.candidateSubtitle.textContent =
+        conversation.role_title ||
+        conversation.candidate_email ||
+        "Proof-based hiring insights from Sift Conversation evidence.";
+
+      els.overallFitLabel.textContent = fitLabel(conversation);
+
+      els.overallFitReason.textContent =
+        conversation.recommendation_reason ||
+        "Recommendation is based on conversation evidence, communication readiness, and role alignment.";
+
+      els.overallScoreValue.textContent =
+        `${overall}/100`;
+
+      els.summaryText.textContent =
+        conversation.summary || "No recruiter summary available.";
+
+      els.recommendationReason.textContent =
+        conversation.recommendation_reason ||
+        "Use the evidence signals and transcript review to guide next-step decisions.";
+
+      els.heroSignals.innerHTML = `
+        <span class="badge ${conversation._isFallback ? "amber" : badgeClass(conversation.hiring_signal)}">
+          ${escapeHtml(conversation.hiring_signal || "Review")}
+        </span>
+
+        <span class="badge ${badgeClass(conversation.risk_level)}">
+          Risk: ${escapeHtml(conversation.risk_level || "Moderate")}
+        </span>
+
+        ${detectedLanguage !== "—" ? `
+          <span class="badge green">
+            Language: ${escapeHtml(detectedLanguage)}
+          </span>
+        ` : ""}
+
+        ${languageProficiency !== "—" ? `
+          <span class="badge green">
+            ${escapeHtml(languageProficiency)} proficiency
+          </span>
+        ` : ""}
+
+        ${conversation._isFallback ? '<span class="badge amber">Conversation not linked</span>' : ""}
+      `;
+
+      renderList(
+        els.strengthsList,
+        conversation.strengths || [],
+        "No candidate strengths have been recorded yet."
+      );
+
+      renderList(
+        els.concernsList,
+        conversation.concerns || [],
+        "No follow-up areas have been recorded yet."
+      );
+
+      els.communicationReadiness.textContent =
+        `${labelFromScore(communication)} · ${communication}/100`;
+
+      els.alignmentReadiness.textContent =
+        `${labelFromScore(alignment)} · ${alignment}/100`;
+
+      els.evidenceDepth.textContent =
+        `${labelFromScore(evidence)} · ${evidence}/100`;
+
+      els.riskReadiness.textContent =
+        conversation.risk_level || "Moderate";
+
+      els.communicationBar.style.width = `${communication}%`;
+      els.alignmentBar.style.width = `${alignment}%`;
+      els.evidenceBar.style.width = `${evidence}%`;
+      els.riskBar.style.width = `${riskLabelToPercent(conversation.risk_level)}%`;
+
+      if (els.detectedLanguage) els.detectedLanguage.textContent = detectedLanguage;
+      if (els.languageProficiency) els.languageProficiency.textContent = languageProficiency;
+
+      renderList(
+        els.languageObservationsList,
+        languageObservations,
+        "No language observations available yet."
+      );
+
+      renderEvidence(responses);
+
+      showReview();
+    }
+
+    async function init() {
       try {
         setLoading(true);
 
-        const conv = await loadConversation();
+        const loaded = await loadConversation();
+        const conversation = loaded.conversation;
+        const responses = conversation?._isFallback
+          ? []
+          : await loadConversationResponses(conversation);
 
-        els.candidateName.textContent =
-          conv.candidate_name || "Candidate Review";
-
-        els.candidateSubtitle.textContent =
-          "Structured hiring insights and candidate evaluation";
-
-        els.overallFitLabel.textContent =
-          conv.recruiter_recommendation || "Needs Review";
-
-        els.overallFitReason.textContent =
-          conv.recommendation_reason ||
-          "No recommendation reasoning available.";
-
-        els.overallScoreValue.textContent =
-          `${score(conv.overall_score)}/100`;
-
-        els.summaryText.textContent =
-          conv.summary || "No recruiter summary available.";
-
-        els.recommendationReason.textContent =
-          conv.recommendation_reason || "Use the score and evaluation signals to guide next-step decisions.";
-
-        els.heroSignals.innerHTML = `
-          <span class="badge ${conv._isFallback ? 'amber' : badgeClass(conv.hiring_signal)}">
-            ${escapeHtml(conv.hiring_signal || "Review")}
-          </span>
-
-          <span class="badge ${badgeClass(conv.risk_level)}">
-            Risk: ${escapeHtml(conv.risk_level || "Moderate")}
-          </span>
-
-          ${conv._isFallback ? '<span class="badge amber">Conversation not linked</span>' : ''}
-        `;
-
-        renderList(
-          els.strengthsList,
-          conv.strengths || [],
-          "No candidate strengths have been recorded yet."
-        );
-
-        renderList(
-          els.concernsList,
-          conv.concerns || [],
-          "No follow-up areas have been recorded yet."
-        );
-
-        const communication = score(conv.communication_score);
-        const alignment = score(conv.role_alignment_score);
-        const evidence = score(
-          (
-            Number(conv.authenticity_score || 0) +
-            Number(conv.confidence_score || 0)
-          ) / 2
-        );
-
-        els.communicationReadiness.textContent =
-          `${labelFromScore(communication)} · ${communication}/100`;
-
-        els.alignmentReadiness.textContent =
-          `${labelFromScore(alignment)} · ${alignment}/100`;
-
-        els.evidenceDepth.textContent =
-          `${labelFromScore(evidence)} · ${evidence}/100`;
-
-        els.riskReadiness.textContent =
-          conv.risk_level || "Moderate";
-
-        els.communicationBar.style.width = `${communication}%`;
-        els.alignmentBar.style.width = `${alignment}%`;
-        els.evidenceBar.style.width = `${evidence}%`;
-
-        els.riskBar.style.width =
-          `${riskLabelToPercent(conv.risk_level)}%`;
-
-        showReview();
+        renderConversation(conversation, responses);
       } catch (error) {
         console.error(error);
         showError(error.message || "Unable to load candidate review.");
