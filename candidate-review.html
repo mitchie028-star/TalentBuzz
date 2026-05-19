@@ -161,11 +161,8 @@
     }
 
     .hero {
-      display: grid;
-      grid-template-columns: minmax(0, 1fr) 320px;
-      gap: 20px;
+      display: block;
       margin-bottom: 20px;
-      align-items: stretch;
     }
 
     .hero-main,
@@ -520,9 +517,66 @@
       margin-top: 10px;
     }
 
+
+    .overall-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 14px;
+      margin-bottom: 16px;
+    }
+
+    .mini-stat {
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      padding: 14px;
+      background: rgba(255,255,255,.76);
+    }
+
+    .mini-stat-label {
+      display: block;
+      color: var(--muted);
+      font-size: .72rem;
+      text-transform: uppercase;
+      letter-spacing: .08em;
+      font-weight: 900;
+      margin-bottom: 8px;
+    }
+
+    .mini-stat-value {
+      color: var(--ink-strong);
+      font-size: 1.05rem;
+      font-weight: 900;
+      letter-spacing: -.035em;
+      line-height: 1.25;
+    }
+
+    .mini-stat-value.blue {
+      color: var(--blue-deep);
+      font-size: 1.25rem;
+    }
+
+    .translation-block {
+      margin-top: 12px;
+      border-top: 1px solid var(--line);
+      padding-top: 12px;
+    }
+
+    .translation-label {
+      display: block;
+      color: var(--blue-deep);
+      font-size: .72rem;
+      font-weight: 900;
+      text-transform: uppercase;
+      letter-spacing: .08em;
+      margin-bottom: 6px;
+    }
+
     @media (max-width: 980px) {
-      .hero,
       .layout {
+        grid-template-columns: 1fr;
+      }
+
+      .overall-grid {
         grid-template-columns: 1fr;
       }
 
@@ -587,23 +641,36 @@
         <div id="heroSignals" class="hero-signals"></div>
       </div>
 
-      <aside class="fit-card">
-        <span class="fit-label">Overall Fit</span>
-        <strong id="overallFitLabel">Review Needed</strong>
-
-        <div class="score-box">
-          <span class="fit-label">Evidence Score</span>
-          <div id="overallScoreValue" class="score-value">—</div>
-        </div>
-
-        <div id="overallFitReason" class="fit-reason">
-          Loading recommendation...
-        </div>
-      </aside>
     </section>
 
     <section class="layout" id="reviewLayout" style="display:none;">
       <div class="main-stack">
+        <section class="card">
+          <div class="card-head">
+            <strong>Overall Evaluation</strong>
+          </div>
+          <div class="card-body">
+            <div class="overall-grid">
+              <div class="mini-stat">
+                <span class="mini-stat-label">Overall Fit</span>
+                <div class="mini-stat-value" id="overallFitLabel">Review Needed</div>
+              </div>
+              <div class="mini-stat">
+                <span class="mini-stat-label">Conversation Completion</span>
+                <div class="mini-stat-value blue" id="overallScoreValue">—</div>
+              </div>
+              <div class="mini-stat">
+                <span class="mini-stat-label">Evaluation Confidence</span>
+                <div class="mini-stat-value" id="evaluationConfidence">—</div>
+              </div>
+            </div>
+            <div class="bar">
+              <div class="bar-fill" id="overallCompletionBar"></div>
+            </div>
+            <div id="overallFitReason" class="reason">Loading recommendation...</div>
+          </div>
+        </section>
+
         <section class="card">
           <div class="card-head">
             <strong>Recruiter Summary</strong>
@@ -732,7 +799,7 @@
   </main>
 
   <script>
-    console.log("TalentBuzz candidate-review evidence router v2026-05-19-02 loaded");
+    console.log("TalentBuzz candidate-review evidence router v2026-05-19-03 loaded");
 
     const SUPABASE_URL = "https://dilalntcxmvdcmwxjcct.supabase.co";
     const SUPABASE_ANON_KEY = "sb_publishable_HrLVIUwnaRo54yijtrbWBQ_1aeb4ezs";
@@ -759,6 +826,8 @@
       overallFitLabel: document.getElementById("overallFitLabel"),
       overallScoreValue: document.getElementById("overallScoreValue"),
       overallFitReason: document.getElementById("overallFitReason"),
+      overallCompletionBar: document.getElementById("overallCompletionBar"),
+      evaluationConfidence: document.getElementById("evaluationConfidence"),
       summaryText: document.getElementById("summaryText"),
       recommendationReason: document.getElementById("recommendationReason"),
       strengthsList: document.getElementById("strengthsList"),
@@ -1289,8 +1358,25 @@
       }).join("");
     }
 
+    function questionEnglishFromRow(row, questionOriginal) {
+      const metadata =
+        row?.talent_conversation_questions?.metadata ||
+        row?.question_metadata ||
+        {};
+
+      return (
+        row.question_english ||
+        row.question_text_english ||
+        metadata.question_english ||
+        metadata.english_translation ||
+        metadata.question_translation ||
+        ""
+      );
+    }
+
     function renderEvidence(responses) {
       if (!els.evidenceList) return;
+
       if (!responses.length) {
         els.evidenceList.innerHTML =
           `<div class="empty-list">No response-level evidence has been loaded yet.</div>`;
@@ -1298,37 +1384,163 @@
       }
 
       els.evidenceList.innerHTML = responses.map((row, index) => {
-        const question =
+        const questionOriginal =
           row.talent_conversation_questions?.question_text ||
+          row.question_original ||
           `Conversation response ${index + 1}`;
+
+        const questionEnglish =
+          questionEnglishFromRow(row, questionOriginal);
+
+        const responseLanguage =
+          text(row.response_language) ||
+          text(row.ai_evaluation?.language_evaluation?.detected_language) ||
+          text(row.ai_evaluation?.transcription?.detected_language) ||
+          "Original";
 
         const transcriptOriginal = text(row.transcript_original);
         const transcriptEnglish = text(row.transcript_english || row.transcript);
-        const responseLanguage = text(row.response_language);
         const proficiency = text(row.language_proficiency);
         const feedback = text(row.ai_feedback);
         const audioUrl = text(row.audio_url);
 
-        const transcriptBlock = transcriptOriginal && transcriptEnglish && transcriptOriginal !== transcriptEnglish
-          ? `Original${responseLanguage ? ` (${responseLanguage})` : ""}: ${transcriptOriginal}
-
-English: ${transcriptEnglish}`
-          : transcriptEnglish || transcriptOriginal || "Transcript not available.";
+        const hasOriginalResponse = !!transcriptOriginal;
+        const hasEnglishResponse = !!transcriptEnglish;
+        const sameResponse =
+          transcriptOriginal &&
+          transcriptEnglish &&
+          transcriptOriginal.trim() === transcriptEnglish.trim();
 
         return `
           <article class="evidence-item">
-            <strong>${escapeHtml(question)}</strong>
-            <p>${escapeHtml(transcriptBlock)}</p>
-            ${feedback ? `<p><br><strong>Insight:</strong> ${escapeHtml(feedback)}</p>` : ""}
-            ${proficiency ? `<p><br><strong>Language proficiency:</strong> ${escapeHtml(proficiency)}</p>` : ""}
+            <span class="translation-label">Question (${escapeHtml(responseLanguage)})</span>
+            <strong>${escapeHtml(questionOriginal)}</strong>
+
+            ${
+              questionEnglish && questionEnglish !== questionOriginal
+                ? `
+                  <div class="translation-block">
+                    <span class="translation-label">Question (English)</span>
+                    <p>${escapeHtml(questionEnglish)}</p>
+                  </div>
+                `
+                : `
+                  <div class="translation-block">
+                    <span class="translation-label">Question (English)</span>
+                    <p>English translation not available yet.</p>
+                  </div>
+                `
+            }
+
+            <div class="translation-block">
+              <span class="translation-label">Candidate Response (${escapeHtml(responseLanguage)})</span>
+              <p>${escapeHtml(hasOriginalResponse ? transcriptOriginal : "No response transcript captured.")}</p>
+            </div>
+
+            <div class="translation-block">
+              <span class="translation-label">Candidate Response (English)</span>
+              <p>${escapeHtml(hasEnglishResponse ? transcriptEnglish : "English translation not available because transcription did not complete.")}</p>
+            </div>
+
+            ${
+              sameResponse && hasEnglishResponse
+                ? `
+                  <div class="translation-block">
+                    <span class="translation-label">Translation Note</span>
+                    <p>The original and English transcript are the same. This may mean the response was already in English or translation was not completed.</p>
+                  </div>
+                `
+                : ""
+            }
+
+            ${
+              feedback
+                ? `
+                  <div class="translation-block">
+                    <span class="translation-label">Recruiter Insight</span>
+                    <p>${escapeHtml(feedback)}</p>
+                  </div>
+                `
+                : ""
+            }
+
+            ${
+              proficiency
+                ? `
+                  <div class="translation-block">
+                    <span class="translation-label">Language Proficiency</span>
+                    <p>${escapeHtml(proficiency)}</p>
+                  </div>
+                `
+                : ""
+            }
+
             ${audioUrl ? `<audio controls src="${escapeHtml(audioUrl)}"></audio>` : ""}
           </article>
         `;
       }).join("");
     }
 
+    function hasUsableTranscript(row) {
+      const transcript =
+        text(row.transcript_original) ||
+        text(row.transcript_english) ||
+        text(row.transcript);
+
+      if (!transcript) return false;
+
+      const wordCount = transcript.split(/\s+/).filter(Boolean).length;
+      return wordCount >= 8;
+    }
+
+    function hasEvaluation(row) {
+      return !!(
+        row.ai_evaluation ||
+        Number(row.communication_score || 0) > 0 ||
+        Number(row.role_alignment_score || 0) > 0 ||
+        Number(row.authenticity_score || 0) > 0 ||
+        Number(row.confidence_score || 0) > 0
+      );
+    }
+
+    function completionPercent(responses) {
+      if (!responses.length) return 0;
+
+      const completed = responses.filter(row =>
+        row.audio_url ||
+        row.transcript ||
+        row.transcript_original ||
+        row.transcript_english
+      ).length;
+
+      return score((completed / responses.length) * 100);
+    }
+
+    function evidenceConfidenceLabel(communication, alignment, evidence, responses) {
+      const usableTranscripts = responses.filter(hasUsableTranscript).length;
+      const evaluatedResponses = responses.filter(hasEvaluation).length;
+
+      if (!responses.length) return "Not Available";
+      if (communication === 0 && alignment === 0 && evidence === 0) return "Low";
+      if (usableTranscripts === 0 || evaluatedResponses === 0) return "Low";
+      if (usableTranscripts < responses.length || evaluatedResponses < responses.length) return "Moderate";
+
+      return "High";
+    }
+
+    function cleanedRecommendation(conversation, insufficientEvidence) {
+      if (insufficientEvidence) {
+        return "Candidate responses were too limited or transcription was incomplete, so Sift cannot reliably evaluate communication, role alignment, or language proficiency. Recruiter review is required.";
+      }
+
+      return (
+        conversation.recommendation_reason ||
+        "Recommendation is based on conversation evidence, communication readiness, and role alignment."
+      );
+    }
+
     function renderConversation(conversation, responses, assessmentEvidence = []) {
-      const overall = score(conversation.overall_score);
+      const completion = completionPercent(responses);
       const communication = score(conversation.communication_score);
       const alignment = score(conversation.role_alignment_score);
       const evidence = score(
@@ -1336,6 +1548,17 @@ English: ${transcriptEnglish}`
           Number(conversation.authenticity_score || 0) +
           Number(conversation.confidence_score || 0)
         ) / 2
+      );
+      const insufficientEvidence =
+        communication === 0 &&
+        alignment === 0 &&
+        evidence === 0;
+
+      const confidenceLabel = evidenceConfidenceLabel(
+        communication,
+        alignment,
+        evidence,
+        responses
       );
 
       const detectedLanguage =
@@ -1365,25 +1588,34 @@ English: ${transcriptEnglish}`
         conversation.candidate_email ||
         "Proof-based hiring insights from Sift Conversation evidence.";
 
-      els.overallFitLabel.textContent = fitLabel(conversation);
+      els.overallFitLabel.textContent =
+        insufficientEvidence
+          ? "Recruiter Review Required"
+          : fitLabel(conversation);
 
       els.overallFitReason.textContent =
-        conversation.recommendation_reason ||
-        "Recommendation is based on conversation evidence, communication readiness, and role alignment.";
+        cleanedRecommendation(conversation, insufficientEvidence);
 
       els.overallScoreValue.textContent =
-        `${overall}/100`;
+        `${completion}%`;
+
+      if (els.overallCompletionBar) {
+        els.overallCompletionBar.style.width = `${completion}%`;
+      }
+
+      if (els.evaluationConfidence) {
+        els.evaluationConfidence.textContent = confidenceLabel;
+      }
 
       els.summaryText.textContent =
         conversation.summary || "No recruiter summary available.";
 
       els.recommendationReason.textContent =
-        conversation.recommendation_reason ||
-        "Use the evidence signals and transcript review to guide next-step decisions.";
+        cleanedRecommendation(conversation, insufficientEvidence);
 
       els.heroSignals.innerHTML = `
-        <span class="badge ${conversation._isFallback ? "amber" : badgeClass(conversation.hiring_signal)}">
-          ${escapeHtml(conversation.hiring_signal || "Review")}
+        <span class="badge ${conversation._isFallback || insufficientEvidence ? "amber" : badgeClass(conversation.hiring_signal)}">
+          ${escapeHtml(insufficientEvidence ? "Recruiter Review Required" : (conversation.hiring_signal || "Review"))}
         </span>
 
         <span class="badge ${badgeClass(conversation.risk_level)}">
