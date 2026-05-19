@@ -777,6 +777,14 @@
     .pipeline-card{padding:12px}
     .panel-head{margin-bottom:10px}
 
+
+    .btn:disabled{
+      opacity:.62;
+      cursor:not-allowed;
+      transform:none!important;
+      box-shadow:none!important;
+    }
+
   </style>
 </head>
 <body class="auth-pending">
@@ -1029,8 +1037,8 @@
                     <textarea id="editFollowUpNote" placeholder="What should the recruiter follow up on?"></textarea>
                   </div>
                   <div class="follow-up-quick">
-                    <button class="btn btn-xs" id="markNeedsFollowUpBtn" type="button">Needs follow-up</button>
-                    <button class="btn btn-xs" id="markFollowedUpBtn" type="button">Done</button>
+                    <button class="btn btn-xs" id="markNeedsFollowUpBtn" type="button">Save as needs follow-up</button>
+                    <button class="btn btn-xs" id="markFollowedUpBtn" type="button">Mark done</button>
                   </div>
                 </div>
               </div>
@@ -1168,7 +1176,7 @@
   </div>
 
   <script>
-    console.log('TalentBuzz recruiter-dashboard drawer-notes-fixed v2026-05-19 loaded');
+    console.log('TalentBuzz recruiter-dashboard save-followup-fixed v2026-05-19 loaded');
 
     const CONFIG = {
       SUPABASE_URL: window.TALENTBUZZ_SUPABASE_URL || localStorage.getItem('TALENTBUZZ_SUPABASE_URL') || '',
@@ -2204,42 +2212,154 @@ async function parseSelectedResume(){
       };
     }
 
-    async function saveSelectedRow(){
-      const row=state.allRows.find(item=>item.id===state.selectedId);if(!row)return;
-      const modalOpen=els.candidateModal?.classList.contains('show');
-      const selectedStatus=safeText(modalOpen?els.modalEditStatus.value:els.editStatus.value)||'submitted';
-      const recruiterNotes=safeText(modalOpen?els.modalEditNotes.value:els.editNotes.value);
-      const followUp=getFollowUpFormValues(modalOpen);
-      const now=new Date().toISOString();
-      const payload={
-        status:selectedStatus,
-        recruiter_notes:recruiterNotes||null,
-        last_status_change_at:now,
-        updated_at:now,
-        follow_up_required:followUp.required,
-        follow_up_status:followUp.key,
-        follow_up_date:followUp.dueIso,
-        follow_up_due_at:followUp.dueIso,
-        follow_up_note:followUp.note||null,
-        last_followed_up_at:followUp.followedUpAt
+    function isCandidateModalOpen(){
+      return !!els.candidateModal?.classList.contains('show');
+    }
+
+    function setSaveBusy(isBusy){
+      [els.saveBtn, els.modalSaveBtn].forEach(btn=>{
+        if(!btn)return;
+        btn.disabled = !!isBusy;
+        btn.textContent = isBusy ? 'Saving...' : 'Save';
+      });
+      [els.markNeedsFollowUpBtn, els.markFollowedUpBtn].forEach(btn=>{
+        if(btn)btn.disabled = !!isBusy;
+      });
+    }
+
+    function getCurrentEditorValues(){
+      const modalOpen = isCandidateModalOpen();
+      const statusEl = modalOpen ? els.modalEditStatus : els.editStatus;
+      const notesEl = modalOpen ? els.modalEditNotes : els.editNotes;
+      const followUp = getFollowUpFormValues(modalOpen);
+
+      return {
+        selectedStatus: safeText(statusEl?.value || '') || 'submitted',
+        recruiterNotes: safeText(notesEl?.value || ''),
+        followUp
       };
+    }
+
+    async function updateApplicationWithFallback(applicationId, payload){
+      const attempts = [
+        payload,
+        {
+          status: payload.status,
+          recruiter_notes: payload.recruiter_notes,
+          updated_at: payload.updated_at,
+          follow_up_required: payload.follow_up_required,
+          follow_up_status: payload.follow_up_status,
+          follow_up_date: payload.follow_up_date,
+          follow_up_due_at: payload.follow_up_due_at,
+          follow_up_note: payload.follow_up_note,
+          last_followed_up_at: payload.last_followed_up_at
+        },
+        {
+          status: payload.status,
+          recruiter_notes: payload.recruiter_notes,
+          stage_note_label: payload.recruiter_notes,
+          updated_at: payload.updated_at
+        }
+      ];
+
+      let lastError = null;
+
+      for(const attempt of attempts){
+        const cleanPayload = Object.fromEntries(
+          Object.entries(attempt).filter(([,value]) => value !== undefined)
+        );
+
+        const { error } = await supabaseClient
+          .from('applications')
+          .update(cleanPayload)
+          .eq('id', applicationId);
+
+        if(!error)return cleanPayload;
+
+        lastError = error;
+        console.warn('Candidate update attempt failed:', error?.message || error, cleanPayload);
+      }
+
+      throw lastError || new Error('Unable to update application.');
+    }
+
+
+    async function saveSelectedRow(){
+      const row = state.allRows.find(item => item.id === state.selectedId);
+
+      if(!row){
+        showNotice('Open a candidate first.', 'error');
+        return false;
+      }
+
+      const { selectedStatus, recruiterNotes, followUp } = getCurrentEditorValues();
+      const now = new Date().toISOString();
+
+      const payload = {
+        status: selectedStatus,
+        recruiter_notes: recruiterNotes || null,
+        stage_note_label: recruiterNotes || null,
+        last_status_change_at: now,
+        updated_at: now,
+        follow_up_required: !!followUp.required,
+        follow_up_status: followUp.key || 'none',
+        follow_up_date: followUp.dueIso,
+        follow_up_due_at: followUp.dueIso,
+        follow_up_note: followUp.note || null,
+        last_followed_up_at: followUp.followedUpAt
+      };
+
       try{
-        els.saveBtn.disabled=true;
-        const {error}=await supabaseClient.from('applications').update(payload).eq('id',row.id);
-        if(error)throw error;
-        showNotice('Candidate updated.','success');
+        setSaveBusy(true);
+
+        await updateApplicationWithFallback(row.id, payload);
+
+        // Optimistic local update so the drawer/table changes immediately.
+        row.app = {
+          ...row.app,
+          ...payload
+        };
+        row.status = selectedStatus;
+        row.followUp = getFollowUpInfo(row.app);
+
+        showNotice('Candidate updated.', 'success');
+
         await loadDashboard();
         await openDrawer(row.id);
+
+        if(isCandidateModalOpen()){
+          const refreshed = state.allRows.find(item => item.id === row.id);
+          fillCandidateModal(refreshed || row);
+        }
+
+        return true;
+      }catch(error){
+        console.error('Unable to save candidate:', error);
+        showNotice(`Unable to save candidate: ${getReadableError(error)}`, 'error');
+        return false;
+      }finally{
+        setSaveBusy(false);
       }
-      catch(error){console.error(error);showNotice(`Unable to save candidate: ${error.message||error}`,'error')}
-      finally{els.saveBtn.disabled=false}
     }
+
     function setFollowUpQuick(key){
-      const modalOpen=els.candidateModal?.classList.contains('show');
-      const statusEl=modalOpen?els.modalEditFollowUpStatus:els.editFollowUpStatus;
-      const dateEl=modalOpen?els.modalEditFollowUpDate:els.editFollowUpDate;
-      if(statusEl)statusEl.value=key;
-      if(dateEl && key==='needs_follow_up' && !dateEl.value)dateEl.value=toDateInputValue(new Date());
+      const modalOpen = isCandidateModalOpen();
+      const statusEl = modalOpen ? els.modalEditFollowUpStatus : els.editFollowUpStatus;
+      const dateEl = modalOpen ? els.modalEditFollowUpDate : els.editFollowUpDate;
+      const noteEl = modalOpen ? els.modalEditFollowUpNote : els.editFollowUpNote;
+
+      if(statusEl)statusEl.value = key;
+
+      if(key === 'needs_follow_up'){
+        if(dateEl && !dateEl.value)dateEl.value = toDateInputValue(new Date());
+        if(noteEl && !safeText(noteEl.value))noteEl.value = 'Needs recruiter follow-up.';
+      }
+
+      if(key === 'followed_up'){
+        if(dateEl)dateEl.value = '';
+        if(noteEl && !safeText(noteEl.value))noteEl.value = 'Followed up with candidate.';
+      }
+
       void saveSelectedRow();
     }
 
@@ -2299,6 +2419,7 @@ async function parseSelectedResume(){
       });
       els.viewResumeBtn?.addEventListener('click',()=>openResumeModal(state.selectedResumeUrl,state.selectedResumePath||'Resume Viewer')); els.downloadResumeBtn?.addEventListener('click',()=>downloadResumeFile(state.selectedResumeUrl,state.selectedResumePath,'resume')); els.markNeedsFollowUpBtn?.addEventListener('click',()=>setFollowUpQuick('needs_follow_up')); els.markFollowedUpBtn?.addEventListener('click',()=>setFollowUpQuick('followed_up')); els.parseResumeBtn?.addEventListener('click',parseSelectedResume);
       els.uploadResumeBtn?.addEventListener('click',()=>uploadResumeForSelected(false));
+      els.saveBtn?.addEventListener('click',saveSelectedRow);
       els.candidateModalClose?.addEventListener('click',closeCandidateModal);
       els.modalSaveBtn?.addEventListener('click',saveSelectedRow);
       els.modalViewResumeBtn?.addEventListener('click',()=>openResumeModal(state.selectedResumeUrl,state.selectedResumePath||'Resume Viewer')); els.modalDownloadResumeBtn?.addEventListener('click',()=>downloadResumeFile(state.selectedResumeUrl,state.selectedResumePath,'resume')); els.modalParseResumeBtn?.addEventListener('click',parseSelectedResume);
