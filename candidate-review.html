@@ -520,7 +520,7 @@
 
     .overall-grid {
       display: grid;
-      grid-template-columns: repeat(3, minmax(0, 1fr));
+      grid-template-columns: repeat(4, minmax(0, 1fr));
       gap: 14px;
       margin-bottom: 16px;
     }
@@ -569,6 +569,61 @@
       text-transform: uppercase;
       letter-spacing: .08em;
       margin-bottom: 6px;
+    }
+
+
+    .signal-note {
+      margin-top: 10px;
+      color: var(--muted);
+      font-size: .8rem;
+      line-height: 1.55;
+      font-weight: 600;
+    }
+
+    .evidence-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin: 0 0 12px;
+    }
+
+    .evidence-chip {
+      display: inline-flex;
+      align-items: center;
+      min-height: 26px;
+      padding: 4px 9px;
+      border-radius: 999px;
+      background: var(--blue-soft);
+      border: 1px solid var(--blue-line);
+      color: var(--blue-deep);
+      font-size: .7rem;
+      font-weight: 900;
+      text-transform: uppercase;
+      letter-spacing: .06em;
+    }
+
+    .evidence-chip.amber {
+      background: var(--amber-soft);
+      border-color: var(--amber-line);
+      color: var(--amber);
+    }
+
+    .evidence-chip.green {
+      background: var(--green-soft);
+      border-color: var(--green-line);
+      color: var(--green-deep);
+    }
+
+    .language-summary {
+      margin: 10px 0 0;
+      padding: 12px;
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      background: rgba(255,255,255,.72);
+      color: var(--muted);
+      font-size: .84rem;
+      line-height: 1.6;
+      font-weight: 600;
     }
 
     @media (max-width: 980px) {
@@ -663,6 +718,11 @@
                 <span class="mini-stat-label">Evaluation Confidence</span>
                 <div class="mini-stat-value" id="evaluationConfidence">—</div>
               </div>
+
+              <div class="mini-stat">
+                <span class="mini-stat-label">Response Quality</span>
+                <div class="mini-stat-value" id="responseQuality">—</div>
+              </div>
             </div>
             <div class="bar">
               <div class="bar-fill" id="overallCompletionBar"></div>
@@ -756,6 +816,16 @@
 
             <div class="metric">
               <div class="metric-top">
+                <span class="metric-label">Response Quality</span>
+                <strong class="metric-value" id="responseQualitySignal">—</strong>
+              </div>
+              <div class="signal-note">
+                Measures specificity, ownership, concrete examples, and usefulness of the candidate evidence.
+              </div>
+            </div>
+
+            <div class="metric">
+              <div class="metric-top">
                 <span class="metric-label">Risk Level</span>
                 <strong class="metric-value" id="riskReadiness">—</strong>
               </div>
@@ -799,7 +869,7 @@
   </main>
 
   <script>
-    console.log("TalentBuzz candidate-review evidence router v2026-05-19-03 loaded");
+    console.log("TalentBuzz candidate-review polished evidence router v2026-05-19-04 loaded");
 
     const SUPABASE_URL = "https://dilalntcxmvdcmwxjcct.supabase.co";
     const SUPABASE_ANON_KEY = "sb_publishable_HrLVIUwnaRo54yijtrbWBQ_1aeb4ezs";
@@ -828,6 +898,7 @@
       overallFitReason: document.getElementById("overallFitReason"),
       overallCompletionBar: document.getElementById("overallCompletionBar"),
       evaluationConfidence: document.getElementById("evaluationConfidence"),
+      responseQuality: document.getElementById("responseQuality"),
       summaryText: document.getElementById("summaryText"),
       recommendationReason: document.getElementById("recommendationReason"),
       strengthsList: document.getElementById("strengthsList"),
@@ -838,6 +909,7 @@
       alignmentReadiness: document.getElementById("alignmentReadiness"),
       evidenceDepth: document.getElementById("evidenceDepth"),
       riskReadiness: document.getElementById("riskReadiness"),
+      responseQualitySignal: document.getElementById("responseQualitySignal"),
       communicationBar: document.getElementById("communicationBar"),
       alignmentBar: document.getElementById("alignmentBar"),
       evidenceBar: document.getElementById("evidenceBar"),
@@ -1374,6 +1446,28 @@
       );
     }
 
+    function isEnglishLike(language) {
+      const value = text(language).toLowerCase();
+      return value === "en" || value === "eng" || value.includes("english");
+    }
+
+    function normalizedCompare(a, b) {
+      return text(a).replace(/\s+/g, " ").trim().toLowerCase() ===
+        text(b).replace(/\s+/g, " ").trim().toLowerCase();
+    }
+
+    function responseQualityFromText(value) {
+      const transcript = text(value);
+      const wordCount = transcript.split(/\s+/).filter(Boolean).length;
+
+      if (wordCount >= 90) return "Detailed";
+      if (wordCount >= 45) return "Adequate";
+      if (wordCount >= 15) return "Limited";
+      if (wordCount > 0) return "Very Limited";
+
+      return "No Transcript";
+    }
+
     function renderEvidence(responses) {
       if (!els.evidenceList) return;
 
@@ -1406,59 +1500,98 @@
 
         const hasOriginalResponse = !!transcriptOriginal;
         const hasEnglishResponse = !!transcriptEnglish;
+
         const sameResponse =
-          transcriptOriginal &&
-          transcriptEnglish &&
-          transcriptOriginal.trim() === transcriptEnglish.trim();
+          hasOriginalResponse &&
+          hasEnglishResponse &&
+          normalizedCompare(transcriptOriginal, transcriptEnglish);
+
+        const responseIsEnglish = isEnglishLike(responseLanguage);
+        const questionIsEnglish = responseIsEnglish || !questionEnglish || normalizedCompare(questionOriginal, questionEnglish);
+
+        const shouldShowQuestionTranslation =
+          questionEnglish &&
+          !normalizedCompare(questionOriginal, questionEnglish) &&
+          !questionIsEnglish;
+
+        const shouldShowResponseTranslation =
+          hasEnglishResponse &&
+          !sameResponse &&
+          !responseIsEnglish;
+
+        const cleanOriginalResponse =
+          hasOriginalResponse
+            ? transcriptOriginal
+            : "No response transcript captured.";
+
+        const cleanEnglishResponse =
+          hasEnglishResponse
+            ? transcriptEnglish
+            : "English translation unavailable.";
+
+        const quality = responseQualityFromText(transcriptOriginal || transcriptEnglish);
 
         return `
           <article class="evidence-item">
-            <span class="translation-label">Question (${escapeHtml(responseLanguage)})</span>
-            <strong>${escapeHtml(questionOriginal)}</strong>
+            <div class="evidence-meta">
+              <span class="evidence-chip">
+                Response ${index + 1}
+              </span>
 
-            ${
-              questionEnglish && questionEnglish !== questionOriginal
-                ? `
-                  <div class="translation-block">
-                    <span class="translation-label">Question (English)</span>
-                    <p>${escapeHtml(questionEnglish)}</p>
-                  </div>
-                `
-                : `
-                  <div class="translation-block">
-                    <span class="translation-label">Question (English)</span>
-                    <p>English translation not available yet.</p>
-                  </div>
-                `
-            }
+              <span class="evidence-chip ${responseIsEnglish ? "green" : "amber"}">
+                ${escapeHtml(responseLanguage)}
+              </span>
 
-            <div class="translation-block">
-              <span class="translation-label">Candidate Response (${escapeHtml(responseLanguage)})</span>
-              <p>${escapeHtml(hasOriginalResponse ? transcriptOriginal : "No response transcript captured.")}</p>
+              <span class="evidence-chip ${quality === "Detailed" || quality === "Adequate" ? "green" : "amber"}">
+                ${escapeHtml(quality)}
+              </span>
             </div>
 
-            <div class="translation-block">
-              <span class="translation-label">Candidate Response (English)</span>
-              <p>${escapeHtml(hasEnglishResponse ? transcriptEnglish : "English translation not available because transcription did not complete.")}</p>
-            </div>
+            <span class="translation-label">
+              Question
+            </span>
+
+            <strong>
+              ${escapeHtml(questionOriginal)}
+            </strong>
 
             ${
-              sameResponse && hasEnglishResponse
+              shouldShowQuestionTranslation
                 ? `
                   <div class="translation-block">
-                    <span class="translation-label">Translation Note</span>
-                    <p>The original and English transcript are the same. This may mean the response was already in English or translation was not completed.</p>
+                    <span class="translation-label">
+                      Question Translation
+                    </span>
+
+                    <p>
+                      ${escapeHtml(questionEnglish)}
+                    </p>
                   </div>
                 `
                 : ""
             }
 
+            <div class="translation-block">
+              <span class="translation-label">
+                Candidate Response${responseLanguage ? ` (${escapeHtml(responseLanguage)})` : ""}
+              </span>
+
+              <p>
+                ${escapeHtml(cleanOriginalResponse)}
+              </p>
+            </div>
+
             ${
-              feedback
+              shouldShowResponseTranslation
                 ? `
                   <div class="translation-block">
-                    <span class="translation-label">Recruiter Insight</span>
-                    <p>${escapeHtml(feedback)}</p>
+                    <span class="translation-label">
+                      English Translation
+                    </span>
+
+                    <p>
+                      ${escapeHtml(cleanEnglishResponse)}
+                    </p>
                   </div>
                 `
                 : ""
@@ -1468,14 +1601,41 @@
               proficiency
                 ? `
                   <div class="translation-block">
-                    <span class="translation-label">Language Proficiency</span>
-                    <p>${escapeHtml(proficiency)}</p>
+                    <span class="translation-label">
+                      Language Proficiency
+                    </span>
+
+                    <p>
+                      ${escapeHtml(proficiency)}
+                    </p>
                   </div>
                 `
                 : ""
             }
 
-            ${audioUrl ? `<audio controls src="${escapeHtml(audioUrl)}"></audio>` : ""}
+            ${
+              feedback
+                ? `
+                  <div class="translation-block">
+                    <span class="translation-label">
+                      Recruiter Insight
+                    </span>
+
+                    <p>
+                      ${escapeHtml(feedback)}
+                    </p>
+                  </div>
+                `
+                : ""
+            }
+
+            ${
+              audioUrl
+                ? `
+                  <audio controls src="${escapeHtml(audioUrl)}"></audio>
+                `
+                : ""
+            }
           </article>
         `;
       }).join("");
@@ -1539,6 +1699,76 @@
       );
     }
 
+    function responseQualityLabel(communication, alignment, evidence) {
+      const average = score((Number(communication || 0) + Number(alignment || 0) + Number(evidence || 0)) / 3);
+
+      if (average >= 85) return "Strong";
+      if (average >= 70) return "Good";
+      if (average >= 55) return "Moderate";
+      if (average >= 30) return "Limited";
+      if (average > 0) return "Weak";
+
+      return "Insufficient";
+    }
+
+    function overallFitDisplay(conversation, communication, alignment, evidence, insufficientEvidence) {
+      if (insufficientEvidence) return "Recruiter Review Required";
+
+      const quality = responseQualityLabel(communication, alignment, evidence);
+      if (quality === "Weak" || quality === "Limited") return "Below Recommended Threshold";
+      if (quality === "Moderate") return "Needs Review";
+
+      return fitLabel(conversation);
+    }
+
+    function cleanLanguageObservations(items) {
+      const generic = new Set([
+        "limited",
+        "basic",
+        "good",
+        "excellent",
+        "adequate",
+        "professional",
+        "conversational",
+        "fluent",
+        "native-like",
+        "review needed"
+      ]);
+
+      const cleaned = normalizeArray(items)
+        .map(item => item.replace(/\s+/g, " ").trim())
+        .filter(Boolean)
+        .filter(item => !generic.has(item.toLowerCase()));
+
+      const unique = [];
+      const seen = new Set();
+
+      cleaned.forEach(item => {
+        const key = item.toLowerCase();
+        if (!seen.has(key)) {
+          seen.add(key);
+          unique.push(item);
+        }
+      });
+
+      return unique.slice(0, 5);
+    }
+
+    function summarizeLanguageReadiness(language, proficiency, observations) {
+      const clean = cleanLanguageObservations(observations);
+
+      if (clean.length) return clean;
+
+      if (proficiency && proficiency !== "—") {
+        return [
+          `Language proficiency was assessed as ${proficiency}.`,
+          "Review response depth separately from language proficiency."
+        ];
+      }
+
+      return [];
+    }
+
     function renderConversation(conversation, responses, assessmentEvidence = []) {
       const completion = completionPercent(responses);
       const communication = score(conversation.communication_score);
@@ -1589,9 +1819,13 @@
         "Proof-based hiring insights from Sift Conversation evidence.";
 
       els.overallFitLabel.textContent =
-        insufficientEvidence
-          ? "Recruiter Review Required"
-          : fitLabel(conversation);
+        overallFitDisplay(
+          conversation,
+          communication,
+          alignment,
+          evidence,
+          insufficientEvidence
+        );
 
       els.overallFitReason.textContent =
         cleanedRecommendation(conversation, insufficientEvidence);
@@ -1607,6 +1841,11 @@
         els.evaluationConfidence.textContent = confidenceLabel;
       }
 
+      if (els.responseQuality) {
+        els.responseQuality.textContent =
+          responseQualityLabel(communication, alignment, evidence);
+      }
+
       els.summaryText.textContent =
         conversation.summary || "No recruiter summary available.";
 
@@ -1615,7 +1854,15 @@
 
       els.heroSignals.innerHTML = `
         <span class="badge ${conversation._isFallback || insufficientEvidence ? "amber" : badgeClass(conversation.hiring_signal)}">
-          ${escapeHtml(insufficientEvidence ? "Recruiter Review Required" : (conversation.hiring_signal || "Review"))}
+          ${escapeHtml(
+            overallFitDisplay(
+              conversation,
+              communication,
+              alignment,
+              evidence,
+              insufficientEvidence
+            )
+          )}
         </span>
 
         <span class="badge ${badgeClass(conversation.risk_level)}">
@@ -1630,7 +1877,7 @@
 
         ${languageProficiency !== "—" ? `
           <span class="badge green">
-            ${escapeHtml(languageProficiency)} proficiency
+            Language Proficiency: ${escapeHtml(languageProficiency)}
           </span>
         ` : ""}
 
@@ -1658,6 +1905,11 @@
       els.evidenceDepth.textContent =
         `${labelFromScore(evidence)} · ${evidence}/100`;
 
+      if (els.responseQualitySignal) {
+        els.responseQualitySignal.textContent =
+          responseQualityLabel(communication, alignment, evidence);
+      }
+
       els.riskReadiness.textContent =
         conversation.risk_level || "Moderate";
 
@@ -1671,7 +1923,11 @@
 
       renderList(
         els.languageObservationsList,
-        languageObservations,
+        summarizeLanguageReadiness(
+          detectedLanguage,
+          languageProficiency,
+          languageObservations
+        ),
         "No language observations available yet."
       );
 
