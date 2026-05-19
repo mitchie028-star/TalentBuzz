@@ -1236,6 +1236,77 @@
       }
     }
 
+
+    /* ===== Complete rewrite polish: saved-view counts and empty states ===== */
+
+    .saved-view span{
+      min-width:22px;
+      height:20px;
+      padding:0 6px;
+      margin-left:6px;
+      border-radius:999px;
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      background:#f2f4f7;
+      color:#475467;
+      font-size:.68rem;
+      font-weight:900;
+    }
+
+    .saved-view.active span{
+      background:#dbeafe;
+      color:var(--accent-deep);
+    }
+
+    .empty-state{
+      display:grid;
+      justify-items:center;
+      gap:8px;
+      padding:26px 16px;
+      text-align:center;
+      color:var(--muted);
+    }
+
+    .empty-state strong{
+      color:var(--ink);
+      font-size:.96rem;
+      letter-spacing:-.02em;
+    }
+
+    .empty-state span{
+      max-width:420px;
+      line-height:1.5;
+      font-size:.82rem;
+    }
+
+    .table-wrap{
+      scroll-behavior:smooth;
+    }
+
+    .pipeline-card{
+      isolation:isolate;
+    }
+
+    .saved-view-row,
+    .filter-toolbar,
+    .filters,
+    .more-filters-toggle{
+      position:relative;
+      z-index:2;
+    }
+
+    @media(min-width:981px){
+      .pipeline-card .saved-view-row{
+        position:sticky;
+        top:72px;
+        background:rgba(255,255,255,.94);
+        backdrop-filter:blur(10px);
+        padding:4px 0 8px;
+        z-index:10;
+      }
+    }
+
   </style>
 </head>
 <body class="auth-pending">
@@ -1377,12 +1448,12 @@
           </div>
 
           <div class="saved-view-row" aria-label="Saved recruiter views">
-            <button class="saved-view active" type="button" data-saved-view="all">All Candidates</button>
-            <button class="saved-view" type="button" data-saved-view="my_followups">My Follow-ups</button>
-            <button class="saved-view" type="button" data-saved-view="interview_pipeline">Interview Pipeline</button>
-            <button class="saved-view" type="button" data-saved-view="strong_matches">Strong Matches</button>
-            <button class="saved-view" type="button" data-saved-view="closed">Closed</button>
-            <button class="saved-view" type="button" data-saved-view="missing_resume">Missing Resume</button>
+            <button class="saved-view active" type="button" data-saved-view="all">All Candidates <span id="viewCountAll">0</span></button>
+            <button class="saved-view" type="button" data-saved-view="my_followups">Follow-ups <span id="viewCountFollowups">0</span></button>
+            <button class="saved-view" type="button" data-saved-view="interview_pipeline">Interview Pipeline <span id="viewCountInterview">0</span></button>
+            <button class="saved-view" type="button" data-saved-view="strong_matches">Strong Matches <span id="viewCountStrong">0</span></button>
+            <button class="saved-view" type="button" data-saved-view="closed">Closed <span id="viewCountClosed">0</span></button>
+            <button class="saved-view" type="button" data-saved-view="missing_resume">Missing Resume <span id="viewCountMissingResume">0</span></button>
           </div>
 
           <div class="filter-toolbar">
@@ -1654,7 +1725,7 @@
   </div>
 
   <script>
-    console.log('TalentBuzz recruiter-dashboard-productivity-upgrade v2026-05-19 loaded');
+    console.log('TalentBuzz recruiter-dashboard-complete-upgrade v2026-05-19 loaded');
 
     const CONFIG = {
       SUPABASE_URL: window.TALENTBUZZ_SUPABASE_URL || localStorage.getItem('TALENTBUZZ_SUPABASE_URL') || '',
@@ -1684,7 +1755,7 @@
     const els = {
       authMessage:$('authMessage'), notice:$('notice'),
       sidebarUserName:$('sidebarUserName'), sidebarUserEmail:$('sidebarUserEmail'),
-      searchInput:$('searchInput'), candidateNameFilter:$('candidateNameFilter'), statusFilter:$('statusFilter'), recruiterFilter:$('recruiterFilter'), followUpFilter:$('followUpFilter'), jobFilter:$('jobFilter'), clientFilter:$('clientFilter'), scoreFilter:$('scoreFilter'), clearFiltersBtn:$('clearFiltersBtn'), filtersPanel:$('filtersPanel'), moreFiltersBtn:$('moreFiltersBtn'), filterChipRow:$('filterChipRow'), activeFilterCount:$('activeFilterCount'), densityToggleBtn:$('densityToggleBtn'),
+      searchInput:$('searchInput'), candidateNameFilter:$('candidateNameFilter'), statusFilter:$('statusFilter'), recruiterFilter:$('recruiterFilter'), followUpFilter:$('followUpFilter'), jobFilter:$('jobFilter'), clientFilter:$('clientFilter'), scoreFilter:$('scoreFilter'), clearFiltersBtn:$('clearFiltersBtn'), filtersPanel:$('filtersPanel'), moreFiltersBtn:$('moreFiltersBtn'), filterChipRow:$('filterChipRow'), activeFilterCount:$('activeFilterCount'), densityToggleBtn:$('densityToggleBtn'), viewCountAll:$('viewCountAll'), viewCountFollowups:$('viewCountFollowups'), viewCountInterview:$('viewCountInterview'), viewCountStrong:$('viewCountStrong'), viewCountClosed:$('viewCountClosed'), viewCountMissingResume:$('viewCountMissingResume'),
       applicationsTable:$('applicationsTable'), tableCount:$('tableCount'), workspace:$('workspace'),
       kpiApplications:$('kpiApplications'), kpiUnassigned:$('kpiUnassigned'), kpiInterview:$('kpiInterview'), kpiOffered:$('kpiOffered'), kpiFollowUp:$('kpiFollowUp'), kpiReview:$('kpiReview'), kpiHired:$('kpiHired'), kpiOnboarded:$('kpiOnboarded'), kpiWithdrawn:$('kpiWithdrawn'),
       actionNeedsReview:$('actionNeedsReview'), actionFollowUps:$('actionFollowUps'), actionHighMatch:$('actionHighMatch'),
@@ -1700,6 +1771,13 @@
     let supabaseClient = null;
     let dashboardLastSyncedAt = null;
 
+    const PREF_KEYS = {
+      savedView: 'talentbuzz.recruiterDashboard.savedView',
+      compactRows: 'talentbuzz.recruiterDashboard.compactRows',
+      advancedFilters: 'talentbuzz.recruiterDashboard.advancedFilters'
+    };
+
+
     function safeText(value){return value == null ? '' : String(value).trim()}
     function escapeHtml(value){return safeText(value).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;')}
     function normalizeEmail(value){return safeText(value).toLowerCase()}
@@ -1707,6 +1785,33 @@
     function hideNotice(){els.notice.className='notice';els.notice.textContent=''}
     function setAuthMessage(message){if(els.authMessage)els.authMessage.textContent=message}
     function setProtectedUiState(isReady){document.body.classList.toggle('auth-pending',!isReady)}
+
+    function loadUiPreferences(){
+      try{
+        const savedView = localStorage.getItem(PREF_KEYS.savedView);
+        const compactRows = localStorage.getItem(PREF_KEYS.compactRows);
+        const advancedFilters = localStorage.getItem(PREF_KEYS.advancedFilters);
+
+        if(savedView)state.savedView = savedView;
+        state.compactRows = compactRows === 'true';
+
+        if(advancedFilters === 'true'){
+          els.filtersPanel?.classList.add('show-advanced');
+          if(els.moreFiltersBtn){
+            els.moreFiltersBtn.textContent='Less filters';
+            els.moreFiltersBtn.classList.add('active');
+          }
+        }
+      }catch(error){
+        console.warn('Unable to load dashboard preferences:', error);
+      }
+    }
+
+    function saveUiPreference(key,value){
+      try{localStorage.setItem(key,String(value));}
+      catch(error){console.warn('Unable to save dashboard preference:', error);}
+    }
+
 
     function formatDateTime(value){
       if(!value)return '—';
@@ -2265,7 +2370,12 @@
           const score=basicScore(profile,app,job);
           return {id:app.id,app,profile,job,score,displayName:safeText(profile.full_name||app.email||'Unnamed candidate'),status:safeText(app.client_feedback_status||app.status||'submitted'),recruiter:safeText(app.recruiter_email||'Unassigned'),source:safeText(app.application_source||'—'),appliedAt:app.created_at,clientName:safeText(job.client_name||'—'),jobTitle:safeText(job.title||app.job_title||'—'),followUp:getFollowUpInfo(app)};
         });
-        populateFilters();applyFilters();markDashboardSynced();
+        populateFilters();
+        document.querySelectorAll('[data-saved-view]').forEach(btn=>{
+          btn.classList.toggle('active', btn.dataset.savedView === state.savedView);
+        });
+        applyFilters();
+        markDashboardSynced();
       }catch(error){console.error(error);els.applicationsTable.innerHTML=`<tr><td colspan="7" class="small">Unable to load dashboard: ${escapeHtml(error.message||String(error))}</td></tr>`;showNotice(`Unable to load dashboard: ${error.message||error}`,'error')}
       finally{state.loading=false}
     }
@@ -2286,6 +2396,7 @@
     }
     function setSavedView(name='all'){
       state.savedView = name || 'all';
+      saveUiPreference(PREF_KEYS.savedView, state.savedView);
 
       document.querySelectorAll('[data-saved-view]').forEach(btn=>{
         btn.classList.toggle('active', btn.dataset.savedView === state.savedView);
@@ -2356,8 +2467,21 @@
       renderKPIs();renderTable();updateDrawerNavMeta();updateFilterUi();
       if(state.selectedId&&!state.filteredRows.some(row=>row.id===state.selectedId))closeDrawer();
     }
+    function updateSavedViewCounts(){
+      const rows = state.allRows || [];
+      const count = fn => rows.filter(fn).length;
+
+      if(els.viewCountAll)els.viewCountAll.textContent = rows.length;
+      if(els.viewCountFollowups)els.viewCountFollowups.textContent = count(r=>hasOpenFollowUp(r));
+      if(els.viewCountInterview)els.viewCountInterview.textContent = count(r=>isInterviewStatus(r.status));
+      if(els.viewCountStrong)els.viewCountStrong.textContent = count(r=>scoreTier(r.score?.overall)==='strong');
+      if(els.viewCountClosed)els.viewCountClosed.textContent = count(r=>isClosedStatus(r.status) || isHiredStatus(r.status));
+      if(els.viewCountMissingResume)els.viewCountMissingResume.textContent = count(r=>!hasResumeEvidence(r.profile));
+    }
+
     function renderKPIs(){
       const rows=state.allRows;
+      updateSavedViewCounts();
       const count=fn=>rows.filter(fn).length;
       els.kpiApplications.textContent=rows.length;
       els.kpiUnassigned.textContent=count(r=>r.recruiter==='Unassigned');
@@ -2385,8 +2509,12 @@
     function renderTable(){
       document.body.classList.toggle('compact-rows', !!state.compactRows);
       if(els.densityToggleBtn)els.densityToggleBtn.textContent = state.compactRows ? 'Comfortable rows' : 'Compact rows';
-      els.tableCount.textContent=`${state.filteredRows.length} candidate${state.filteredRows.length===1?'':'s'}`;
-      if(!state.filteredRows.length){els.applicationsTable.innerHTML='<tr><td colspan="7" class="small">No candidates match the current filters.</td></tr>';return;}
+      const viewSuffix = state.savedView && state.savedView !== 'all' ? ` • ${document.querySelector(`[data-saved-view="${state.savedView}"]`)?.childNodes?.[0]?.textContent?.trim() || 'Saved view'}` : '';
+      els.tableCount.textContent=`${state.filteredRows.length} candidate${state.filteredRows.length===1?'':'s'}${viewSuffix}`;
+      if(!state.filteredRows.length){
+        els.applicationsTable.innerHTML='<tr><td colspan="7"><div class="empty-state"><strong>No candidates found</strong><span>Try changing the saved view, clearing filters, or searching a broader keyword.</span><button class="btn btn-xs btn-soft" type="button" data-action="clear-empty">Clear filters</button></div></td></tr>';
+        return;
+      }
       els.applicationsTable.innerHTML=state.filteredRows.map(row=>{
         const tone=getStatusTone(row.status);const scoreTone=scoreTier(row.score.overall)==='strong'?'good':scoreTier(row.score.overall)==='moderate'?'warn':'bad';
         const priority=getRowPriority(row);
@@ -2764,7 +2892,7 @@ async function parseSelectedResume(){
       [els.saveBtn, els.modalSaveBtn].forEach(btn=>{
         if(!btn)return;
         btn.disabled = !!isBusy;
-        btn.textContent = isBusy ? 'Saving...' : 'Save';
+        btn.textContent = isBusy ? 'Saving...' : 'Save Changes';
       });
       [els.markNeedsFollowUpBtn, els.markFollowedUpBtn].forEach(btn=>{
         if(btn)btn.disabled = !!isBusy;
@@ -3035,6 +3163,7 @@ async function parseSelectedResume(){
     function applyQuickFilterChip(filter){
       clearFilters(false);
       state.savedView = 'all';
+      saveUiPreference(PREF_KEYS.savedView, 'all');
       document.querySelectorAll('[data-saved-view]').forEach(btn=>btn.classList.toggle('active', btn.dataset.savedView === 'all'));
 
       if(filter === 'new')els.statusFilter.value = 'submitted';
@@ -3051,6 +3180,7 @@ async function parseSelectedResume(){
     function clearFilters(shouldApply=true){
       [els.searchInput,els.candidateNameFilter,els.statusFilter,els.recruiterFilter,els.followUpFilter,els.jobFilter,els.clientFilter,els.scoreFilter].forEach(el=>{if(el)el.value=''});
       state.savedView = 'all';
+      saveUiPreference(PREF_KEYS.savedView, 'all');
       document.querySelectorAll('[data-saved-view]').forEach(btn=>{
         btn.classList.toggle('active', btn.dataset.savedView === 'all');
       });
@@ -3112,6 +3242,7 @@ async function parseSelectedResume(){
 
       els.densityToggleBtn?.addEventListener('click',()=>{
         state.compactRows = !state.compactRows;
+        saveUiPreference(PREF_KEYS.compactRows, state.compactRows);
         renderTable();
       });
       els.clearFiltersBtn.addEventListener('click',clearFilters);els.quickClearFiltersBtn?.addEventListener('click',clearFilters);
@@ -3120,12 +3251,19 @@ async function parseSelectedResume(){
         const isOpen=els.filtersPanel?.classList.contains('show-advanced');
         els.moreFiltersBtn.textContent=isOpen?'Less filters':'More filters';
         els.moreFiltersBtn.classList.toggle('active', !!isOpen);
+        saveUiPreference(PREF_KEYS.advancedFilters, !!isOpen);
       });els.closeDrawerBtn.addEventListener('click',closeDrawer);els.prevBtn.addEventListener('click',()=>openSelectedOffset(-1));els.nextBtn.addEventListener('click',()=>openSelectedOffset(1));els.openCandidateWorkspaceBtn.addEventListener('click',openCandidateModal); els.openCandidateReviewBtn?.addEventListener('click',()=>openCandidateReviewByApplicationId(state.selectedId));
       els.headerLogoutBtn.addEventListener('click',handleLogout);els.sidebarSourcingBtn?.addEventListener('click',()=>showNotice('Sourcing link will be added after the base dashboard is stable.','info'));
       els.applicationsTable.addEventListener('click',async event=>{
-        const button=event.target.closest('button[data-action]');const tr=event.target.closest('tr[data-id]');if(!tr)return;const id=tr.getAttribute('data-id');
+        const button=event.target.closest('button[data-action]');
+        if(button?.getAttribute('data-action')==='clear-empty')return clearFilters();
+
+        const tr=event.target.closest('tr[data-id]');
+        if(!tr)return;
+        const id=tr.getAttribute('data-id');
         if(!button)return openDrawer(id);
         const action=button.getAttribute('data-action');
+        if(action==='clear-empty')return clearFilters();
         if(action==='open')return openDrawer(id);
         if(action==='review'){ return openCandidateReviewByApplicationId(id); }
       });
@@ -3149,7 +3287,7 @@ async function parseSelectedResume(){
       return true;
     }
     async function startDashboardApp(){
-      if(!initClient())return;bindEvents();setProtectedUiState(false);
+      if(!initClient())return;loadUiPreferences();bindEvents();setProtectedUiState(false);
       try{const allowed=await requireRecruiterAccess();if(!allowed)return;await loadDashboard();}
       catch(error){console.error(error);setAuthMessage(error?.message||'Unable to verify recruiter access.');showNotice(`Unable to start dashboard: ${error?.message||error}`,'error')}
     }
