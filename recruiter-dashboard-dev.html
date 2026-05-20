@@ -1333,7 +1333,22 @@
       }
     }
 
-  </style>
+  
+    /* Unassigned visibility safety */
+    .saved-view[data-saved-view="unassigned"]{
+      border-color:#fedf89;
+    }
+    .saved-view[data-saved-view="unassigned"].active{
+      border-color:#fedf89;
+      background:linear-gradient(180deg,#fffaeb,#ffffff);
+      color:var(--warn);
+    }
+    .filter-chip[data-chip-filter="unassigned"].active{
+      background:var(--warn);
+      border-color:var(--warn);
+      color:#fff;
+    }
+</style>
 </head>
 <body class="auth-pending">
   <div class="auth-screen" id="authScreen">
@@ -1453,6 +1468,7 @@
 
         <div class="actions" style="gap:10px;flex-wrap:wrap;">
           <button class="btn btn-soft" type="button" data-quick-filter="needs_review">Needs review</button>
+          <button class="btn btn-soft" type="button" data-quick-filter="unassigned">Unassigned</button>
           <button class="btn btn-soft" type="button" data-quick-filter="follow_up">Follow-ups</button>
           <button class="btn btn-soft" type="button" data-quick-filter="high_match">Strong matches</button>
           <button class="btn btn-soft" type="button" id="quickClearFiltersBtn">Clear filters</button>
@@ -1475,6 +1491,7 @@
 
           <div class="saved-view-row" aria-label="Saved recruiter views">
             <button class="saved-view active" type="button" data-saved-view="all">All Candidates <span id="viewCountAll">0</span></button>
+            <button class="saved-view" type="button" data-saved-view="unassigned">Unassigned <span id="viewCountUnassigned">0</span></button>
             <button class="saved-view" type="button" data-saved-view="my_followups">Follow-ups <span id="viewCountFollowups">0</span></button>
             <button class="saved-view" type="button" data-saved-view="interview_pipeline">Interview Pipeline <span id="viewCountInterview">0</span></button>
             <button class="saved-view" type="button" data-saved-view="strong_matches">Strong Matches <span id="viewCountStrong">0</span></button>
@@ -1486,6 +1503,7 @@
           <div class="filter-toolbar">
             <div class="filter-chip-row" id="filterChipRow" aria-label="Quick candidate filters">
               <button class="filter-chip active" type="button" data-chip-filter="all">All</button>
+              <button class="filter-chip" type="button" data-chip-filter="unassigned">Unassigned</button>
               <button class="filter-chip" type="button" data-chip-filter="new">New</button>
               <button class="filter-chip" type="button" data-chip-filter="follow_up">Follow-ups</button>
               <button class="filter-chip" type="button" data-chip-filter="interview">Interview</button>
@@ -1766,7 +1784,7 @@
   </div>
 
   <script>
-    console.log('TalentBuzz recruiter-dashboard-global-ready v2026-05-20 loaded');
+    console.log('TalentBuzz recruiter-dashboard-unassigned-safe v2026-05-20 loaded');
 
     const CONFIG = {
       SUPABASE_URL: window.TALENTBUZZ_SUPABASE_URL || localStorage.getItem('TALENTBUZZ_SUPABASE_URL') || '',
@@ -1822,6 +1840,13 @@
     function safeText(value){return value == null ? '' : String(value).trim()}
     function escapeHtml(value){return safeText(value).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;')}
     function normalizeEmail(value){return safeText(value).toLowerCase()}
+    function isUnassignedRecruiter(rowOrValue){
+      const value = typeof rowOrValue === 'string'
+        ? rowOrValue
+        : (rowOrValue?.recruiter || rowOrValue?.app?.recruiter_email || '');
+      const text = safeText(value).toLowerCase();
+      return !text || text === 'unassigned' || text === 'null' || text === 'none' || text === '—';
+    }
     function showNotice(message,type='info'){els.notice.className=`notice show ${type}`;els.notice.textContent=message}
     function hideNotice(){els.notice.className='notice';els.notice.textContent=''}
     function setAuthMessage(message){if(els.authMessage)els.authMessage.textContent=message}
@@ -1851,6 +1876,14 @@
     function saveUiPreference(key,value){
       try{localStorage.setItem(key,String(value));}
       catch(error){console.warn('Unable to save dashboard preference:', error);}
+    }
+
+    function normalizeSavedViewPreference(){
+      const savedViewButton = document.querySelector(`[data-saved-view="${state.savedView}"]`);
+      if(!savedViewButton){
+        state.savedView = 'all';
+        saveUiPreference(PREF_KEYS.savedView, 'all');
+      }
     }
 
 
@@ -2430,8 +2463,10 @@
           const profile=profilesById.get(app.applicant_profile_id)||profiles.find(p=>normalizeEmail(p.email)===normalizeEmail(app.email))||{};
           const job=jobsById.get(app.job_id)||jobs.find(j=>safeText(j.title)===safeText(app.job_title))||{};
           const score=basicScore(profile,app,job);
-          return {id:app.id,app,profile,job,score,displayName:safeText(profile.full_name||app.email||'Unnamed candidate'),status:safeText(app.client_feedback_status||app.status||'submitted'),recruiter:safeText(app.recruiter_email||'Unassigned'),source:safeText(app.application_source||'—'),appliedAt:app.created_at,clientName:safeText(job.client_name||'—'),jobTitle:safeText(job.title||app.job_title||'—'),followUp:getFollowUpInfo(app)};
+          return {id:app.id,app,profile,job,score,displayName:safeText(profile.full_name||app.email||'Unnamed candidate'),status:safeText(app.client_feedback_status||app.status||'submitted'),recruiter:safeText(app.recruiter_email)||'Unassigned',source:safeText(app.application_source||'—'),appliedAt:app.created_at,clientName:safeText(job.client_name||'—'),jobTitle:safeText(job.title||app.job_title||'—'),followUp:getFollowUpInfo(app)};
         });
+        console.log('Unassigned candidates loaded:', state.allRows.filter(row => isUnassignedRecruiter(row)).length);
+
         populateFilters();
         document.querySelectorAll('[data-saved-view]').forEach(btn=>{
           btn.classList.toggle('active', btn.dataset.savedView === state.savedView);
@@ -2452,7 +2487,7 @@
       populateSelect(els.statusFilter,[...STATUS_OPTIONS,...state.allRows.map(r=>r.status)],'All statuses');
       populateSelect(els.editStatus,[...STATUS_OPTIONS,...state.allRows.map(r=>r.status)],'Select actual status');
       populateSelect(els.modalEditStatus,[...STATUS_OPTIONS,...state.allRows.map(r=>r.status)],'Select actual status');
-      populateSelect(els.recruiterFilter,state.allRows.map(r=>r.recruiter).filter(x=>x!=='Unassigned'),'All recruiters');
+      populateSelect(els.recruiterFilter,state.allRows.map(r=>r.recruiter || 'Unassigned'),'All recruiters');
       populateSelect(els.jobFilter,state.allRows.map(r=>r.jobTitle).filter(x=>x!=='—'),'All jobs');
       populateSelect(els.clientFilter,state.allRows.map(r=>r.clientName).filter(x=>x!=='—'),'All clients');
       populateSelect(els.countryFilter,state.allRows.map(r=>getCountry(r.profile)).filter(Boolean),'All countries');
@@ -2471,6 +2506,8 @@
 
     function rowMatchesSavedView(row){
       switch(state.savedView){
+        case 'unassigned':
+          return isUnassignedRecruiter(row);
         case 'my_followups':
           return hasOpenFollowUp(row);
         case 'interview_pipeline':
@@ -2531,7 +2568,11 @@
         if(candidateQuery&&!candidateHay.includes(candidateQuery))return false;
         if(query&&!hay.includes(query))return false;
         if(status&&normalizeStatus(row.status)!==status)return false;
-        if(recruiter&&row.recruiter.toLowerCase()!==recruiter)return false;
+        if(recruiter){
+          if(recruiter === 'unassigned'){
+            if(!isUnassignedRecruiter(row))return false;
+          }else if(row.recruiter.toLowerCase()!==recruiter)return false;
+        }
         if(followUp){ if(followUp==='all_open'){ if(!hasOpenFollowUp(row))return false; } else if(row.followUp?.key!==followUp)return false; }
         if(job&&row.jobTitle.toLowerCase()!==job)return false;
         if(client&&row.clientName.toLowerCase()!==client)return false;
@@ -2548,6 +2589,7 @@
       const count = fn => rows.filter(fn).length;
 
       if(els.viewCountAll)els.viewCountAll.textContent = rows.length;
+      if(els.viewCountUnassigned)els.viewCountUnassigned.textContent = count(r=>isUnassignedRecruiter(r));
       if(els.viewCountFollowups)els.viewCountFollowups.textContent = count(r=>hasOpenFollowUp(r));
       if(els.viewCountInterview)els.viewCountInterview.textContent = count(r=>isInterviewStatus(r.status));
       if(els.viewCountStrong)els.viewCountStrong.textContent = count(r=>scoreTier(r.score?.overall)==='strong');
@@ -2561,7 +2603,7 @@
       updateSavedViewCounts();
       const count=fn=>rows.filter(fn).length;
       els.kpiApplications.textContent=rows.length;
-      els.kpiUnassigned.textContent=count(r=>r.recruiter==='Unassigned');
+      els.kpiUnassigned.textContent=count(r=>isUnassignedRecruiter(r));
       els.kpiInterview.textContent=count(r=>['for interview','shortlisted','assessment'].includes(normalizeStatus(r.status)));
       els.kpiOffered.textContent=count(r=>normalizeStatus(r.status)==='offered jo');
 
@@ -2580,7 +2622,7 @@
       els.actionNeedsReview.textContent=reviewCount;
       els.actionFollowUps.textContent=followUpCount;
       els.actionHighMatch.textContent=count(r=>scoreTier(r.score.overall)==='strong');
-      els.newApplicantsBadge.textContent=String(count(r=>r.recruiter==='Unassigned'));
+      els.newApplicantsBadge.textContent=String(count(r=>isUnassignedRecruiter(r)));
     }
 
     function renderTable(){
@@ -2589,7 +2631,7 @@
       const viewSuffix = state.savedView && state.savedView !== 'all' ? ` • ${document.querySelector(`[data-saved-view="${state.savedView}"]`)?.childNodes?.[0]?.textContent?.trim() || 'Saved view'}` : '';
       els.tableCount.textContent=`${state.filteredRows.length} candidate${state.filteredRows.length===1?'':'s'}${viewSuffix}`;
       if(!state.filteredRows.length){
-        els.applicationsTable.innerHTML='<tr><td colspan="7"><div class="empty-state"><strong>No candidates found</strong><span>Try changing the saved view, clearing filters, or searching a broader keyword.</span><button class="btn btn-xs btn-soft" type="button" data-action="clear-empty">Clear filters</button></div></td></tr>';
+        els.applicationsTable.innerHTML='<tr><td colspan="7"><div class="empty-state"><strong>No candidates found</strong><span>Try All Candidates, Unassigned, clearing filters, or searching a broader keyword.</span><button class="btn btn-xs btn-soft" type="button" data-action="clear-empty">Clear filters</button></div></td></tr>';
         return;
       }
       els.applicationsTable.innerHTML=state.filteredRows.map(row=>{
@@ -3233,7 +3275,8 @@ async function parseSelectedResume(){
       const score = safeText(els.scoreFilter?.value);
 
       let active = 'all';
-      if(status === 'submitted')active = 'new';
+      if(state.savedView === 'unassigned' || safeText(els.recruiterFilter?.value).toLowerCase() === 'unassigned')active = 'unassigned';
+      else if(status === 'submitted')active = 'new';
       else if(followUp === 'all_open')active = 'follow_up';
       else if(['for interview','shortlisted','assessment'].includes(status))active = 'interview';
       else if(status === 'endorsed')active = 'endorsed';
@@ -3251,6 +3294,11 @@ async function parseSelectedResume(){
       saveUiPreference(PREF_KEYS.savedView, 'all');
       document.querySelectorAll('[data-saved-view]').forEach(btn=>btn.classList.toggle('active', btn.dataset.savedView === 'all'));
 
+      if(filter === 'unassigned'){
+        state.savedView = 'unassigned';
+        saveUiPreference(PREF_KEYS.savedView, 'unassigned');
+        document.querySelectorAll('[data-saved-view]').forEach(btn=>btn.classList.toggle('active', btn.dataset.savedView === 'unassigned'));
+      }
       if(filter === 'new')els.statusFilter.value = 'submitted';
       if(filter === 'follow_up')els.followUpFilter.value = 'all_open';
       if(filter === 'interview')els.statusFilter.value = 'for interview';
@@ -3309,10 +3357,14 @@ async function parseSelectedResume(){
       document.querySelectorAll('[data-quick-filter]').forEach(btn=>btn.addEventListener('click',()=>{
         clearFilters(false);
         const f=btn.dataset.quickFilter;
-        if(f==='follow_up')els.followUpFilter.value='all_open';
-        if(f==='high_match')els.scoreFilter.value='strong';
-        if(f==='needs_review')els.statusFilter.value='submitted';
-        applyFilters();
+        if(f==='unassigned'){
+          setSavedView('unassigned');
+        }else{
+          if(f==='follow_up')els.followUpFilter.value='all_open';
+          if(f==='high_match')els.scoreFilter.value='strong';
+          if(f==='needs_review')els.statusFilter.value='submitted';
+          applyFilters();
+        }
         document.getElementById('pipeline')?.scrollIntoView({behavior:'smooth',block:'start'});
       }));
 
