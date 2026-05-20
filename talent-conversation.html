@@ -77,6 +77,14 @@ audio{width:100%;margin-top:14px}
 @keyframes siftPulse{0%,100%{height:8px;opacity:.55}50%{height:22px;opacity:1}}
 .hidden-audio{display:none}
 @media (max-width:720px){.page{width:min(var(--max),calc(100% - 22px));padding-top:22px}.card-head,.card-body,.summary,.empty{padding:20px}.hero h1{font-size:2.2rem}.actions,.actions-right{width:100%}button,.btn{width:100%}}
+
+.warm-guidance{margin:16px 0 0;border:1px solid var(--green-line);background:linear-gradient(180deg,#f0fdf4,#ffffff);border-radius:20px;padding:14px 15px;color:#166534;font-size:.84rem;line-height:1.65;font-weight:600}
+.warm-guidance strong{display:block;color:#14532d;margin-bottom:5px;font-size:.86rem}
+.trust-note{margin-top:12px;border:1px solid var(--blue-line);background:linear-gradient(180deg,#eff6ff,#fff);border-radius:18px;padding:12px 14px;color:var(--blue-deep);font-size:.8rem;line-height:1.6;font-weight:650}
+.micro-feedback{display:none;margin-top:12px;border:1px solid var(--green-line);background:var(--green-soft);border-radius:16px;padding:11px 13px;color:#166534;font-size:.8rem;line-height:1.55;font-weight:700}
+.micro-feedback.show{display:block}
+@media(max-width:720px){.recorder-actions{position:sticky;bottom:10px;background:rgba(255,255,255,.94);backdrop-filter:blur(10px);border:1px solid var(--line);border-radius:18px;padding:10px;z-index:5}.warm-guidance,.trust-note{font-size:.78rem}}
+
 </style>
 </head>
 
@@ -123,7 +131,7 @@ audio{width:100%;margin-top:14px}
     <section class="hero">
       <h1>Talent Conversation</h1>
       <p id="conversationIntro">
-        This guided conversation helps us better understand your experience, communication style, and role alignment.
+        This guided conversation helps us understand your experience, communication style, and role alignment. Take your time and answer naturally.
       </p>
     </section>
 
@@ -154,10 +162,15 @@ audio{width:100%;margin-top:14px}
 
             <div class="metadata" id="metadata"></div>
 
+            <div class="warm-guidance" id="warmGuidance">
+              <strong>Take your time.</strong>
+              Speak naturally in your preferred language or speaking style. We evaluate your communication and thought process, not accent perfection. You can re-record before saving.
+            </div>
+
             <div class="sift-audio-row">
               <button type="button" id="playQuestionBtn">Play question</button>
               <span class="sift-audio-status" id="siftAudioStatus">
-                TalentBuzz will ask each question out loud once. Tap Stop question if you need to interrupt playback.
+                Tap Play question to hear it. Tap Stop question to stop playback. Recording starts only when you press Start recording.
               </span>
             </div>
 
@@ -183,8 +196,14 @@ audio{width:100%;margin-top:14px}
             </div>
 
             <div class="conversation-note">
-              Recording will automatically begin after each question finishes playing. Speak naturally and click “Finish response” to stop.
+              Tap Start recording when you are ready. Speak naturally and click “Finish response” to stop.
             </div>
+
+            <div class="trust-note">
+              There are no perfect answers. A clear, honest response is better than a memorized one.
+            </div>
+
+            <div class="micro-feedback" id="microFeedback"></div>
           </div>
         </div>
 
@@ -194,7 +213,7 @@ audio{width:100%;margin-top:14px}
           <button type="button" class="btn-ghost" id="backBtn">Back</button>
 
           <div class="actions-right">
-            <button type="button" id="saveBtn">Save answer</button>
+            <button type="button" id="saveBtn">Save response</button>
             <button type="button" class="btn-primary" id="nextBtn">Next</button>
           </div>
         </div>
@@ -227,7 +246,7 @@ audio{width:100%;margin-top:14px}
   </main>
 
   <script>
-    console.log("TalentBuzz talent-conversation ElevenLabs playback-stop-fix v2026-05-20 loaded");
+    console.log("TalentBuzz talent-conversation calm-finalize-safe v2026-05-20 loaded");
 
     const SUPABASE_URL = "https://dilalntcxmvdcmwxjcct.supabase.co";
     const SUPABASE_ANON_KEY = "sb_publishable_HrLVIUwnaRo54yijtrbWBQ_1aeb4ezs";
@@ -272,7 +291,8 @@ audio{width:100%;margin-top:14px}
       playQuestionBtn: document.getElementById("playQuestionBtn"),
       siftQuestionAudio: document.getElementById("siftQuestionAudio"),
       siftAudioStatus: document.getElementById("siftAudioStatus"),
-      siftWave: document.getElementById("siftWave")
+      siftWave: document.getElementById("siftWave"),
+      microFeedback: document.getElementById("microFeedback")
     };
 
     let conversation = null;
@@ -286,10 +306,11 @@ audio{width:100%;margin-top:14px}
     let recordingSeconds = 0;
     let timerInterval = null;
     let questionAudioUrls = {};
-    let autoStartAfterSift = true;
+    let autoStartAfterSift = false;
     let isSiftSpeaking = false;
     let activeSpeechToken = 0;
     let hasAutoPlayedCurrentQuestion = false;
+    let activeAudioObjectUrl = null;
 
     function showStatus(message, type = "info") {
       els.statusBox.className = `status show ${type}`;
@@ -305,6 +326,19 @@ audio{width:100%;margin-top:14px}
       els.summaryStatus.className = `status show ${type}`;
       els.summaryStatus.textContent = message;
     }
+
+    function showMicroFeedback(message) {
+      if (!els.microFeedback) return;
+      els.microFeedback.textContent = message;
+      els.microFeedback.classList.add("show");
+    }
+
+    function clearMicroFeedback() {
+      if (!els.microFeedback) return;
+      els.microFeedback.textContent = "";
+      els.microFeedback.classList.remove("show");
+    }
+
 
     function describeSupabaseFunctionError(functionName, error, data) {
       const details =
@@ -356,16 +390,19 @@ audio{width:100%;margin-top:14px}
       isSiftSpeaking = false;
 
       if (canUseBrowserVoice()) {
-        window.speechSynthesis.cancel();
+        try {
+          window.speechSynthesis.cancel();
+        } catch (_error) {}
       }
 
       if (els.siftQuestionAudio) {
         try {
           els.siftQuestionAudio.pause();
-          els.siftQuestionAudio.currentTime = 0;
           els.siftQuestionAudio.onended = null;
           els.siftQuestionAudio.onerror = null;
           els.siftQuestionAudio.onpause = null;
+          els.siftQuestionAudio.currentTime = 0;
+          els.siftQuestionAudio.src = "";
           els.siftQuestionAudio.removeAttribute("src");
           els.siftQuestionAudio.load();
         } catch (audioError) {
@@ -373,11 +410,21 @@ audio{width:100%;margin-top:14px}
         }
       }
 
+      if (activeAudioObjectUrl) {
+        try {
+          URL.revokeObjectURL(activeAudioObjectUrl);
+        } catch (_error) {}
+        activeAudioObjectUrl = null;
+      }
+
       if (els.siftWave) {
         els.siftWave.classList.remove("live");
       }
-    }
 
+      if (els.playQuestionBtn) {
+        els.playQuestionBtn.textContent = "Play question";
+      }
+    }
 
     function answeredCount() {
       return questions.filter(q => responseFor(q.id)?.audio_url).length;
@@ -489,6 +536,18 @@ audio{width:100%;margin-top:14px}
       els.playQuestionBtn.textContent = "Play question";
     }
 
+    function base64ToBlob(base64, mimeType = "audio/mpeg") {
+      const binary = atob(base64);
+      const len = binary.length;
+      const bytes = new Uint8Array(len);
+
+      for (let i = 0; i < len; i += 1) {
+        bytes[i] = binary.charCodeAt(i);
+      }
+
+      return new Blob([bytes], { type: mimeType });
+    }
+
     async function getSiftVoiceAudio(question) {
       const payload = typeof question === "string"
         ? { text: question, language_code: detectSpeechLanguage(question), model_id: "eleven_multilingual_v2" }
@@ -517,7 +576,8 @@ audio{width:100%;margin-top:14px}
         }
 
         const mimeType = data.mime_type || "audio/mpeg";
-        const audioUrl = `data:${mimeType};base64,${data.audio_base64}`;
+        const audioBlob = base64ToBlob(data.audio_base64, mimeType);
+        const audioUrl = URL.createObjectURL(audioBlob);
 
         questionAudioUrls[cacheKey] = audioUrl;
 
@@ -525,13 +585,13 @@ audio{width:100%;margin-top:14px}
           provider: data.provider || "unknown",
           model_id: data.model_id || payload.model_id,
           language_code: payload.language_code,
-          voice_id: data.voice_id ? "configured" : "not returned"
+          bytes: data.audio_bytes || audioBlob.size || 0
         });
 
         return audioUrl;
       } catch (error) {
         console.error("ElevenLabs voice generation failed. Browser voice fallback may be used.", error);
-        els.siftAudioStatus.textContent = "ElevenLabs voice unavailable. Using device voice fallback.";
+        els.siftAudioStatus.textContent = "ElevenLabs voice unavailable. You can still record your answer.";
         return null;
       }
     }
@@ -541,12 +601,13 @@ audio{width:100%;margin-top:14px}
       if (!question || !question.question_text) return;
 
       if (mediaRecorder && mediaRecorder.state === "recording") {
+        showStatus("Please finish your response before replaying the question.", "info");
         return;
       }
 
       if (isSiftSpeaking) {
         stopSiftSpeech();
-        els.siftAudioStatus.textContent = "Question playback stopped. You can replay it or start recording.";
+        els.siftAudioStatus.textContent = "Question playback stopped.";
         els.startRecordingBtn.disabled = false;
         return;
       }
@@ -559,10 +620,10 @@ audio{width:100%;margin-top:14px}
 
       els.playQuestionBtn.textContent = "Stop question";
       els.siftWave.classList.add("live");
-      els.siftAudioStatus.textContent = "TalentBuzz is asking the question...";
-      els.startRecordingBtn.disabled = true;
+      els.siftAudioStatus.textContent = "Playing question...";
+      els.startRecordingBtn.disabled = false;
       els.stopRecordingBtn.disabled = true;
-      els.recordingStateText.textContent = "Listen to the question first";
+      els.recordingStateText.textContent = "Listen, then start recording when ready";
 
       const finishQuestionPlayback = () => {
         if (speechToken !== activeSpeechToken) return;
@@ -570,13 +631,8 @@ audio{width:100%;margin-top:14px}
         isSiftSpeaking = false;
         els.playQuestionBtn.textContent = "Play question";
         els.siftWave.classList.remove("live");
-        els.siftAudioStatus.textContent = "Your turn. Recording will start now.";
-
-        if (autoStartAfterSift && !(mediaRecorder && mediaRecorder.state === "recording")) {
-          startRecording();
-        } else {
-          els.startRecordingBtn.disabled = false;
-        }
+        els.siftAudioStatus.textContent = "Question finished. Press Start recording when ready.";
+        els.startRecordingBtn.disabled = false;
       };
 
       const failQuestionPlayback = (message = "Voice playback unavailable. You can record your answer now.") => {
@@ -595,6 +651,7 @@ audio{width:100%;margin-top:14px}
 
       if (audioUrl) {
         try {
+          activeAudioObjectUrl = audioUrl;
           els.siftQuestionAudio.pause();
           els.siftQuestionAudio.currentTime = 0;
           els.siftQuestionAudio.onended = finishQuestionPlayback;
@@ -605,39 +662,13 @@ audio{width:100%;margin-top:14px}
           await els.siftQuestionAudio.play();
         } catch (playError) {
           console.error("ElevenLabs audio playback was blocked or failed.", playError);
-          failQuestionPlayback("Tap Play question to hear the voice, then record your answer.");
+          failQuestionPlayback("Tap Play question again, or start recording when ready.");
         }
 
         return;
       }
 
-      if (canUseBrowserVoice()) {
-        const utterance = new SpeechSynthesisUtterance(question.question_text);
-        const detectedLanguage = detectSpeechLanguage(question.question_text);
-
-        utterance.lang = detectedLanguage;
-        utterance.rate = 0.92;
-        utterance.pitch = 1.0;
-
-        const matchedVoice = getSpeechVoiceForLanguage(detectedLanguage);
-        if (matchedVoice) {
-          utterance.voice = matchedVoice;
-        }
-
-        console.warn("Using browser voice fallback", {
-          language: detectedLanguage,
-          voice: matchedVoice?.name || "default browser voice"
-        });
-
-        utterance.onend = finishQuestionPlayback;
-        utterance.onerror = () => failQuestionPlayback();
-
-        window.speechSynthesis.cancel();
-        window.speechSynthesis.speak(utterance);
-        return;
-      }
-
-      failQuestionPlayback();
+      failQuestionPlayback("Voice playback unavailable. Press Start recording when ready.");
     }
 
     function renderQuestion() {
@@ -646,6 +677,7 @@ audio{width:100%;margin-top:14px}
 
       setConversationVisible();
       clearStatus();
+      clearMicroFeedback();
       hasAutoPlayedCurrentQuestion = false;
 
       const total = questions.length;
@@ -672,15 +704,8 @@ audio{width:100%;margin-top:14px}
       els.backBtn.disabled = currentIndex === 0;
       els.nextBtn.textContent = currentIndex === total - 1 ? "Review" : "Next";
 
-      setTimeout(() => {
-        const latestQuestion = currentQuestion();
-        const latestExisting = latestQuestion ? responseFor(latestQuestion.id) : null;
-
-        if (!hasAutoPlayedCurrentQuestion && latestQuestion?.id === question.id && !latestExisting?.audio_url) {
-          hasAutoPlayedCurrentQuestion = true;
-          speakWithSift();
-        }
-      }, 500);
+      els.siftAudioStatus.textContent = "Tap Play question to hear it, or Start recording when ready.";
+      els.playQuestionBtn.textContent = "Play question";
     }
 
 
@@ -1065,6 +1090,15 @@ audio{width:100%;margin-top:14px}
 
     function stopRecording() {
       try {
+        if (!mediaRecorder || mediaRecorder.state === "inactive") {
+          clearInterval(timerInterval);
+          timerInterval = null;
+          els.recordDot.classList.remove("live");
+          els.stopRecordingBtn.disabled = true;
+          els.startRecordingBtn.disabled = false;
+          return;
+        }
+
         if (mediaRecorder && mediaRecorder.state === "recording") {
           mediaRecorder.stop();
         }
@@ -1183,6 +1217,8 @@ audio{width:100%;margin-top:14px}
 
         responses[question.id] = data;
 
+        showMicroFeedback("Response saved. Great — you can continue when ready.");
+
         showStatus("Analyzing your response...", "info");
 
         try {
@@ -1290,18 +1326,34 @@ audio{width:100%;margin-top:14px}
 
         showSummaryStatus("Finalizing your Talent Conversation...", "info");
 
-        const finalizeData = await invokeEdgeFunction("finalize-talent-conversation", {
-          conversation_id: conversation.id,
-          application_id: applicationId || conversation.application_id || null,
-          candidate_email: getCandidateEmail() || null,
-          candidate_name: getCandidateName()
-        });
+        let finalizeData = {};
 
-        if (finalizeData?.conversation) {
-          conversation = {
-            ...conversation,
-            ...finalizeData.conversation
+        try {
+          finalizeData = await invokeEdgeFunction("finalize-talent-conversation", {
+            conversation_id: conversation.id,
+            application_id: applicationId || conversation.application_id || null,
+            candidate_email: getCandidateEmail() || null,
+            candidate_name: getCandidateName()
+          });
+
+          if (finalizeData?.conversation) {
+            conversation = {
+              ...conversation,
+              ...finalizeData.conversation
+            };
+          }
+        } catch (finalizeError) {
+          console.warn("finalize-talent-conversation failed. Using local finalization fallback.", finalizeError);
+
+          finalizeData = {
+            finalize_failed: true,
+            finalize_error: finalizeError?.message || String(finalizeError || ""),
+            summary:
+              `${getCandidateName()} completed the Talent Conversation for ${getTargetRole()}. ` +
+              `${answeredCount()} of ${questions.length} responses were recorded.`
           };
+
+          showSummaryStatus("Final review service is unavailable, but your recordings were saved. Completing submission safely...", "info");
         }
 
         const reviewPayload = buildLocalReviewPayload(finalizeData);
@@ -1325,7 +1377,7 @@ audio{width:100%;margin-top:14px}
         console.error(error);
         showSummaryStatus(
           error.message ||
-          "Unable to submit conversation. Please check finalize-talent-conversation logs.",
+          "Unable to submit conversation. Your recordings may already be saved, but final submission needs review.",
           "error"
         );
         els.submitBtn.disabled = false;
@@ -1407,11 +1459,11 @@ audio{width:100%;margin-top:14px}
     }
 
     els.playQuestionBtn.addEventListener("click", () => {
-      autoStartAfterSift = true;
+      autoStartAfterSift = false;
 
       if (isSiftSpeaking) {
         stopSiftSpeech();
-        els.siftAudioStatus.textContent = "Question playback stopped. You can replay it or start recording.";
+        els.siftAudioStatus.textContent = "Question playback stopped.";
         els.startRecordingBtn.disabled = false;
         return;
       }
