@@ -1784,7 +1784,7 @@
   </div>
 
   <script>
-    console.log('TalentBuzz recruiter-dashboard-unassigned-safe v2026-05-20 loaded');
+    console.log('TalentBuzz recruiter-dashboard-search-unassigned-safe v2026-05-20 loaded');
 
     const CONFIG = {
       SUPABASE_URL: window.TALENTBUZZ_SUPABASE_URL || localStorage.getItem('TALENTBUZZ_SUPABASE_URL') || '',
@@ -1814,7 +1814,7 @@
     const els = {
       authMessage:$('authMessage'), notice:$('notice'),
       sidebarUserName:$('sidebarUserName'), sidebarUserEmail:$('sidebarUserEmail'),
-      searchInput:$('searchInput'), candidateNameFilter:$('candidateNameFilter'), statusFilter:$('statusFilter'), recruiterFilter:$('recruiterFilter'), followUpFilter:$('followUpFilter'), jobFilter:$('jobFilter'), clientFilter:$('clientFilter'), scoreFilter:$('scoreFilter'), countryFilter:$('countryFilter'), workSetupFilter:$('workSetupFilter'), clearFiltersBtn:$('clearFiltersBtn'), filtersPanel:$('filtersPanel'), moreFiltersBtn:$('moreFiltersBtn'), filterChipRow:$('filterChipRow'), activeFilterCount:$('activeFilterCount'), densityToggleBtn:$('densityToggleBtn'), viewCountAll:$('viewCountAll'), viewCountFollowups:$('viewCountFollowups'), viewCountInterview:$('viewCountInterview'), viewCountStrong:$('viewCountStrong'), viewCountClosed:$('viewCountClosed'), viewCountGlobalReady:$('viewCountGlobalReady'), viewCountMissingResume:$('viewCountMissingResume'),
+      searchInput:$('searchInput'), candidateNameFilter:$('candidateNameFilter'), statusFilter:$('statusFilter'), recruiterFilter:$('recruiterFilter'), followUpFilter:$('followUpFilter'), jobFilter:$('jobFilter'), clientFilter:$('clientFilter'), scoreFilter:$('scoreFilter'), countryFilter:$('countryFilter'), workSetupFilter:$('workSetupFilter'), clearFiltersBtn:$('clearFiltersBtn'), filtersPanel:$('filtersPanel'), moreFiltersBtn:$('moreFiltersBtn'), filterChipRow:$('filterChipRow'), activeFilterCount:$('activeFilterCount'), densityToggleBtn:$('densityToggleBtn'), viewCountAll:$('viewCountAll'), viewCountUnassigned:$('viewCountUnassigned'), viewCountFollowups:$('viewCountFollowups'), viewCountInterview:$('viewCountInterview'), viewCountStrong:$('viewCountStrong'), viewCountClosed:$('viewCountClosed'), viewCountGlobalReady:$('viewCountGlobalReady'), viewCountMissingResume:$('viewCountMissingResume'),
       applicationsTable:$('applicationsTable'), tableCount:$('tableCount'), workspace:$('workspace'),
       kpiApplications:$('kpiApplications'), kpiUnassigned:$('kpiUnassigned'), kpiInterview:$('kpiInterview'), kpiOffered:$('kpiOffered'), kpiFollowUp:$('kpiFollowUp'), kpiReview:$('kpiReview'), kpiHired:$('kpiHired'), kpiOnboarded:$('kpiOnboarded'), kpiWithdrawn:$('kpiWithdrawn'),
       actionNeedsReview:$('actionNeedsReview'), actionFollowUps:$('actionFollowUps'), actionHighMatch:$('actionHighMatch'),
@@ -1830,6 +1830,8 @@
     let supabaseClient = null;
     let dashboardLastSyncedAt = null;
 
+    const DEFAULT_SAVED_VIEW = 'all';
+
     const PREF_KEYS = {
       savedView: 'talentbuzz.recruiterDashboard.savedView',
       compactRows: 'talentbuzz.recruiterDashboard.compactRows',
@@ -1841,11 +1843,19 @@
     function escapeHtml(value){return safeText(value).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;')}
     function normalizeEmail(value){return safeText(value).toLowerCase()}
     function isUnassignedRecruiter(rowOrValue){
+      const row = typeof rowOrValue === 'object' ? rowOrValue : null;
       const value = typeof rowOrValue === 'string'
         ? rowOrValue
-        : (rowOrValue?.recruiter || rowOrValue?.app?.recruiter_email || '');
+        : (
+            row?.recruiter ||
+            row?.app?.recruiter_email ||
+            row?.app?.assigned_recruiter_email ||
+            row?.app?.assigned_to ||
+            row?.app?.recruiter_id ||
+            ''
+          );
       const text = safeText(value).toLowerCase();
-      return !text || text === 'unassigned' || text === 'null' || text === 'none' || text === '—';
+      return !text || text === 'unassigned' || text === 'null' || text === 'none' || text === '—' || text === 'n/a';
     }
     function showNotice(message,type='info'){els.notice.className=`notice show ${type}`;els.notice.textContent=message}
     function hideNotice(){els.notice.className='notice';els.notice.textContent=''}
@@ -1858,7 +1868,8 @@
         const compactRows = localStorage.getItem(PREF_KEYS.compactRows);
         const advancedFilters = localStorage.getItem(PREF_KEYS.advancedFilters);
 
-        if(savedView)state.savedView = savedView;
+        const urlSavedView = new URLSearchParams(window.location.search).get('view');
+        state.savedView = urlSavedView || DEFAULT_SAVED_VIEW;
         state.compactRows = compactRows === 'true';
 
         if(advancedFilters === 'true'){
@@ -1881,8 +1892,8 @@
     function normalizeSavedViewPreference(){
       const savedViewButton = document.querySelector(`[data-saved-view="${state.savedView}"]`);
       if(!savedViewButton){
-        state.savedView = 'all';
-        saveUiPreference(PREF_KEYS.savedView, 'all');
+        state.savedView = DEFAULT_SAVED_VIEW;
+        saveUiPreference(PREF_KEYS.savedView, DEFAULT_SAVED_VIEW);
       }
     }
 
@@ -2447,6 +2458,14 @@
       }
     }
 
+    function applyInitialUrlSearch(){
+      const params = new URLSearchParams(window.location.search);
+      const q = safeText(params.get('q') || params.get('search') || '');
+      if(q && els.searchInput){
+        els.searchInput.value = q;
+      }
+    }
+
     async function loadDashboard(){
       if(!supabaseClient)return;
       state.loading=true;hideNotice();
@@ -2466,7 +2485,11 @@
           return {id:app.id,app,profile,job,score,displayName:safeText(profile.full_name||app.email||'Unnamed candidate'),status:safeText(app.client_feedback_status||app.status||'submitted'),recruiter:safeText(app.recruiter_email)||'Unassigned',source:safeText(app.application_source||'—'),appliedAt:app.created_at,clientName:safeText(job.client_name||'—'),jobTitle:safeText(job.title||app.job_title||'—'),followUp:getFollowUpInfo(app)};
         });
         console.log('Unassigned candidates loaded:', state.allRows.filter(row => isUnassignedRecruiter(row)).length);
+        console.log('Eric Se visibility debug:', state.allRows.filter(row =>
+          [row.displayName, row.profile?.email, row.app?.email].join(' ').toLowerCase().includes('eric')
+        ));
 
+        applyInitialUrlSearch();
         populateFilters();
         document.querySelectorAll('[data-saved-view]').forEach(btn=>{
           btn.classList.toggle('active', btn.dataset.savedView === state.savedView);
@@ -2504,6 +2527,13 @@
       applyFilters();
     }
 
+    function hasActiveCandidateSearch(){
+      return !!(
+        safeText(els.searchInput?.value) ||
+        safeText(els.candidateNameFilter?.value)
+      );
+    }
+
     function rowMatchesSavedView(row){
       switch(state.savedView){
         case 'unassigned':
@@ -2538,7 +2568,7 @@
       const country=safeText(els.countryFilter?.value).toLowerCase();
       const workSetup=safeText(els.workSetupFilter?.value).toLowerCase();
       state.filteredRows=state.allRows.filter(row=>{
-        if(!rowMatchesSavedView(row))return false;
+        if(!hasActiveCandidateSearch() && !rowMatchesSavedView(row))return false;
 
         const candidateHay=[
           row.displayName,
@@ -2628,10 +2658,13 @@
     function renderTable(){
       document.body.classList.toggle('compact-rows', !!state.compactRows);
       if(els.densityToggleBtn)els.densityToggleBtn.textContent = state.compactRows ? 'Comfortable rows' : 'Compact rows';
-      const viewSuffix = state.savedView && state.savedView !== 'all' ? ` • ${document.querySelector(`[data-saved-view="${state.savedView}"]`)?.childNodes?.[0]?.textContent?.trim() || 'Saved view'}` : '';
+      const searchBypass = hasActiveCandidateSearch();
+      const viewSuffix = state.savedView && state.savedView !== 'all'
+        ? ` • ${searchBypass ? 'searching all candidates' : (document.querySelector(`[data-saved-view="${state.savedView}"]`)?.childNodes?.[0]?.textContent?.trim() || 'Saved view')}`
+        : '';
       els.tableCount.textContent=`${state.filteredRows.length} candidate${state.filteredRows.length===1?'':'s'}${viewSuffix}`;
       if(!state.filteredRows.length){
-        els.applicationsTable.innerHTML='<tr><td colspan="7"><div class="empty-state"><strong>No candidates found</strong><span>Try All Candidates, Unassigned, clearing filters, or searching a broader keyword.</span><button class="btn btn-xs btn-soft" type="button" data-action="clear-empty">Clear filters</button></div></td></tr>';
+        els.applicationsTable.innerHTML='<tr><td colspan="7"><div class="empty-state"><strong>No candidates found</strong><span>Try All Candidates, search by name/email, clear filters, or use the Unassigned view.</span><button class="btn btn-xs btn-soft" type="button" data-action="clear-empty">Clear filters</button></div></td></tr>';
         return;
       }
       els.applicationsTable.innerHTML=state.filteredRows.map(row=>{
@@ -3247,7 +3280,9 @@ async function parseSelectedResume(){
       const count = getActiveFilterCount();
 
       if(els.activeFilterCount){
-        const viewLabel = state.savedView && state.savedView !== 'all' ? ' • saved view' : '';
+        const viewLabel = state.savedView && state.savedView !== 'all'
+          ? (hasActiveCandidateSearch() ? ' • search checks all candidates' : ' • saved view')
+          : '';
         els.activeFilterCount.textContent = `${count} active filter${count===1?'':'s'}${viewLabel}`;
         els.activeFilterCount.classList.toggle('hidden', count === 0);
       }
@@ -3290,8 +3325,8 @@ async function parseSelectedResume(){
 
     function applyQuickFilterChip(filter){
       clearFilters(false);
-      state.savedView = 'all';
-      saveUiPreference(PREF_KEYS.savedView, 'all');
+      state.savedView = DEFAULT_SAVED_VIEW;
+      saveUiPreference(PREF_KEYS.savedView, DEFAULT_SAVED_VIEW);
       document.querySelectorAll('[data-saved-view]').forEach(btn=>btn.classList.toggle('active', btn.dataset.savedView === 'all'));
 
       if(filter === 'unassigned'){
@@ -3312,8 +3347,8 @@ async function parseSelectedResume(){
 
     function clearFilters(shouldApply=true){
       [els.searchInput,els.candidateNameFilter,els.statusFilter,els.recruiterFilter,els.followUpFilter,els.jobFilter,els.clientFilter,els.countryFilter,els.workSetupFilter,els.scoreFilter].forEach(el=>{if(el)el.value=''});
-      state.savedView = 'all';
-      saveUiPreference(PREF_KEYS.savedView, 'all');
+      state.savedView = DEFAULT_SAVED_VIEW;
+      saveUiPreference(PREF_KEYS.savedView, DEFAULT_SAVED_VIEW);
       document.querySelectorAll('[data-saved-view]').forEach(btn=>{
         btn.classList.toggle('active', btn.dataset.savedView === 'all');
       });
