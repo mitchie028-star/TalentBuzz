@@ -2174,6 +2174,22 @@
       return `bulk/${safeText(jobId) || 'unknown-role'}/${Date.now()}-${index}-${safeName}`;
     }
 
+
+    function getBulkPlaceholderEmail(fileName, resumePath, index){
+      const baseName = safeText(fileName || `resume-${index || Date.now()}`)
+        .replace(/\.[^.]+$/,'')
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g,'.')
+        .replace(/^\.+|\.+$/g,'') || 'resume';
+
+      const uniquePart = safeText(resumePath || `${Date.now()}-${index || 0}`)
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g,'')
+        .slice(-16) || String(Date.now());
+
+      return `bulk+${baseName}.${uniquePart}@talentbuzz.local`;
+    }
+
     function setBulkUploadStatus(message, type='info'){
       if(!els.bulkUploadStatus)return;
       els.bulkUploadStatus.classList.remove('hidden');
@@ -3157,24 +3173,50 @@ async function bulkUploadResumes(){
 
         uploaded += 1;
 
+        const placeholderEmail = safeText(getBulkPlaceholderEmail(fileName, resumePath, index + 1)) || `bulk+resume.${Date.now()}.${index + 1}@talentbuzz.local`;
+
         const profilePayload = {
           full_name: getNameFromResumeFile(fileName),
+          email: placeholderEmail,
           resume_path: resumePath,
           resume_file_name: fileName,
           updated_at: new Date().toISOString()
         };
 
-        const { data: profile, error: profileError } = await supabaseClient
+        if(!safeText(profilePayload.email)){
+          throw new Error('Bulk upload could not generate a required placeholder email for this resume.');
+        }
+
+        let { data: profile, error: profileError } = await supabaseClient
           .from('applicant_profiles')
           .insert(profilePayload)
           .select('id,full_name,email')
           .single();
 
+        if(profileError){
+          const retryEmail = `bulk+resume.${Date.now()}.${index + 1}@talentbuzz.local`;
+          console.warn('Bulk profile insert failed, retrying with guaranteed email:', retryEmail, profileError);
+
+          const retryPayload = {
+            ...profilePayload,
+            email: retryEmail
+          };
+
+          const retryResult = await supabaseClient
+            .from('applicant_profiles')
+            .insert(retryPayload)
+            .select('id,full_name,email')
+            .single();
+
+          profile = retryResult.data;
+          profileError = retryResult.error;
+        }
+
         if(profileError)throw new Error(getReadableError(profileError));
 
         const applicationPayload = {
           applicant_profile_id: profile.id,
-          email: profile.email || null,
+          email: profile.email || placeholderEmail,
           job_id: job.id,
           job_title: job.title || '',
           status: 'submitted',
