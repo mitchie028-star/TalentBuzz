@@ -712,6 +712,92 @@
         font-size: 2.25rem;
       }
     }
+  
+    .verification-grid {
+      display: grid;
+      gap: 12px;
+    }
+
+    .verification-card {
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      background: rgba(255,255,255,.78);
+      padding: 14px;
+    }
+
+    .verification-title {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      color: var(--ink-strong);
+      font-size: .82rem;
+      font-weight: 900;
+      letter-spacing: .04em;
+      text-transform: uppercase;
+      margin-bottom: 9px;
+    }
+
+    .verification-pill {
+      border-radius: 999px;
+      padding: 5px 9px;
+      font-size: .68rem;
+      font-weight: 900;
+      letter-spacing: .04em;
+      text-transform: uppercase;
+      border: 1px solid var(--line);
+      background: #fff;
+      color: var(--muted);
+      white-space: nowrap;
+    }
+
+    .verification-pill.low {
+      background: var(--green-soft);
+      border-color: var(--green-line);
+      color: var(--green-deep);
+    }
+
+    .verification-pill.moderate {
+      background: var(--amber-soft);
+      border-color: var(--amber-line);
+      color: var(--amber);
+    }
+
+    .verification-pill.high {
+      background: var(--red-soft);
+      border-color: var(--red-line);
+      color: var(--red);
+    }
+
+    .verification-card ul {
+      margin-top: 6px;
+    }
+
+    .verification-card li {
+      font-size: .86rem;
+      margin-bottom: 8px;
+    }
+
+    .safeguard-note {
+      margin-top: 14px;
+      border: 1px solid var(--amber-line);
+      background: var(--amber-soft);
+      color: var(--amber);
+      border-radius: 18px;
+      padding: 13px 14px;
+      line-height: 1.6;
+      font-size: .82rem;
+      font-weight: 700;
+    }
+
+    .signal-count {
+      margin-top: 7px;
+      color: var(--muted);
+      font-size: .78rem;
+      font-weight: 700;
+      line-height: 1.5;
+    }
+
   </style>
 </head>
 
@@ -789,6 +875,17 @@
           <div class="card-body">
             <div id="summaryText" class="summary"></div>
             <div id="recommendationReason" class="reason"></div>
+          </div>
+        </section>
+
+
+        <section class="card">
+          <div class="card-head">
+            <strong>Recruiter Verification Signals</strong>
+          </div>
+          <div class="card-body">
+            <div id="verificationSignalsGrid" class="verification-grid"></div>
+            <div id="verificationSafeguardNote" class="safeguard-note"></div>
           </div>
         </section>
 
@@ -920,7 +1017,7 @@
   </main>
 
   <script>
-    console.log("TalentBuzz candidate-review recruiter-label signals v2026-05-19-06 loaded");
+    console.log("TalentBuzz candidate-review verification-signals v2026-05-20 loaded");
 
     const SUPABASE_URL = "https://dilalntcxmvdcmwxjcct.supabase.co";
     const SUPABASE_ANON_KEY = "sb_publishable_HrLVIUwnaRo54yijtrbWBQ_1aeb4ezs";
@@ -996,6 +1093,271 @@
         .map(item => item.trim())
         .filter(Boolean);
     }
+
+    function normalizeCandidateName(value) {
+      return text(value)
+        .replace(/[^\p{L}\p{N}\s.'-]/gu, " ")
+        .replace(/\s+/g, " ")
+        .trim();
+    }
+
+    function getCandidateDisplayName(conversation, fallback) {
+      const profile = fallback?.profile || {};
+      const app = fallback?.app || {};
+
+      return normalizeCandidateName(
+        conversation?.candidate_name ||
+        conversation?.candidate_full_name ||
+        conversation?.full_name ||
+        conversation?.profile?.full_name ||
+        profile.full_name ||
+        profile.name ||
+        app.full_name ||
+        app.candidate_name ||
+        app.name ||
+        conversation?.candidate_email ||
+        conversation?.email ||
+        profile.email ||
+        app.email ||
+        "Candidate Review"
+      );
+    }
+
+    function signalSeverityClass(value) {
+      const severity = text(value).toLowerCase();
+
+      if (severity.includes("high")) return "high";
+      if (severity.includes("moderate") || severity.includes("medium")) return "moderate";
+      if (severity.includes("low")) return "low";
+
+      return "moderate";
+    }
+
+    function normalizeSignalItems(value) {
+      if (!value) return [];
+
+      if (Array.isArray(value)) {
+        return value.map(item => {
+          if (typeof item === "string") return item;
+          return item?.message || item?.label || item?.detail || JSON.stringify(item);
+        }).map(item => text(item)).filter(Boolean);
+      }
+
+      if (typeof value === "object") {
+        return Object.values(value).flatMap(item => normalizeSignalItems(item));
+      }
+
+      return normalizeArray(value);
+    }
+
+    function inferIdentitySignals(conversation, responses, candidateName) {
+      const existing = normalizeSignalItems(
+        conversation.identity_consistency_signals ||
+        conversation.identity_signals ||
+        conversation.verification_signals?.identity
+      );
+
+      const expectedName = normalizeCandidateName(candidateName).toLowerCase();
+      const candidateFirst =
+        expectedName && expectedName !== "candidate review"
+          ? expectedName.split(/\s+/)[0]
+          : "";
+
+      const mismatchSignals = [];
+
+      responses.forEach((row, index) => {
+        const transcript = [
+          row.transcript_original,
+          row.transcript_english,
+          row.transcript
+        ].map(text).join(" ");
+
+        const introMatch =
+          transcript.match(/(?:i am|i'm|my name is|저는|제 이름은)\s+([A-Za-z가-힣 .'-]{2,40})/i);
+
+        if (introMatch) {
+          const mentioned = normalizeCandidateName(introMatch[1]);
+          const mentionedLower = mentioned.toLowerCase();
+
+          if (
+            mentioned &&
+            expectedName &&
+            candidateFirst &&
+            !mentionedLower.includes(candidateFirst) &&
+            !expectedName.includes(mentionedLower)
+          ) {
+            mismatchSignals.push(
+              `Response ${index + 1}: candidate referenced a different personal name (“${mentioned}”) than the application profile (“${candidateName}”).`
+            );
+          }
+        }
+      });
+
+      return uniqueDisplayItems([...existing, ...mismatchSignals], 8);
+    }
+
+    function inferResponseIntegritySignals(conversation, responses) {
+      const existing = normalizeSignalItems(
+        conversation.response_integrity_signals ||
+        conversation.integrity_signals ||
+        conversation.verification_signals?.response_integrity
+      );
+
+      const inferred = [];
+
+      responses.forEach((row, index) => {
+        const transcript = text(row.transcript_original || row.transcript_english || row.transcript);
+        const feedback = text(row.ai_feedback);
+        const proficiency = text(row.language_proficiency).toLowerCase();
+        const wordCount = transcript.split(/\s+/).filter(Boolean).length;
+
+        if (wordCount > 0 && wordCount < 8) {
+          inferred.push(`Response ${index + 1}: answer was too short for reliable evaluation.`);
+        }
+
+        if (
+          feedback.toLowerCase().includes("failed to answer") ||
+          feedback.toLowerCase().includes("did not answer") ||
+          feedback.toLowerCase().includes("off-topic") ||
+          feedback.toLowerCase().includes("failed to provide") ||
+          proficiency.includes("not demonstrated")
+        ) {
+          inferred.push(`Response ${index + 1}: response may not have addressed the requested task.`);
+        }
+
+        if (
+          transcript.toLowerCase().includes("[unintelligible") ||
+          transcript.toLowerCase().includes("unintelligible utterance")
+        ) {
+          inferred.push(`Response ${index + 1}: response was unintelligible or not usable for evaluation.`);
+        }
+      });
+
+      return uniqueDisplayItems([...existing, ...inferred], 10);
+    }
+
+    function inferTechnicalSignals(conversation, responses) {
+      const existing = normalizeSignalItems(
+        conversation.technical_signals ||
+        conversation.platform_signals ||
+        conversation.verification_signals?.technical
+      );
+
+      const inferred = [];
+
+      responses.forEach((row, index) => {
+        const transcript = text(row.transcript_original || row.transcript_english || row.transcript);
+        const hasAudio = !!text(row.audio_url);
+
+        if (hasAudio && !transcript) {
+          inferred.push(`Response ${index + 1}: audio was captured, but transcription was unavailable.`);
+        }
+
+        if (transcript.toLowerCase().includes("automated transcription was unavailable")) {
+          inferred.push(`Response ${index + 1}: automated transcription was unavailable.`);
+        }
+      });
+
+      return uniqueDisplayItems([...existing, ...inferred], 8);
+    }
+
+    function recommendedVerificationAction(conversation, identitySignals, responseSignals, technicalSignals) {
+      const stored =
+        text(conversation.recommended_verification_action) ||
+        text(conversation.verification_recommendation);
+
+      if (stored) return stored;
+
+      if (identitySignals.length) {
+        return "Conduct a brief live verification interview before endorsement. Ask the candidate to confirm identity and briefly restate role-relevant experience.";
+      }
+
+      if (responseSignals.length >= 3 || technicalSignals.length >= 2) {
+        return "Request recruiter follow-up before advancement. Validate unclear responses and confirm the candidate can complete role-specific tasks without assistance.";
+      }
+
+      if (responseSignals.length || technicalSignals.length) {
+        return "Review flagged responses before making a hiring decision.";
+      }
+
+      return "Proceed with standard recruiter review.";
+    }
+
+    function renderVerificationSignals(conversation, responses, candidateName) {
+      if (!els.verificationSignalsGrid) return;
+
+      const identitySignals = inferIdentitySignals(conversation, responses, candidateName);
+      const responseSignals = inferResponseIntegritySignals(conversation, responses);
+      const technicalSignals = inferTechnicalSignals(conversation, responses);
+
+      const severity =
+        identitySignals.length || responseSignals.length >= 3
+          ? "High"
+          : responseSignals.length || technicalSignals.length
+            ? "Moderate"
+            : "Low";
+
+      const action = recommendedVerificationAction(
+        conversation,
+        identitySignals,
+        responseSignals,
+        technicalSignals
+      );
+
+      const groups = [
+        {
+          title: "Identity Consistency",
+          severity: identitySignals.length ? "High" : "Low",
+          items: identitySignals,
+          empty: "No identity consistency concerns detected from available responses."
+        },
+        {
+          title: "Response Integrity",
+          severity: responseSignals.length >= 3 ? "High" : responseSignals.length ? "Moderate" : "Low",
+          items: responseSignals,
+          empty: "No response integrity concerns detected from available responses."
+        },
+        {
+          title: "Technical / Platform",
+          severity: technicalSignals.length >= 2 ? "Moderate" : technicalSignals.length ? "Low" : "Low",
+          items: technicalSignals,
+          empty: "No major technical capture issues detected."
+        },
+        {
+          title: "Recommended Recruiter Action",
+          severity,
+          items: [action],
+          empty: ""
+        }
+      ];
+
+      els.verificationSignalsGrid.innerHTML = groups.map(group => `
+        <div class="verification-card">
+          <div class="verification-title">
+            <span>${escapeHtml(group.title)}</span>
+            <span class="verification-pill ${signalSeverityClass(group.severity)}">${escapeHtml(group.severity)}</span>
+          </div>
+
+          ${
+            group.items.length
+              ? `<ul>${group.items.map(item => `<li>${escapeHtml(item)}</li>`).join("")}</ul>`
+              : `<div class="empty-list">${escapeHtml(group.empty)}</div>`
+          }
+
+          ${
+            group.title === "Recommended Recruiter Action"
+              ? `<div class="signal-count">Generated from candidate responses, transcripts, and recruiter-facing evaluation signals.</div>`
+              : ""
+          }
+        </div>
+      `).join("");
+
+      if (els.verificationSafeguardNote) {
+        els.verificationSafeguardNote.textContent =
+          "Safeguard: these are recruiter follow-up indicators, not final proof of misuse or impersonation. Use them to guide live verification, identity confirmation, and role-specific follow-up.";
+      }
+    }
+
 
     function badgeClass(value) {
       const valueText = String(value || "").toLowerCase();
@@ -1172,6 +1534,10 @@
         detected_language: "",
         language_proficiency: "",
         language_observations: [],
+        identity_consistency_signals: [],
+        response_integrity_signals: [],
+        technical_signals: [],
+        recommended_verification_action: "Open this review from a completed Talent Conversation to generate verification signals.",
         _isFallback: true
       };
     }
@@ -1998,7 +2364,7 @@
       return normalizeArray(conversation.recommended_follow_up);
     }
 
-    function renderConversation(conversation, responses, assessmentEvidence = []) {
+    function renderConversation(conversation, responses, assessmentEvidence = [], fallback = null) {
       const completion = completionPercent(responses);
       const communication = score(conversation.communication_score);
       const alignment = score(conversation.role_alignment_score);
@@ -2036,15 +2402,17 @@
           ? normalizeArray(conversation.language_observations)
           : responses.flatMap(row => normalizeArray(row.language_observations)).slice(0, 8);
 
-      els.candidateName.textContent =
-        conversation.candidate_name ||
-        conversation.candidate_email ||
-        conversation.email ||
-        "Candidate Review";
+      const candidateDisplayName = getCandidateDisplayName(conversation, fallback);
+
+      els.candidateName.textContent = candidateDisplayName;
 
       els.candidateSubtitle.textContent =
         conversation.role_title ||
+        fallback?.app?.job_title ||
+        fallback?.profile?.target_role ||
         conversation.candidate_email ||
+        fallback?.app?.email ||
+        fallback?.profile?.email ||
         "Proof-based hiring insights from Sift Conversation evidence.";
 
       els.overallFitLabel.textContent =
@@ -2120,6 +2488,16 @@
           </span>
         ` : ""}
 
+        ${
+          (
+            normalizeSignalItems(conversation.identity_consistency_signals).length ||
+            normalizeSignalItems(conversation.response_integrity_signals).length ||
+            normalizeSignalItems(conversation.technical_signals).length
+          )
+            ? '<span class="badge amber">Verification recommended</span>'
+            : ''
+        }
+
         ${conversation._isFallback ? '<span class="badge amber">Conversation not linked</span>' : ""}
       `;
 
@@ -2173,6 +2551,8 @@
         "No language observations available yet."
       );
 
+      renderVerificationSignals(conversation, responses, candidateDisplayName);
+
       renderAssessmentEvidence(assessmentEvidence);
       renderEvidence(responses);
 
@@ -2186,16 +2566,47 @@
         const loaded = await loadConversation();
         const conversation = loaded.conversation;
 
+        let fallback = loaded.fallback || null;
+
+        if (!fallback && conversation && !conversation._isFallback) {
+          const linkedApplicationId =
+            conversation.application_id ||
+            applicationId ||
+            null;
+
+          if (linkedApplicationId) {
+            fallback = await loadApplicationFallback(linkedApplicationId).catch(error => {
+              console.warn("Application fallback lookup failed:", error);
+              return null;
+            });
+          }
+
+          if (!fallback) {
+            const linkedEmail =
+              conversation.candidate_email ||
+              conversation.email ||
+              candidateEmailParam ||
+              "";
+
+            if (linkedEmail) {
+              fallback = await loadApplicationByEmail(linkedEmail).catch(error => {
+                console.warn("Email fallback lookup failed:", error);
+                return null;
+              });
+            }
+          }
+        }
+
         const responses = conversation?._isFallback
           ? []
           : await loadConversationResponses(conversation);
 
         const assessmentEvidence = await loadAssessmentEvidence(
           conversation,
-          loaded.fallback
+          fallback
         );
 
-        renderConversation(conversation, responses, assessmentEvidence);
+        renderConversation(conversation, responses, assessmentEvidence, fallback);
       } catch (error) {
         console.error(error);
         showError(error.message || "Unable to load candidate review.");
