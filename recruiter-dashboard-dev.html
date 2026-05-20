@@ -1395,6 +1395,46 @@
       .bulk-upload-grid{grid-template-columns:1fr}
     }
 
+    /* Assessment invitation email */
+    .assessment-modal-card{width:min(760px,100%)}
+    .assessment-panel{
+      padding:16px;
+      background:linear-gradient(180deg,#ffffff 0%,#f8fbff 100%);
+      border:1px solid var(--accent-line);
+      border-radius:18px;
+    }
+    .assessment-grid{
+      display:grid;
+      grid-template-columns:repeat(2,minmax(0,1fr));
+      gap:12px;
+    }
+    .assessment-grid .field.full{grid-column:1/-1}
+    .assessment-preview{
+      margin-top:12px;
+      padding:13px;
+      border-radius:14px;
+      background:#fff;
+      border:1px solid var(--line);
+      color:#344054;
+      font-size:.84rem;
+      line-height:1.6;
+      white-space:pre-wrap;
+    }
+    .assessment-status{
+      margin-top:10px;
+      padding:10px 12px;
+      border-radius:12px;
+      background:var(--surface-soft);
+      border:1px dashed var(--line-strong);
+      color:var(--muted);
+      font-size:.82rem;
+      line-height:1.45;
+      white-space:pre-wrap;
+    }
+    @media(max-width:760px){
+      .assessment-grid{grid-template-columns:1fr}
+    }
+
 </style>
 </head>
 <body class="auth-pending">
@@ -1688,6 +1728,7 @@
                   <button class="btn btn-primary btn-xs" id="parseResumeBtn" type="button">Parse Resume</button>
                   <button class="btn btn-xs" id="openCandidateWorkspaceBtn" type="button">More details</button>
                   <button class="btn btn-xs candidate-review-link" id="openCandidateReviewBtn" type="button">Review</button>
+                  <button class="btn btn-primary btn-xs" id="openAssessmentEmailBtn" type="button">Send Assessment</button>
                 </div>
                 <div class="upload-box">
                   <input id="resumeUploadInput" type="file" accept=".pdf,.doc,.docx,.rtf,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document" />
@@ -1749,6 +1790,71 @@
             <button class="btn btn-primary" id="bulkUploadBtn" type="button">Upload resumes</button>
           </div>
           <div class="bulk-upload-status hidden" id="bulkUploadStatus">No bulk upload started.</div>
+        </section>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal" id="assessmentEmailModal">
+    <div class="modal-card assessment-modal-card">
+      <div class="modal-head">
+        <div>
+          <strong>Send Assessment Email</strong>
+          <div class="small" id="assessmentModalSubtitle">TalentBuzz will generate or reuse the correct role assessment and email the candidate securely.</div>
+        </div>
+        <button class="btn btn-xs" id="assessmentEmailModalClose" type="button">Close</button>
+      </div>
+      <div class="modal-body" style="min-height:auto;padding:16px;">
+        <section class="assessment-panel" aria-label="Send assessment email">
+          <div class="assessment-grid">
+            <div class="field">
+              <label for="assessmentCandidateName">Candidate</label>
+              <input id="assessmentCandidateName" type="text" readonly />
+            </div>
+            <div class="field">
+              <label for="assessmentCandidateEmail">Candidate Email</label>
+              <input id="assessmentCandidateEmail" type="email" readonly />
+            </div>
+            <div class="field">
+              <label for="assessmentRoleName">Role</label>
+              <input id="assessmentRoleName" type="text" readonly />
+            </div>
+            <div class="field">
+              <label for="assessmentCompanyName">Client / Company</label>
+              <input id="assessmentCompanyName" type="text" readonly />
+            </div>
+            <div class="field">
+              <label for="assessmentType">Assessment Type</label>
+              <select id="assessmentType">
+                <option value="role_based">Role-based assessment</option>
+                <option value="screening">Screening assessment</option>
+                <option value="communication">Communication assessment</option>
+                <option value="technical">Technical assessment</option>
+                <option value="customer_support">Customer support scenario</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="assessmentDueDate">Due Date</label>
+              <input id="assessmentDueDate" type="date" />
+            </div>
+            <div class="field full">
+              <label for="assessmentLink">Assessment Link</label>
+              <input id="assessmentLink" type="url" readonly placeholder="Generated after sending" />
+            </div>
+            <div class="field full">
+              <label for="assessmentCustomMessage">Custom Message</label>
+              <textarea id="assessmentCustomMessage" placeholder="Optional note for the candidate..."></textarea>
+            </div>
+          </div>
+
+          <div class="assessment-preview" id="assessmentEmailPreview">Open a candidate to preview the assessment invitation.</div>
+
+          <div class="actions" style="margin-top:12px;">
+            <button class="btn btn-primary" id="sendAssessmentEmailBtn" type="button">Send Assessment Email</button>
+            <button class="btn btn-soft" id="copyAssessmentEmailBtn" type="button">Copy Email</button>
+          </div>
+
+          <div class="assessment-status hidden" id="assessmentEmailStatus">No email sent yet.</div>
         </section>
       </div>
     </div>
@@ -1894,13 +2000,14 @@
   </div>
 
   <script>
-    console.log('TalentBuzz recruiter-dashboard-search-unassigned-safe v2026-05-20 loaded');
+    console.log('TalentBuzz recruiter-workspace-send-assessment-invite v2026-05-20 loaded');
 
     const CONFIG = {
       SUPABASE_URL: window.TALENTBUZZ_SUPABASE_URL || localStorage.getItem('TALENTBUZZ_SUPABASE_URL') || '',
       SUPABASE_ANON_KEY: window.TALENTBUZZ_SUPABASE_ANON_KEY || localStorage.getItem('TALENTBUZZ_SUPABASE_ANON_KEY') || '',
       RESUME_BUCKET: 'resumes',
       PAGE_SIZE: 1000,
+      ASSESSMENT_INVITE_FUNCTION: 'send-assessment-invite',
     };
 
     const STATUS_OPTIONS = [
@@ -1919,6 +2026,7 @@
       savedView: 'all',
       compactRows: false,
       jobs: [],
+      selectedAssessmentRowId: null,
     };
 
     function $(id){return document.getElementById(id)}
@@ -1939,6 +2047,7 @@
       resumeModal:$('resumeModal'), resumeModalTitle:$('resumeModalTitle'), resumeFrame:$('resumeFrame'), resumeModalClose:$('resumeModalClose'),
       headerLogoutBtn:$('headerLogoutBtn'), newApplicantsBadge:$('newApplicantsBadge'), liveStatusText:$('liveStatusText'), sidebarSourcingBtn:$('sidebarSourcingBtn'), sidebarBulkUploadBtn:$('sidebarBulkUploadBtn'), quickClearFiltersBtn:$('quickClearFiltersBtn'),
       bulkUploadModal:$('bulkUploadModal'), bulkUploadModalClose:$('bulkUploadModalClose'), bulkRoleSelect:$('bulkRoleSelect'), bulkResumeInput:$('bulkResumeInput'), bulkUploadBtn:$('bulkUploadBtn'), bulkUploadStatus:$('bulkUploadStatus'),
+      assessmentEmailModal:$('assessmentEmailModal'), assessmentEmailModalClose:$('assessmentEmailModalClose'), assessmentModalSubtitle:$('assessmentModalSubtitle'), assessmentCandidateName:$('assessmentCandidateName'), assessmentCandidateEmail:$('assessmentCandidateEmail'), assessmentRoleName:$('assessmentRoleName'), assessmentCompanyName:$('assessmentCompanyName'), assessmentType:$('assessmentType'), assessmentDueDate:$('assessmentDueDate'), assessmentLink:$('assessmentLink'), assessmentCustomMessage:$('assessmentCustomMessage'), assessmentEmailPreview:$('assessmentEmailPreview'), sendAssessmentEmailBtn:$('sendAssessmentEmailBtn'), copyAssessmentEmailBtn:$('copyAssessmentEmailBtn'), assessmentEmailStatus:$('assessmentEmailStatus'), openAssessmentEmailBtn:$('openAssessmentEmailBtn'),
     };
 
     let supabaseClient = null;
@@ -2859,7 +2968,7 @@
           <td><span class="pill ${getFollowUpTone(row.followUp?.key)}">${escapeHtml(row.followUp?.label||'No Follow-up')}</span>${row.followUp?.dueAt?`<div class="small">Due ${escapeHtml(formatDateTime(row.followUp.dueAt))}</div>`:''}</td>
           <td><span class="pill ${hasResumeEvidence(row.profile)?'resume':'missing'}">${hasResumeEvidence(row.profile)?'Resume':'Missing'}</span></td>
           <td><span class="pill ${scoreTone}">${row.score.overall}%</span></td>
-          <td><div class="actions"><button class="btn btn-xs" data-action="open" type="button">Details</button>${row.followUp?.note?'<button class="btn btn-xs" data-action="open" type="button">Note</button>':''}<button class="btn btn-xs candidate-review-link" data-action="review" type="button">Review</button></div></td>
+          <td><div class="actions"><button class="btn btn-xs" data-action="open" type="button">Details</button>${row.followUp?.note?'<button class="btn btn-xs" data-action="open" type="button">Note</button>':''}<button class="btn btn-xs candidate-review-link" data-action="review" type="button">Review</button><button class="btn btn-primary btn-xs" data-action="assessment" type="button">Send Assessment</button></div></td>
         </tr>`;
       }).join('');
     }
@@ -3881,6 +3990,196 @@ async function bulkUploadResumes(){
       els.bulkUploadModal?.classList.remove('show');
     }
 
+
+    function getAssessmentRow(rowId){
+      return state.allRows.find(item => item.id === rowId) ||
+        state.filteredRows.find(item => item.id === rowId) ||
+        state.allRows.find(item => item.id === state.selectedId);
+    }
+
+    function defaultAssessmentDueDate(){
+      const date = new Date();
+      date.setDate(date.getDate() + 3);
+      return `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`;
+    }
+
+    function buildAssessmentLink(row){
+      if(!row)return '';
+      const base = new URL('assessment-room.html', window.location.origin || window.location.href);
+      if(row.id)base.searchParams.set('application_id', row.id);
+      return base.toString();
+    }
+
+    function getAssessmentEmailSubject(row){
+      const role = safeText(row?.jobTitle || row?.app?.job_title || 'the role');
+      return `Complete your TalentBuzz assessment for ${role}`;
+    }
+
+    function getAssessmentEmailBody(row){
+      const candidateName = safeText(els.assessmentCandidateName?.value || row?.displayName || 'there');
+      const roleName = safeText(els.assessmentRoleName?.value || row?.jobTitle || 'the role');
+      const companyName = safeText(els.assessmentCompanyName?.value || row?.clientName || 'the hiring team');
+      const dueDate = safeText(els.assessmentDueDate?.value || '');
+      const link = safeText(els.assessmentLink?.value || buildAssessmentLink(row));
+      const customMessage = safeText(els.assessmentCustomMessage?.value || '');
+
+      return [
+        `Hi ${candidateName},`,
+        '',
+        `Thank you for your interest in the ${roleName} position${companyName && companyName !== '—' ? ` with ${companyName}` : ''}.`,
+        '',
+        'As the next step in the hiring process, please complete your TalentBuzz assessment using the link below:',
+        '',
+        link,
+        '',
+        dueDate ? `Please complete it by ${dueDate}.` : 'Please complete it as soon as you are available.',
+        customMessage ? `\n${customMessage}` : '',
+        '',
+        'If you have any questions or experience technical issues, you can reply to this email.',
+        '',
+        'Best regards,',
+        safeText(state.recruiterProfile?.full_name || state.currentUser?.email || 'TalentBuzz Hiring Team')
+      ].filter(line => line !== null).join('\n');
+    }
+
+    function renderAssessmentEmailPreview(){
+      const row = getAssessmentRow(state.selectedAssessmentRowId);
+      if(!els.assessmentEmailPreview)return;
+      els.assessmentEmailPreview.textContent = `Subject: ${getAssessmentEmailSubject(row)}\n\n${getAssessmentEmailBody(row)}`;
+    }
+
+    function setAssessmentEmailStatus(message, type='info'){
+      if(!els.assessmentEmailStatus)return;
+      els.assessmentEmailStatus.classList.remove('hidden');
+      els.assessmentEmailStatus.textContent = message;
+      els.assessmentEmailStatus.style.borderColor = type === 'error' ? '#fecdca' : type === 'success' ? '#abefc6' : 'var(--line-strong)';
+      els.assessmentEmailStatus.style.color = type === 'error' ? 'var(--bad)' : type === 'success' ? 'var(--good)' : 'var(--muted)';
+    }
+
+    function openAssessmentEmailModal(rowId){
+      const row = getAssessmentRow(rowId);
+      if(!row)return showNotice('Open or select a candidate first.', 'error');
+
+      const candidateEmail = safeText(row.profile?.email || row.app?.email || '');
+      if(!candidateEmail)return showNotice('Candidate email is required before sending an assessment.', 'error');
+
+      state.selectedAssessmentRowId = row.id;
+      if(els.assessmentCandidateName)els.assessmentCandidateName.value = row.displayName || '';
+      if(els.assessmentCandidateEmail)els.assessmentCandidateEmail.value = candidateEmail;
+      if(els.assessmentRoleName)els.assessmentRoleName.value = row.jobTitle || '';
+      if(els.assessmentCompanyName)els.assessmentCompanyName.value = row.clientName && row.clientName !== '—' ? row.clientName : '';
+      if(els.assessmentDueDate && !els.assessmentDueDate.value)els.assessmentDueDate.value = defaultAssessmentDueDate();
+      if(els.assessmentLink)els.assessmentLink.value = buildAssessmentLink(row);
+      if(els.assessmentCustomMessage)els.assessmentCustomMessage.value = '';
+      if(els.assessmentEmailStatus)els.assessmentEmailStatus.classList.add('hidden');
+      if(els.assessmentModalSubtitle)els.assessmentModalSubtitle.textContent = `${row.displayName} • ${row.jobTitle} • ${row.clientName}`;
+
+      renderAssessmentEmailPreview();
+      els.assessmentEmailModal?.classList.add('show');
+    }
+
+    function closeAssessmentEmailModal(){
+      els.assessmentEmailModal?.classList.remove('show');
+    }
+
+    async function copyAssessmentEmail(){
+      const row = getAssessmentRow(state.selectedAssessmentRowId);
+      const text = `Subject: ${getAssessmentEmailSubject(row)}\n\n${getAssessmentEmailBody(row)}`;
+      try{
+        await navigator.clipboard.writeText(text);
+        setAssessmentEmailStatus('Assessment email copied.', 'success');
+      }catch(error){
+        console.warn('Clipboard copy failed:', error);
+        setAssessmentEmailStatus('Unable to copy automatically. You can manually select and copy the preview text.', 'error');
+      }
+    }
+
+    async function markAssessmentSent(row, payload){
+      const now = new Date().toISOString();
+      const updatePayload = {
+        status: 'assessment',
+        recruiter_notes: row.app?.recruiter_notes || null,
+        stage_note_label: row.app?.stage_note_label || row.app?.recruiter_notes || null,
+        updated_at: now,
+        last_status_change_at: now,
+        follow_up_required: true,
+        follow_up_status: 'needs_follow_up',
+        follow_up_date: payload.dueDate ? dateInputToIso(payload.dueDate) : null,
+        follow_up_due_at: payload.dueDate ? dateInputToIso(payload.dueDate) : null,
+        follow_up_note: `Assessment sent to ${payload.candidateEmail}${payload.dueDate ? `; due ${payload.dueDate}` : ''}.`
+      };
+
+      try{
+        await updateApplicationWithFallback(row.id, updatePayload);
+      }catch(error){
+        console.warn('Assessment email sent, but status update failed:', error);
+      }
+    }
+
+    async function sendAssessmentEmail(){
+      const row = getAssessmentRow(state.selectedAssessmentRowId);
+      if(!row)return showNotice('Open or select a candidate first.', 'error');
+
+      const candidateEmail = safeText(els.assessmentCandidateEmail?.value || row.profile?.email || row.app?.email || '');
+      if(!candidateEmail)return showNotice('Candidate email is required.', 'error');
+
+      const dueDate = safeText(els.assessmentDueDate?.value || '');
+      const customMessage = safeText(els.assessmentCustomMessage?.value || '');
+
+      const payload = {
+        application_id: row.id,
+        due_date: dueDate || null,
+        custom_message: customMessage || '',
+        force: true
+      };
+
+      try{
+        if(els.sendAssessmentEmailBtn){
+          els.sendAssessmentEmailBtn.disabled = true;
+          els.sendAssessmentEmailBtn.textContent = 'Sending...';
+        }
+
+        setAssessmentEmailStatus('Preparing assessment and sending invitation...', 'info');
+
+        const { data, error } = await supabaseClient.functions.invoke(CONFIG.ASSESSMENT_INVITE_FUNCTION, {
+          body: payload
+        });
+
+        if(error)throw error;
+        if(!data?.success)throw new Error(data?.error || 'Assessment invitation was not sent.');
+
+        if(els.assessmentLink && data.assessment_link){
+          els.assessmentLink.value = data.assessment_link;
+        }
+
+        const resultLines = [
+          'Assessment invitation sent successfully.',
+          data.assessment_id ? `Assessment ID: ${data.assessment_id}` : '',
+          data.assessment_link ? `Link: ${data.assessment_link}` : ''
+        ].filter(Boolean);
+
+        setAssessmentEmailStatus(resultLines.join('\n'), 'success');
+        showNotice('Assessment invitation sent.', 'success');
+
+        await loadDashboard();
+        await openDrawer(row.id);
+
+        if(isCandidateModalOpen()){
+          const refreshed = state.allRows.find(item => item.id === row.id);
+          if(refreshed)fillCandidateModal(refreshed);
+        }
+      }catch(error){
+        console.error('Unable to send assessment invitation:', error);
+        setAssessmentEmailStatus(`Unable to send assessment invitation: ${getReadableError(error)}`, 'error');
+        showNotice(`Unable to send assessment invitation: ${getReadableError(error)}`, 'error');
+      }finally{
+        if(els.sendAssessmentEmailBtn){
+          els.sendAssessmentEmailBtn.disabled = false;
+          els.sendAssessmentEmailBtn.textContent = 'Send Assessment Email';
+        }
+      }
+    }
+
     function bindEvents(){
       [els.searchInput,els.candidateNameFilter,els.statusFilter,els.recruiterFilter,els.followUpFilter,els.jobFilter,els.clientFilter,els.countryFilter,els.workSetupFilter,els.scoreFilter].forEach(el=>{el?.addEventListener('input',applyFilters);el?.addEventListener('change',applyFilters)});
       document.querySelectorAll('[data-quick-filter]').forEach(btn=>btn.addEventListener('click',()=>{
@@ -3919,7 +4218,7 @@ async function bulkUploadResumes(){
         els.moreFiltersBtn.textContent=isOpen?'Less filters':'More filters';
         els.moreFiltersBtn.classList.toggle('active', !!isOpen);
         saveUiPreference(PREF_KEYS.advancedFilters, !!isOpen);
-      });els.closeDrawerBtn.addEventListener('click',closeDrawer);els.prevBtn.addEventListener('click',()=>openSelectedOffset(-1));els.nextBtn.addEventListener('click',()=>openSelectedOffset(1));els.openCandidateWorkspaceBtn.addEventListener('click',openCandidateModal); els.openCandidateReviewBtn?.addEventListener('click',()=>openCandidateReviewByApplicationId(state.selectedId));
+      });els.closeDrawerBtn.addEventListener('click',closeDrawer);els.prevBtn.addEventListener('click',()=>openSelectedOffset(-1));els.nextBtn.addEventListener('click',()=>openSelectedOffset(1));els.openCandidateWorkspaceBtn.addEventListener('click',openCandidateModal); els.openCandidateReviewBtn?.addEventListener('click',()=>openCandidateReviewByApplicationId(state.selectedId)); els.openAssessmentEmailBtn?.addEventListener('click',()=>openAssessmentEmailModal(state.selectedId));
       els.headerLogoutBtn.addEventListener('click',handleLogout);els.sidebarSourcingBtn?.addEventListener('click',()=>showNotice('Sourcing link will be added after the base dashboard is stable.','info'));
       els.applicationsTable.addEventListener('click',async event=>{
         const button=event.target.closest('button[data-action]');
@@ -3933,12 +4232,18 @@ async function bulkUploadResumes(){
         if(action==='clear-empty')return clearFilters();
         if(action==='open')return openDrawer(id);
         if(action==='review'){ return openCandidateReviewByApplicationId(id); }
+        if(action==='assessment'){ await openDrawer(id); return openAssessmentEmailModal(id); }
       });
       els.viewResumeBtn?.addEventListener('click',()=>openResumeModal(state.selectedResumeUrl,state.selectedResumePath||'Resume Viewer')); els.downloadResumeBtn?.addEventListener('click',()=>downloadResumeFile(state.selectedResumeUrl,state.selectedResumePath,'resume')); els.markNeedsFollowUpBtn?.addEventListener('click',()=>setFollowUpQuick('needs_follow_up')); els.markFollowedUpBtn?.addEventListener('click',()=>setFollowUpQuick('followed_up')); els.parseResumeBtn?.addEventListener('click',parseSelectedResume);
       els.uploadResumeBtn?.addEventListener('click',()=>uploadResumeForSelected(false));
       els.saveBtn?.addEventListener('click',saveSelectedRow);
       els.saveCandidateInfoBtn?.addEventListener('click',updateCandidateInfo);
       els.modalSaveCandidateInfoBtn?.addEventListener('click',updateCandidateInfo);
+      els.assessmentEmailModalClose?.addEventListener('click',closeAssessmentEmailModal);
+      els.assessmentEmailModal?.addEventListener('click',event=>{if(event.target===els.assessmentEmailModal)closeAssessmentEmailModal();});
+      [els.assessmentType,els.assessmentDueDate,els.assessmentLink,els.assessmentCustomMessage].forEach(el=>{el?.addEventListener('input',renderAssessmentEmailPreview);el?.addEventListener('change',renderAssessmentEmailPreview);});
+      els.sendAssessmentEmailBtn?.addEventListener('click',sendAssessmentEmail);
+      els.copyAssessmentEmailBtn?.addEventListener('click',copyAssessmentEmail);
       els.candidateModalClose?.addEventListener('click',closeCandidateModal);
       els.modalSaveBtn?.addEventListener('click',saveSelectedRow);
       els.modalViewResumeBtn?.addEventListener('click',()=>openResumeModal(state.selectedResumeUrl,state.selectedResumePath||'Resume Viewer')); els.modalDownloadResumeBtn?.addEventListener('click',()=>downloadResumeFile(state.selectedResumeUrl,state.selectedResumePath,'resume')); els.modalParseResumeBtn?.addEventListener('click',parseSelectedResume);
