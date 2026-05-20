@@ -1348,6 +1348,34 @@
       border-color:var(--warn);
       color:#fff;
     }
+    /* Bulk resume upload */
+    .bulk-upload-panel{
+      margin-bottom:10px;
+      padding:12px 14px;
+      border-color:var(--accent-line);
+      background:linear-gradient(180deg,#ffffff 0%,#f8fbff 100%);
+    }
+    .bulk-upload-grid{
+      display:grid;
+      grid-template-columns:minmax(220px,1fr) minmax(260px,1.4fr) auto;
+      gap:10px;
+      align-items:end;
+    }
+    .bulk-upload-status{
+      margin-top:8px;
+      padding:10px 12px;
+      border-radius:12px;
+      background:var(--surface-soft);
+      border:1px dashed var(--line-strong);
+      color:var(--muted);
+      font-size:.82rem;
+      line-height:1.45;
+      white-space:pre-wrap;
+    }
+    @media(max-width:980px){
+      .bulk-upload-grid{grid-template-columns:1fr}
+    }
+
 </style>
 </head>
 <body class="auth-pending">
@@ -1475,6 +1503,30 @@
         </div>
       </section>
 
+
+
+      <section class="panel bulk-upload-panel" aria-label="Bulk resume upload">
+        <div class="panel-head">
+          <div>
+            <h2>Bulk Upload Resumes</h2>
+            <p>Select a role, upload multiple resumes, and TalentBuzz will create submitted candidates for that role.</p>
+          </div>
+        </div>
+        <div class="bulk-upload-grid">
+          <div class="field">
+            <label for="bulkRoleSelect">Role</label>
+            <select id="bulkRoleSelect">
+              <option value="">Select role</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="bulkResumeInput">Resumes</label>
+            <input id="bulkResumeInput" type="file" multiple accept=".pdf,.doc,.docx,.rtf,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document" />
+          </div>
+          <button class="btn btn-primary" id="bulkUploadBtn" type="button">Upload resumes</button>
+        </div>
+        <div class="bulk-upload-status hidden" id="bulkUploadStatus">No bulk upload started.</div>
+      </section>
 
       <section class="workspace" id="workspace">
         <div class="panel pipeline-card" id="pipeline">
@@ -1808,6 +1860,7 @@
       recruiterProfile: null,
       savedView: 'all',
       compactRows: false,
+      jobs: [],
     };
 
     function $(id){return document.getElementById(id)}
@@ -1825,6 +1878,7 @@
       candidateModal:$('candidateModal'), candidateModalClose:$('candidateModalClose'), candidateModalTitle:$('candidateModalTitle'), candidateModalSubtitle:$('candidateModalSubtitle'), modalCandidateName:$('modalCandidateName'), modalCandidateMeta:$('modalCandidateMeta'), modalProfileSummary:$('modalProfileSummary'), modalSnapEmail:$('modalSnapEmail'), modalSnapPhone:$('modalSnapPhone'), modalSnapLocation:$('modalSnapLocation'), modalSnapCountry:$('modalSnapCountry'), modalSnapTimezone:$('modalSnapTimezone'), modalSnapWorkSetup:$('modalSnapWorkSetup'), modalSnapWorkAuthorization:$('modalSnapWorkAuthorization'), modalSnapSalary:$('modalSnapSalary'), modalSnapAvailableHours:$('modalSnapAvailableHours'), modalSnapExperience:$('modalSnapExperience'), modalSnapJob:$('modalSnapJob'), modalEditFollowUpStatus:$('modalEditFollowUpStatus'), modalEditFollowUpDate:$('modalEditFollowUpDate'), modalEditFollowUpNote:$('modalEditFollowUpNote'), modalEditNotes:$('modalEditNotes'), modalEditStatus:$('modalEditStatus'), modalSaveBtn:$('modalSaveBtn'), modalOverallScore:$('modalOverallScore'), modalScoringMode:$('modalScoringMode'), modalProfileScore:$('modalProfileScore'), modalResumeScore:$('modalResumeScore'), modalOverallReason:$('modalOverallReason'), modalResumeMeta:$('modalResumeMeta'), modalViewResumeBtn:$('modalViewResumeBtn'), modalDownloadResumeBtn:$('modalDownloadResumeBtn'), modalParseResumeBtn:$('modalParseResumeBtn'), modalResumeUploadInput:$('modalResumeUploadInput'), modalUploadResumeBtn:$('modalUploadResumeBtn'),
       resumeModal:$('resumeModal'), resumeModalTitle:$('resumeModalTitle'), resumeFrame:$('resumeFrame'), resumeModalClose:$('resumeModalClose'),
       headerLogoutBtn:$('headerLogoutBtn'), newApplicantsBadge:$('newApplicantsBadge'), liveStatusText:$('liveStatusText'), sidebarSourcingBtn:$('sidebarSourcingBtn'), quickClearFiltersBtn:$('quickClearFiltersBtn'),
+      bulkRoleSelect:$('bulkRoleSelect'), bulkResumeInput:$('bulkResumeInput'), bulkUploadBtn:$('bulkUploadBtn'), bulkUploadStatus:$('bulkUploadStatus'),
     };
 
     let supabaseClient = null;
@@ -2097,6 +2151,35 @@
         .replace(/\s+/g,'_')
         .replace(/[^a-zA-Z0-9._-]/g,'_');
       return `manual/${folder}/${Date.now()}-${safeName}`;
+    }
+
+
+    function getSafeFileName(file){
+      return safeText(file?.name || 'resume.pdf')
+        .replace(/\s+/g,'_')
+        .replace(/[^a-zA-Z0-9._-]/g,'_');
+    }
+
+    function getNameFromResumeFile(fileName){
+      return safeText(fileName || '')
+        .replace(/\.[^.]+$/,'')
+        .replace(/[_-]+/g,' ')
+        .replace(/\s+/g,' ')
+        .trim()
+        .replace(/\b\w/g, char => char.toUpperCase()) || 'Unnamed candidate';
+    }
+
+    function getBulkResumeUploadPath(jobId, file, index){
+      const safeName = getSafeFileName(file);
+      return `bulk/${safeText(jobId) || 'unknown-role'}/${Date.now()}-${index}-${safeName}`;
+    }
+
+    function setBulkUploadStatus(message, type='info'){
+      if(!els.bulkUploadStatus)return;
+      els.bulkUploadStatus.classList.remove('hidden');
+      els.bulkUploadStatus.textContent = message;
+      els.bulkUploadStatus.style.borderColor = type === 'error' ? '#fecdca' : type === 'success' ? '#abefc6' : 'var(--line-strong)';
+      els.bulkUploadStatus.style.color = type === 'error' ? 'var(--bad)' : type === 'success' ? 'var(--good)' : 'var(--muted)';
     }
 
 
@@ -2476,6 +2559,7 @@
           fetchAll('applicant_profiles','id,full_name,email,phone,location,country,timezone,work_authorization,preferred_work_setup,salary_currency,salary_expectation,available_working_hours,headline,current_title,resume_url,resume_path,resume_file_name,raw_resume_text,parsed_resume_json,years_of_experience,experience_years,years_experience,total_experience,experience,skills,updated_at'),
           fetchAll('jobs','id,title,client_name,job_description,keywords,industry,screening_enabled,status,work_setup,location,slug')
         ]);
+        state.jobs = jobs || [];
         const profilesById=new Map(profiles.map(item=>[item.id,item]));
         const jobsById=new Map(jobs.map(item=>[item.id,item]));
         state.allRows=(applications||[]).map(app=>{
@@ -2515,6 +2599,19 @@
       populateSelect(els.clientFilter,state.allRows.map(r=>r.clientName).filter(x=>x!=='—'),'All clients');
       populateSelect(els.countryFilter,state.allRows.map(r=>getCountry(r.profile)).filter(Boolean),'All countries');
       populateSelect(els.workSetupFilter,state.allRows.map(r=>getPreferredWorkSetup(r.profile)).filter(Boolean),'All work setups');
+      populateBulkRoleSelect();
+    }
+
+    function populateBulkRoleSelect(){
+      if(!els.bulkRoleSelect)return;
+      const current = els.bulkRoleSelect.value;
+      const activeJobs = (state.jobs || []).filter(job=>normalizeStatus(job.status || 'active') !== 'closed');
+      els.bulkRoleSelect.innerHTML = '<option value="">Select role</option>' + activeJobs
+        .slice()
+        .sort((a,b)=>safeText(a.title).localeCompare(safeText(b.title)))
+        .map(job=>`<option value="${escapeHtml(job.id)}">${escapeHtml(safeText(job.title || 'Untitled role'))}${job.client_name ? ` • ${escapeHtml(job.client_name)}` : ''}</option>`)
+        .join('');
+      if([...els.bulkRoleSelect.options].some(option=>option.value===current))els.bulkRoleSelect.value=current;
     }
     function setSavedView(name='all'){
       state.savedView = name || 'all';
@@ -2916,6 +3013,50 @@ async function uploadResumeForSelected(useModal=false){
   }
 }
 
+
+async function parseResumeByProfile(applicantProfileId, resumePath){
+  if(!applicantProfileId || !resumePath){
+    throw new Error('Missing applicant profile ID or resume path.');
+  }
+
+  const sessionResult = await supabaseClient.auth.getSession();
+  const accessToken = sessionResult?.data?.session?.access_token;
+
+  const response = await fetch(`${CONFIG.SUPABASE_URL}/functions/v1/parse-resume-gemini`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'apikey': CONFIG.SUPABASE_ANON_KEY,
+      'Authorization': `Bearer ${accessToken || CONFIG.SUPABASE_ANON_KEY}`
+    },
+    body: JSON.stringify({
+      applicant_profile_id: applicantProfileId,
+      resume_path: resumePath
+    })
+  });
+
+  const resultText = await response.text();
+
+  let result;
+  try{
+    result = JSON.parse(resultText);
+  }catch{
+    result = {
+      ok: false,
+      error: resultText || `Function returned status ${response.status}`
+    };
+  }
+
+  console.log('Parse resume response:', result);
+
+  if(!response.ok || !result?.ok){
+    const edgeMessage = getReadableError(result) || `Function failed with status ${response.status}`;
+    throw new Error(edgeMessage);
+  }
+
+  return result;
+}
+
 async function parseSelectedResume(){
   const row = state.allRows.find(item => item.id === state.selectedId);
 
@@ -2942,40 +3083,7 @@ async function parseSelectedResume(){
       els.modalParseResumeBtn.textContent = 'Parsing...';
     }
 
-    const sessionResult = await supabaseClient.auth.getSession();
-    const accessToken = sessionResult?.data?.session?.access_token;
-
-    const response = await fetch(`${CONFIG.SUPABASE_URL}/functions/v1/parse-resume-gemini`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'apikey': CONFIG.SUPABASE_ANON_KEY,
-        'Authorization': `Bearer ${accessToken || CONFIG.SUPABASE_ANON_KEY}`
-      },
-      body: JSON.stringify({
-        applicant_profile_id: row.profile.id,
-        resume_path: state.selectedResumePath
-      })
-    });
-
-    const resultText = await response.text();
-
-    let result;
-    try{
-      result = JSON.parse(resultText);
-    }catch{
-      result = {
-        ok: false,
-        error: resultText || `Function returned status ${response.status}`
-      };
-    }
-
-    console.log('Parse resume response:', result);
-
-    if(!response.ok || !result?.ok){
-      const edgeMessage = getReadableError(result) || `Function failed with status ${response.status}`;
-      throw new Error(edgeMessage);
-    }
+    await parseResumeByProfile(row.profile.id, state.selectedResumePath);
 
     showNotice('Resume parsed successfully.', 'success');
 
@@ -3002,6 +3110,120 @@ async function parseSelectedResume(){
   }
 }
 
+
+
+async function bulkUploadResumes(){
+  const jobId = safeText(els.bulkRoleSelect?.value || '');
+  const files = Array.from(els.bulkResumeInput?.files || []);
+
+  if(!jobId){
+    return showNotice('Select a role before uploading resumes.', 'error');
+  }
+
+  if(!files.length){
+    return showNotice('Choose one or more resume files first.', 'error');
+  }
+
+  const job = (state.jobs || []).find(item => String(item.id) === String(jobId));
+
+  if(!job){
+    return showNotice('Selected role was not found. Refresh and try again.', 'error');
+  }
+
+  const recruiterEmail = normalizeEmail(state.currentUser?.email || state.recruiterProfile?.email || '');
+  const results = [];
+  let uploaded = 0;
+  let parsed = 0;
+
+  try{
+    els.bulkUploadBtn.disabled = true;
+    els.bulkUploadBtn.textContent = 'Uploading...';
+
+    setBulkUploadStatus(`Starting bulk upload for ${files.length} resume${files.length===1?'':'s'} into ${safeText(job.title || 'selected role')}...`);
+
+    for(let index=0; index<files.length; index += 1){
+      const file = files[index];
+      const fileName = safeText(file.name || `resume-${index + 1}`);
+      const resumePath = getBulkResumeUploadPath(job.id, file, index + 1);
+
+      try{
+        setBulkUploadStatus(`Uploading ${index + 1} of ${files.length}: ${fileName}`);
+
+        const { error: uploadError } = await supabaseClient.storage
+          .from(CONFIG.RESUME_BUCKET)
+          .upload(resumePath, file, { upsert: true });
+
+        if(uploadError)throw new Error(getReadableError(uploadError));
+
+        uploaded += 1;
+
+        const profilePayload = {
+          full_name: getNameFromResumeFile(fileName),
+          resume_path: resumePath,
+          resume_file_name: fileName,
+          updated_at: new Date().toISOString()
+        };
+
+        const { data: profile, error: profileError } = await supabaseClient
+          .from('applicant_profiles')
+          .insert(profilePayload)
+          .select('id,full_name,email')
+          .single();
+
+        if(profileError)throw new Error(getReadableError(profileError));
+
+        const applicationPayload = {
+          applicant_profile_id: profile.id,
+          email: profile.email || null,
+          job_id: job.id,
+          job_title: job.title || '',
+          status: 'submitted',
+          recruiter_email: recruiterEmail || null,
+          application_source: 'bulk_resume_upload',
+          recruiter_notes: `Bulk uploaded resume: ${fileName}`,
+          stage_note_label: `Bulk uploaded resume: ${fileName}`,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        };
+
+        const { error: appError } = await supabaseClient
+          .from('applications')
+          .insert(applicationPayload);
+
+        if(appError)throw new Error(getReadableError(appError));
+
+        try{
+          setBulkUploadStatus(`Parsing ${index + 1} of ${files.length}: ${fileName}`);
+          await parseResumeByProfile(profile.id, resumePath);
+          parsed += 1;
+          results.push(`✓ ${fileName}`);
+        }catch(parseError){
+          console.warn('Bulk resume parse failed:', fileName, parseError);
+          results.push(`⚠ ${fileName} uploaded but parse failed: ${getReadableError(parseError)}`);
+        }
+      }catch(error){
+        console.error('Bulk upload item failed:', fileName, error);
+        results.push(`✕ ${fileName}: ${getReadableError(error)}`);
+      }
+
+      setBulkUploadStatus(`Processed ${index + 1} of ${files.length} resumes.\n\n${results.slice(-8).join('\n')}`);
+    }
+
+    if(els.bulkResumeInput)els.bulkResumeInput.value = '';
+
+    setBulkUploadStatus(`Bulk upload finished. Uploaded ${uploaded}/${files.length}; parsed ${parsed}/${files.length}.\n\n${results.join('\n')}`, uploaded === files.length ? 'success' : 'error');
+    showNotice(`Bulk upload finished. Uploaded ${uploaded}/${files.length}; parsed ${parsed}/${files.length}.`, uploaded === files.length ? 'success' : 'error');
+
+    await loadDashboard();
+  }catch(error){
+    console.error('Bulk upload failed:', error);
+    setBulkUploadStatus(`Bulk upload failed: ${getReadableError(error)}`, 'error');
+    showNotice(`Bulk upload failed: ${getReadableError(error)}`, 'error');
+  }finally{
+    els.bulkUploadBtn.disabled = false;
+    els.bulkUploadBtn.textContent = 'Upload resumes';
+  }
+}
 
     async function openCandidateReviewForSelected(){
       const row = state.allRows.find(item => item.id === state.selectedId);
@@ -3417,7 +3639,7 @@ async function parseSelectedResume(){
         saveUiPreference(PREF_KEYS.compactRows, state.compactRows);
         renderTable();
       });
-      els.clearFiltersBtn.addEventListener('click',clearFilters);els.quickClearFiltersBtn?.addEventListener('click',clearFilters);
+      els.clearFiltersBtn.addEventListener('click',clearFilters);els.quickClearFiltersBtn?.addEventListener('click',clearFilters);els.bulkUploadBtn?.addEventListener('click',bulkUploadResumes);
       els.moreFiltersBtn?.addEventListener('click',()=>{
         els.filtersPanel?.classList.toggle('show-advanced');
         const isOpen=els.filtersPanel?.classList.contains('show-advanced');
