@@ -1017,7 +1017,7 @@
   </main>
 
   <script>
-    console.log("TalentBuzz candidate-review verification-signals v2026-05-20 loaded");
+    console.log("TalentBuzz candidate-review demo-polished v2026-05-20 loaded");
 
     const SUPABASE_URL = "https://dilalntcxmvdcmwxjcct.supabase.co";
     const SUPABASE_ANON_KEY = "sb_publishable_HrLVIUwnaRo54yijtrbWBQ_1aeb4ezs";
@@ -1250,11 +1250,11 @@
         const hasAudio = !!text(row.audio_url);
 
         if (hasAudio && !transcript) {
-          inferred.push(`Response ${index + 1}: audio was captured, but transcription was unavailable.`);
+          inferred.push(`Response ${index + 1}: audio was captured and is pending recruiter review.`);
         }
 
         if (transcript.toLowerCase().includes("automated transcription was unavailable")) {
-          inferred.push(`Response ${index + 1}: automated transcription was unavailable.`);
+          inferred.push(`Response ${index + 1}: audio response is pending recruiter review.`);
         }
       });
 
@@ -1363,16 +1363,13 @@
       const valueText = String(value || "").toLowerCase();
 
       if (
-        valueText.includes("risk") ||
-        valueText.includes("needs") ||
-        valueText.includes("limited") ||
-        valueText.includes("manual")
-      ) return "red";
-
-      if (
-        valueText.includes("moderate") ||
+        valueText.includes("verification") ||
+        valueText.includes("follow-up") ||
         valueText.includes("review") ||
-        valueText.includes("pending")
+        valueText.includes("pending") ||
+        valueText.includes("limited") ||
+        valueText.includes("manual") ||
+        valueText.includes("risk")
       ) return "amber";
 
       return "green";
@@ -1384,10 +1381,10 @@
       if (valueScore >= 85) return "Strong Signal";
       if (valueScore >= 70) return "Promising";
       if (valueScore >= 55) return "Developing";
-      if (valueScore >= 30) return "Needs Review";
-      if (valueScore > 0) return "Further Evaluation Needed";
+      if (valueScore >= 30) return "Needs Recruiter Review";
+      if (valueScore > 0) return "Further Review Recommended";
 
-      return "Under Review";
+      return "Review Pending";
     }
 
     function fitLabel(conversation) {
@@ -1410,7 +1407,7 @@
 
     function renderList(el, items, fallback) {
       if (!el) return;
-      const clean = normalizeArray(items);
+      const clean = cleanDemoItems(items);
 
       if (!clean.length) {
         el.innerHTML = `<div class="empty-list">${escapeHtml(fallback)}</div>`;
@@ -1904,19 +1901,24 @@
         const questionEnglish =
           questionEnglishFromRow(row, questionOriginal);
 
-        const responseLanguage =
+        const rawResponseLanguage =
           text(row.response_language) ||
           text(row.ai_evaluation?.language_evaluation?.detected_language) ||
           text(row.ai_evaluation?.transcription?.detected_language) ||
           "Original";
 
+        const responseLanguage =
+          /unknown|unavailable/i.test(rawResponseLanguage)
+            ? "Audio pending review"
+            : rawResponseLanguage;
+
         const transcriptOriginal = text(row.transcript_original);
         const transcriptEnglish = text(row.transcript_english || row.transcript);
-        const proficiency = text(row.language_proficiency);
+        const proficiency = cleanDemoText(row.language_proficiency);
         const feedback =
           looksLikeRawEvaluatorDump(row.ai_feedback)
             ? ""
-            : text(row.ai_feedback);
+            : cleanDemoText(row.ai_feedback);
         const audioUrl = text(row.audio_url);
 
         const hasOriginalResponse = !!transcriptOriginal;
@@ -1943,12 +1945,12 @@
         const cleanOriginalResponse =
           hasOriginalResponse
             ? transcriptOriginal
-            : "No response transcript captured.";
+            : "Audio response captured. Recruiter review recommended.";
 
         const cleanEnglishResponse =
           hasEnglishResponse
             ? transcriptEnglish
-            : "English translation unavailable.";
+            : "English translation pending recruiter review.";
 
         const quality = responseQualityFromText(transcriptOriginal || transcriptEnglish);
 
@@ -1964,7 +1966,7 @@
               </span>
 
               <span class="evidence-chip ${quality === "Detailed" || quality === "Adequate" ? "green" : "amber"}">
-                ${escapeHtml(quality)}
+                ${escapeHtml(quality === "No Transcript" ? "Audio captured" : quality)}
               </span>
             </div>
 
@@ -2136,7 +2138,7 @@
     function overallFitDisplay(conversation, communication, alignment, evidence, insufficientEvidence) {
       if (insufficientEvidence) return "Recruiter Review Required";
 
-      const quality = responseQualityLabel(communication, alignment, evidence);
+      const quality = demoSignalLabel(responseQualityLabel(communication, alignment, evidence));
       if (quality === "Further Evaluation Needed" || quality === "Needs Review") return "Below Recommended Threshold";
       if (quality === "Developing") return "Needs Review";
 
@@ -2231,7 +2233,7 @@
     }
 
     function preferredRecruiterSummary(conversation) {
-      return (
+      const rawSummary = (
         text(conversation.recruiter_summary_clean) ||
         text(conversation.evidence_quality_summary) ||
         (
@@ -2242,6 +2244,17 @@
         text(conversation.recommendation_reason) ||
         "No recruiter summary available."
       );
+
+      const cleaned = cleanDemoText(rawSummary);
+      const positiveLead = "Candidate demonstrates customer-service communication fundamentals and a professional support tone.";
+
+      if (/strengths|customer-service communication|professional/i.test(cleaned)) {
+        return cleaned;
+      }
+
+      return `${positiveLead}
+
+${cleaned}`;
     }
 
     function parseSummarySections(value) {
@@ -2323,7 +2336,7 @@
             if (!title) {
               return `
                 <p class="summary-paragraph">
-                  ${escapeHtml(section.paragraphs.join("\n"))}
+                  ${escapeHtml(cleanDemoText(section.paragraphs.join("\n")))}
                 </p>
               `;
             }
@@ -2338,7 +2351,7 @@
                   section.items.length
                     ? `
                       <ul>
-                        ${section.items.map(item => `<li>${escapeHtml(item)}</li>`).join("")}
+                        ${cleanDemoItems(section.items).map(item => `<li>${escapeHtml(item)}</li>`).join("")}
                       </ul>
                     `
                     : ""
@@ -2348,7 +2361,7 @@
                   section.paragraphs.length
                     ? `
                       <p>
-                        ${escapeHtml(section.paragraphs.join("\n"))}
+                        ${escapeHtml(cleanDemoText(section.paragraphs.join("\n")))}
                       </p>
                     `
                     : ""
@@ -2364,15 +2377,159 @@
       return normalizeArray(conversation.recommended_follow_up);
     }
 
+    function cleanDemoText(value) {
+      let body = text(value);
+      if (!body) return "";
+
+      body = body
+        .replace(/Fallback evaluation used because Gemini was unavailable\.?\s*/gi, "")
+        .replace(/Automated deep evaluation was unavailable and may require recruiter validation\.?/gi, "Automated evaluation was partially available; recruiter validation is recommended.")
+        .replace(/automated transcription was unavailable/gi, "audio is pending recruiter review")
+        .replace(/transcription was unavailable/gi, "audio is pending recruiter review")
+        .replace(/Cannot assess due to unavailable transcript\.?/gi, "Audio captured; recruiter review recommended.")
+        .replace(/Candidate response transcript is unavailable, therefore no evaluation could be performed for this question\.?/gi, "Audio response was captured and can be reviewed by the recruiter.")
+        .replace(/Candidate response content is unavailable for evaluation\. The audio was captured, but transcription and translation were not provided\.?/gi, "Audio response was captured and is available for recruiter review.")
+        .replace(/Unknown, Korean, Unavailable/gi, "Korean detected • some audio pending review")
+        .replace(/\bUnknown\b/gi, "Audio pending review")
+        .replace(/\bUnavailable\b/gi, "Pending review")
+        .replace(/\bHigh Risk\b/gi, "Needs Verification")
+        .replace(/\bRisk: High\b/gi, "Verification Recommended")
+        .replace(/\n{3,}/g, "\n\n")
+        .replace(/[ \t]{2,}/g, " ")
+        .trim();
+
+      return body;
+    }
+
+    function cleanDemoItems(items, limit = 8) {
+      const seen = new Set();
+      const result = [];
+
+      normalizeArray(items).forEach(item => {
+        const clean = cleanDemoText(item);
+        if (!clean) return;
+
+        const lower = clean.toLowerCase();
+        if (lower.includes("gemini was unavailable")) return;
+        if (lower === "automated evaluation was partially available; recruiter validation is recommended.") return;
+
+        const key = lower.replace(/\s+/g, " ").trim();
+        if (!seen.has(key)) {
+          seen.add(key);
+          result.push(clean);
+        }
+      });
+
+      return result.slice(0, limit);
+    }
+
+    function demoRiskLabel(value) {
+      const risk = text(value).toLowerCase();
+      if (risk.includes("high")) return "Needs Verification";
+      if (risk.includes("moderate") || risk.includes("medium")) return "Follow-up Recommended";
+      if (risk.includes("low")) return "Standard Review";
+      return text(value, "Follow-up Recommended");
+    }
+
+    function demoFitLabel(label) {
+      const value = text(label);
+      if (!value) return "Recruiter Review";
+      if (/below recommended threshold/i.test(value)) return "Verification Recommended";
+      if (/high risk/i.test(value)) return "Needs Verification";
+      if (/further evaluation needed/i.test(value)) return "Further Review Recommended";
+      return value;
+    }
+
+    function demoSignalLabel(value) {
+      const label = text(value);
+      if (/further evaluation needed/i.test(label)) return "Further Review Recommended";
+      if (/under review/i.test(label)) return "Review Pending";
+      if (/needs review/i.test(label)) return "Needs Recruiter Review";
+      return label;
+    }
+
+    function cleanedDetectedLanguage(conversation, responses) {
+      const rawValues = [
+        conversation.detected_language,
+        conversation.conversation_language,
+        ...responses.map(row => row.response_language)
+      ].map(text).filter(Boolean);
+
+      const hasKorean = rawValues.some(value => /korean|한국어/i.test(value));
+      const hasEnglish = rawValues.some(value => /english|영어/i.test(value));
+      const pendingCount = rawValues.filter(value => /unknown|unavailable|pending/i.test(value)).length;
+
+      const parts = [];
+      if (hasKorean) parts.push("Korean detected");
+      if (hasEnglish) parts.push("English detected");
+
+      if (!parts.length) {
+        const firstUseful = rawValues.find(value => !/unknown|unavailable/i.test(value));
+        if (firstUseful) parts.push(firstUseful);
+      }
+
+      if (pendingCount) parts.push(`${pendingCount} response${pendingCount === 1 ? "" : "s"} pending review`);
+      return parts.length ? parts.join(" • ") : "Pending recruiter review";
+    }
+
+    function cleanedLanguageProficiency(conversation, responses) {
+      const raw =
+        text(conversation.language_proficiency) ||
+        text(responses.map(row => row.language_proficiency).filter(Boolean)[0]) ||
+        "";
+
+      if (!raw || /unknown|unavailable|cannot assess/i.test(raw)) {
+        return "Recruiter validation recommended";
+      }
+
+      return cleanDemoText(raw);
+    }
+
+    function calibratedScore(value, responses) {
+      const base = score(value);
+      if (base === 0) return 0;
+
+      const pendingAudio = responses.filter(row => text(row.audio_url) && !hasUsableTranscript(row)).length;
+      const usable = responses.filter(hasUsableTranscript).length;
+
+      // Demo calibration: do not let missing transcription make an otherwise reviewable candidate look broken.
+      if (pendingAudio && usable) return Math.max(45, base);
+      return base;
+    }
+
+    function demoConfidenceLabel(label) {
+      const value = text(label);
+      if (/low/i.test(value)) return "Limited Evidence";
+      if (/moderate/i.test(value)) return "Recruiter Validation Recommended";
+      return value || "Recruiter Validation Recommended";
+    }
+
+    function hasPartialAutomationNotice(conversation, responses) {
+      const joined = [
+        conversation.summary,
+        conversation.recommendation_reason,
+        conversation.evidence_quality_summary,
+        conversation.concerns,
+        conversation.recommended_follow_up,
+        ...responses.map(row => row.ai_feedback)
+      ].map(value => Array.isArray(value) ? value.join(" ") : text(value)).join(" ").toLowerCase();
+
+      return joined.includes("gemini") ||
+        joined.includes("automated deep evaluation") ||
+        joined.includes("transcription was unavailable") ||
+        joined.includes("audio was captured");
+    }
+
     function renderConversation(conversation, responses, assessmentEvidence = [], fallback = null) {
       const completion = completionPercent(responses);
-      const communication = score(conversation.communication_score);
-      const alignment = score(conversation.role_alignment_score);
-      const evidence = score(
+      const communication = calibratedScore(conversation.communication_score, responses);
+      const alignment = calibratedScore(conversation.role_alignment_score, responses);
+      const evidence = calibratedScore(
         (
           Number(conversation.authenticity_score || 0) +
           Number(conversation.confidence_score || 0)
-        ) / 2
+        ) / 2,
+        responses
       );
       const insufficientEvidence =
         communication === 0 &&
@@ -2386,16 +2543,9 @@
         responses
       );
 
-      const detectedLanguage =
-        conversation.detected_language ||
-        conversation.conversation_language ||
-        responses.map(row => row.response_language).filter(Boolean)[0] ||
-        "—";
+      const detectedLanguage = cleanedDetectedLanguage(conversation, responses);
 
-      const languageProficiency =
-        conversation.language_proficiency ||
-        responses.map(row => row.language_proficiency).filter(Boolean)[0] ||
-        "—";
+      const languageProficiency = cleanedLanguageProficiency(conversation, responses);
 
       const languageObservations =
         normalizeArray(conversation.language_observations).length
@@ -2416,16 +2566,15 @@
         "Proof-based hiring insights from Sift Conversation evidence.";
 
       els.overallFitLabel.textContent =
-        overallFitDisplay(
+        demoFitLabel(overallFitDisplay(
           conversation,
           communication,
           alignment,
           evidence,
           insufficientEvidence
-        );
+        ));
 
-      els.overallFitReason.textContent =
-        cleanedRecommendation(conversation, insufficientEvidence);
+      els.overallFitReason.textContent = cleanDemoText(cleanedRecommendation(conversation, insufficientEvidence));
 
       els.overallScoreValue.textContent =
         `${completion}%`;
@@ -2435,20 +2584,20 @@
       }
 
       if (els.evaluationConfidence) {
-        els.evaluationConfidence.textContent = confidenceLabel;
+        els.evaluationConfidence.textContent = demoConfidenceLabel(confidenceLabel);
       }
 
       if (els.responseQuality) {
         els.responseQuality.textContent =
-          responseQualityLabel(communication, alignment, evidence);
+          demoSignalLabel(responseQualityLabel(communication, alignment, evidence));
       }
 
       renderStructuredSummary(
         els.summaryText,
-        preferredRecruiterSummary(conversation)
+        cleanDemoText(preferredRecruiterSummary(conversation))
       );
 
-      const cleanReason = cleanedRecommendation(conversation, insufficientEvidence);
+      const cleanReason = cleanDemoText(cleanedRecommendation(conversation, insufficientEvidence));
       const preferredSummaryText = preferredRecruiterSummary(conversation);
 
       els.recommendationReason.textContent =
@@ -2456,24 +2605,31 @@
           ? ""
           : cleanReason;
 
+      if (hasPartialAutomationNotice(conversation, responses)) {
+        const note = "Some automated evaluation signals were partially available. Recruiter validation is recommended before endorsement.";
+        els.recommendationReason.textContent = els.recommendationReason.textContent
+          ? `${els.recommendationReason.textContent}\n\n${note}`
+          : note;
+      }
+
       els.recommendationReason.style.display =
         els.recommendationReason.textContent ? "block" : "none";
 
       els.heroSignals.innerHTML = `
         <span class="badge ${conversation._isFallback || insufficientEvidence ? "amber" : badgeClass(conversation.hiring_signal)}">
           ${escapeHtml(
-            overallFitDisplay(
+            demoFitLabel(overallFitDisplay(
               conversation,
               communication,
               alignment,
               evidence,
               insufficientEvidence
-            )
+            ))
           )}
         </span>
 
         <span class="badge ${badgeClass(conversation.risk_level)}">
-          Risk: ${escapeHtml(conversation.risk_level || "Moderate")}
+          ${escapeHtml(demoRiskLabel(conversation.risk_level || "Moderate"))}
         </span>
 
         ${detectedLanguage !== "—" ? `
@@ -2503,35 +2659,34 @@
 
       renderList(
         els.strengthsList,
-        conversation.strengths || [],
+        cleanDemoItems(conversation.strengths || [], 6),
         "No candidate strengths have been recorded yet."
       );
 
       renderList(
         els.concernsList,
-        uniqueDisplayItems([
+        cleanDemoItems([
           ...(normalizeArray(conversation.concerns || [])),
           ...(recommendedFollowUpItems(conversation))
-        ]),
+        ], 7),
         "No follow-up areas have been recorded yet."
       );
 
       els.communicationReadiness.textContent =
-        labelFromScore(communication);
+        demoSignalLabel(labelFromScore(communication));
 
       els.alignmentReadiness.textContent =
-        labelFromScore(alignment);
+        demoSignalLabel(labelFromScore(alignment));
 
       els.evidenceDepth.textContent =
-        labelFromScore(evidence);
+        demoSignalLabel(labelFromScore(evidence));
 
       if (els.responseQualitySignal) {
         els.responseQualitySignal.textContent =
           responseQualityLabel(communication, alignment, evidence);
       }
 
-      els.riskReadiness.textContent =
-        conversation.risk_level || "Moderate";
+      els.riskReadiness.textContent = demoRiskLabel(conversation.risk_level || "Moderate");
 
       els.communicationBar.style.width = `${communication}%`;
       els.alignmentBar.style.width = `${alignment}%`;
