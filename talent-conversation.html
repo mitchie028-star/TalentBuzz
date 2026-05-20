@@ -157,7 +157,7 @@ audio{width:100%;margin-top:14px}
             <div class="sift-audio-row">
               <button type="button" id="playQuestionBtn">Play question</button>
               <span class="sift-audio-status" id="siftAudioStatus">
-                TalentBuzz will ask each question out loud. Recording automatically starts after playback finishes.
+                TalentBuzz will ask each question out loud once. Tap Stop question if you need to interrupt playback.
               </span>
             </div>
 
@@ -227,7 +227,7 @@ audio{width:100%;margin-top:14px}
   </main>
 
   <script>
-    console.log("TalentBuzz talent-conversation ElevenLabs recorder-fix v2026-05-20 loaded");
+    console.log("TalentBuzz talent-conversation ElevenLabs playback-stop-fix v2026-05-20 loaded");
 
     const SUPABASE_URL = "https://dilalntcxmvdcmwxjcct.supabase.co";
     const SUPABASE_ANON_KEY = "sb_publishable_HrLVIUwnaRo54yijtrbWBQ_1aeb4ezs";
@@ -287,6 +287,9 @@ audio{width:100%;margin-top:14px}
     let timerInterval = null;
     let questionAudioUrls = {};
     let autoStartAfterSift = true;
+    let isSiftSpeaking = false;
+    let activeSpeechToken = 0;
+    let hasAutoPlayedCurrentQuestion = false;
 
     function showStatus(message, type = "info") {
       els.statusBox.className = `status show ${type}`;
@@ -347,6 +350,34 @@ audio{width:100%;margin-top:14px}
     function responseFor(questionId) {
       return responses[questionId] || null;
     }
+
+    function hardStopQuestionAudio() {
+      activeSpeechToken += 1;
+      isSiftSpeaking = false;
+
+      if (canUseBrowserVoice()) {
+        window.speechSynthesis.cancel();
+      }
+
+      if (els.siftQuestionAudio) {
+        try {
+          els.siftQuestionAudio.pause();
+          els.siftQuestionAudio.currentTime = 0;
+          els.siftQuestionAudio.onended = null;
+          els.siftQuestionAudio.onerror = null;
+          els.siftQuestionAudio.onpause = null;
+          els.siftQuestionAudio.removeAttribute("src");
+          els.siftQuestionAudio.load();
+        } catch (audioError) {
+          console.warn("Audio cleanup warning:", audioError);
+        }
+      }
+
+      if (els.siftWave) {
+        els.siftWave.classList.remove("live");
+      }
+    }
+
 
     function answeredCount() {
       return questions.filter(q => responseFor(q.id)?.audio_url).length;
@@ -453,18 +484,9 @@ audio{width:100%;margin-top:14px}
     }
 
     function stopSiftSpeech() {
-      if (canUseBrowserVoice()) {
-        window.speechSynthesis.cancel();
-      }
-
-      if (els.siftQuestionAudio) {
-        els.siftQuestionAudio.pause();
-        els.siftQuestionAudio.removeAttribute("src");
-      }
-
-      if (els.siftWave) {
-        els.siftWave.classList.remove("live");
-      }
+      hardStopQuestionAudio();
+      isSiftSpeaking = false;
+      els.playQuestionBtn.textContent = "Play question";
     }
 
     async function getSiftVoiceAudio(question) {
@@ -522,44 +544,70 @@ audio{width:100%;margin-top:14px}
         return;
       }
 
-      stopSiftSpeech();
+      if (isSiftSpeaking) {
+        stopSiftSpeech();
+        els.siftAudioStatus.textContent = "Question playback stopped. You can replay it or start recording.";
+        els.startRecordingBtn.disabled = false;
+        return;
+      }
+
+      hardStopQuestionAudio();
       clearStatus();
 
+      const speechToken = ++activeSpeechToken;
+      isSiftSpeaking = true;
+
+      els.playQuestionBtn.textContent = "Stop question";
       els.siftWave.classList.add("live");
       els.siftAudioStatus.textContent = "TalentBuzz is asking the question...";
       els.startRecordingBtn.disabled = true;
       els.stopRecordingBtn.disabled = true;
       els.recordingStateText.textContent = "Listen to the question first";
 
+      const finishQuestionPlayback = () => {
+        if (speechToken !== activeSpeechToken) return;
+
+        isSiftSpeaking = false;
+        els.playQuestionBtn.textContent = "Play question";
+        els.siftWave.classList.remove("live");
+        els.siftAudioStatus.textContent = "Your turn. Recording will start now.";
+
+        if (autoStartAfterSift && !(mediaRecorder && mediaRecorder.state === "recording")) {
+          startRecording();
+        } else {
+          els.startRecordingBtn.disabled = false;
+        }
+      };
+
+      const failQuestionPlayback = (message = "Voice playback unavailable. You can record your answer now.") => {
+        if (speechToken !== activeSpeechToken) return;
+
+        isSiftSpeaking = false;
+        els.playQuestionBtn.textContent = "Play question";
+        els.siftWave.classList.remove("live");
+        els.siftAudioStatus.textContent = message;
+        els.startRecordingBtn.disabled = false;
+      };
+
       const audioUrl = await getSiftVoiceAudio(question);
 
+      if (speechToken !== activeSpeechToken) return;
+
       if (audioUrl) {
-        els.siftQuestionAudio.src = audioUrl;
-        els.siftQuestionAudio.load();
-
-        els.siftQuestionAudio.onended = () => {
-          els.siftWave.classList.remove("live");
-          els.siftAudioStatus.textContent = "Your turn. Recording will start now.";
-          if (autoStartAfterSift && !(mediaRecorder && mediaRecorder.state === "recording")) {
-            startRecording();
-          }
-        };
-
-        els.siftQuestionAudio.onerror = () => {
-          els.siftWave.classList.remove("live");
-          els.siftAudioStatus.textContent = "Voice playback unavailable. You can record your answer now.";
-          els.startRecordingBtn.disabled = false;
-          if (autoStartAfterSift && !(mediaRecorder && mediaRecorder.state === "recording")) startRecording();
-        };
-
         try {
+          els.siftQuestionAudio.pause();
+          els.siftQuestionAudio.currentTime = 0;
+          els.siftQuestionAudio.onended = finishQuestionPlayback;
+          els.siftQuestionAudio.onerror = () => failQuestionPlayback();
+          els.siftQuestionAudio.src = audioUrl;
+          els.siftQuestionAudio.load();
+
           await els.siftQuestionAudio.play();
         } catch (playError) {
           console.error("ElevenLabs audio playback was blocked or failed.", playError);
-          els.siftWave.classList.remove("live");
-          els.siftAudioStatus.textContent = "Tap Play question to hear the voice, then record your answer.";
-          els.startRecordingBtn.disabled = false;
+          failQuestionPlayback("Tap Play question to hear the voice, then record your answer.");
         }
+
         return;
       }
 
@@ -581,25 +629,15 @@ audio{width:100%;margin-top:14px}
           voice: matchedVoice?.name || "default browser voice"
         });
 
-        utterance.onend = () => {
-          els.siftWave.classList.remove("live");
-          els.siftAudioStatus.textContent = "Your turn. Recording will start now.";
-          if (autoStartAfterSift && !(mediaRecorder && mediaRecorder.state === "recording")) startRecording();
-        };
+        utterance.onend = finishQuestionPlayback;
+        utterance.onerror = () => failQuestionPlayback();
 
-        utterance.onerror = () => {
-          els.siftWave.classList.remove("live");
-          els.siftAudioStatus.textContent = "Voice playback unavailable. You can record your answer now.";
-          els.startRecordingBtn.disabled = false;
-        };
-
+        window.speechSynthesis.cancel();
         window.speechSynthesis.speak(utterance);
         return;
       }
 
-      els.siftWave.classList.remove("live");
-      els.siftAudioStatus.textContent = "Voice playback unavailable. You can record your answer now.";
-      els.startRecordingBtn.disabled = false;
+      failQuestionPlayback();
     }
 
     function renderQuestion() {
@@ -608,6 +646,7 @@ audio{width:100%;margin-top:14px}
 
       setConversationVisible();
       clearStatus();
+      hasAutoPlayedCurrentQuestion = false;
 
       const total = questions.length;
       const current = currentIndex + 1;
@@ -634,7 +673,13 @@ audio{width:100%;margin-top:14px}
       els.nextBtn.textContent = currentIndex === total - 1 ? "Review" : "Next";
 
       setTimeout(() => {
-        speakWithSift();
+        const latestQuestion = currentQuestion();
+        const latestExisting = latestQuestion ? responseFor(latestQuestion.id) : null;
+
+        if (!hasAutoPlayedCurrentQuestion && latestQuestion?.id === question.id && !latestExisting?.audio_url) {
+          hasAutoPlayedCurrentQuestion = true;
+          speakWithSift();
+        }
       }, 500);
     }
 
@@ -948,7 +993,8 @@ audio{width:100%;margin-top:14px}
       }
 
       clearStatus();
-      stopSiftSpeech();
+      hardStopQuestionAudio();
+      els.playQuestionBtn.textContent = "Play question";
 
       try {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -1362,6 +1408,14 @@ audio{width:100%;margin-top:14px}
 
     els.playQuestionBtn.addEventListener("click", () => {
       autoStartAfterSift = true;
+
+      if (isSiftSpeaking) {
+        stopSiftSpeech();
+        els.siftAudioStatus.textContent = "Question playback stopped. You can replay it or start recording.";
+        els.startRecordingBtn.disabled = false;
+        return;
+      }
+
       speakWithSift();
     });
 
