@@ -72,6 +72,9 @@ audio{width:100%;margin-top:14px}
 .spinner{width:24px;height:24px;border-radius:999px;border:3px solid #dbeafe;border-top-color:var(--blue);animation:spin .8s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}
 .sift-wave{display:flex;gap:4px;align-items:center;height:22px;margin-left:auto}
 .sift-wave span{width:4px;border-radius:999px;background:#dbeafe;height:10px}
+.sift-wave.live span{background:var(--blue);animation:siftPulse .85s ease-in-out infinite}
+.sift-wave.live span:nth-child(2){animation-delay:.08s}.sift-wave.live span:nth-child(3){animation-delay:.16s}.sift-wave.live span:nth-child(4){animation-delay:.24s}.sift-wave.live span:nth-child(5){animation-delay:.32s}
+@keyframes siftPulse{0%,100%{height:8px;opacity:.55}50%{height:22px;opacity:1}}
 .hidden-audio{display:none}
 @media (max-width:720px){.page{width:min(var(--max),calc(100% - 22px));padding-top:22px}.card-head,.card-body,.summary,.empty{padding:20px}.hero h1{font-size:2.2rem}.actions,.actions-right{width:100%}button,.btn{width:100%}}
 </style>
@@ -224,7 +227,7 @@ audio{width:100%;margin-top:14px}
   </main>
 
   <script>
-    console.log("TalentBuzz talent-conversation multilingual orchestration v2026-05-18 loaded");
+    console.log("TalentBuzz talent-conversation ElevenLabs multilingual v2026-05-20 loaded");
 
     const SUPABASE_URL = "https://dilalntcxmvdcmwxjcct.supabase.co";
     const SUPABASE_ANON_KEY = "sb_publishable_HrLVIUwnaRo54yijtrbWBQ_1aeb4ezs";
@@ -408,6 +411,47 @@ audio{width:100%;margin-top:14px}
       return "speechSynthesis" in window && "SpeechSynthesisUtterance" in window;
     }
 
+    function detectSpeechLanguage(text) {
+      const value = String(text || "");
+
+      if (/[가-힣]/.test(value)) return "ko-KR";
+      if (/[\u3040-\u30ff]/.test(value)) return "ja-JP";
+      if (/[\u4e00-\u9fff]/.test(value)) return "zh-CN";
+      if (/[ก-๙]/.test(value)) return "th-TH";
+      if (/[\u0600-\u06FF]/.test(value)) return "ar-SA";
+      if (/[А-Яа-яЁё]/.test(value)) return "ru-RU";
+
+      return "en-US";
+    }
+
+    function getSpeechVoiceForLanguage(lang) {
+      if (!canUseBrowserVoice()) return null;
+
+      const voices = window.speechSynthesis.getVoices() || [];
+      const normalized = String(lang || "").toLowerCase();
+
+      return (
+        voices.find(voice => voice.lang?.toLowerCase() === normalized) ||
+        voices.find(voice => voice.lang?.toLowerCase().startsWith(normalized.split("-")[0])) ||
+        null
+      );
+    }
+
+    function getQuestionVoicePayload(question) {
+      const questionText = String(question?.question_text || "").trim();
+      const language =
+        question?.language_code ||
+        question?.metadata?.language_code ||
+        question?.metadata?.language ||
+        detectSpeechLanguage(questionText);
+
+      return {
+        text: questionText,
+        language_code: language,
+        model_id: "eleven_multilingual_v2"
+      };
+    }
+
     function stopSiftSpeech() {
       if (canUseBrowserVoice()) {
         window.speechSynthesis.cancel();
@@ -423,24 +467,49 @@ audio{width:100%;margin-top:14px}
       }
     }
 
-    async function getSiftVoiceAudio(questionText) {
-      if (!questionText) return null;
-      if (questionAudioUrls[questionText]) return questionAudioUrls[questionText];
+    async function getSiftVoiceAudio(question) {
+      const payload = typeof question === "string"
+        ? { text: question, language_code: detectSpeechLanguage(question), model_id: "eleven_multilingual_v2" }
+        : getQuestionVoicePayload(question);
 
-      els.siftAudioStatus.textContent = "Preparing question audio...";
+      const questionText = String(payload.text || "").trim();
+      if (!questionText) return null;
+
+      const cacheKey = `${payload.model_id || "eleven_multilingual_v2"}::${payload.language_code || "auto"}::${questionText}`;
+
+      if (questionAudioUrls[cacheKey]) {
+        return questionAudioUrls[cacheKey];
+      }
+
+      els.siftAudioStatus.textContent = "Preparing ElevenLabs voice...";
 
       try {
-        const data = await invokeEdgeFunction("generate-sift-voice", { text: questionText });
+        const data = await invokeEdgeFunction("generate-sift-voice", {
+          text: questionText,
+          language_code: payload.language_code,
+          model_id: payload.model_id || "eleven_multilingual_v2"
+        });
 
         if (!data?.audio_base64) {
-          throw new Error("generate-sift-voice returned no audio.");
+          throw new Error("generate-sift-voice returned no audio_base64.");
         }
 
-        const audioUrl = `data:${data.mime_type || "audio/mpeg"};base64,${data.audio_base64}`;
-        questionAudioUrls[questionText] = audioUrl;
+        const mimeType = data.mime_type || "audio/mpeg";
+        const audioUrl = `data:${mimeType};base64,${data.audio_base64}`;
+
+        questionAudioUrls[cacheKey] = audioUrl;
+
+        console.log("ElevenLabs voice ready", {
+          provider: data.provider || "unknown",
+          model_id: data.model_id || payload.model_id,
+          language_code: payload.language_code,
+          voice_id: data.voice_id ? "configured" : "not returned"
+        });
+
         return audioUrl;
       } catch (error) {
-        console.warn("Question audio unavailable. Falling back to browser voice.", error);
+        console.error("ElevenLabs voice generation failed. Browser voice fallback may be used.", error);
+        els.siftAudioStatus.textContent = "ElevenLabs voice unavailable. Using device voice fallback.";
         return null;
       }
     }
@@ -462,10 +531,11 @@ audio{width:100%;margin-top:14px}
       els.stopRecordingBtn.disabled = true;
       els.recordingStateText.textContent = "Listen to the question first";
 
-      const audioUrl = await getSiftVoiceAudio(question.question_text);
+      const audioUrl = await getSiftVoiceAudio(question);
 
       if (audioUrl) {
         els.siftQuestionAudio.src = audioUrl;
+        els.siftQuestionAudio.load();
 
         els.siftQuestionAudio.onended = () => {
           els.siftWave.classList.remove("live");
@@ -480,15 +550,34 @@ audio{width:100%;margin-top:14px}
           if (autoStartAfterSift) startRecording();
         };
 
-        await els.siftQuestionAudio.play();
+        try {
+          await els.siftQuestionAudio.play();
+        } catch (playError) {
+          console.error("ElevenLabs audio playback was blocked or failed.", playError);
+          els.siftWave.classList.remove("live");
+          els.siftAudioStatus.textContent = "Tap Play question to hear the voice, then record your answer.";
+          els.startRecordingBtn.disabled = false;
+        }
         return;
       }
 
       if (canUseBrowserVoice()) {
         const utterance = new SpeechSynthesisUtterance(question.question_text);
-        utterance.lang = "en-US";
+        const detectedLanguage = detectSpeechLanguage(question.question_text);
+
+        utterance.lang = detectedLanguage;
         utterance.rate = 0.92;
-        utterance.pitch = 1.05;
+        utterance.pitch = 1.0;
+
+        const matchedVoice = getSpeechVoiceForLanguage(detectedLanguage);
+        if (matchedVoice) {
+          utterance.voice = matchedVoice;
+        }
+
+        console.warn("Using browser voice fallback", {
+          language: detectedLanguage,
+          voice: matchedVoice?.name || "default browser voice"
+        });
 
         utterance.onend = () => {
           els.siftWave.classList.remove("live");
@@ -1239,6 +1328,11 @@ audio{width:100%;margin-top:14px}
     });
 
     els.submitBtn.addEventListener("click", submitConversation);
+
+    if (canUseBrowserVoice()) {
+      window.speechSynthesis.getVoices();
+      window.speechSynthesis.onvoiceschanged = () => window.speechSynthesis.getVoices();
+    }
 
     init();
   </script>
