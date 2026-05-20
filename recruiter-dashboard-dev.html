@@ -2923,6 +2923,8 @@
       const values = getCandidateEditValues(isCandidateModalOpen());
       if(!values.email)return showNotice('Candidate email is required.', 'error');
 
+      const now = new Date().toISOString();
+
       const profilePayload = {
         full_name: values.full_name || null,
         email: values.email,
@@ -2936,32 +2938,58 @@
         salary_expectation: values.salary_expectation || null,
         years_of_experience: values.years_of_experience || null,
         available_working_hours: values.available_working_hours || null,
-        updated_at: new Date().toISOString()
+        updated_at: now
       };
 
       const appPayload = {
         email: values.email,
-        updated_at: new Date().toISOString()
+        updated_at: now
       };
       if(values.job_id){
         appPayload.job_id = values.job_id;
         appPayload.job_title = values.job?.title || row.app?.job_title || null;
       }
 
+      const updateWithFallbacks = async (table, id, attempts) => {
+        let lastError = null;
+        for(const attempt of attempts){
+          const cleanPayload = Object.fromEntries(
+            Object.entries(attempt).filter(([,value]) => value !== undefined)
+          );
+          const { error } = await supabaseClient.from(table).update(cleanPayload).eq('id', id);
+          if(!error)return cleanPayload;
+          lastError = error;
+          console.warn(`${table} candidate edit update attempt failed:`, error?.message || error, cleanPayload);
+        }
+        throw lastError || new Error(`Unable to update ${table}.`);
+      };
+
       try{
         [els.saveCandidateInfoBtn, els.modalSaveCandidateInfoBtn].forEach(btn=>{ if(btn){btn.disabled=true; btn.textContent='Saving...';} });
 
-        const { error: profileError } = await supabaseClient
-          .from('applicant_profiles')
-          .update(profilePayload)
-          .eq('id', row.profile.id);
-        if(profileError)throw profileError;
+        // Some TalentBuzz environments do not have every optional profile column yet.
+        // Try the complete update first, then fall back to the safest core fields.
+        await updateWithFallbacks('applicant_profiles', row.profile.id, [
+          profilePayload,
+          {
+            full_name: profilePayload.full_name,
+            email: profilePayload.email,
+            phone: profilePayload.phone,
+            location: profilePayload.location,
+            updated_at: profilePayload.updated_at
+          },
+          {
+            full_name: profilePayload.full_name,
+            email: profilePayload.email,
+            updated_at: profilePayload.updated_at
+          }
+        ]);
 
-        const { error: appError } = await supabaseClient
-          .from('applications')
-          .update(appPayload)
-          .eq('id', row.id);
-        if(appError)throw appError;
+        await updateWithFallbacks('applications', row.id, [
+          appPayload,
+          values.job_id ? { job_id: appPayload.job_id, job_title: appPayload.job_title, updated_at: now } : { updated_at: now },
+          { updated_at: now }
+        ]);
 
         showNotice('Candidate info updated.', 'success');
         await loadDashboard();
@@ -3890,6 +3918,8 @@ async function bulkUploadResumes(){
       els.viewResumeBtn?.addEventListener('click',()=>openResumeModal(state.selectedResumeUrl,state.selectedResumePath||'Resume Viewer')); els.downloadResumeBtn?.addEventListener('click',()=>downloadResumeFile(state.selectedResumeUrl,state.selectedResumePath,'resume')); els.markNeedsFollowUpBtn?.addEventListener('click',()=>setFollowUpQuick('needs_follow_up')); els.markFollowedUpBtn?.addEventListener('click',()=>setFollowUpQuick('followed_up')); els.parseResumeBtn?.addEventListener('click',parseSelectedResume);
       els.uploadResumeBtn?.addEventListener('click',()=>uploadResumeForSelected(false));
       els.saveBtn?.addEventListener('click',saveSelectedRow);
+      els.saveCandidateInfoBtn?.addEventListener('click',updateCandidateInfo);
+      els.modalSaveCandidateInfoBtn?.addEventListener('click',updateCandidateInfo);
       els.candidateModalClose?.addEventListener('click',closeCandidateModal);
       els.modalSaveBtn?.addEventListener('click',saveSelectedRow);
       els.modalViewResumeBtn?.addEventListener('click',()=>openResumeModal(state.selectedResumeUrl,state.selectedResumePath||'Resume Viewer')); els.modalDownloadResumeBtn?.addEventListener('click',()=>downloadResumeFile(state.selectedResumeUrl,state.selectedResumePath,'resume')); els.modalParseResumeBtn?.addEventListener('click',parseSelectedResume);
