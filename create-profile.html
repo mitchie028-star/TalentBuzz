@@ -280,6 +280,8 @@
       font-weight: 500;
     }
 
+    .required { color: var(--error); }
+
     input,
     select {
       width: 100%;
@@ -499,14 +501,14 @@
 
     <section class="hero">
       <h1>Apply in a few minutes</h1>
-      <p>Share your basic details and attach your resume. TalentBuzz will review your profile after submission and open the next step right away.</p>
+      <p>Share your basic details and attach your resume. We will use your resume to prepare the role assessment after you submit.</p>
     </section>
 
     <section class="card">
       <div class="card-head">
         <div class="progress-top">
           <div class="progress-label">Profile details</div>
-          <div class="progress-meta">No resume parsing required</div>
+          <div class="progress-meta">Resume required · no parsing delay</div>
         </div>
         <div class="progress-bar">
           <div class="progress-fill"></div>
@@ -522,7 +524,7 @@
         <form id="profileForm">
           <div class="section-header">
             <h2 class="section-title">Basic information</h2>
-            <p class="section-desc">Only the essentials are required. Your resume can be enriched later during assessment and recruiter review.</p>
+            <p class="section-desc">Only the essentials are required. Upload your resume now; TalentBuzz will enrich it after submission.</p>
           </div>
 
           <div class="grid">
@@ -589,10 +591,10 @@
             </div>
 
             <div class="field full">
-              <label for="resume">Resume</label>
+              <label for="resume">Resume <span class="required">*</span></label>
               <div class="upload-box">
-                <input id="resume" type="file" accept=".pdf,.doc,.docx,.txt" />
-                <div class="upload-note">Optional, but recommended. Accepted formats: PDF, DOC, DOCX, TXT.</div>
+                <input id="resume" type="file" accept=".pdf,.doc,.docx,.txt" required />
+                <div class="upload-note">Required. Accepted formats: PDF, DOC, DOCX, TXT. We will not pause your application to parse it.</div>
                 <div class="file-meta" id="fileMeta"></div>
               </div>
             </div>
@@ -600,7 +602,7 @@
 
           <div class="mini-card">
             <h3>What happens next</h3>
-            <p id="nextStepText">After you submit, your role assessment will open automatically if you applied for a job. Resume enrichment can happen in the background.</p>
+            <p id="nextStepText">After you submit, your role assessment will open automatically. Your resume will be reviewed and enriched in the background.</p>
           </div>
 
           <div class="actions">
@@ -614,7 +616,7 @@
   </main>
 
   <script>
-    console.log("TalentBuzz create-profile-simple-apply v2026-05-20 loaded");
+    console.log("TalentBuzz create-profile-resume-required-simple v2026-05-20 loaded");
 
     const SUPABASE_URL = "https://dilalntcxmvdcmwxjcct.supabase.co";
     const SUPABASE_ANON_KEY = "sb_publishable_HrLVIUwnaRo54yijtrbWBQ_1aeb4ezs";
@@ -697,7 +699,7 @@
     }
 
     function validateResumeFile(file) {
-      if (!file) return;
+      if (!file) throw new Error("Please upload your resume before submitting.");
       const allowed = [".pdf", ".doc", ".docx", ".txt"];
       const lowerName = file.name.toLowerCase();
       if (!allowed.some(ext => lowerName.endsWith(ext))) {
@@ -934,12 +936,10 @@
         showMessage("Submitting your application...", "info");
 
         const resumeFile = els.resumeInput.files[0] || null;
-        const uploadedResume = resumeFile
-          ? await uploadResume(resumeFile, formValues.email)
-          : null;
+        const uploadedResume = await uploadResume(resumeFile, formValues.email);
 
-        const resumePath = uploadedResume?.path || existingProfile?.resume_path || null;
-        const resumeFileName = uploadedResume?.fileName || existingProfile?.resume_file_name || null;
+        const resumePath = uploadedResume.path;
+        const resumeFileName = uploadedResume.fileName;
 
         const payload = {
           full_name: formValues.fullName,
@@ -954,11 +954,11 @@
           resume_path: resumePath,
           resume_url: resumePath,
           resume_file_name: resumeFileName,
-          has_resume: !!resumePath,
+          has_resume: true,
           profile_status: "submitted",
           profile_completed_at: new Date().toISOString(),
           profile_completion_percent: 100,
-          profile_created_via: "create-profile-simple.html"
+          profile_created_via: "create-profile-resume-required.html"
         };
 
         const savedProfile = await upsertProfile(payload, formValues.email);
@@ -994,7 +994,7 @@
       }
 
       if (!jobId) {
-        els.nextStepText.textContent = "After you submit, your profile will be saved and recruiters can review your details.";
+        els.nextStepText.textContent = "After you submit, your profile will be saved. If a role is attached, the assessment will open automatically.";
       }
     }
 
