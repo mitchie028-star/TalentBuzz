@@ -690,6 +690,78 @@ button:hover,
   font-weight:900;
 }
 
+.choice-area{
+  margin-top:24px;
+  display:grid;
+  gap:12px;
+}
+
+.choice-option{
+  width:100%;
+  min-height:auto;
+  display:flex;
+  align-items:flex-start;
+  gap:12px;
+  text-align:left;
+  border:1px solid var(--line);
+  border-radius:18px;
+  padding:15px;
+  background:linear-gradient(180deg,#ffffff,#f8fbff);
+  color:var(--ink);
+  box-shadow:var(--shadow-soft);
+}
+
+.choice-option:hover{
+  border-color:var(--blue-line);
+  background:linear-gradient(180deg,#ffffff,#eff6ff);
+}
+
+.choice-option.selected{
+  border-color:var(--blue);
+  background:linear-gradient(180deg,#eff6ff,#ffffff);
+  box-shadow:0 0 0 4px rgba(37,99,235,.10);
+}
+
+.choice-letter{
+  flex:0 0 auto;
+  width:30px;
+  height:30px;
+  border-radius:999px;
+  display:grid;
+  place-items:center;
+  background:#fff;
+  border:1px solid var(--blue-line);
+  color:var(--blue-deep);
+  font-size:.78rem;
+  font-weight:900;
+}
+
+.choice-text{
+  flex:1;
+  line-height:1.55;
+  font-size:.88rem;
+  font-weight:700;
+  color:var(--ink);
+}
+
+.skill-mode-note{
+  margin-top:14px;
+  color:var(--muted);
+  font-size:.78rem;
+  line-height:1.55;
+  font-weight:650;
+}
+
+.simulation-area{
+  margin-top:24px;
+  display:grid;
+  gap:10px;
+}
+
+.hidden{
+  display:none !important;
+}
+
 @media (max-width:720px){
   .instructions-grid,
   .welcome-list{
@@ -779,9 +851,9 @@ button:hover,
     </nav>
 
     <section class="hero">
-      <h1 id="assessmentTitle">Role assessment</h1>
+      <h1 id="assessmentTitle">Role skill assessment</h1>
       <p id="assessmentIntro">
-        Answer each scenario thoughtfully and clearly. Focus on your decision-making, communication style, and how you approach real work situations.
+        Complete a short skill check tailored to the role and your application. Most questions are simple choices based on real work situations.
       </p>
 
       <div class="instructions-card" id="instructionsCard">
@@ -803,23 +875,23 @@ button:hover,
     </section>
 
     <section class="welcome-card" id="welcomeCard">
-      <div class="welcome-eyebrow">Next step: Role assessment</div>
+      <div class="welcome-eyebrow">Next step: Role skill assessment</div>
       <h2>Thank you for completing your profile.</h2>
       <p id="welcomeIntroText">
-        The next step is your short role assessment. It is designed to be simple, practical, and focused on real work situations.
+        The next step is your short role skill assessment. It is designed to be simple, practical, and focused on skills related to the role.
         There are no trick questions and no scripted perfect answers. Just answer naturally so the hiring team can better understand
         your communication style, decision-making, and role readiness.
       </p>
 
       <div class="welcome-list">
-        <div class="welcome-list-item"><span class="check-dot">✓</span><span>You will see one question at a time.</span></div>
+        <div class="welcome-list-item"><span class="check-dot">✓</span><span>You will see one practical skill check at a time.</span></div>
         <div class="welcome-list-item"><span class="check-dot">✓</span><span>Your progress is saved as you continue.</span></div>
         <div class="welcome-list-item"><span class="check-dot">✓</span><span>The intro and each question will be read aloud for a guided experience.</span></div>
-        <div class="welcome-list-item"><span class="check-dot">✓</span><span>Your answers are reviewed alongside your profile and role fit.</span></div>
+        <div class="welcome-list-item"><span class="check-dot">✓</span><span>Your answers help verify role-related skills from the job description and your resume.</span></div>
       </div>
 
       <div class="welcome-actions">
-        <span class="soft-note">Most candidates complete this in about 10–15 minutes.</span>
+        <span class="soft-note">Most candidates complete this in about 8–12 minutes.</span>
         <div class="welcome-action-buttons">
           <button type="button" class="listen-btn" id="listenIntroBtn">🔊 Preview intro</button>
           <button type="button" class="btn-primary" id="startAssessmentBtn">Start assessment</button>
@@ -854,10 +926,12 @@ button:hover,
 
         <div class="metadata" id="metadata"></div>
 
-        <div class="answer-area">
+        <div class="choice-area" id="choiceArea"></div>
+
+        <div class="simulation-area hidden" id="simulationArea">
           <label for="answerInput">Your response</label>
           <textarea id="answerInput" placeholder="Type your answer here..."></textarea>
-          <div class="hint">
+          <div class="hint" id="answerHint">
             Be specific. Include what you would do, why you would do it, and what outcome you would aim for.
           </div>
         </div>
@@ -938,7 +1012,10 @@ button:hover,
       listenBtn: document.getElementById("listenBtn"),
       autosaveIndicator: document.getElementById("autosaveIndicator"),
       metadata: document.getElementById("metadata"),
+      choiceArea: document.getElementById("choiceArea"),
+      simulationArea: document.getElementById("simulationArea"),
       answerInput: document.getElementById("answerInput"),
+      answerHint: document.getElementById("answerHint"),
       statusBox: document.getElementById("statusBox"),
       backBtn: document.getElementById("backBtn"),
       saveBtn: document.getElementById("saveBtn"),
@@ -1079,10 +1156,10 @@ button:hover,
     async function listenToIntro() {
       const introText = [
         "Thank you for completing your profile.",
-        "The next step is your short role assessment.",
-        "It is designed to be simple, practical, and focused on real work situations.",
-        "There are no trick questions and no scripted perfect answers.",
-        "Just answer naturally so the hiring team can better understand your communication style, decision-making, and role readiness."
+        "The next step is your short role skill assessment.",
+        "It is tailored to the job description and the experience shown in your resume.",
+        "Most questions are simple choices based on realistic work situations.",
+        "There are no trick questions. Choose the best answer based on what you would do in the role."
       ].join(" ");
 
       await playVoiceText(introText, {
@@ -1164,8 +1241,39 @@ button:hover,
       return questions[currentIndex] || null;
     }
 
+    function getQuestionMetadata(question) {
+      return question?.metadata || {};
+    }
+
+    function getQuestionOptions(question) {
+      const metadata = getQuestionMetadata(question);
+      return Array.isArray(metadata.options) ? metadata.options : [];
+    }
+
+    function isChoiceQuestion(question) {
+      const type = String(question?.question_type || "").toLowerCase();
+      const expected = String(question?.expected_response_type || "").toLowerCase();
+      const options = getQuestionOptions(question);
+
+      return (
+        options.length > 0 &&
+        (
+          expected === "choice" ||
+          ["multiple_choice", "scenario_choice", "prioritization", "ranking"].includes(type)
+        )
+      );
+    }
+
+    function normalizeAnswerValue(value) {
+      if (value && typeof value === "object") {
+        return value.text_response || value.selected_option || value.answer || "";
+      }
+
+      return value || "";
+    }
+
     function answerFor(questionId) {
-      return responses[questionId]?.text_response || responses[questionId] || "";
+      return normalizeAnswerValue(responses[questionId]);
     }
 
     function answeredCount() {
@@ -1204,6 +1312,65 @@ button:hover,
       els.progressFill.style.width = `${Math.round((answered / total) * 100)}%`;
     }
 
+    function renderAnswerInput(question) {
+      const currentAnswer = String(answerFor(question.id) || "");
+      const options = getQuestionOptions(question);
+      const choiceMode = isChoiceQuestion(question);
+
+      if (choiceMode) {
+        els.choiceArea.classList.remove("hidden");
+        els.simulationArea.classList.add("hidden");
+        els.choiceArea.innerHTML = options.map((option, index) => {
+          const id = String(option.id || String.fromCharCode(65 + index)).trim();
+          const text = String(option.text || option.label || option.value || "").trim();
+          const selected = currentAnswer === id || currentAnswer === text;
+
+          return `
+            <button type="button" class="choice-option ${selected ? "selected" : ""}" data-option-id="${escapeHtml(id)}" data-option-text="${escapeHtml(text)}">
+              <span class="choice-letter">${escapeHtml(id)}</span>
+              <span class="choice-text">${escapeHtml(text)}</span>
+            </button>
+          `;
+        }).join("");
+
+        els.choiceArea.insertAdjacentHTML(
+          "beforeend",
+          `<div class="skill-mode-note">Choose the best answer based on the role situation. Some questions may ask what to prioritize or what action is most appropriate.</div>`
+        );
+
+        els.choiceArea.querySelectorAll(".choice-option").forEach(button => {
+          button.addEventListener("click", () => {
+            const optionId = button.getAttribute("data-option-id") || "";
+            const optionText = button.getAttribute("data-option-text") || "";
+
+            responses[question.id] = {
+              ...(responses[question.id] || {}),
+              assessment_id: assessment.id,
+              question_id: question.id,
+              text_response: optionId,
+              selected_option: optionId,
+              selected_option_text: optionText
+            };
+
+            els.choiceArea.querySelectorAll(".choice-option").forEach(item => {
+              item.classList.remove("selected");
+            });
+
+            button.classList.add("selected");
+            updateProgress();
+            updateAutosaveState("saving", "Answer selected — continue to save");
+            clearStatus();
+          });
+        });
+      } else {
+        els.choiceArea.classList.add("hidden");
+        els.choiceArea.innerHTML = "";
+        els.simulationArea.classList.remove("hidden");
+        els.answerInput.value = currentAnswer;
+        els.answerHint.textContent = "Keep it practical and concise. Show how you would handle the task in a real work setting.";
+      }
+    }
+
     function renderQuestion() {
       const question = currentQuestion();
 
@@ -1233,7 +1400,7 @@ button:hover,
         .map(tag => `<span class="tag">${escapeHtml(tag)}</span>`)
         .join("");
 
-      els.answerInput.value = answerFor(question.id);
+      renderAnswerInput(question);
       updateAutosaveState(answerFor(question.id) ? "saved" : "", answerFor(question.id) ? "✓ Progress saved" : "Progress saves as you continue");
 
       els.backBtn.disabled = currentIndex === 0 || saving;
@@ -1330,7 +1497,11 @@ button:hover,
       const question = currentQuestion();
       if (!question) return false;
 
-      const text = els.answerInput.value.trim();
+      const choiceMode = isChoiceQuestion(question);
+      const text = choiceMode
+        ? String(answerFor(question.id) || "").trim()
+        : els.answerInput.value.trim();
+
       responses[question.id] = {
         ...(responses[question.id] || {}),
         assessment_id: assessment.id,
@@ -1341,7 +1512,7 @@ button:hover,
       updateProgress();
 
       if (!text) {
-        showStatus("Please enter a response before saving.", "error");
+        showStatus(choiceMode ? "Please choose an answer before continuing." : "Please enter a response before continuing.", "error");
         return false;
       }
 
@@ -1436,7 +1607,14 @@ button:hover,
       clearSummaryStatus();
 
       els.reviewList.innerHTML = questions.map((question, index) => {
-        const answer = String(answerFor(question.id)).trim() || "No answer provided.";
+        const metadata = getQuestionMetadata(question);
+        const options = getQuestionOptions(question);
+        const saved = responses[question.id] || {};
+        const rawAnswer = String(answerFor(question.id)).trim();
+        const optionMatch = options.find(option => String(option.id) === rawAnswer);
+        const answer = optionMatch
+          ? `${optionMatch.id}. ${optionMatch.text}`
+          : rawAnswer || "No answer provided.";
         return `
           <div class="review-item">
             <strong>Question ${index + 1}: ${escapeHtml(getQuestionTitle(question))}</strong>
@@ -1454,7 +1632,7 @@ button:hover,
       if (activeQuestion && els.assessmentCard.style.display !== "none") {
         responses[activeQuestion.id] = {
           ...(responses[activeQuestion.id] || {}),
-          text_response: els.answerInput.value.trim()
+          text_response: isChoiceQuestion(activeQuestion) ? String(answerFor(activeQuestion.id) || "").trim() : els.answerInput.value.trim()
         };
       }
 
@@ -1595,10 +1773,13 @@ button:hover,
       const question = currentQuestion();
       if (!question) return;
 
-      const text = els.answerInput.value.trim();
+      const choiceMode = isChoiceQuestion(question);
+      const text = choiceMode
+        ? String(answerFor(question.id) || "").trim()
+        : els.answerInput.value.trim();
 
       if (!text) {
-        showStatus("Please enter a response before continuing.", "error");
+        showStatus(choiceMode ? "Please choose an answer before continuing." : "Please enter a response before continuing.", "error");
         return;
       }
 
@@ -1632,7 +1813,7 @@ button:hover,
       if (question) {
         responses[question.id] = {
           ...(responses[question.id] || {}),
-          text_response: els.answerInput.value.trim()
+          text_response: isChoiceQuestion(activeQuestion) ? String(answerFor(activeQuestion.id) || "").trim() : els.answerInput.value.trim()
         };
       }
 
@@ -1654,7 +1835,7 @@ button:hover,
     if (els.answerInput) els.answerInput.addEventListener("input", () => {
       const question = currentQuestion();
 
-      if (question) {
+      if (question && !isChoiceQuestion(question)) {
         responses[question.id] = {
           ...(responses[question.id] || {}),
           text_response: els.answerInput.value
