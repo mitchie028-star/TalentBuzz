@@ -814,14 +814,14 @@ button:hover,
       <div class="welcome-list">
         <div class="welcome-list-item"><span class="check-dot">✓</span><span>You will see one question at a time.</span></div>
         <div class="welcome-list-item"><span class="check-dot">✓</span><span>Your progress is saved as you continue.</span></div>
-        <div class="welcome-list-item"><span class="check-dot">✓</span><span>You can listen to each question using voice guidance.</span></div>
+        <div class="welcome-list-item"><span class="check-dot">✓</span><span>The intro and each question will be read aloud for a guided experience.</span></div>
         <div class="welcome-list-item"><span class="check-dot">✓</span><span>Your answers are reviewed alongside your profile and role fit.</span></div>
       </div>
 
       <div class="welcome-actions">
         <span class="soft-note">Most candidates complete this in about 10–15 minutes.</span>
         <div class="welcome-action-buttons">
-          <button type="button" class="listen-btn" id="listenIntroBtn">🔊 Listen to intro</button>
+          <button type="button" class="listen-btn" id="listenIntroBtn">🔊 Preview intro</button>
           <button type="button" class="btn-primary" id="startAssessmentBtn">Start assessment</button>
         </div>
       </div>
@@ -843,7 +843,7 @@ button:hover,
         <h2 class="question-text" id="questionText"></h2>
 
         <div class="question-tools">
-          <button type="button" class="listen-btn" id="listenBtn">🔊 Listen to question</button>
+          <button type="button" class="listen-btn" id="listenBtn">🔊 Replay question</button>
           <span class="autosave-indicator" id="autosaveIndicator">Progress saves as you continue</span>
         </div>
 
@@ -981,30 +981,31 @@ button:hover,
     }
 
     async function speakWithElevenLabs(text, voiceMode = "question") {
-      // Secure path: create a Supabase Edge Function named `generate-question-audio`
-      // that stores the ElevenLabs API key server-side and returns base64 audio.
-      const { data, error } = await supabaseClient.functions.invoke(
-        "generate-question-audio",
-        { body: { text, voice_mode: voiceMode } }
-      );
+      const response = await fetch(`${SUPABASE_URL}/functions/v1/generate-question-audio`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "apikey": SUPABASE_ANON_KEY,
+          "Authorization": `Bearer ${SUPABASE_ANON_KEY}`
+        },
+        body: JSON.stringify({
+          text,
+          mode: voiceMode
+        })
+      });
 
-      if (error) throw error;
-
-      const audioUrl = data?.audio_url || data?.url;
-      const audioBase64 = data?.audio_base64;
-
-      if (audioUrl) return audioUrl;
-
-      if (audioBase64) {
-        const binary = atob(audioBase64);
-        const bytes = new Uint8Array(binary.length);
-        for (let i = 0; i < binary.length; i += 1) {
-          bytes[i] = binary.charCodeAt(i);
-        }
-        return URL.createObjectURL(new Blob([bytes], { type: "audio/mpeg" }));
+      if (!response.ok) {
+        const errorText = await response.text().catch(() => "");
+        throw new Error(errorText || "Unable to generate question audio.");
       }
 
-      throw new Error("No audio returned from text-to-speech service.");
+      const audioBlob = await response.blob();
+
+      if (!audioBlob || !audioBlob.size) {
+        throw new Error("No audio returned from text-to-speech service.");
+      }
+
+      return URL.createObjectURL(audioBlob);
     }
 
     function speakWithBrowserVoice(text) {
@@ -1562,10 +1563,23 @@ button:hover,
       }
     }
 
-    els.startAssessmentBtn.addEventListener("click", () => {
+    els.startAssessmentBtn.addEventListener("click", async () => {
       stopActiveAudio();
+
+      els.startAssessmentBtn.disabled = true;
+      els.startAssessmentBtn.textContent = "Starting...";
+
       assessmentStarted = true;
       renderQuestion();
+
+      await listenToIntro();
+
+      setTimeout(() => {
+        listenToCurrentQuestion();
+      }, 700);
+
+      els.startAssessmentBtn.disabled = false;
+      els.startAssessmentBtn.textContent = "Start assessment";
     });
 
     els.listenIntroBtn.addEventListener("click", listenToIntro);
@@ -1597,10 +1611,16 @@ button:hover,
       if (!saved) return;
 
       if (currentIndex < questions.length - 1) {
+        stopActiveAudio();
         currentIndex += 1;
         renderQuestion();
         window.scrollTo({ top: 0, behavior: "smooth" });
+
+        setTimeout(() => {
+          listenToCurrentQuestion();
+        }, 700);
       } else {
+        stopActiveAudio();
         showReview();
       }
     });
