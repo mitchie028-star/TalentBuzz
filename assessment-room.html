@@ -1039,6 +1039,7 @@ button:hover,
     let assessmentStarted = false;
     let activeAudio = null;
     let autosaveTimer = null;
+    let talentConversationPreGenerated = false;
 
     function updateAutosaveState(state, message) {
       if (!els.autosaveIndicator) return;
@@ -1600,7 +1601,45 @@ button:hover,
       }
     }
 
+    function preGenerateTalentConversation() {
+      if (talentConversationPreGenerated) return;
+      if (!assessment?.application_id) return;
+
+      talentConversationPreGenerated = true;
+
+      console.log("[background talent conversation generation] starting", assessment.application_id);
+
+      supabaseClient.functions
+        .invoke("generate-talent-conversation", {
+          body: {
+            application_id: assessment.application_id,
+            force_regenerate: false
+          }
+        })
+        .then(({ data, error }) => {
+          if (error) {
+            console.error("[background talent conversation generation] failed", error);
+            talentConversationPreGenerated = false;
+            return;
+          }
+
+          if (data?.ok === false) {
+            console.error("[background talent conversation generation] failed", data?.error || data);
+            talentConversationPreGenerated = false;
+            return;
+          }
+
+          console.log("[background talent conversation generation] ready", data);
+        })
+        .catch((err) => {
+          console.error("[background talent conversation generation] error", err);
+          talentConversationPreGenerated = false;
+        });
+    }
+
     function showReview() {
+      preGenerateTalentConversation();
+
       els.assessmentCard.style.display = "none";
       els.emptyState.style.display = "none";
       els.summaryPanel.classList.add("show");
@@ -1632,7 +1671,7 @@ button:hover,
       if (activeQuestion && els.assessmentCard.style.display !== "none") {
         responses[activeQuestion.id] = {
           ...(responses[activeQuestion.id] || {}),
-          text_response: isChoiceQuestion(activeQuestion) ? String(answerFor(activeQuestion.id) || "").trim() : els.answerInput.value.trim()
+          text_response: isChoiceQuestion(question) ? String(answerFor(question.id) || "").trim() : els.answerInput.value.trim()
         };
       }
 
@@ -1803,6 +1842,7 @@ button:hover,
         }, 700);
       } else {
         stopActiveAudio();
+        preGenerateTalentConversation();
         showReview();
       }
     });
@@ -1813,7 +1853,7 @@ button:hover,
       if (question) {
         responses[question.id] = {
           ...(responses[question.id] || {}),
-          text_response: isChoiceQuestion(activeQuestion) ? String(answerFor(activeQuestion.id) || "").trim() : els.answerInput.value.trim()
+          text_response: isChoiceQuestion(question) ? String(answerFor(question.id) || "").trim() : els.answerInput.value.trim()
         };
       }
 
