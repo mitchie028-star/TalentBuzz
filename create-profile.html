@@ -860,6 +860,36 @@
       return data;
     }
 
+    function preGenerateAssessment(application) {
+      if (!application?.id) return;
+
+      console.log("[background assessment generation] starting", application.id);
+
+      supabaseClient.functions
+        .invoke("generate-role-assessment", {
+          body: {
+            application_id: application.id,
+            force_regenerate: false
+          }
+        })
+        .then(({ data, error }) => {
+          if (error) {
+            console.error("[background assessment generation] failed", error);
+            return;
+          }
+
+          if (data?.ok === false) {
+            console.error("[background assessment generation] failed", data?.error || data);
+            return;
+          }
+
+          console.log("[background assessment generation] ready", data);
+        })
+        .catch((err) => {
+          console.error("[background assessment generation] error", err);
+        });
+    }
+
     function redirectAfterSave(application) {
       if (application?.id) {
         window.location.href = `assessment-room.html?application_id=${encodeURIComponent(application.id)}`;
@@ -964,11 +994,13 @@
         const savedProfile = await upsertProfile(payload, formValues.email);
         existingProfile = savedProfile;
 
-        showMessage("Application submitted. Opening your assessment...", "success");
+        showMessage("Application submitted. Preparing your personalized skill assessment...", "success");
 
         const application = await createApplication(savedProfile);
 
-        setTimeout(() => redirectAfterSave(application), 500);
+        preGenerateAssessment(application);
+
+        setTimeout(() => redirectAfterSave(application), 1200);
       } catch (error) {
         console.error(error);
         showMessage(error.message || "Unable to submit your application right now.", "error");
