@@ -397,7 +397,7 @@ body.conversation-integrity-warning .integrity-pill{
   </main>
 
   <script>
-    console.log("TalentBuzz talent-conversation-integrity-voice-consistency v2026-05-22 loaded");
+    console.log("TalentBuzz talent-conversation-integrity-gemini-analysis v2026-05-23 loaded");
 
     const SUPABASE_URL = "https://dilalntcxmvdcmwxjcct.supabase.co";
     const SUPABASE_ANON_KEY = "sb_publishable_HrLVIUwnaRo54yijtrbWBQ_1aeb4ezs";
@@ -1878,9 +1878,10 @@ body.conversation-integrity-warning .integrity-pill{
         }
 
         responses[question.id] = data;
+        analyzeConversationAudioInBackground(data, question);
         currentAudioBlob = null;
 
-        showMicroFeedback("Response saved. Great — you can continue when ready.");
+        showMicroFeedback("Response saved. Great — you can continue when ready. Audio review is running in the background.");
         showStatus("Response saved.", "success");
 
         return true;
@@ -1893,6 +1894,55 @@ body.conversation-integrity-warning .integrity-pill{
         els.nextBtn.disabled = false;
       }
     }
+
+
+    function analyzeConversationAudioInBackground(responseRow, question) {
+      if (!responseRow?.id || !responseRow?.audio_url || !conversation?.id) {
+        console.warn("[conversation audio analysis] skipped: missing response, audio, or conversation id");
+        return;
+      }
+
+      console.log("[conversation audio analysis] queued", {
+        conversation_id: conversation.id,
+        question_id: question?.id || responseRow.question_id || null,
+        response_id: responseRow.id
+      });
+
+      supabaseClient.functions
+        .invoke("analyze-conversation-audio", {
+          body: {
+            conversation_id: conversation.id,
+            application_id: conversation.application_id || applicationId || null,
+            question_id: question?.id || responseRow.question_id || null,
+            response_id: responseRow.id,
+            audio_url: responseRow.audio_url
+          }
+        })
+        .then(({ data, error }) => {
+          if (error) {
+            console.error("[conversation audio analysis] failed", error);
+            return;
+          }
+
+          if (data?.ok === false) {
+            console.error("[conversation audio analysis] failed", data?.error || data);
+            return;
+          }
+
+          console.log("[conversation audio analysis] completed", data);
+
+          if (data?.updated?.id) {
+            responses[data.updated.question_id || responseRow.question_id] = {
+              ...(responses[data.updated.question_id || responseRow.question_id] || responseRow),
+              ...data.updated
+            };
+          }
+        })
+        .catch(error => {
+          console.error("[conversation audio analysis] error", error);
+        });
+    }
+
 
     function showReview() {
       els.conversationCard.style.display = "none";
@@ -2005,7 +2055,7 @@ body.conversation-integrity-warning .integrity-pill{
         }
 
         markConversationComplete();
-        showSummaryStatus("Talent Conversation completed successfully.", "success");
+        showSummaryStatus("Conversation completed successfully.", "success");
 
         
         evaluateConversationAfterSubmit();
