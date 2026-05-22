@@ -1819,7 +1819,7 @@ tr.row-assessment-progress:hover td{
             <div class="panel-head">
               <div>
                 <h2>Recruiter Snapshot</h2>
-                <p>Assessment progress, recruiter workload, and active pipeline movement.</p>
+                <p>Live counts for the candidates currently visible in the work queue.</p>
               </div>
             </div>
             <div class="metric-grid compact-metrics">
@@ -1832,7 +1832,7 @@ tr.row-assessment-progress:hover td{
               <div class="metric"><span>Follow-up</span><strong id="kpiFollowUp">0</strong></div>
               <div class="metric"><span>Interview</span><strong id="kpiInterview">0</strong></div>
               <div class="metric"><span>Strong Matches</span><strong id="kpiStrongFit">0</strong></div>
-              <div class="metric"><span>Awaiting Response</span><strong id="kpiBelowThreshold">0</strong></div>
+              <div class="metric"><span>Needs Review</span><strong id="kpiBelowThreshold">0</strong></div>
               <div class="metric"><span>Unassigned</span><strong id="kpiUnassigned">0</strong></div>
               <div class="metric"><span>Offered</span><strong id="kpiOffered">0</strong></div>
               <div class="metric"><span>Hired</span><strong id="kpiHired">0</strong></div>
@@ -3365,6 +3365,24 @@ tr.row-assessment-progress:hover td{
       renderKPIs();renderTable();updateDrawerNavMeta();updateFilterUi();
       if(state.selectedId&&!state.filteredRows.some(row=>row.id===state.selectedId))closeDrawer();
     }
+
+    function hasActiveDashboardFilters(){
+      const values = [
+        els.searchInput?.value,
+        els.candidateNameFilter?.value,
+        els.statusFilter?.value,
+        els.recruiterFilter?.value,
+        els.followUpFilter?.value,
+        els.jobFilter?.value,
+        els.clientFilter?.value,
+        els.scoreFilter?.value,
+        els.countryFilter?.value,
+        els.workSetupFilter?.value
+      ];
+
+      return values.some(value => !!safeText(value)) || (state.savedView && state.savedView !== 'all');
+    }
+
     function updateSavedViewCounts(){
       const rows = state.allRows || [];
       const count = fn => rows.filter(fn).length;
@@ -3383,46 +3401,64 @@ tr.row-assessment-progress:hover td{
     }
 
     function renderKPIs(){
-      const rows=state.allRows;
+      // Saved-view counters stay global so recruiters can jump between queues.
       updateSavedViewCounts();
-      const count=fn=>rows.filter(fn).length;
-      els.kpiApplications.textContent=rows.length;
-      const fitScores = rows.map(r=>Number(r.score?.overall)).filter(Number.isFinite);
-      const averageFit = fitScores.length ? Math.round(fitScores.reduce((sum,value)=>sum+value,0)/fitScores.length) : 0;
-      const strongFitCount = count(r=>scoreTier(r.score?.overall)==='strong');
-      const belowThresholdCount = count(r=>scoreTier(r.score?.overall)==='weak');
-      if(els.kpiAverageFit)els.kpiAverageFit.textContent=`${averageFit}%`;
-      if(els.kpiStrongFit)els.kpiStrongFit.textContent=strongFitCount;
-      if(els.kpiBelowThreshold)els.kpiBelowThreshold.textContent=belowThresholdCount;
-      els.kpiUnassigned.textContent=count(r=>isUnassignedRecruiter(r));
-      els.kpiInterview.textContent=count(r=>['for interview','shortlisted','assessment'].includes(normalizeStatus(r.status)));
-      els.kpiOffered.textContent=count(r=>normalizeStatus(r.status)==='offered jo');
 
-      const hiredCount=count(r=>['hired'].includes(normalizeStatus(r.status)));
-      const onboardedCount=count(r=>['onboarded'].includes(normalizeStatus(r.status)));
-      const withdrawnCount=count(r=>['withdrawn','not interested','candidate withdrawn'].includes(normalizeStatus(r.status)));
-      const followUpCount=count(r=>hasOpenFollowUp(r));
-      const reviewCount=count(r=>['submitted',''].includes(normalizeStatus(r.status)));
-      const assessmentCompletedCount = count(r=>hasCompletedAssessment(r));
-      const assessmentSentCount = count(r=>isAwaitingAssessment(r));
-      const assessmentInProgressCount = count(r=>isAssessmentInProgress(r));
-      if(els.kpiAssessmentCompleted)els.kpiAssessmentCompleted.textContent=assessmentCompletedCount;
-      if(els.kpiAssessmentSent)els.kpiAssessmentSent.textContent=assessmentSentCount;
-      if(els.kpiAssessmentInProgress)els.kpiAssessmentInProgress.textContent=assessmentInProgressCount;
-      if(els.actionReadyReview)els.actionReadyReview.textContent=assessmentCompletedCount;
-      if(els.actionAwaitingAssessment)els.actionAwaitingAssessment.textContent=assessmentSentCount;
+      // Recruiter Snapshot and Today’s Priority Queue reflect the visible/filtered set.
+      const rows = (state.filteredRows && state.filteredRows.length) || hasActiveDashboardFilters()
+        ? (state.filteredRows || [])
+        : (state.allRows || []);
 
-      if(els.kpiHired)els.kpiHired.textContent=hiredCount;
-      if(els.kpiOnboarded)els.kpiOnboarded.textContent=onboardedCount;
-      if(els.kpiWithdrawn)els.kpiWithdrawn.textContent=withdrawnCount;
-      if(els.kpiFollowUp)els.kpiFollowUp.textContent=followUpCount;
-      if(els.kpiReview)els.kpiReview.textContent=reviewCount;
+      const count = fn => rows.filter(fn).length;
+      const setText = (el, value) => {
+        if (el) el.textContent = String(value);
+      };
 
-      els.actionNeedsReview.textContent=reviewCount;
-      els.actionFollowUps.textContent=followUpCount;
-      if(els.actionHighMatch)els.actionHighMatch.textContent=strongFitCount;
-      if(els.actionLowFit)els.actionLowFit.textContent=belowThresholdCount;
-      els.newApplicantsBadge.textContent=String(count(r=>isUnassignedRecruiter(r)));
+      const fitScores = rows
+        .map(r => Number(r.score?.overall))
+        .filter(Number.isFinite);
+
+      const averageFit = fitScores.length
+        ? Math.round(fitScores.reduce((sum, value) => sum + value, 0) / fitScores.length)
+        : 0;
+
+      const activeCount = rows.length;
+      const strongFitCount = count(r => scoreTier(r.score?.overall) === 'strong');
+      const needsReviewCount = count(r => scoreTier(r.score?.overall) === 'weak');
+      const unassignedCount = count(r => isUnassignedRecruiter(r));
+      const interviewCount = count(r => ['for interview','shortlisted','assessment'].includes(normalizeStatus(r.status)));
+      const offeredCount = count(r => normalizeStatus(r.status) === 'offered jo');
+      const hiredCount = count(r => ['hired'].includes(normalizeStatus(r.status)));
+      const onboardedCount = count(r => ['onboarded'].includes(normalizeStatus(r.status)));
+      const withdrawnCount = count(r => ['withdrawn','not interested','candidate withdrawn'].includes(normalizeStatus(r.status)));
+      const followUpCount = count(r => hasOpenFollowUp(r));
+      const reviewCount = count(r => ['submitted',''].includes(normalizeStatus(r.status)));
+      const assessmentCompletedCount = count(r => hasCompletedAssessment(r));
+      const assessmentSentCount = count(r => isAwaitingAssessment(r));
+      const assessmentInProgressCount = count(r => isAssessmentInProgress(r));
+
+      setText(els.kpiApplications, activeCount);
+      setText(els.kpiAverageFit, `${averageFit}%`);
+      setText(els.kpiReview, reviewCount);
+      setText(els.kpiAssessmentCompleted, assessmentCompletedCount);
+      setText(els.kpiAssessmentSent, assessmentSentCount);
+      setText(els.kpiAssessmentInProgress, assessmentInProgressCount);
+      setText(els.kpiFollowUp, followUpCount);
+      setText(els.kpiInterview, interviewCount);
+      setText(els.kpiStrongFit, strongFitCount);
+      setText(els.kpiBelowThreshold, needsReviewCount);
+      setText(els.kpiUnassigned, unassignedCount);
+      setText(els.kpiOffered, offeredCount);
+      setText(els.kpiHired, hiredCount);
+      setText(els.kpiOnboarded, onboardedCount);
+      setText(els.kpiWithdrawn, withdrawnCount);
+
+      // Priority cards also follow the visible/filtered set.
+      setText(els.actionNeedsReview, reviewCount);
+      setText(els.actionFollowUps, followUpCount);
+      setText(els.actionReadyReview, assessmentCompletedCount);
+      setText(els.actionAwaitingAssessment, assessmentSentCount);
+      setText(els.newApplicantsBadge, unassignedCount);
     }
 
     function renderTable(){
