@@ -411,6 +411,14 @@ audio{width:100%;margin-top:14px}
       return data || {};
     }
 
+    function candidateConversationIntro() {
+      return "This guided conversation helps us understand your experience, communication style, and role alignment. Take your time and answer naturally.";
+    }
+
+    function candidateWelcomeIntro() {
+      return "This is a short guided conversation designed to help the hiring team understand how you communicate, explain your experience, and think through role-related situations.";
+    }
+
     function escapeHtml(value) {
       return String(value ?? "")
         .replaceAll("&", "&amp;")
@@ -1378,7 +1386,7 @@ audio{width:100%;margin-top:14px}
         }
 
         try {
-          showStatus("Evaluating response...", "info");
+          showStatus("Saving response...", "info");
 
           const latestResponse = responseFor(question.id) || data;
           const responseIdForEvaluation = latestResponse.id || data.id;
@@ -1445,6 +1453,37 @@ audio{width:100%;margin-top:14px}
         `;
       }).join("");
     }
+    function evaluateConversationAfterSubmit() {
+      if (!conversation?.id) return;
+
+      console.log("[conversation evaluation] starting after submit", conversation.id);
+
+      supabaseClient.functions
+        .invoke("evaluate-talent-conversation", {
+          body: {
+            conversation_id: conversation.id,
+            application_id: conversation.application_id || applicationId || null
+          }
+        })
+        .then(({ data, error }) => {
+          if (error) {
+            console.error("[conversation evaluation] failed", error);
+            return;
+          }
+
+          if (data?.ok === false) {
+            console.error("[conversation evaluation] failed", data?.error || data);
+            return;
+          }
+
+          console.log("[conversation evaluation] completed", data);
+        })
+        .catch((err) => {
+          console.error("[conversation evaluation] error", err);
+        });
+    }
+
+
 
     async function submitConversation() {
       const missing = questions.filter(q => !responseFor(q.id)?.audio_url);
@@ -1509,7 +1548,9 @@ audio{width:100%;margin-top:14px}
         markConversationComplete();
         showSummaryStatus("Talent Conversation submitted successfully.", "success");
 
-        setTimeout(() => {
+        
+        evaluateConversationAfterSubmit();
+setTimeout(() => {
           window.location.href =
             `application-complete.html?conversation_id=${encodeURIComponent(conversation.id)}`;
         }, 1000);
