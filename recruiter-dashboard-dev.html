@@ -2037,7 +2037,7 @@
   </div>
 
   <script>
-    console.log('TalentBuzz recruiter-dashboard-review-hard-route-fix v2026-05-22 loaded');
+    console.log('TalentBuzz recruiter-dashboard-direct-review-anchor-fix v2026-05-22 loaded');
 
     const CONFIG = {
       SUPABASE_URL: window.TALENTBUZZ_SUPABASE_URL || localStorage.getItem('TALENTBUZZ_SUPABASE_URL') || '',
@@ -2118,7 +2118,9 @@
         return;
       }
 
-      window.location.href = `candidate-review.html?application_id=${encodeURIComponent(id)}`;
+      const reviewUrl = `candidate-review.html?application_id=${encodeURIComponent(id)}&v=${Date.now()}`;
+      console.log("[candidate review direct route]", reviewUrl);
+      window.location.assign(reviewUrl);
     }
 
 
@@ -3028,7 +3030,7 @@
           <td><span class="pill ${getFollowUpTone(row.followUp?.key)}">${escapeHtml(row.followUp?.label||'No Follow-up')}</span>${row.followUp?.dueAt?`<div class="small">Due ${escapeHtml(formatDateTime(row.followUp.dueAt))}</div>`:''}</td>
           <td><span class="pill ${hasResumeEvidence(row.profile)?'resume':'missing'}">${hasResumeEvidence(row.profile)?'Resume':'Missing'}</span></td>
           <td><span class="pill ${scoreTone}">${row.score.overall}%</span></td>
-          <td><div class="actions"><button class="btn btn-xs" data-action="open" type="button">Details</button>${row.followUp?.note?'<button class="btn btn-xs" data-action="open" type="button">Note</button>':''}<button class="btn btn-xs candidate-review-link" data-action="review" data-hard-review-route="1" type="button">Review</button><button class="btn btn-primary btn-xs" data-action="assessment" type="button">Send Assessment</button></div></td>
+          <td><div class="actions"><button class="btn btn-xs" data-action="open" type="button">Details</button>${row.followUp?.note?'<button class="btn btn-xs" data-action="open" type="button">Note</button>':''}<a class="btn btn-xs candidate-review-link" data-action="review" data-hard-review-route="1" href="candidate-review.html?application_id=${encodeURIComponent(row.id)}">Review</a><button class="btn btn-primary btn-xs" data-action="assessment" type="button">Send Assessment</button></div></td>
         </tr>`;
       }).join('');
     }
@@ -4269,7 +4271,9 @@ async function bulkUploadResumes(){
         els.moreFiltersBtn.textContent=isOpen?'Less filters':'More filters';
         els.moreFiltersBtn.classList.toggle('active', !!isOpen);
         saveUiPreference(PREF_KEYS.advancedFilters, !!isOpen);
-      });els.closeDrawerBtn.addEventListener('click',closeDrawer);els.prevBtn.addEventListener('click',()=>openSelectedOffset(-1));els.nextBtn.addEventListener('click',()=>openSelectedOffset(1));els.openCandidateWorkspaceBtn.addEventListener('click',openCandidateModal); els.openCandidateReviewBtn?.addEventListener('click', () => {
+      });els.closeDrawerBtn.addEventListener('click',closeDrawer);els.prevBtn.addEventListener('click',()=>openSelectedOffset(-1));els.nextBtn.addEventListener('click',()=>openSelectedOffset(1));els.openCandidateWorkspaceBtn.addEventListener('click',openCandidateModal); els.openCandidateReviewBtn?.addEventListener('click', (event) => {
+      event.preventDefault();
+      event.stopPropagation();
       const row = state.allRows.find(item => item.id === state.selectedId) || state.filteredRows.find(item => item.id === state.selectedId);
       routeToCandidateReview(row);
     }); els.openAssessmentEmailBtn?.addEventListener('click',()=>openAssessmentEmailModal(state.selectedId));
@@ -4285,7 +4289,11 @@ async function bulkUploadResumes(){
         const action=button.getAttribute('data-action');
         if(action==='clear-empty')return clearFilters();
         if(action==='open')return openDrawer(id);
-        if(action==='review'){ return openCandidateReviewByApplicationId(id); }
+        if(action==='review'){
+          event.preventDefault();
+          event.stopPropagation();
+          return routeToCandidateReview(id);
+        }
         if(action==='assessment'){ await openDrawer(id); return openAssessmentEmailModal(id); }
       });
       els.viewResumeBtn?.addEventListener('click',()=>openResumeModal(state.selectedResumeUrl,state.selectedResumePath||'Resume Viewer')); els.downloadResumeBtn?.addEventListener('click',()=>downloadResumeFile(state.selectedResumeUrl,state.selectedResumePath,'resume')); els.markNeedsFollowUpBtn?.addEventListener('click',()=>setFollowUpQuick('needs_follow_up')); els.markFollowedUpBtn?.addEventListener('click',()=>setFollowUpQuick('followed_up')); els.parseResumeBtn?.addEventListener('click',parseSelectedResume);
@@ -4317,7 +4325,7 @@ async function bulkUploadResumes(){
 
     function installCandidateReviewHardRouteGuard(){
       document.addEventListener("click", function(event) {
-        const target = event.target?.closest?.("[data-hard-review-route='1'], .candidate-review-link, [data-action='review']");
+        const target = event.target?.closest?.(".candidate-review-link, [data-action='review']");
         if (!target) return;
 
         const rowElement = target.closest("tr");
@@ -4329,19 +4337,13 @@ async function bulkUploadResumes(){
           state.selectedId ||
           "";
 
-        const row =
-          state.allRows.find(item => String(item.id) === String(rowId)) ||
-          state.filteredRows.find(item => String(item.id) === String(rowId)) ||
-          state.allRows.find(item => String(item.id) === String(state.selectedId)) ||
-          state.filteredRows.find(item => String(item.id) === String(state.selectedId));
-
-        if (!row && !rowId) return;
+        if (!rowId) return;
 
         event.preventDefault();
         event.stopPropagation();
         event.stopImmediatePropagation();
 
-        routeToCandidateReview(row || rowId);
+        routeToCandidateReview(rowId);
       }, true);
     }
 
