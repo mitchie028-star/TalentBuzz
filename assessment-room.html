@@ -879,6 +879,67 @@ body.assessment-expired #submitBtn{
   font-weight:800;
 }
 
+
+.integrity-card{
+  margin-top:22px;
+  padding:16px;
+  border:1px solid var(--blue-line);
+  border-radius:20px;
+  background:linear-gradient(180deg,#ffffff,#f8fbff);
+  display:grid;
+  gap:10px;
+}
+
+.integrity-card strong{
+  color:var(--ink-strong);
+  font-size:.9rem;
+  font-weight:900;
+}
+
+.integrity-card p{
+  margin:0;
+  color:var(--muted);
+  font-size:.8rem;
+  line-height:1.6;
+  font-weight:600;
+}
+
+.confirm-row{
+  display:flex;
+  gap:10px;
+  align-items:flex-start;
+  color:var(--ink);
+  font-size:.84rem;
+  line-height:1.45;
+  font-weight:750;
+  cursor:pointer;
+}
+
+.confirm-row input{
+  margin-top:2px;
+  width:18px;
+  height:18px;
+  accent-color:var(--blue);
+  flex:0 0 auto;
+}
+
+.integrity-note{
+  margin-top:10px;
+  padding:10px 12px;
+  border:1px solid var(--line);
+  border-radius:14px;
+  background:#fff;
+  color:var(--muted);
+  font-size:.76rem;
+  line-height:1.5;
+  font-weight:650;
+}
+
+body.integrity-warning .timer-pill{
+  border-color:#fde68a;
+  background:#fffbeb;
+}
+
 </style>
 
 </head>
@@ -964,9 +1025,29 @@ body.assessment-expired #submitBtn{
 
       <div class="welcome-list">
         <div class="welcome-list-item"><span class="check-dot">✓</span><span>You will see one practical skill check at a time.</span></div>
-        <div class="welcome-list-item"><span class="check-dot">✓</span><span>Your progress is saved as you continue.</span></div>
+        <div class="welcome-list-item"><span class="check-dot">✓</span><span>Your progress is saved as you continue, and activity signals are logged for fair review.</span></div>
         <div class="welcome-list-item"><span class="check-dot">✓</span><span>The intro and each question will be read aloud for a guided experience.</span></div>
         <div class="welcome-list-item"><span class="check-dot">✓</span><span>Your answers help verify role-related skills from the job description and your resume.</span></div>
+      </div>
+
+
+      <div class="integrity-card" id="integrityCard">
+        <strong>Assessment integrity confirmation</strong>
+        <p>
+          Please confirm that you are the applicant completing this assessment independently.
+          TalentBuzz tracks assessment activity such as timing, window changes, copy/paste activity,
+          and connection interruptions to support fair recruiter review.
+        </p>
+
+        <label class="confirm-row" for="identityConfirm">
+          <input id="identityConfirm" type="checkbox" />
+          <span>I confirm that I am the applicant assigned to this assessment.</span>
+        </label>
+
+        <label class="confirm-row" for="independentConfirm">
+          <input id="independentConfirm" type="checkbox" />
+          <span>I understand this assessment should be completed independently.</span>
+        </label>
       </div>
 
       <div class="welcome-actions">
@@ -1054,7 +1135,7 @@ body.assessment-expired #submitBtn{
   </main>
 
   <script>
-    console.log('TalentBuzz assessment-room-timed v2026-05-22 loaded');
+    console.log('TalentBuzz assessment-room-integrity-controls v2026-05-22 loaded');
 
     const SUPABASE_URL = "https://dilalntcxmvdcmwxjcct.supabase.co";
     const SUPABASE_ANON_KEY = "sb_publishable_HrLVIUwnaRo54yijtrbWBQ_1aeb4ezs";
@@ -1073,6 +1154,12 @@ body.assessment-expired #submitBtn{
     const applicationId =
       params.get("application_id");
 
+    const assessmentToken =
+      params.get("token") ||
+      params.get("assessment_token") ||
+      params.get("access_token") ||
+      "";
+
     const els = {
       assessmentStatus: document.getElementById("assessmentStatus"),
       timerPill: document.getElementById("timerPill"),
@@ -1083,6 +1170,8 @@ body.assessment-expired #submitBtn{
       welcomeCard: document.getElementById("welcomeCard"),
       listenIntroBtn: document.getElementById("listenIntroBtn"),
       startAssessmentBtn: document.getElementById("startAssessmentBtn"),
+      identityConfirm: document.getElementById("identityConfirm"),
+      independentConfirm: document.getElementById("independentConfirm"),
       assessmentCard: document.getElementById("assessmentCard"),
       emptyState: document.getElementById("emptyState"),
       emptyTitle: document.getElementById("emptyTitle"),
@@ -1128,6 +1217,281 @@ body.assessment-expired #submitBtn{
     let assessmentDueAt = null;
     let assessmentExpired = false;
     let assessmentTimeLimitMinutes = 60;
+
+    const integritySessionId =
+      (window.crypto?.randomUUID?.() || `session-${Date.now()}-${Math.random().toString(16).slice(2)}`);
+
+    const integrityState = {
+      session_id: integritySessionId,
+      token_present: false,
+      token_verified: false,
+      identity_confirmed: false,
+      independent_confirmed: false,
+      integrity_confirmed_at: null,
+      user_agent: navigator.userAgent || "",
+      browser_language: navigator.language || "",
+      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "",
+      platform: navigator.platform || "",
+      screen_resolution: `${window.screen?.width || 0}x${window.screen?.height || 0}`,
+      viewport: `${window.innerWidth || 0}x${window.innerHeight || 0}`,
+      device_memory: navigator.deviceMemory || null,
+      hardware_concurrency: navigator.hardwareConcurrency || null,
+      focus_loss_count: 0,
+      focus_loss_seconds: 0,
+      visibility_change_count: 0,
+      copy_count: 0,
+      paste_count: 0,
+      pasted_character_count: 0,
+      cut_count: 0,
+      sudden_insert_count: 0,
+      longest_inactive_seconds: 0,
+      interruption_count: 0,
+      resume_count: 0,
+      last_activity_at: new Date().toISOString(),
+      last_focus_lost_at: null,
+      integrity_recommendation: "standard"
+    };
+
+
+
+    function getIntegrityRecommendation() {
+      const highSignals =
+        integrityState.focus_loss_count >= 5 ||
+        integrityState.paste_count >= 3 ||
+        integrityState.pasted_character_count >= 1000 ||
+        integrityState.sudden_insert_count >= 2 ||
+        integrityState.longest_inactive_seconds >= 600;
+
+      const moderateSignals =
+        integrityState.focus_loss_count >= 2 ||
+        integrityState.paste_count >= 1 ||
+        integrityState.copy_count >= 1 ||
+        integrityState.longest_inactive_seconds >= 180 ||
+        integrityState.interruption_count >= 1;
+
+      if (highSignals) return "review_recommended";
+      if (moderateSignals) return "monitor";
+      return "standard";
+    }
+
+    function touchIntegrityActivity() {
+      const now = new Date();
+      const previous = integrityState.last_activity_at ? new Date(integrityState.last_activity_at) : null;
+
+      if (previous && !Number.isNaN(previous.getTime())) {
+        const inactiveSeconds = Math.max(0, Math.floor((now.getTime() - previous.getTime()) / 1000));
+        if (inactiveSeconds > integrityState.longest_inactive_seconds) {
+          integrityState.longest_inactive_seconds = inactiveSeconds;
+        }
+      }
+
+      integrityState.last_activity_at = now.toISOString();
+      integrityState.integrity_recommendation = getIntegrityRecommendation();
+    }
+
+    function getIntegrityPayload(extra = {}) {
+      integrityState.integrity_recommendation = getIntegrityRecommendation();
+
+      return {
+        integrity_session_id: integrityState.session_id,
+        access_token_used: assessmentToken || null,
+        token_present: !!assessmentToken,
+        token_verified: !!integrityState.token_verified,
+        identity_confirmed: !!integrityState.identity_confirmed,
+        independent_confirmed: !!integrityState.independent_confirmed,
+        integrity_confirmed_at: integrityState.integrity_confirmed_at,
+        integrity_recommendation: integrityState.integrity_recommendation,
+        integrity_signals: {
+          ...integrityState,
+          last_activity_at: new Date().toISOString(),
+          time_spent_seconds: getTimeSpentSeconds?.() || null,
+          ...extra
+        }
+      };
+    }
+
+    async function saveIntegritySignals(extra = {}) {
+      if (!assessment?.id) return;
+
+      const payload = getIntegrityPayload(extra);
+
+      const attempts = [
+        payload,
+        {
+          integrity_session_id: payload.integrity_session_id,
+          integrity_recommendation: payload.integrity_recommendation,
+          integrity_signals: payload.integrity_signals
+        },
+        {
+          integrity_signals: payload.integrity_signals
+        }
+      ];
+
+      for (const attempt of attempts) {
+        const { error } = await supabaseClient
+          .from("role_assessments")
+          .update(attempt)
+          .eq("id", assessment.id);
+
+        if (!error) return;
+
+        console.warn("Integrity signal save attempt failed:", error.message || error, attempt);
+      }
+    }
+
+    function bindIntegrityMonitoring() {
+      if (bindIntegrityMonitoring.bound) return;
+      bindIntegrityMonitoring.bound = true;
+
+      window.addEventListener("blur", () => {
+        if (!assessmentStarted || assessmentExpired) return;
+        integrityState.focus_loss_count += 1;
+        integrityState.last_focus_lost_at = Date.now();
+        integrityState.integrity_recommendation = getIntegrityRecommendation();
+        document.body.classList.add("integrity-warning");
+      });
+
+      window.addEventListener("focus", () => {
+        if (!assessmentStarted || assessmentExpired) return;
+
+        if (integrityState.last_focus_lost_at) {
+          const seconds = Math.max(0, Math.floor((Date.now() - integrityState.last_focus_lost_at) / 1000));
+          integrityState.focus_loss_seconds += seconds;
+          integrityState.last_focus_lost_at = null;
+        }
+
+        touchIntegrityActivity();
+        saveIntegritySignals({ event: "window_focus_returned" });
+      });
+
+      document.addEventListener("visibilitychange", () => {
+        if (!assessmentStarted || assessmentExpired) return;
+
+        integrityState.visibility_change_count += 1;
+
+        if (document.hidden) {
+          integrityState.focus_loss_count += 1;
+          integrityState.last_focus_lost_at = Date.now();
+        } else if (integrityState.last_focus_lost_at) {
+          const seconds = Math.max(0, Math.floor((Date.now() - integrityState.last_focus_lost_at) / 1000));
+          integrityState.focus_loss_seconds += seconds;
+          integrityState.last_focus_lost_at = null;
+        }
+
+        integrityState.integrity_recommendation = getIntegrityRecommendation();
+        saveIntegritySignals({ event: "visibility_change", hidden: document.hidden });
+      });
+
+      document.addEventListener("copy", () => {
+        if (!assessmentStarted || assessmentExpired) return;
+        integrityState.copy_count += 1;
+        touchIntegrityActivity();
+        saveIntegritySignals({ event: "copy" });
+      });
+
+      document.addEventListener("cut", () => {
+        if (!assessmentStarted || assessmentExpired) return;
+        integrityState.cut_count += 1;
+        touchIntegrityActivity();
+        saveIntegritySignals({ event: "cut" });
+      });
+
+      document.addEventListener("paste", event => {
+        if (!assessmentStarted || assessmentExpired) return;
+
+        const pastedText = event.clipboardData?.getData("text") || "";
+        integrityState.paste_count += 1;
+        integrityState.pasted_character_count += pastedText.length;
+
+        if (pastedText.length >= 250) {
+          integrityState.sudden_insert_count += 1;
+        }
+
+        touchIntegrityActivity();
+        saveIntegritySignals({
+          event: "paste",
+          pasted_character_count: pastedText.length,
+          large_paste: pastedText.length >= 250
+        });
+      });
+
+      ["keydown", "mousemove", "click", "scroll", "touchstart"].forEach(eventName => {
+        window.addEventListener(eventName, touchIntegrityActivity, { passive: true });
+      });
+
+      window.addEventListener("online", () => {
+        if (!assessmentStarted || assessmentExpired) return;
+        integrityState.interruption_count += 1;
+        saveIntegritySignals({ event: "connection_restored" });
+      });
+
+      window.addEventListener("offline", () => {
+        if (!assessmentStarted || assessmentExpired) return;
+        integrityState.interruption_count += 1;
+        saveIntegritySignals({ event: "connection_lost" });
+      });
+
+      window.addEventListener("beforeunload", () => {
+        if (!assessmentStarted || assessmentExpired || !assessment?.id) return;
+
+        try {
+          const payload = {
+            assessment_id: assessment.id,
+            integrity_session_id: integrityState.session_id,
+            integrity_signals: getIntegrityPayload({ event: "page_unload" }).integrity_signals
+          };
+
+          navigator.sendBeacon?.(
+            `${SUPABASE_URL}/functions/v1/assessment-integrity-beacon`,
+            new Blob([JSON.stringify(payload)], { type: "application/json" })
+          );
+        } catch (_) {}
+      });
+    }
+
+    function validateStartConfirmation() {
+      integrityState.identity_confirmed = !!els.identityConfirm?.checked;
+      integrityState.independent_confirmed = !!els.independentConfirm?.checked;
+
+      if (!integrityState.identity_confirmed || !integrityState.independent_confirmed) {
+        setLoading(
+          "Confirmation required",
+          "Please go back and confirm that you are the applicant and that you will complete the assessment independently."
+        );
+        showWelcome();
+        return false;
+      }
+
+      integrityState.integrity_confirmed_at = integrityState.integrity_confirmed_at || new Date().toISOString();
+      return true;
+    }
+
+    function isAssessmentPastDeadline() {
+      const deadline =
+        parseDateOrNull(assessment?.deadline_at) ||
+        parseDateOrNull(assessment?.token_expires_at) ||
+        parseDateOrNull(assessment?.expires_at);
+
+      return deadline && deadline.getTime() <= Date.now();
+    }
+
+    async function verifyAssessmentTokenOrAccess() {
+      integrityState.token_present = !!assessmentToken;
+
+      if (!assessmentToken && !assessment?.assessment_token && !assessment?.access_token) {
+        integrityState.token_verified = true;
+        return true;
+      }
+
+      const expectedToken = String(assessment?.assessment_token || assessment?.access_token || assessment?.token || "").trim();
+
+      if (!assessmentToken || !expectedToken || assessmentToken !== expectedToken) {
+        throw new Error("This assessment link is invalid or the access token does not match.");
+      }
+
+      integrityState.token_verified = true;
+      return true;
+    }
 
 
     function parseDateOrNull(value) {
@@ -1848,7 +2212,17 @@ body.assessment-expired #submitBtn{
         const payload = {
           assessment_id: assessment.id,
           question_id: question.id,
-          text_response: text
+          text_response: text,
+          integrity_session_id: integrityState.session_id,
+          response_integrity_signals: {
+            focus_loss_count: integrityState.focus_loss_count,
+            paste_count: integrityState.paste_count,
+            copy_count: integrityState.copy_count,
+            pasted_character_count: integrityState.pasted_character_count,
+            longest_inactive_seconds: integrityState.longest_inactive_seconds,
+            integrity_recommendation: getIntegrityRecommendation(),
+            saved_at: new Date().toISOString()
+          }
         };
 
         let savedRow = null;
@@ -1856,38 +2230,84 @@ body.assessment-expired #submitBtn{
         const existingResponse = responses[question.id]?.id;
 
         if (existingResponse) {
-          const { data, error } = await supabaseClient
-            .from("role_assessment_responses")
-            .update({
+          const updateAttempts = [
+            {
+              text_response: text,
+              integrity_session_id: integrityState.session_id,
+              response_integrity_signals: payload.response_integrity_signals
+            },
+            {
               text_response: text
-            })
-            .eq("id", existingResponse)
-            .select()
-            .maybeSingle();
+            }
+          ];
 
-          if (error) throw error;
-          savedRow = data;
-        } else {
-          const { data, error } = await supabaseClient
-            .from("role_assessment_responses")
-            .upsert(payload, {
-              onConflict: "assessment_id,question_id"
-            })
-            .select()
-            .maybeSingle();
+          let lastUpdateError = null;
 
-          if (error) {
-            const { data: inserted, error: insertError } = await supabaseClient
+          for (const updatePayload of updateAttempts) {
+            const { data, error } = await supabaseClient
               .from("role_assessment_responses")
-              .insert(payload)
+              .update(updatePayload)
+              .eq("id", existingResponse)
               .select()
               .maybeSingle();
 
-            if (insertError) throw error;
-            savedRow = inserted;
-          } else {
-            savedRow = data;
+            if (!error) {
+              savedRow = data;
+              lastUpdateError = null;
+              break;
+            }
+
+            lastUpdateError = error;
           }
+
+          if (lastUpdateError) throw lastUpdateError;
+        } else {
+          const basePayload = {
+            assessment_id: assessment.id,
+            question_id: question.id,
+            text_response: text
+          };
+
+          const upsertAttempts = [payload, basePayload];
+          let lastUpsertError = null;
+
+          for (const attemptPayload of upsertAttempts) {
+            const { data, error } = await supabaseClient
+              .from("role_assessment_responses")
+              .upsert(attemptPayload, {
+                onConflict: "assessment_id,question_id"
+              })
+              .select()
+              .maybeSingle();
+
+            if (!error) {
+              savedRow = data;
+              lastUpsertError = null;
+              break;
+            }
+
+            lastUpsertError = error;
+          }
+
+          if (lastUpsertError && !savedRow) {
+            for (const attemptPayload of upsertAttempts) {
+              const { data: inserted, error: insertError } = await supabaseClient
+                .from("role_assessment_responses")
+                .insert(attemptPayload)
+                .select()
+                .maybeSingle();
+
+              if (!insertError) {
+                savedRow = inserted;
+                lastUpsertError = null;
+                break;
+              }
+
+              lastUpsertError = insertError;
+            }
+          }
+
+          if (lastUpsertError) throw lastUpsertError;
         }
 
         responses[question.id] = savedRow || {
@@ -2007,19 +2427,58 @@ body.assessment-expired #submitBtn{
       showSummaryStatus("Submitting assessment...", "info");
 
       try {
-        const { error } = await supabaseClient
-          .from("role_assessments")
-          .update({
-            status: "completed",
-            submitted_at: new Date().toISOString(),
-            completed_at: new Date().toISOString(),
-            time_spent_seconds: getTimeSpentSeconds()
-          })
-          .eq("id", assessment.id);
+        const completedAt = new Date().toISOString();
+        const completionPayload = {
+          status: "completed",
+          submitted_at: completedAt,
+          completed_at: completedAt,
+          time_spent_seconds: getTimeSpentSeconds(),
+          ...getIntegrityPayload({ event: "assessment_submitted" })
+        };
 
-        if (error) throw error;
+        const completionAttempts = [
+          completionPayload,
+          {
+            status: "completed",
+            submitted_at: completedAt,
+            completed_at: completedAt,
+            time_spent_seconds: getTimeSpentSeconds(),
+            integrity_recommendation: getIntegrityRecommendation(),
+            integrity_signals: getIntegrityPayload({ event: "assessment_submitted" }).integrity_signals
+          },
+          {
+            status: "completed",
+            submitted_at: completedAt,
+            completed_at: completedAt,
+            time_spent_seconds: getTimeSpentSeconds()
+          },
+          {
+            status: "completed",
+            completed_at: completedAt
+          }
+        ];
+
+        let completionError = null;
+
+        for (const payload of completionAttempts) {
+          const { error } = await supabaseClient
+            .from("role_assessments")
+            .update(payload)
+            .eq("id", assessment.id);
+
+          if (!error) {
+            completionError = null;
+            break;
+          }
+
+          completionError = error;
+        }
+
+        if (completionError) throw completionError;
 
         assessment.status = "completed";
+        assessment.completed_at = new Date().toISOString();
+        assessment.submitted_at = assessment.completed_at;
         markAssessmentComplete();
         showSummaryStatus("Assessment submitted successfully. Your Talent Conversation is next.", "success");
 
@@ -2052,6 +2511,12 @@ body.assessment-expired #submitBtn{
             "Please return to your application and continue from there."
           );
           return;
+        }
+
+        await verifyAssessmentTokenOrAccess();
+
+        if (isAssessmentPastDeadline() && assessment.status !== "completed") {
+          throw new Error("This assessment link has expired. Please contact your recruiter for a new access link.");
         }
 
         questions = await loadQuestions(assessment.id);
@@ -2087,6 +2552,11 @@ body.assessment-expired #submitBtn{
           els.estimatedTime.textContent = `${assessmentTimeLimitMinutes} minutes`;
         }
 
+        if (assessment.started_at && assessment.status !== "completed") {
+          integrityState.resume_count += 1;
+          await saveIntegritySignals({ event: "assessment_loaded", resumed: true });
+        }
+
         if (assessment.status === "completed") {
           markAssessmentComplete();
           assessmentStarted = true;
@@ -2112,8 +2582,22 @@ body.assessment-expired #submitBtn{
       els.startAssessmentBtn.disabled = true;
       els.startAssessmentBtn.textContent = "Starting...";
 
+      if (!validateStartConfirmation()) {
+        els.startAssessmentBtn.disabled = false;
+        els.startAssessmentBtn.textContent = "Start assessment";
+        return;
+      }
+
       assessmentStarted = true;
+      bindIntegrityMonitoring();
       await ensureAssessmentTimingStarted();
+      await saveIntegritySignals({ event: "assessment_started" });
+
+      try {
+        await document.documentElement.requestFullscreen?.();
+      } catch (_) {
+        console.warn("Fullscreen mode was not allowed by the browser.");
+      }
       renderQuestion();
 
       await listenToIntro();
