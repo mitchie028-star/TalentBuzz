@@ -798,11 +798,6 @@
       line-height: 1.5;
     }
 
-
-    /* Recruiter intelligence positioning */
-    .verification-title span:first-child { text-transform: none; letter-spacing: -.01em; }
-    .verification-pill.high { background: var(--amber-soft); border-color: var(--amber-line); color: var(--amber); }
-
   </style>
 </head>
 
@@ -833,7 +828,7 @@
         <span class="eyebrow">Candidate Review</span>
         <h1 id="candidateName">Candidate Review</h1>
         <div id="candidateSubtitle" class="subtitle">
-          Structured recruiter review and candidate evidence.
+          Structured recruiter evidence and candidate review.
         </div>
         <div id="heroSignals" class="hero-signals"></div>
       </div>
@@ -853,12 +848,12 @@
                 <div class="mini-stat-value" id="overallFitLabel">Review Needed</div>
               </div>
               <div class="mini-stat">
-                <span class="mini-stat-label">Conversation Complete</span>
+                <span class="mini-stat-label">Conversation Completion</span>
                 <div class="mini-stat-value blue" id="overallScoreValue">—</div>
               </div>
               <div class="mini-stat">
                 <span class="mini-stat-label">Evidence Confidence</span>
-                <div class="mini-stat-value" id="reviewConfidence">—</div>
+                <div class="mini-stat-value" id="evaluationConfidence">—</div>
               </div>
 
               <div class="mini-stat">
@@ -886,17 +881,7 @@
 
         <section class="card">
           <div class="card-head">
-            <strong>Recruiter Follow-up Guidance</strong>
-          </div>
-          <div class="card-body">
-            <div id="verificationSignalsGrid" class="verification-grid"></div>
-            <div id="verificationSafeguardNote" class="safeguard-note"></div>
-          </div>
-        </section>
-
-        <section class="card">
-          <div class="card-head">
-            <strong>Strengths Observed</strong>
+            <strong>Candidate Strengths</strong>
           </div>
           <div class="card-body">
             <ul id="strengthsList"></ul>
@@ -905,7 +890,7 @@
 
         <section class="card">
           <div class="card-head">
-            <strong>Areas to Validate</strong>
+            <strong>Follow-up Areas</strong>
           </div>
           <div class="card-body">
             <ul id="concernsList"></ul>
@@ -914,7 +899,7 @@
 
         <section class="card">
           <div class="card-head">
-            <strong>Assessment Highlights</strong>
+            <strong>Assessment Evidence</strong>
           </div>
           <div class="card-body">
             <div id="assessmentEvidenceList" class="evidence-list"></div>
@@ -923,7 +908,7 @@
 
         <section class="card">
           <div class="card-head">
-            <strong>Conversation Highlights</strong>
+            <strong>Conversation Evidence</strong>
           </div>
           <div class="card-body">
             <div id="evidenceList" class="evidence-list"></div>
@@ -969,7 +954,7 @@
 
             <div class="metric">
               <div class="metric-top">
-                <span class="metric-label">Evidence Quality</span>
+                <span class="metric-label">Response Quality</span>
                 <strong class="metric-value" id="responseQualitySignal">—</strong>
               </div>
               <div class="signal-note">
@@ -1013,7 +998,7 @@
         </section>
 
         <section class="action-panel">
-          <h3>Recruiter actions</h3>
+          <h3>Recruiter Actions</h3>
           <p>Use this review to decide whether to shortlist, request follow-up, or move the candidate forward.</p>
           <a href="recruiter-dashboard.html" class="btn btn-primary">Return to Pipeline</a>
         </section>
@@ -1022,7 +1007,7 @@
   </main>
 
   <script>
-    console.log("TalentBuzz candidate-review recruiter-intelligence v2026-05-22 loaded");
+    console.log("TalentBuzz candidate-review recruiter-evidence-clean v2026-05-22 loaded");
 
     const SUPABASE_URL = "https://dilalntcxmvdcmwxjcct.supabase.co";
     const SUPABASE_ANON_KEY = "sb_publishable_HrLVIUwnaRo54yijtrbWBQ_1aeb4ezs";
@@ -1050,7 +1035,7 @@
       overallScoreValue: document.getElementById("overallScoreValue"),
       overallFitReason: document.getElementById("overallFitReason"),
       overallCompletionBar: document.getElementById("overallCompletionBar"),
-      reviewConfidence: document.getElementById("reviewConfidence"),
+      evaluationConfidence: document.getElementById("evaluationConfidence"),
       responseQuality: document.getElementById("responseQuality"),
       summaryText: document.getElementById("summaryText"),
       recommendationReason: document.getElementById("recommendationReason"),
@@ -1156,9 +1141,49 @@
     }
 
     function inferIdentitySignals(conversation, responses, candidateName) {
-      // Candidate Review intentionally avoids automated identity mismatch claims.
-      // Recruiters should validate identity during normal live screening when needed.
-      return [];
+      const existing = normalizeSignalItems(
+        conversation.identity_consistency_signals ||
+        conversation.identity_signals ||
+        conversation.verification_signals?.identity
+      );
+
+      const expectedName = normalizeCandidateName(candidateName).toLowerCase();
+      const candidateFirst =
+        expectedName && expectedName !== "candidate review"
+          ? expectedName.split(/\s+/)[0]
+          : "";
+
+      const mismatchSignals = [];
+
+      responses.forEach((row, index) => {
+        const transcript = [
+          row.transcript_original,
+          row.transcript_english,
+          row.transcript
+        ].map(text).join(" ");
+
+        const introMatch =
+          transcript.match(/(?:i am|i'm|my name is|저는|제 이름은)\s+([A-Za-z가-힣 .'-]{2,40})/i);
+
+        if (introMatch) {
+          const mentioned = normalizeCandidateName(introMatch[1]);
+          const mentionedLower = mentioned.toLowerCase();
+
+          if (
+            mentioned &&
+            expectedName &&
+            candidateFirst &&
+            !mentionedLower.includes(candidateFirst) &&
+            !expectedName.includes(mentionedLower)
+          ) {
+            mismatchSignals.push(
+              `Response ${index + 1}: candidate referenced a different personal name (“${mentioned}”) than the application profile (“${candidateName}”).`
+            );
+          }
+        }
+      });
+
+      return uniqueDisplayItems([...existing, ...mismatchSignals], 8);
     }
 
     function inferResponseIntegritySignals(conversation, responses) {
@@ -1166,22 +1191,39 @@
         conversation.response_integrity_signals ||
         conversation.integrity_signals ||
         conversation.verification_signals?.response_integrity
-      )
-        .filter(item => !/identity|impersonation|fraud|misuse|different personal name/i.test(item))
-        .map(item => cleanDemoText(item));
+      );
 
       const inferred = [];
 
       responses.forEach((row, index) => {
         const transcript = text(row.transcript_original || row.transcript_english || row.transcript);
+        const feedback = text(row.ai_feedback);
+        const proficiency = text(row.language_proficiency).toLowerCase();
         const wordCount = transcript.split(/\s+/).filter(Boolean).length;
 
         if (wordCount > 0 && wordCount < 8) {
-          inferred.push(`Response ${index + 1}: response was brief and may need recruiter follow-up.`);
+          inferred.push(`Response ${index + 1}: answer was too short for reliable evaluation.`);
+        }
+
+        if (
+          feedback.toLowerCase().includes("failed to answer") ||
+          feedback.toLowerCase().includes("did not answer") ||
+          feedback.toLowerCase().includes("off-topic") ||
+          feedback.toLowerCase().includes("failed to provide") ||
+          proficiency.includes("not demonstrated")
+        ) {
+          inferred.push(`Response ${index + 1}: response may not have addressed the requested task.`);
+        }
+
+        if (
+          transcript.toLowerCase().includes("[unintelligible") ||
+          transcript.toLowerCase().includes("unintelligible utterance")
+        ) {
+          inferred.push(`Response ${index + 1}: response was unintelligible or not usable for evaluation.`);
         }
       });
 
-      return uniqueDisplayItems([...existing, ...inferred], 8);
+      return uniqueDisplayItems([...existing, ...inferred], 10);
     }
 
     function inferTechnicalSignals(conversation, responses) {
@@ -1232,78 +1274,7 @@
     }
 
     function renderVerificationSignals(conversation, responses, candidateName) {
-      if (!els.verificationSignalsGrid) return;
-
-      const identitySignals = inferIdentitySignals(conversation, responses, candidateName);
-      const responseSignals = inferResponseIntegritySignals(conversation, responses);
-      const technicalSignals = inferTechnicalSignals(conversation, responses);
-
-      const severity =
-        identitySignals.length || responseSignals.length >= 3
-          ? "High"
-          : responseSignals.length || technicalSignals.length
-            ? "Moderate"
-            : "Low";
-
-      const action = recommendedVerificationAction(
-        conversation,
-        identitySignals,
-        responseSignals,
-        technicalSignals
-      );
-
-      const groups = [
-        {
-          title: "Candidate Details",
-          severity: identitySignals.length ? "High" : "Low",
-          items: identitySignals,
-          empty: "No candidate detail concerns shown from available responses."
-        },
-        {
-          title: "Response Completeness",
-          severity: responseSignals.length >= 3 ? "High" : responseSignals.length ? "Moderate" : "Low",
-          items: responseSignals,
-          empty: "No major response completeness concerns shown from available responses."
-        },
-        {
-          title: "Audio / Transcript Status",
-          severity: technicalSignals.length >= 2 ? "Moderate" : technicalSignals.length ? "Low" : "Low",
-          items: technicalSignals,
-          empty: "No major audio or transcript capture issues shown."
-        },
-        {
-          title: "Recommended Next Step",
-          severity,
-          items: [action],
-          empty: ""
-        }
-      ];
-
-      els.verificationSignalsGrid.innerHTML = groups.map(group => `
-        <div class="verification-card">
-          <div class="verification-title">
-            <span>${escapeHtml(group.title)}</span>
-            <span class="verification-pill ${signalSeverityClass(group.severity)}">${escapeHtml(group.severity)}</span>
-          </div>
-
-          ${
-            group.items.length
-              ? `<ul>${group.items.map(item => `<li>${escapeHtml(item)}</li>`).join("")}</ul>`
-              : `<div class="empty-list">${escapeHtml(group.empty)}</div>`
-          }
-
-          ${
-            group.title === "Recommended Next Step"
-              ? `<div class="signal-count">Based on the available assessment, transcript, and recruiter-facing evidence.</div>`
-              : ""
-          }
-        </div>
-      `).join("");
-
-      if (els.verificationSafeguardNote) {
-        els.verificationSafeguardNote.textContent =
-          "Note: these are recruiter follow-up indicators only. Use them to guide a short validation conversation and next-step decision.";
-      }
+      return;
     }
 
 
@@ -1355,7 +1326,7 @@
 
     function renderList(el, items, fallback) {
       if (!el) return;
-      const clean = cleanDemoItems(items);
+      const clean = cleanDemoItems(items).filter(item => !/score snapshot|identity consistency|response integrity|authenticity|\d+\s*\/\s*100/i.test(item));
 
       if (!clean.length) {
         el.innerHTML = `<div class="empty-list">${escapeHtml(fallback)}</div>`;
@@ -1474,7 +1445,7 @@
         ],
         communication_score: 0,
         role_alignment_score: profile.ai_score || 0,
-        authenticity_score: 0,
+        evidence depth_score: 0,
         confidence_score: 0,
         detected_language: "",
         language_proficiency: "",
@@ -1482,7 +1453,7 @@
         identity_consistency_signals: [],
         response_integrity_signals: [],
         technical_signals: [],
-        recommended_verification_action: "Open this review from a completed Talent Conversation to load recruiter guidance.",
+        recommended_verification_action: "Open this review from a completed Talent Conversation to generate verification signals.",
         _isFallback: true
       };
     }
@@ -1760,13 +1731,13 @@
         const feedback =
           response.ai_feedback ||
           response.feedback ||
-          response.review_summary ||
+          response.evaluation_summary ||
           "";
 
         const scoreValue =
           response.score ||
           response.overall_score ||
-          response.review_score ||
+          response.evaluation_score ||
           null;
 
         const type =
@@ -1780,10 +1751,6 @@
             <p>${escapeHtml(answer)}</p>
 
             <p><br><strong>Type:</strong> ${escapeHtml(String(type).replaceAll("_", " "))}</p>
-
-            ${scoreValue !== null && scoreValue !== undefined && scoreValue !== "" ? `
-              <p><br><strong>Score:</strong> ${escapeHtml(scoreValue)}/100</p>
-            ` : ""}
 
             ${feedback ? `
               <p><br><strong>Assessment insight:</strong> ${escapeHtml(feedback)}</p>
@@ -1851,8 +1818,8 @@
 
         const rawResponseLanguage =
           text(row.response_language) ||
-          text(row.ai_review?.language_review?.detected_language) ||
-          text(row.ai_review?.transcription?.detected_language) ||
+          text(row.ai_evaluation?.language_evaluation?.detected_language) ||
+          text(row.ai_evaluation?.transcription?.detected_language) ||
           "Original";
 
         const responseLanguage =
@@ -2024,12 +1991,12 @@
       return wordCount >= 8;
     }
 
-    function hasReview(row) {
+    function hasEvaluation(row) {
       return !!(
-        row.ai_review ||
+        row.ai_evaluation ||
         Number(row.communication_score || 0) > 0 ||
         Number(row.role_alignment_score || 0) > 0 ||
-        Number(row.authenticity_score || 0) > 0 ||
+        Number(row.evidence depth_score || 0) > 0 ||
         Number(row.confidence_score || 0) > 0
       );
     }
@@ -2049,7 +2016,7 @@
 
     function evidenceConfidenceLabel(communication, alignment, evidence, responses) {
       const usableTranscripts = responses.filter(hasUsableTranscript).length;
-      const evaluatedResponses = responses.filter(hasReview).length;
+      const evaluatedResponses = responses.filter(hasEvaluation).length;
 
       if (!responses.length) return "Not Available";
       if (communication === 0 && alignment === 0 && evidence === 0) return "Low";
@@ -2061,10 +2028,10 @@
 
     function cleanedRecommendation(conversation, insufficientEvidence) {
       if (insufficientEvidence) {
-        return "Candidate responses were too limited or transcription was incomplete, so Sift cannot reliably evaluate communication, role alignment, or language proficiency. Recruiter review is required.";
+        return "Available evidence is limited or some audio is still pending review. Recruiter validation is recommended before endorsement.";
       }
 
-      return (
+      return cleanDemoText(
         text(conversation.evidence_quality_summary) ||
         text(conversation.recommendation_reason) ||
         "Recommendation is based on conversation evidence, communication readiness, and role alignment."
@@ -2080,14 +2047,14 @@
       if (average >= 30) return "Needs Review";
       if (average > 0) return "Further Review Recommended";
 
-      return "Review Pending";
+      return "Under Review";
     }
 
     function overallFitDisplay(conversation, communication, alignment, evidence, insufficientEvidence) {
-      if (insufficientEvidence) return "Recruiter Review Recommended";
+      if (insufficientEvidence) return "Recruiter Review Required";
 
       const quality = demoSignalLabel(responseQualityLabel(communication, alignment, evidence));
-      if (quality === "Further Review Recommended" || quality === "Needs Review") return "Follow-up Recommended";
+      if (quality === "Further Review Recommended" || quality === "Needs Review") return "Recruiter Review Recommended";
       if (quality === "Developing") return "Needs Review";
 
       return fitLabel(conversation);
@@ -2159,6 +2126,82 @@
     }
 
 
+
+    function removeInternalReviewSections(value) {
+      let body = removeInternalReviewSections(text(value));
+      if (!body) return "";
+
+      body = body.replaceAll("\n", "
+");
+      const lines = body.split(/
+/);
+      const kept = [];
+      let skipping = false;
+
+      const blockedHeading = /^(score snapshot|verification signals|identity consistency|response integrity|technical\/platform|evidence depth):?$/i;
+      const safeHeading = /^(strengths|areas requiring follow-up|follow-up areas|evidence quality|language readiness|recommended recruiter follow-up|recommended follow-up|recommendation):?$/i;
+
+      for (const rawLine of lines) {
+        const line = rawLine.trim();
+        const lower = line.toLowerCase();
+
+        if (blockedHeading.test(line)) {
+          skipping = true;
+          continue;
+        }
+
+        if (safeHeading.test(line)) {
+          skipping = false;
+        }
+
+        if (
+          lower.startsWith("identity consistency:") ||
+          lower.startsWith("response integrity:") ||
+          lower.startsWith("technical/platform:") ||
+          lower.startsWith("evidence depth:") ||
+          /\d+\s*\/\s*100/.test(lower) ||
+          lower.includes("")
+        ) {
+          continue;
+        }
+
+        if (!skipping) kept.push(rawLine);
+      }
+
+      return kept.join("
+")
+        .replace(/current evidence score is\s*\d+\s*\/\s*100\.?/gi, "available evidence has been organized for recruiter review.")
+        .replace(/\d+\s*\/\s*100\s*\(weak\)/gi, "Limited evidence")
+        .replace(/\d+\s*\/\s*100/g, "Recruiter review recommended")
+        .replace(/weak/gi, "limited evidence")
+        .replace(/Needs Validation/gi, "Needs validation")
+        .replace(/
+{3,}/g, "
+
+")
+        .trim();
+    }
+
+    function buildCleanCandidateSummary(conversation, fallback, responses) {
+      const name = getCandidateDisplayName(conversation, fallback);
+      const role = conversation.role_title || fallback?.app?.job_title || fallback?.profile?.target_role || "the role";
+      const strengths = cleanDemoItems(conversation.strengths || [], 3);
+      const concerns = cleanDemoItems([
+        ...(normalizeArray(conversation.concerns || [])),
+        ...(recommendedFollowUpItems(conversation))
+      ], 2);
+
+      const base = `${name} completed the structured review flow for ${role}.`;
+      const strengthSentence = strengths.length
+        ? ` Available evidence highlights ${strengths.map(item => item.replace(/\.$/, "")).join("; ")}.`
+        : " Available evidence is ready for recruiter review.";
+      const followUpSentence = concerns.length
+        ? ` Follow-up is recommended around ${concerns.map(item => item.replace(/\.$/, "")).join("; ")}.`
+        : " No major follow-up areas have been recorded yet.";
+
+      return `${base}${strengthSentence}${followUpSentence}`;
+    }
+
     function looksLikeRawEvaluatorDump(value) {
       const body = text(value).toLowerCase();
 
@@ -2180,8 +2223,8 @@
       return body.length > 900 && hits >= 2;
     }
 
-    function preferredRecruiterSummary(conversation) {
-      const rawSummary = (
+    function preferredRecruiterSummary(conversation, fallback = null, responses = []) {
+      const rawSummary = removeInternalReviewSections(
         text(conversation.recruiter_summary_clean) ||
         text(conversation.evidence_quality_summary) ||
         (
@@ -2189,20 +2232,20 @@
             ? ""
             : text(conversation.summary)
         ) ||
-        text(conversation.recommendation_reason) ||
-        "No recruiter summary available."
+        text(conversation.recommendation_reason)
       );
 
-      const cleaned = cleanDemoText(rawSummary);
-      const positiveLead = "Candidate demonstrates customer-service communication fundamentals and a professional support tone.";
-
-      if (/strengths|customer-service communication|professional/i.test(cleaned)) {
-        return cleaned;
+      if (
+        rawSummary &&
+        !rawSummary.toLowerCase().includes("score snapshot") &&
+        !rawSummary.toLowerCase().includes("identity consistency") &&
+        !rawSummary.toLowerCase().includes("response integrity") &&
+        !rawSummary.toLowerCase().includes("/100")
+      ) {
+        return cleanDemoText(rawSummary);
       }
 
-      return `${positiveLead}
-
-${cleaned}`;
+      return buildCleanCandidateSummary(conversation, fallback, responses);
     }
 
     function parseSummarySections(value) {
@@ -2330,18 +2373,18 @@ ${cleaned}`;
       if (!body) return "";
 
       body = body
-        .replace(/Fallback review used because Gemini was unavailable\.?\s*/gi, "")
-        .replace(/Automated deep review was unavailable and may require recruiter validation\.?/gi, "Some response details may require recruiter validation.")
+        .replace(/Fallback evaluation used because Gemini was unavailable\.?\s*/gi, "")
+        .replace(/Automated deep evaluation was unavailable and may require recruiter validation\.?/gi, "Automated evaluation was partially available; recruiter validation is recommended.")
         .replace(/automated transcription was unavailable/gi, "audio is pending recruiter review")
         .replace(/transcription was unavailable/gi, "audio is pending recruiter review")
         .replace(/Cannot assess due to unavailable transcript\.?/gi, "Audio captured; recruiter review recommended.")
-        .replace(/Candidate response transcript is unavailable, therefore no review could be performed for this question\.?/gi, "Audio response was captured and can be reviewed by the recruiter.")
-        .replace(/Candidate response content is unavailable for review\. The audio was captured, but transcription and translation were not provided\.?/gi, "Audio response was captured and is available for recruiter review.")
+        .replace(/Candidate response transcript is unavailable, therefore no evaluation could be performed for this question\.?/gi, "Audio response was captured and can be reviewed by the recruiter.")
+        .replace(/Candidate response content is unavailable for evaluation\. The audio was captured, but transcription and translation were not provided\.?/gi, "Audio response was captured and is available for recruiter review.")
         .replace(/Unknown, Korean, Unavailable/gi, "Korean detected • some audio pending review")
         .replace(/\bUnknown\b/gi, "Audio pending review")
         .replace(/\bUnavailable\b/gi, "Pending review")
         .replace(/\bNeeds Validation\b/gi, "Needs Validation")
-        .replace(/\bValidation Recommended\b/gi, "Validation Recommended")
+        .replace(/\bRisk: High\b/gi, "Validation Recommended")
         .replace(/\n{3,}/g, "\n\n")
         .replace(/[ \t]{2,}/g, " ")
         .trim();
@@ -2359,7 +2402,7 @@ ${cleaned}`;
 
         const lower = clean.toLowerCase();
         if (lower.includes("gemini was unavailable")) return;
-        if (lower === "automated review was partially available; recruiter validation is recommended.") return;
+        if (lower === "automated evaluation was partially available; recruiter validation is recommended.") return;
 
         const key = lower.replace(/\s+/g, " ").trim();
         if (!seen.has(key)) {
@@ -2384,13 +2427,13 @@ ${cleaned}`;
       if (!value) return "Recruiter Review";
       if (/below recommended threshold/i.test(value)) return "Validation Recommended";
       if (/high risk/i.test(value)) return "Needs Validation";
-      if (/further review needed/i.test(value)) return "Further Review Recommended";
+      if (/further evaluation needed/i.test(value)) return "Further Review Recommended";
       return value;
     }
 
     function demoSignalLabel(value) {
       const label = text(value);
-      if (/further review needed/i.test(label)) return "Further Review Recommended";
+      if (/further evaluation needed/i.test(label)) return "Further Review Recommended";
       if (/under review/i.test(label)) return "Review Pending";
       if (/needs review/i.test(label)) return "Needs Recruiter Review";
       return label;
@@ -2463,7 +2506,7 @@ ${cleaned}`;
       ].map(value => Array.isArray(value) ? value.join(" ") : text(value)).join(" ").toLowerCase();
 
       return joined.includes("gemini") ||
-        joined.includes("automated deep review") ||
+        joined.includes("automated deep evaluation") ||
         joined.includes("transcription was unavailable") ||
         joined.includes("audio was captured");
     }
@@ -2474,7 +2517,7 @@ ${cleaned}`;
       const alignment = calibratedScore(conversation.role_alignment_score, responses);
       const evidence = calibratedScore(
         (
-          Number(conversation.authenticity_score || 0) +
+          Number(conversation.evidence depth_score || 0) +
           Number(conversation.confidence_score || 0)
         ) / 2,
         responses
@@ -2511,7 +2554,7 @@ ${cleaned}`;
         conversation.candidate_email ||
         fallback?.app?.email ||
         fallback?.profile?.email ||
-        "Proof-based hiring insights from Talent Conversation evidence.";
+        "Structured recruiter evidence from assessment and conversation responses.";
 
       els.overallFitLabel.textContent =
         demoFitLabel(overallFitDisplay(
@@ -2531,8 +2574,8 @@ ${cleaned}`;
         els.overallCompletionBar.style.width = `${completion}%`;
       }
 
-      if (els.reviewConfidence) {
-        els.reviewConfidence.textContent = demoConfidenceLabel(confidenceLabel);
+      if (els.evaluationConfidence) {
+        els.evaluationConfidence.textContent = demoConfidenceLabel(confidenceLabel);
       }
 
       if (els.responseQuality) {
@@ -2542,11 +2585,11 @@ ${cleaned}`;
 
       renderStructuredSummary(
         els.summaryText,
-        cleanDemoText(preferredRecruiterSummary(conversation))
+        cleanDemoText(preferredRecruiterSummary(conversation, fallback, responses))
       );
 
       const cleanReason = cleanDemoText(cleanedRecommendation(conversation, insufficientEvidence));
-      const preferredSummaryText = preferredRecruiterSummary(conversation);
+      const preferredSummaryText = preferredRecruiterSummary(conversation, fallback, responses);
 
       els.recommendationReason.textContent =
         normalizedCompare(cleanReason, preferredSummaryText)
@@ -2591,15 +2634,6 @@ ${cleaned}`;
             Language Proficiency: ${escapeHtml(languageProficiency)}
           </span>
         ` : ""}
-
-        ${
-          (
-            normalizeSignalItems(conversation.response_integrity_signals).length ||
-            normalizeSignalItems(conversation.technical_signals).length
-          )
-            ? '<span class="badge amber">Follow-up recommended</span>'
-            : ''
-        }
 
         ${conversation._isFallback ? '<span class="badge amber">Conversation not linked</span>' : ""}
       `;
@@ -2652,8 +2686,6 @@ ${cleaned}`;
         ),
         "No language observations available yet."
       );
-
-      renderVerificationSignals(conversation, responses, candidateDisplayName);
 
       renderAssessmentEvidence(assessmentEvidence);
       renderEvidence(responses);
