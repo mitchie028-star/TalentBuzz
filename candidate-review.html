@@ -798,6 +798,111 @@
       line-height: 1.5;
     }
 
+
+    /* Recruiter decision panel */
+    .decision-panel {
+      border: 1px solid var(--green-line);
+      border-radius: 22px;
+      background:
+        radial-gradient(circle at top right, rgba(22, 163, 74, .12), transparent 34%),
+        linear-gradient(135deg, #ffffff, #f8fbff);
+      padding: 16px;
+      box-shadow: var(--shadow-soft);
+      display: grid;
+      gap: 12px;
+    }
+
+    .decision-panel h3 {
+      margin: 0;
+      color: var(--ink-strong);
+      font-size: .98rem;
+      letter-spacing: -.025em;
+      font-weight: 900;
+    }
+
+    .decision-panel p {
+      margin: 0;
+      color: var(--muted);
+      font-size: .82rem;
+      line-height: 1.55;
+      font-weight: 600;
+    }
+
+    .decision-field {
+      display: grid;
+      gap: 6px;
+    }
+
+    .decision-field label {
+      color: var(--muted);
+      font-size: .72rem;
+      text-transform: uppercase;
+      letter-spacing: .08em;
+      font-weight: 900;
+    }
+
+    .decision-field select,
+    .decision-field textarea {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: #fff;
+      color: var(--ink);
+      font: inherit;
+      font-size: .86rem;
+      padding: 11px 12px;
+      outline: none;
+    }
+
+    .decision-field textarea {
+      min-height: 110px;
+      resize: vertical;
+      line-height: 1.6;
+    }
+
+    .decision-field select:focus,
+    .decision-field textarea:focus {
+      border-color: var(--blue-line);
+      box-shadow: 0 0 0 4px rgba(37,99,235,.10);
+    }
+
+    .decision-notice {
+      display: none;
+      border-radius: 14px;
+      padding: 10px 12px;
+      font-size: .8rem;
+      line-height: 1.5;
+      font-weight: 800;
+    }
+
+    .decision-notice.show {
+      display: block;
+    }
+
+    .decision-notice.success {
+      border: 1px solid var(--green-line);
+      background: var(--green-soft);
+      color: var(--green-deep);
+    }
+
+    .decision-notice.error {
+      border: 1px solid var(--red-line);
+      background: var(--red-soft);
+      color: var(--red);
+    }
+
+    .decision-actions {
+      display: grid;
+      gap: 8px;
+    }
+
+    .btn:disabled {
+      opacity: .62;
+      cursor: not-allowed;
+      transform: none !important;
+      box-shadow: none !important;
+    }
+
   </style>
 </head>
 
@@ -979,17 +1084,43 @@
           </div>
         </section>
 
-        <section class="action-panel">
-          <h3>Recruiter Actions</h3>
-          <p>Use this review to decide whether to shortlist, request follow-up, or move the candidate forward.</p>
-          <a href="recruiter-dashboard.html" class="btn btn-primary">Return to Pipeline</a>
+        <section class="decision-panel">
+          <h3>Recruiter Decision</h3>
+          <p>Update the candidate status and add recruiter notes directly from this review.</p>
+
+          <div id="decisionNotice" class="decision-notice"></div>
+
+          <div class="decision-field">
+            <label for="decisionStatus">Candidate Status</label>
+            <select id="decisionStatus">
+              <option value="submitted">Needs Review</option>
+              <option value="for interview">Move to Interview</option>
+              <option value="shortlisted">Shortlist</option>
+              <option value="endorsed">Endorse Candidate</option>
+              <option value="assessment">Assessment</option>
+              <option value="on hold">Put On Hold</option>
+              <option value="needs_follow_up">Needs Follow-up</option>
+              <option value="rejected">Reject</option>
+              <option value="hired">Hired</option>
+            </select>
+          </div>
+
+          <div class="decision-field">
+            <label for="decisionNotes">Recruiter Notes</label>
+            <textarea id="decisionNotes" placeholder="Add the decision reason, follow-up notes, or next step for the recruiter team..."></textarea>
+          </div>
+
+          <div class="decision-actions">
+            <button class="btn btn-primary" id="saveDecisionBtn" type="button">Save Decision & Return</button>
+            <a href="recruiter-dashboard.html" class="btn">Back to Dashboard</a>
+          </div>
         </section>
       </aside>
     </section>
   </main>
 
   <script>
-    console.log("TalentBuzz candidate-review final-polish v2026-05-22 loaded");
+    console.log("TalentBuzz candidate-review-decision-workflow v2026-05-22 loaded");
 
     window.addEventListener("error", function(event) {
       const box = document.getElementById("errorState");
@@ -1017,6 +1148,11 @@
     const conversationId = params.get("conversation_id") || params.get("id");
     const applicationId = params.get("application_id") || params.get("app_id");
     const candidateEmailParam = params.get("email") || params.get("candidate_email");
+
+    let currentConversation = null;
+    let currentFallback = null;
+    let currentApplicationId = applicationId || "";
+
 
     const els = {
       loadingState: document.getElementById("loadingState"),
@@ -1049,7 +1185,11 @@
       riskBar: document.getElementById("riskBar"),
       detectedLanguage: document.getElementById("detectedLanguage"),
       languageProficiency: document.getElementById("languageProficiency"),
-      languageObservationsList: document.getElementById("languageObservationsList")
+      languageObservationsList: document.getElementById("languageObservationsList"),
+      decisionStatus: document.getElementById("decisionStatus"),
+      decisionNotes: document.getElementById("decisionNotes"),
+      saveDecisionBtn: document.getElementById("saveDecisionBtn"),
+      decisionNotice: document.getElementById("decisionNotice")
     };
 
     function escapeHtml(value) {
@@ -2473,7 +2613,157 @@
         joined.includes("audio was captured");
     }
 
+
+    function normalizeDecisionStatus(value) {
+      const status = text(value).toLowerCase().replace(/\s+/g, " ").trim();
+      if (status === "needs_follow_up") return "submitted";
+      return status || "submitted";
+    }
+
+    function getResolvedApplicationId() {
+      return (
+        currentApplicationId ||
+        currentFallback?.app?.id ||
+        currentConversation?.application_id ||
+        applicationId ||
+        ""
+      );
+    }
+
+    function showDecisionNotice(message, type = "success") {
+      if (!els.decisionNotice) return;
+      els.decisionNotice.className = `decision-notice show ${type}`;
+      els.decisionNotice.textContent = message;
+    }
+
+    function populateDecisionForm(conversation, fallback) {
+      if (!els.decisionStatus || !els.decisionNotes) return;
+
+      const app = fallback?.app || {};
+      const currentStatus = text(app.client_feedback_status || app.status || "submitted").toLowerCase();
+      const optionValues = Array.from(els.decisionStatus.options).map(option => option.value);
+
+      if (optionValues.includes(currentStatus)) {
+        els.decisionStatus.value = currentStatus;
+      } else {
+        els.decisionStatus.value = "submitted";
+      }
+
+      els.decisionNotes.value = text(app.recruiter_notes || app.stage_note_label || "");
+    }
+
+    async function updateApplicationDecision() {
+      const appId = getResolvedApplicationId();
+
+      if (!appId) {
+        showDecisionNotice("Unable to save because no application ID is linked to this review.", "error");
+        return;
+      }
+
+      const selectedRawStatus = text(els.decisionStatus?.value || "submitted");
+      const selectedStatus = normalizeDecisionStatus(selectedRawStatus);
+      const notes = text(els.decisionNotes?.value || "");
+      const now = new Date().toISOString();
+      const isFollowUp = selectedRawStatus === "needs_follow_up";
+
+      const attempts = [
+        {
+          status: selectedStatus,
+          client_feedback_status: selectedStatus,
+          recruiter_notes: notes || null,
+          stage_note_label: notes || null,
+          last_status_change_at: now,
+          updated_at: now,
+          follow_up_required: isFollowUp,
+          follow_up_status: isFollowUp ? "needs_follow_up" : undefined,
+          follow_up_note: isFollowUp ? (notes || "Needs recruiter follow-up.") : undefined,
+          follow_up_due_at: isFollowUp ? now : undefined,
+          follow_up_date: isFollowUp ? now : undefined
+        },
+        {
+          status: selectedStatus,
+          recruiter_notes: notes || null,
+          stage_note_label: notes || null,
+          last_status_change_at: now,
+          updated_at: now,
+          follow_up_required: isFollowUp,
+          follow_up_status: isFollowUp ? "needs_follow_up" : undefined,
+          follow_up_note: isFollowUp ? (notes || "Needs recruiter follow-up.") : undefined,
+          follow_up_due_at: isFollowUp ? now : undefined,
+          follow_up_date: isFollowUp ? now : undefined
+        },
+        {
+          status: selectedStatus,
+          recruiter_notes: notes || null,
+          stage_note_label: notes || null,
+          last_status_change_at: now,
+          updated_at: now
+        },
+        {
+          status: selectedStatus,
+          recruiter_notes: notes || null,
+          updated_at: now
+        }
+      ];
+
+      let lastError = null;
+
+      try {
+        if (els.saveDecisionBtn) {
+          els.saveDecisionBtn.disabled = true;
+          els.saveDecisionBtn.textContent = "Saving...";
+        }
+
+        for (const attempt of attempts) {
+          const cleanPayload = Object.fromEntries(
+            Object.entries(attempt).filter(([, value]) => value !== undefined)
+          );
+
+          const { error } = await supabaseClient
+            .from("applications")
+            .update(cleanPayload)
+            .eq("id", appId);
+
+          if (!error) {
+            showDecisionNotice("Decision saved. Returning to dashboard...", "success");
+
+            const returnUrl = new URL("recruiter-dashboard.html", window.location.href);
+            returnUrl.searchParams.set("updated_application_id", appId);
+            returnUrl.searchParams.set("status", selectedStatus);
+            returnUrl.searchParams.set("v", Date.now().toString());
+
+            setTimeout(() => {
+              window.location.assign(returnUrl.toString());
+            }, 700);
+
+            return;
+          }
+
+          lastError = error;
+          console.warn("Decision update attempt failed:", error?.message || error, cleanPayload);
+        }
+
+        throw lastError || new Error("Unable to update candidate status.");
+      } catch (error) {
+        console.error("Unable to save recruiter decision:", error);
+        showDecisionNotice(`Unable to save decision: ${error.message || error}`, "error");
+      } finally {
+        if (els.saveDecisionBtn) {
+          els.saveDecisionBtn.disabled = false;
+          els.saveDecisionBtn.textContent = "Save Decision & Return";
+        }
+      }
+    }
+
+    function bindDecisionActions() {
+      if (els.saveDecisionBtn) {
+        els.saveDecisionBtn.addEventListener("click", updateApplicationDecision);
+      }
+    }
+
     function renderConversation(conversation, responses, assessmentEvidence = [], fallback = null) {
+      populateDecisionForm(conversation, fallback);
+
       const completion = completionPercent(responses);
       const communication = calibratedScore(conversation.communication_score, responses);
       const alignment = calibratedScore(conversation.role_alignment_score, responses);
@@ -2659,8 +2949,11 @@
 
         const loaded = await loadConversation();
         const conversation = loaded.conversation;
+        currentConversation = conversation;
 
         let fallback = loaded.fallback || null;
+        currentFallback = fallback;
+        currentApplicationId = applicationId || conversation?.application_id || fallback?.app?.id || "";
 
         if (!fallback && conversation && !conversation._isFallback) {
           const linkedApplicationId =
@@ -2691,6 +2984,9 @@
           }
         }
 
+        currentFallback = fallback;
+        currentApplicationId = currentApplicationId || conversation?.application_id || fallback?.app?.id || applicationId || "";
+
         const responses = conversation?._isFallback
           ? []
           : await loadConversationResponses(conversation);
@@ -2707,6 +3003,7 @@
       }
     }
 
+    bindDecisionActions();
     init();
   </script>
 </body>
