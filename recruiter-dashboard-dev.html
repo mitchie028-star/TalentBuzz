@@ -1762,7 +1762,7 @@
                   <button class="btn btn-xs" id="downloadResumeBtn" type="button">Download</button>
                   <button class="btn btn-primary btn-xs" id="parseResumeBtn" type="button">Parse Resume</button>
                   <button class="btn btn-xs" id="openCandidateWorkspaceBtn" type="button">More details</button>
-                  <button class="btn btn-xs candidate-review-link" id="openCandidateReviewBtn" type="button">Review</button>
+                  <button class="btn btn-xs candidate-review-link" id="openCandidateReviewBtn" type="button" data-hard-review-route="1">Review</button>
                   <button class="btn btn-primary btn-xs" id="openAssessmentEmailBtn" type="button">Send Assessment</button>
                 </div>
                 <div class="upload-box">
@@ -2037,7 +2037,7 @@
   </div>
 
   <script>
-    console.log('TalentBuzz recruiter-workspace-candidate-review-route-fix v2026-05-22 loaded');
+    console.log('TalentBuzz recruiter-dashboard-review-hard-route-fix v2026-05-22 loaded');
 
     const CONFIG = {
       SUPABASE_URL: window.TALENTBUZZ_SUPABASE_URL || localStorage.getItem('TALENTBUZZ_SUPABASE_URL') || '',
@@ -2097,6 +2097,29 @@
       compactRows: 'talentbuzz.recruiterDashboard.compactRows',
       advancedFilters: 'talentbuzz.recruiterDashboard.advancedFilters'
     };
+
+
+
+    function routeToCandidateReview(rowOrApplicationId) {
+      const applicationId = typeof rowOrApplicationId === "string"
+        ? rowOrApplicationId
+        : (
+            rowOrApplicationId?.id ||
+            rowOrApplicationId?.app?.id ||
+            rowOrApplicationId?.application_id ||
+            rowOrApplicationId?.app?.application_id ||
+            ""
+          );
+
+      const id = safeText(applicationId);
+
+      if (!id) {
+        showNotice("Unable to open Candidate Review because this candidate has no application ID.", "error");
+        return;
+      }
+
+      window.location.href = `candidate-review.html?application_id=${encodeURIComponent(id)}`;
+    }
 
 
     function safeText(value){return value == null ? '' : String(value).trim()}
@@ -3005,7 +3028,7 @@
           <td><span class="pill ${getFollowUpTone(row.followUp?.key)}">${escapeHtml(row.followUp?.label||'No Follow-up')}</span>${row.followUp?.dueAt?`<div class="small">Due ${escapeHtml(formatDateTime(row.followUp.dueAt))}</div>`:''}</td>
           <td><span class="pill ${hasResumeEvidence(row.profile)?'resume':'missing'}">${hasResumeEvidence(row.profile)?'Resume':'Missing'}</span></td>
           <td><span class="pill ${scoreTone}">${row.score.overall}%</span></td>
-          <td><div class="actions"><button class="btn btn-xs" data-action="open" type="button">Details</button>${row.followUp?.note?'<button class="btn btn-xs" data-action="open" type="button">Note</button>':''}<button class="btn btn-xs candidate-review-link" data-action="review" type="button">Review</button><button class="btn btn-primary btn-xs" data-action="assessment" type="button">Send Assessment</button></div></td>
+          <td><div class="actions"><button class="btn btn-xs" data-action="open" type="button">Details</button>${row.followUp?.note?'<button class="btn btn-xs" data-action="open" type="button">Note</button>':''}<button class="btn btn-xs candidate-review-link" data-action="review" data-hard-review-route="1" type="button">Review</button><button class="btn btn-primary btn-xs" data-action="assessment" type="button">Send Assessment</button></div></td>
         </tr>`;
       }).join('');
     }
@@ -4005,41 +4028,7 @@ async function bulkUploadResumes(){
     function markDashboardSynced(){dashboardLastSyncedAt=new Date();updateLiveStatusLabel()}
 
     function openCandidateReviewByApplicationId(applicationId){
-      const id = safeText(applicationId || "");
-
-      if (!id) {
-        showNotice("Unable to open Candidate Review because this row has no application ID.", "error");
-        return;
-      }
-
-      const url = `candidate-review.html?application_id=${encodeURIComponent(id)}&v=${Date.now()}`;
-      console.log("Opening Candidate Review:", url);
-
-      window.location.href = url;
-    }
-
-    function openCandidateReviewForRow(row){
-      const applicationId =
-        row?.id ||
-        row?.app?.id ||
-        row?.application_id ||
-        row?.app?.application_id ||
-        "";
-
-      openCandidateReviewByApplicationId(applicationId);
-    }
-
-    function openSelectedCandidateReview(){
-      const row =
-        state.allRows.find(item => item.id === state.selectedId) ||
-        state.filteredRows.find(item => item.id === state.selectedId);
-
-      if (!row) {
-        showNotice("Open or select a candidate first.", "error");
-        return;
-      }
-
-      openCandidateReviewForRow(row);
+      routeToCandidateReview(applicationId);
     }
 
     function openBulkUploadModal(){
@@ -4280,7 +4269,10 @@ async function bulkUploadResumes(){
         els.moreFiltersBtn.textContent=isOpen?'Less filters':'More filters';
         els.moreFiltersBtn.classList.toggle('active', !!isOpen);
         saveUiPreference(PREF_KEYS.advancedFilters, !!isOpen);
-      });els.closeDrawerBtn.addEventListener('click',closeDrawer);els.prevBtn.addEventListener('click',()=>openSelectedOffset(-1));els.nextBtn.addEventListener('click',()=>openSelectedOffset(1));els.openCandidateWorkspaceBtn.addEventListener('click',openCandidateModal); els.openCandidateReviewBtn?.addEventListener('click', openSelectedCandidateReview); els.openAssessmentEmailBtn?.addEventListener('click',()=>openAssessmentEmailModal(state.selectedId));
+      });els.closeDrawerBtn.addEventListener('click',closeDrawer);els.prevBtn.addEventListener('click',()=>openSelectedOffset(-1));els.nextBtn.addEventListener('click',()=>openSelectedOffset(1));els.openCandidateWorkspaceBtn.addEventListener('click',openCandidateModal); els.openCandidateReviewBtn?.addEventListener('click', () => {
+      const row = state.allRows.find(item => item.id === state.selectedId) || state.filteredRows.find(item => item.id === state.selectedId);
+      routeToCandidateReview(row);
+    }); els.openAssessmentEmailBtn?.addEventListener('click',()=>openAssessmentEmailModal(state.selectedId));
       els.headerLogoutBtn.addEventListener('click',handleLogout);els.sidebarSourcingBtn?.addEventListener('click',()=>showNotice('Sourcing link will be added after the base dashboard is stable.','info'));
       els.applicationsTable.addEventListener('click',async event=>{
         const button=event.target.closest('button[data-action]');
@@ -4322,8 +4314,40 @@ async function bulkUploadResumes(){
       supabaseClient.auth.onAuthStateChange(event=>{if(event==='SIGNED_OUT'){setProtectedUiState(false);window.location.replace('login.html')}});
       return true;
     }
+
+    function installCandidateReviewHardRouteGuard(){
+      document.addEventListener("click", function(event) {
+        const target = event.target?.closest?.("[data-hard-review-route='1'], .candidate-review-link, [data-action='review']");
+        if (!target) return;
+
+        const rowElement = target.closest("tr");
+        const rowId =
+          rowElement?.dataset?.id ||
+          rowElement?.dataset?.rowId ||
+          target.dataset?.id ||
+          target.dataset?.rowId ||
+          state.selectedId ||
+          "";
+
+        const row =
+          state.allRows.find(item => String(item.id) === String(rowId)) ||
+          state.filteredRows.find(item => String(item.id) === String(rowId)) ||
+          state.allRows.find(item => String(item.id) === String(state.selectedId)) ||
+          state.filteredRows.find(item => String(item.id) === String(state.selectedId));
+
+        if (!row && !rowId) return;
+
+        event.preventDefault();
+        event.stopPropagation();
+        event.stopImmediatePropagation();
+
+        routeToCandidateReview(row || rowId);
+      }, true);
+    }
+
+
     async function startDashboardApp(){
-      if(!initClient())return;loadUiPreferences();bindEvents();setProtectedUiState(false);
+      if(!initClient())return;loadUiPreferences();bindEvents();installCandidateReviewHardRouteGuard();setProtectedUiState(false);
       try{const allowed=await requireRecruiterAccess();if(!allowed)return;await loadDashboard();}
       catch(error){console.error(error);setAuthMessage(error?.message||'Unable to verify recruiter access.');showNotice(`Unable to start dashboard: ${error?.message||error}`,'error')}
     }
