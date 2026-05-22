@@ -1105,16 +1105,7 @@
         </section>
 
 
-        <section class="card">
-          <div class="card-head">
-            <strong>Call Recordings</strong>
-          </div>
-          <div class="card-body">
-            <div id="recordingList" class="recording-list">
-              <div class="recording-empty">No recordings loaded yet.</div>
-            </div>
-          </div>
-        </section>
+        
 
         <section class="card">
           <div class="card-head">
@@ -1354,7 +1345,6 @@
       concernsList: document.getElementById("concernsList"),
       assessmentEvidenceList: document.getElementById("assessmentEvidenceList"),
       evidenceList: document.getElementById("evidenceList"),
-      recordingList: document.getElementById("recordingList"),
       communicationReadiness: document.getElementById("communicationReadiness"),
       alignmentReadiness: document.getElementById("alignmentReadiness"),
       evidenceDepth: document.getElementById("evidenceDepth"),
@@ -2022,6 +2012,7 @@
       return "No Transcript";
     }
 
+    
     function renderEvidence(responses) {
       if (!els.evidenceList) return;
 
@@ -2032,6 +2023,7 @@
       }
 
       els.evidenceList.innerHTML = responses.map((row, index) => {
+
         const questionOriginal =
           row.talent_conversation_questions?.question_text ||
           row.question_original ||
@@ -2052,10 +2044,13 @@
             : rawResponseLanguage;
 
         const transcriptOriginal = text(row.transcript_original);
-        const transcriptEnglish = text(row.transcript_english || row.transcript);
-        const proficiency = cleanDemoText(row.language_proficiency);
-        // Legacy per-response evaluator feedback is intentionally hidden.
-        const feedback = "";
+
+        const transcriptEnglish =
+          text(row.transcript_english || row.transcript);
+
+        const proficiency =
+          cleanDemoText(row.language_proficiency);
+
         const audioUrl = text(row.audio_url);
 
         const hasOriginalResponse = !!transcriptOriginal;
@@ -2064,14 +2059,28 @@
         const sameResponse =
           hasOriginalResponse &&
           hasEnglishResponse &&
-          normalizedCompare(transcriptOriginal, transcriptEnglish);
+          normalizedCompare(
+            transcriptOriginal,
+            transcriptEnglish
+          );
 
-        const responseIsEnglish = isEnglishLike(responseLanguage);
-        const questionIsEnglish = responseIsEnglish || !questionEnglish || normalizedCompare(questionOriginal, questionEnglish);
+        const responseIsEnglish =
+          isEnglishLike(responseLanguage);
+
+        const questionIsEnglish =
+          responseIsEnglish ||
+          !questionEnglish ||
+          normalizedCompare(
+            questionOriginal,
+            questionEnglish
+          );
 
         const shouldShowQuestionTranslation =
           questionEnglish &&
-          !normalizedCompare(questionOriginal, questionEnglish) &&
+          !normalizedCompare(
+            questionOriginal,
+            questionEnglish
+          ) &&
           !questionIsEnglish;
 
         const shouldShowResponseTranslation =
@@ -2089,13 +2098,23 @@
             ? transcriptEnglish
             : "English translation pending recruiter review.";
 
-        const quality = responseQualityFromText(transcriptOriginal || transcriptEnglish);
+        const quality =
+          responseQualityFromText(
+            transcriptOriginal || transcriptEnglish
+          );
+
+        const createdAt =
+          row.created_at
+            ? new Date(row.created_at).toLocaleString()
+            : "";
 
         return `
           <article class="evidence-item">
+
             <div class="evidence-meta">
+
               <span class="evidence-chip">
-                Response ${index + 1}
+                Question ${index + 1}
               </span>
 
               <span class="evidence-chip ${responseIsEnglish ? "green" : "amber"}">
@@ -2103,9 +2122,17 @@
               </span>
 
               <span class="evidence-chip ${quality === "Detailed" || quality === "Adequate" ? "green" : "amber"}">
-                ${escapeHtml(quality === "No Transcript" ? "Audio captured" : quality)}
+                ${escapeHtml(
+                  quality === "No Transcript"
+                    ? "Audio captured"
+                    : quality
+                )}
               </span>
+
             </div>
+
+
+            <!-- QUESTION -->
 
             <span class="translation-label">
               Question
@@ -2131,20 +2158,28 @@
                 : ""
             }
 
+
+            <!-- CANDIDATE RESPONSE -->
+
             <div class="translation-block">
+
               <span class="translation-label">
-                Candidate Response${responseLanguage ? ` (${escapeHtml(responseLanguage)})` : ""}
+                Candidate Response
+                ${responseLanguage ? `(${escapeHtml(responseLanguage)})` : ""}
               </span>
 
               <p>
                 ${escapeHtml(cleanOriginalResponse)}
               </p>
+
             </div>
+
 
             ${
               shouldShowResponseTranslation
                 ? `
                   <div class="translation-block">
+
                     <span class="translation-label">
                       English Translation
                     </span>
@@ -2152,15 +2187,18 @@
                     <p>
                       ${escapeHtml(cleanEnglishResponse)}
                     </p>
+
                   </div>
                 `
                 : ""
             }
 
+
             ${
               proficiency
                 ? `
                   <div class="translation-block">
+
                     <span class="translation-label">
                       Language Confidence
                     </span>
@@ -2168,30 +2206,46 @@
                     <p>
                       ${escapeHtml(proficiency)}
                     </p>
+
                   </div>
                 `
                 : ""
             }
 
-            ${
-              feedback
-                ? `
-                  
-                `
-                : ""
-            }
 
             ${
               audioUrl
                 ? `
-                  <audio controls src="${escapeHtml(audioUrl)}"></audio>
+                  <div class="translation-block">
+
+                    <span class="translation-label">
+                      Candidate Recording
+                    </span>
+
+                    <div class="recording-meta">
+                      ${
+                        createdAt
+                          ? escapeHtml(createdAt)
+                          : "Conversation recording"
+                      }
+                    </div>
+
+                    <audio
+                      controls
+                      preload="none"
+                      src="${escapeHtml(audioUrl)}">
+                    </audio>
+
+                  </div>
                 `
                 : ""
             }
+
           </article>
         `;
       }).join("");
     }
+
 
     function hasUsableTranscript(row) {
       const transcript =
@@ -2956,41 +3010,6 @@
       );
     }
 
-    function renderCallRecordings(responses) {
-      if (!els.recordingList) return;
-
-      const recordings = (responses || [])
-        .map((row, index) => ({ row, index }))
-        .filter(item => text(item.row?.audio_url));
-
-      if (!recordings.length) {
-        els.recordingList.innerHTML =
-          `<div class="recording-empty">No call or audio recordings are available for this candidate yet.</div>`;
-        return;
-      }
-
-      els.recordingList.innerHTML = recordings.map(({ row, index }) => {
-        const title = getQuestionTitleForRecording(row, index);
-        const language =
-          text(row.response_language) ||
-          text(row.ai_evaluation?.language_evaluation?.detected_language) ||
-          "Candidate response";
-        const createdAt = row.created_at
-          ? new Date(row.created_at).toLocaleString()
-          : "Recorded response";
-
-        return `
-          <article class="recording-item">
-            <strong>${escapeHtml(title)}</strong>
-            <div class="recording-meta">
-              ${escapeHtml(language)} • ${escapeHtml(createdAt)}
-            </div>
-            <audio controls src="${escapeHtml(row.audio_url)}"></audio>
-          </article>
-        `;
-      }).join("");
-    }
-
     function showReviewFeedbackNotice(message, type = "success") {
       if (!els.reviewFeedbackNotice) return;
       els.reviewFeedbackNotice.className = `feedback-notice show ${type}`;
@@ -3247,7 +3266,6 @@
         "No language observations available yet."
       );
 
-      renderCallRecordings(responses);
       renderAssessmentEvidence(assessmentEvidence);
       renderEvidence(responses);
 
