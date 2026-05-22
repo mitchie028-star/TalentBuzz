@@ -857,7 +857,7 @@
               </div>
 
               <div class="mini-stat">
-                <span class="mini-stat-label">Evidence Coverage</span>
+                <span class="mini-stat-label">Recruiter Readiness</span>
                 <div class="mini-stat-value" id="responseQuality">—</div>
               </div>
             </div>
@@ -989,7 +989,7 @@
   </main>
 
   <script>
-    console.log("TalentBuzz candidate-review softened-labels v2026-05-22 loaded");
+    console.log("TalentBuzz candidate-review dynamic-signals v2026-05-22 loaded");
 
     window.addEventListener("error", function(event) {
       const box = document.getElementById("errorState");
@@ -1196,8 +1196,8 @@
       if (valueScore >= 85) return "Strong";
       if (valueScore >= 70) return "Promising";
       if (valueScore >= 55) return "Developing";
-      if (valueScore >= 30) return "Follow-up Recommended";
-      if (valueScore > 0) return "Developing Evidence";
+      if (valueScore >= 35) return "Follow-up Suggested";
+      if (valueScore > 0) return "Additional Validation Suggested";
 
       return "Review Pending";
     }
@@ -1755,7 +1755,7 @@
         const cleanOriginalResponse =
           hasOriginalResponse
             ? transcriptOriginal
-            : "Audio response captured. Recruiter review recommended.";
+            : "Audio available for recruiter review.";
 
         const cleanEnglishResponse =
           hasEnglishResponse
@@ -1931,18 +1931,22 @@
       if (average >= 85) return "Strong";
       if (average >= 70) return "Promising";
       if (average >= 55) return "Developing";
-      if (average >= 30) return "Follow-up Recommended";
-      if (average > 0) return "Developing Evidence";
+      if (average >= 35) return "Follow-up Suggested";
+      if (average > 0) return "Additional Validation Suggested";
 
       return "Review Pending";
     }
 
     function overallFitDisplay(conversation, communication, alignment, evidence, insufficientEvidence) {
-      if (insufficientEvidence) return "Recruiter Follow-up Recommended";
+      if (insufficientEvidence) return "Recruiter Discussion Suggested";
 
-      const quality = demoSignalLabel(responseQualityLabel(communication, alignment, evidence));
-      if (quality === "Follow-up Recommended" || quality === "Needs Review") return "Recruiter Review Recommended";
-      if (quality === "Developing") return "Needs Review";
+      const average = score((Number(communication || 0) + Number(alignment || 0) + Number(evidence || 0)) / 3);
+
+      if (average >= 85) return "Strong Recruiter Signal";
+      if (average >= 70) return "Promising Candidate";
+      if (average >= 55) return "Developing Candidate";
+      if (average >= 35) return "Follow-up Suggested";
+      if (average > 0) return "Additional Validation Suggested";
 
       return fitLabel(conversation);
     }
@@ -2062,7 +2066,7 @@
       return kept.join("\n")
         .replace(/current evidence score is\s*\d+\s*\/\s*100\.?/gi, "available evidence has been organized for recruiter review.")
         .replace(/\b\d+\s*\/\s*100\s*\(limited evidence\)/gi, "Limited evidence")
-        .replace(/\b\d+\s*\/\s*100\b/g, "Recruiter review recommended")
+        .replace(/\b\d+\s*\/\s*100\b/g, "Recruiter review available")
         .replace(/\blimited evidence\b/gi, "limited evidence")
         .replace(/\n{3,}/g, "\n\n")
         .trim();
@@ -2189,6 +2193,17 @@
       return sections;
     }
 
+
+    function polishSummaryLanguage(value) {
+      return cleanDemoText(value)
+        .replace(/Recruiter discussion may help validate for/gi, "Recruiter discussion may help validate")
+        .replace(/Recruiter discussion may help validate for/gi, "Recruiter discussion may help validate")
+        .replace(/developing evidence exists for/gi, "recruiter discussion may help validate")
+        .replace(/Recruiter discussion may help healthcare-specific/gi, "Recruiter discussion may help validate healthcare-specific")
+        .replace(/what I'm trying to do, what I'm going to do/gi, "the next steps and expected resolution path")
+        .replace(/what I am trying to do, what I am going to do/gi, "the next steps and expected resolution path");
+    }
+
     function renderStructuredSummary(el, value) {
       if (!el) return;
 
@@ -2268,16 +2283,17 @@
         .replace(/Automated deep evaluation was unavailable and may require recruiter validation\.?/gi, "Recruiter follow-up may be useful before endorsement.")
         .replace(/automated transcription was unavailable/gi, "audio is pending recruiter review")
         .replace(/transcription was unavailable/gi, "audio is pending recruiter review")
-        .replace(/Cannot assess due to unavailable transcript\.?/gi, "Audio captured; recruiter review recommended.")
+        .replace(/Cannot assess due to unavailable transcript\.?/gi, "Audio captured; recruiter review available.")
         .replace(/Candidate response transcript is unavailable, therefore no evaluation could be performed for this question\.?/gi, "Audio response was captured and can be reviewed by the recruiter.")
         .replace(/Candidate response content is unavailable for evaluation\. The audio was captured, but transcription and translation were not provided\.?/gi, "Audio response was captured and is available for recruiter review.")
         .replace(/Unknown, Korean, Unavailable/gi, "Korean detected • some audio pending review")
         .replace(/\bUnknown\b/gi, "Audio pending review")
         .replace(/\bUnavailable\b/gi, "Pending review")
-        .replace(/\bRecruiter Follow-up Recommended\b/gi, "Recruiter Follow-up Recommended")
+        .replace(/\bRecruiter Discussion Suggested\b/gi, "Recruiter Discussion Suggested")
         .replace(/\bAdditional Review Recommended\b/gi, "Additional Review Recommended")
-        .replace(/\bFollow-up Recommended\b/gi, "Follow-up Recommended")
-        .replace(/\bDeveloping Evidence\b/gi, "Developing Evidence")
+        .replace(/\bFollow-up Suggested\b/gi, "Follow-up Suggested")
+        .replace(/\bRecruiter discussion may help validate for\b/gi, "Recruiter discussion may help validate")
+        .replace(/\bDeveloping Evidence\b/gi, "Developing evidence")
         .replace(/\blimited evidence\b/gi, "developing evidence")
         .replace(/\bweak\b/gi, "developing")
         .replace(/\bfailed to\b/gi, "may need follow-up to")
@@ -2319,43 +2335,44 @@
 
     function demoRiskLabel(value) {
       const risk = text(value).toLowerCase();
-      if (risk.includes("high")) return "Recruiter Follow-up Recommended";
-      if (risk.includes("moderate") || risk.includes("medium")) return "Follow-up Recommended";
-      if (risk.includes("low")) return "Standard Review";
 
-      return text(value, "Follow-up Recommended")
-        .replace(/Recruiter Follow-up Recommended/gi, "Recruiter Follow-up Recommended")
-        .replace(/Additional Review Recommended/gi, "Additional Review Recommended")
-        .replace(/Follow-up Recommended/gi, "Follow-up Recommended")
+      if (risk.includes("high")) return "Recruiter Discussion Suggested";
+      if (risk.includes("moderate") || risk.includes("medium")) return "Follow-up Suggested";
+      if (risk.includes("low") || risk.includes("standard")) return "Standard Review";
+
+      return text(value, "Follow-up Suggested")
+        .replace(/Recruiter Discussion Suggested/gi, "Recruiter Discussion Suggested")
+        .replace(/Additional Review Recommended/gi, "Additional Validation Suggested")
+        .replace(/Follow-up Suggested/gi, "Follow-up Suggested")
         .replace(/Developing Evidence/gi, "Developing Evidence");
     }
 
     function demoFitLabel(label) {
       const value = text(label);
       if (!value) return "Recruiter Review";
-      if (/below recommended threshold/i.test(value)) return "Follow-up Recommended";
-      if (/high risk/i.test(value)) return "Recruiter Follow-up Recommended";
-      if (/further evaluation needed/i.test(value)) return "Follow-up Recommended";
+      if (/below recommended threshold/i.test(value)) return "Follow-up Suggested";
+      if (/high risk/i.test(value)) return "Recruiter Discussion Suggested";
+      if (/further evaluation needed/i.test(value)) return "Follow-up Suggested";
 
       return value
-        .replace(/Recruiter Follow-up Recommended/gi, "Recruiter Follow-up Recommended")
-        .replace(/Additional Review Recommended/gi, "Additional Review Recommended")
-        .replace(/Follow-up Recommended/gi, "Follow-up Recommended")
-        .replace(/Recruiter Review Required/gi, "Recruiter Follow-up Recommended")
-        .replace(/Recruiter Review Recommended/gi, "Follow-up Recommended")
+        .replace(/Recruiter Discussion Suggested/gi, "Recruiter Discussion Suggested")
+        .replace(/Additional Review Recommended/gi, "Additional Validation Suggested")
+        .replace(/Follow-up Suggested/gi, "Follow-up Suggested")
+        .replace(/Recruiter Review Required/gi, "Recruiter Discussion Suggested")
+        .replace(/Recruiter Review Recommended/gi, "Follow-up Suggested")
         .replace(/Developing Evidence/gi, "Developing Evidence");
     }
 
     function demoSignalLabel(value) {
       const label = text(value);
-      if (/further evaluation needed/i.test(label)) return "Follow-up Recommended";
+      if (/further evaluation needed/i.test(label)) return "Follow-up Suggested";
       if (/under review/i.test(label)) return "Review Pending";
-      if (/needs review/i.test(label)) return "Additional Review Recommended";
+      if (/needs review/i.test(label)) return "Additional Validation Suggested";
 
       return label
-        .replace(/Recruiter Follow-up Recommended/gi, "Recruiter Follow-up Recommended")
-        .replace(/Additional Review Recommended/gi, "Additional Review Recommended")
-        .replace(/Follow-up Recommended/gi, "Follow-up Recommended")
+        .replace(/Recruiter Discussion Suggested/gi, "Recruiter Discussion Suggested")
+        .replace(/Additional Review Recommended/gi, "Additional Validation Suggested")
+        .replace(/Follow-up Suggested/gi, "Follow-up Suggested")
         .replace(/Developing Evidence/gi, "Developing Evidence");
     }
 
@@ -2410,9 +2427,10 @@
 
     function demoConfidenceLabel(label) {
       const value = text(label);
-      if (/low/i.test(value)) return "Developing Evidence";
-      if (/moderate/i.test(value)) return "Moderate Coverage";
-      return value || "Moderate Coverage";
+      if (/low/i.test(value)) return "Developing";
+      if (/moderate/i.test(value)) return "Moderate";
+      if (/high/i.test(value)) return "High";
+      return value || "Moderate";
     }
 
     function hasPartialAutomationNotice(conversation, responses) {
@@ -2505,7 +2523,7 @@
 
       renderStructuredSummary(
         els.summaryText,
-        cleanDemoText(preferredRecruiterSummary(conversation, fallback, responses))
+        polishSummaryLanguage(preferredRecruiterSummary(conversation, fallback, responses))
       );
 
       const cleanReason = cleanDemoText(cleanedRecommendation(conversation, insufficientEvidence));
@@ -2537,7 +2555,7 @@
         </span>
 
         <span class="badge ${badgeClass(conversation.risk_level)}">
-          ${escapeHtml(demoRiskLabel(conversation.risk_level || "Follow-up Recommended"))}
+          ${escapeHtml(demoRiskLabel(conversation.risk_level || "Follow-up Suggested"))}
         </span>
 
         ${detectedLanguage !== "—" ? `
@@ -2565,7 +2583,6 @@
         els.concernsList,
         cleanDemoItems([
           ...(normalizeArray(conversation.recruiter_followups || [])),
-          ...(normalizeArray(conversation.recruiter_followups || [])),
           ...(normalizeArray(conversation.concerns || [])),
           ...(recommendedFollowUpItems(conversation))
         ], 7),
@@ -2586,7 +2603,7 @@
           responseQualityLabel(communication, alignment, evidence);
       }
 
-      els.riskReadiness.textContent = demoRiskLabel(conversation.risk_level || "Follow-up Recommended");
+      els.riskReadiness.textContent = demoRiskLabel(conversation.risk_level || "Follow-up Suggested");
 
       els.communicationBar.style.width = `${communication}%`;
       els.alignmentBar.style.width = `${alignment}%`;
