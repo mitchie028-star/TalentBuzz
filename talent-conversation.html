@@ -283,7 +283,7 @@ audio{width:100%;margin-top:14px}
   </main>
 
   <script>
-    console.log("TalentBuzz talent-conversation calm-finalize-safe v2026-05-20 loaded");
+    console.log("TalentBuzz talent-conversation FAST-SAVE-NO-PER-ANSWER-ANALYSIS v2026-05-22 loaded");
 
     const SUPABASE_URL = "https://dilalntcxmvdcmwxjcct.supabase.co";
     const SUPABASE_ANON_KEY = "sb_publishable_HrLVIUwnaRo54yijtrbWBQ_1aeb4ezs";
@@ -1305,7 +1305,7 @@ audio{width:100%;margin-top:14px}
       const existing = responseFor(question.id);
 
       if (!currentAudioBlob && existing?.audio_url) {
-        showStatus("Response already saved.", "success");
+        showStatus("Response saved.", "success");
         return true;
       }
 
@@ -1318,7 +1318,7 @@ audio{width:100%;margin-top:14px}
       els.nextBtn.disabled = true;
 
       try {
-        showStatus("Uploading response...", "info");
+        showStatus("Saving response...", "info");
 
         const filePath = `${conversation.id}/${question.id}-${Date.now()}.webm`;
 
@@ -1374,55 +1374,10 @@ audio{width:100%;margin-top:14px}
         }
 
         responses[question.id] = data;
+        currentAudioBlob = null;
 
         showMicroFeedback("Response saved. Great — you can continue when ready.");
-
-        showStatus("Analyzing your response...", "info");
-
-        try {
-          const transcriptionResult = await invokeEdgeFunction(
-            "transcribe-talent-response",
-            { response_id: data.id }
-          );
-
-          if (transcriptionResult?.response) {
-            responses[question.id] = transcriptionResult.response;
-          }
-
-          showStatus("Response transcribed successfully.", "success");
-        } catch (transcribeError) {
-          console.warn("transcribe-talent-response failed", transcribeError);
-          showStatus("Recording saved. Transcription may still be processing.", "info");
-        }
-
-        try {
-          showStatus("Saving response...", "info");
-
-          const latestResponse = responseFor(question.id) || data;
-          const responseIdForEvaluation = latestResponse.id || data.id;
-
-          const evaluationResult = await invokeEdgeFunction(
-            "evaluate-talent-response",
-            { response_id: responseIdForEvaluation }
-          );
-
-          if (evaluationResult?.response) {
-            responses[question.id] = evaluationResult.response;
-          }
-
-          const proficiency =
-            evaluationResult?.evaluation?.language_evaluation?.language_proficiency ||
-            evaluationResult?.response?.language_proficiency;
-
-          if (proficiency) {
-            showStatus(`Response analyzed • ${proficiency} language proficiency detected.`, "success");
-          } else {
-            showStatus("Response analyzed successfully.", "success");
-          }
-        } catch (evaluationError) {
-          console.warn("evaluate-talent-response failed", evaluationError);
-          showStatus("Recording saved. Recruiter analysis may still be processing.", "info");
-        }
+        showStatus("Response saved.", "success");
 
         return true;
       } catch (error) {
@@ -1443,17 +1398,7 @@ audio{width:100%;margin-top:14px}
 
       els.reviewList.innerHTML = questions.map((question, index) => {
         const response = responseFor(question.id);
-        let status = "No response recorded.";
-        if (response?.audio_url) status = "Recorded";
-        if (response?.transcript || response?.transcript_original || response?.transcript_english) {
-          status = "Recorded and transcribed";
-        }
-        if (response?.ai_evaluation) {
-          status = "Recorded, transcribed, and evaluated";
-        }
-        if (response?.language_proficiency) {
-          status += ` • ${response.language_proficiency} language proficiency`;
-        }
+        let status = response?.audio_url ? "Recorded and saved" : "No response recorded.";
 
         return `
           <div class="review-item">
@@ -1513,7 +1458,7 @@ audio{width:100%;margin-top:14px}
           throw new Error("No saved responses found. Please save your recordings first.");
         }
 
-        showSummaryStatus("Finalizing your Talent Conversation...", "info");
+        showSummaryStatus("Submitting your Talent Conversation...", "info");
 
         let finalizeData = {};
 
@@ -1642,7 +1587,7 @@ setTimeout(() => {
 
         await ensureConversationLinked();
 
-        if (conversation.summary) els.conversationIntro.textContent = conversation.summary;
+        enforceCandidateSafeCopy();
 
         await supabaseClient
           .from("talent_conversations")
