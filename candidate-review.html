@@ -881,25 +881,7 @@
 
         <section class="card">
           <div class="card-head">
-            <strong>Candidate Strengths</strong>
-          </div>
-          <div class="card-body">
-            <ul id="strengthsList"></ul>
-          </div>
-        </section>
-
-        <section class="card">
-          <div class="card-head">
-            <strong>Follow-up Areas</strong>
-          </div>
-          <div class="card-body">
-            <ul id="concernsList"></ul>
-          </div>
-        </section>
-
-        <section class="card">
-          <div class="card-head">
-            <strong>Assessment Evidence</strong>
+            <strong>Assessment Highlights</strong>
           </div>
           <div class="card-body">
             <div id="assessmentEvidenceList" class="evidence-list"></div>
@@ -908,7 +890,7 @@
 
         <section class="card">
           <div class="card-head">
-            <strong>Conversation Evidence</strong>
+            <strong>Conversation Responses</strong>
           </div>
           <div class="card-body">
             <div id="evidenceList" class="evidence-list"></div>
@@ -1007,7 +989,7 @@
   </main>
 
   <script>
-    console.log("TalentBuzz candidate-review recruiter-evidence-clean-fixed v2026-05-22 loaded");
+    console.log("TalentBuzz candidate-review single-summary-clean v2026-05-22 loaded");
 
     window.addEventListener("error", function(event) {
       const box = document.getElementById("errorState");
@@ -1745,10 +1727,8 @@
         const transcriptOriginal = text(row.transcript_original);
         const transcriptEnglish = text(row.transcript_english || row.transcript);
         const proficiency = cleanDemoText(row.language_proficiency);
-        const feedback =
-          looksLikeRawEvaluatorDump(row.ai_feedback)
-            ? ""
-            : cleanDemoText(row.ai_feedback);
+        // Legacy per-response evaluator feedback is intentionally hidden.
+        const feedback = "";
         const audioUrl = text(row.audio_url);
 
         const hasOriginalResponse = !!transcriptOriginal;
@@ -1869,15 +1849,7 @@
             ${
               feedback
                 ? `
-                  <div class="translation-block">
-                    <span class="translation-label">
-                      Recruiter Insight
-                    </span>
-
-                    <p>
-                      ${escapeHtml(feedback)}
-                    </p>
-                  </div>
+                  
                 `
                 : ""
             }
@@ -1986,7 +1958,9 @@
         "conversational",
         "fluent",
         "native-like",
-        "review needed"
+        "review needed",
+        "developing",
+        "needs improvement"
       ]);
 
       const cleaned = normalizeArray(items)
@@ -2136,15 +2110,15 @@
     }
 
     function preferredRecruiterSummary(conversation, fallback = null, responses = []) {
+      const savedSummary = cleanDemoText(text(conversation.recruiter_summary));
+
+      if (savedSummary) {
+        return savedSummary;
+      }
+
       const rawSummary = removeInternalReviewSections(
-        text(conversation.recruiter_summary) ||
         text(conversation.recruiter_summary_clean) ||
-        text(conversation.evidence_quality_summary) ||
-        (
-          looksLikeRawEvaluatorDump(conversation.summary)
-            ? ""
-            : text(conversation.summary)
-        ) ||
+        text(conversation.summary) ||
         text(conversation.recommendation_reason)
       );
 
@@ -2236,6 +2210,10 @@
         <div class="structured-summary">
           ${sections.map(section => {
             const title = text(section.title);
+
+            if (/recommended recruiter follow-up|score snapshot|identity consistency|response integrity|verification signals|authenticity/i.test(title)) {
+              return "";
+            }
 
             if (!title) {
               return `
@@ -2560,6 +2538,7 @@
       renderList(
         els.concernsList,
         cleanDemoItems([
+          ...(normalizeArray(conversation.recruiter_followups || [])),
           ...(normalizeArray(conversation.recruiter_followups || [])),
           ...(normalizeArray(conversation.concerns || [])),
           ...(recommendedFollowUpItems(conversation))
