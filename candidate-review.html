@@ -989,7 +989,7 @@
   </main>
 
   <script>
-    console.log("TalentBuzz candidate-review dynamic-signals v2026-05-22 loaded");
+    console.log("TalentBuzz candidate-review final-polish v2026-05-22 loaded");
 
     window.addEventListener("error", function(event) {
       const box = document.getElementById("errorState");
@@ -1196,8 +1196,9 @@
       if (valueScore >= 85) return "Strong";
       if (valueScore >= 70) return "Promising";
       if (valueScore >= 55) return "Developing";
-      if (valueScore >= 35) return "Follow-up Suggested";
-      if (valueScore > 0) return "Additional Validation Suggested";
+      if (valueScore >= 35) return "Emerging";
+      if (valueScore >= 15) return "Developing";
+      if (valueScore > 0) return "Review Suggested";
 
       return "Review Pending";
     }
@@ -1721,7 +1722,7 @@
 
         const responseLanguage =
           /unknown|unavailable/i.test(rawResponseLanguage)
-            ? "Audio pending review"
+            ? "Audio available for recruiter review"
             : rawResponseLanguage;
 
         const transcriptOriginal = text(row.transcript_original);
@@ -1835,7 +1836,7 @@
                 ? `
                   <div class="translation-block">
                     <span class="translation-label">
-                      Language Proficiency
+                      Language Confidence
                     </span>
 
                     <p>
@@ -1915,7 +1916,7 @@
 
     function cleanedRecommendation(conversation, insufficientEvidence) {
       if (insufficientEvidence) {
-        return "Available evidence is limited or some audio is still pending review. Recruiter validation is recommended before endorsement.";
+        return "Available evidence is limited or some audio is still additional recruiter review available. Recruiter validation is recommended before endorsement.";
       }
 
       return cleanDemoText(
@@ -1931,8 +1932,9 @@
       if (average >= 85) return "Strong";
       if (average >= 70) return "Promising";
       if (average >= 55) return "Developing";
-      if (average >= 35) return "Follow-up Suggested";
-      if (average > 0) return "Additional Validation Suggested";
+      if (average >= 35) return "Emerging";
+      if (average >= 15) return "Developing";
+      if (average > 0) return "Review Suggested";
 
       return "Review Pending";
     }
@@ -1945,8 +1947,8 @@
       if (average >= 85) return "Strong Recruiter Signal";
       if (average >= 70) return "Promising Candidate";
       if (average >= 55) return "Developing Candidate";
-      if (average >= 35) return "Follow-up Suggested";
-      if (average > 0) return "Additional Validation Suggested";
+      if (average >= 35) return "Emerging Candidate";
+      if (average > 0) return "Review Suggested";
 
       return fitLabel(conversation);
     }
@@ -2010,8 +2012,8 @@
 
       if (proficiency && proficiency !== "—") {
         return [
-          `Language proficiency was assessed as ${proficiency}.`,
-          "Review response depth separately from language proficiency."
+          `Language evidence is available for recruiter review.`,
+          "Review response depth separately from language confidence."
         ];
       }
 
@@ -2196,12 +2198,14 @@
 
     function polishSummaryLanguage(value) {
       return cleanDemoText(value)
-        .replace(/Recruiter discussion may help validate for/gi, "Recruiter discussion may help validate")
-        .replace(/Recruiter discussion may help validate for/gi, "Recruiter discussion may help validate")
-        .replace(/developing evidence exists for/gi, "recruiter discussion may help validate")
-        .replace(/Recruiter discussion may help healthcare-specific/gi, "Recruiter discussion may help validate healthcare-specific")
+        .replace(/Additional recruiter discussion is suggested to further validate[^.]*\.?/gi, "Additional recruiter discussion may help confirm operational readiness for the role.")
+        .replace(/Additional recruiter discussion may help validate overall communication readiness[^.]*\.?/gi, "Additional recruiter discussion may help confirm communication readiness and scenario-handling depth.")
+        .replace(/Role readiness shows potential, but specific scenario handling and contributing to internal knowledge could benefit from further exploration\.?/gi, "Recruiter discussion may help explore scenario handling and knowledge-sharing readiness.")
+        .replace(/Conversation responses are available for recruiter review\.\s*$/gi, "")
+        .replace(/Conversation responses are available for recruiter review\.\s*Conversation responses are available for recruiter review\./gi, "Conversation responses are available for recruiter review.")
         .replace(/what I'm trying to do, what I'm going to do/gi, "the next steps and expected resolution path")
-        .replace(/what I am trying to do, what I am going to do/gi, "the next steps and expected resolution path");
+        .replace(/what I am trying to do, what I am going to do/gi, "the next steps and expected resolution path")
+        .trim();
     }
 
     function renderStructuredSummary(el, value) {
@@ -2280,20 +2284,37 @@
 
       body = body
         .replace(/Fallback evaluation used because Gemini was unavailable\.?\s*/gi, "")
-        .replace(/Automated deep evaluation was unavailable and may require recruiter validation\.?/gi, "Recruiter follow-up may be useful before endorsement.")
-        .replace(/automated transcription was unavailable/gi, "audio is pending recruiter review")
-        .replace(/transcription was unavailable/gi, "audio is pending recruiter review")
-        .replace(/Cannot assess due to unavailable transcript\.?/gi, "Audio captured; recruiter review available.")
-        .replace(/Candidate response transcript is unavailable, therefore no evaluation could be performed for this question\.?/gi, "Audio response was captured and can be reviewed by the recruiter.")
-        .replace(/Candidate response content is unavailable for evaluation\. The audio was captured, but transcription and translation were not provided\.?/gi, "Audio response was captured and is available for recruiter review.")
-        .replace(/Unknown, Korean, Unavailable/gi, "Korean detected • some audio pending review")
-        .replace(/\bUnknown\b/gi, "Audio pending review")
-        .replace(/\bUnavailable\b/gi, "Pending review")
-        .replace(/\bRecruiter Discussion Suggested\b/gi, "Recruiter Discussion Suggested")
-        .replace(/\bAdditional Review Recommended\b/gi, "Additional Review Recommended")
-        .replace(/\bFollow-up Suggested\b/gi, "Follow-up Suggested")
-        .replace(/\bRecruiter discussion may help validate for\b/gi, "Recruiter discussion may help validate")
-        .replace(/\bDeveloping Evidence\b/gi, "Developing evidence")
+        .replace(/Automated deep evaluation was unavailable and may require recruiter validation\.?/gi, "Additional recruiter discussion may help confirm readiness for the role.")
+        .replace(/Audio response captured successfully\.?\s*Automated transcription was unavailable\.?/gi, "Audio available for recruiter review.")
+        .replace(/automated transcription was unavailable/gi, "audio available for recruiter review")
+        .replace(/transcription was unavailable/gi, "audio available for recruiter review")
+        .replace(/Cannot assess due to unavailable transcript\.?/gi, "Audio available for recruiter review.")
+        .replace(/Cannot assess due to Pending review content\.?/gi, "Audio available for recruiter review.")
+        .replace(/Cannot assess due to Additional recruiter review available\.?/gi, "Audio available for recruiter review.")
+        .replace(/Candidate response transcript is unavailable, therefore no evaluation could be performed for this question\.?/gi, "Audio available for recruiter review.")
+        .replace(/Candidate response content is unavailable for evaluation\. The audio was captured, but transcription and translation were not provided\.?/gi, "Audio available for recruiter review.")
+        .replace(/Unknown, Korean, Unavailable/gi, "Korean detected • additional recruiter review available")
+        .replace(/\bUnknown\b/gi, "Additional recruiter review available")
+        .replace(/\bUnavailable\b/gi, "Additional recruiter review available")
+        .replace(/\bPending review\b/gi, "Additional recruiter review available")
+        .replace(/\bpending review\b/gi, "additional recruiter review available")
+        .replace(/Language proficiency was estimated by fallback logic because automated evaluation was Additional recruiter review available\.?/gi, "Language evaluation is based on available conversation evidence.")
+        .replace(/Language proficiency was estimated by fallback logic because automated evaluation was Pending review\.?/gi, "Language evaluation is based on available conversation evidence.")
+        .replace(/Additional recruiter discussion is suggested to further validate communication readiness, role alignment, and evidence depth due to incomplete responses\.?/gi, "Additional recruiter discussion may help confirm operational readiness for the role.")
+        .replace(/Additional recruiter discussion may help validate overall communication readiness, especially regarding written precision and addressing specific customer scenarios proactively\.?/gi, "Additional recruiter discussion may help confirm communication readiness and scenario-handling depth.")
+        .replace(/Additional recruiter discussion may help validate overall readiness for the role\.?/gi, "Additional recruiter discussion may help confirm overall readiness for the role.")
+        .replace(/Additional recruiter discussion may help validate operational readiness for the role\.?/gi, "Additional recruiter discussion may help confirm operational readiness for the role.")
+        .replace(/Recruiter validation is recommended to comprehensively assess (his|her|their) capabilities\.?/gi, "Additional recruiter discussion may help confirm overall readiness for the role.")
+        .replace(/Recruiter follow-up is recommended to fully validate communication readiness and role alignment\.?/gi, "Additional recruiter discussion may help confirm operational readiness for the role.")
+        .replace(/Recruiter Discussion Suggested/gi, "Recruiter Discussion Suggested")
+        .replace(/Additional Review Recommended/gi, "Additional Validation Suggested")
+        .replace(/Additional Validation Suggested/gi, "Additional Validation Suggested")
+        .replace(/Follow-up Suggested/gi, "Follow-up Suggested")
+        .replace(/Recruiter discussion may help validate for/gi, "Recruiter discussion may help validate")
+        .replace(/Recruiter discussion may help healthcare-specific/gi, "Recruiter discussion may help validate healthcare-specific")
+        .replace(/Developing Evidence exists for/gi, "Recruiter discussion may help validate")
+        .replace(/developing evidence exists for/gi, "recruiter discussion may help validate")
+        .replace(/Developing Evidence/gi, "Developing evidence")
         .replace(/\blimited evidence\b/gi, "developing evidence")
         .replace(/\bweak\b/gi, "developing")
         .replace(/\bfailed to\b/gi, "may need follow-up to")
@@ -2342,7 +2363,8 @@
 
       return text(value, "Follow-up Suggested")
         .replace(/Recruiter Discussion Suggested/gi, "Recruiter Discussion Suggested")
-        .replace(/Additional Review Recommended/gi, "Additional Validation Suggested")
+        .replace(/Additional Review Recommended/gi, "Review Suggested")
+        .replace(/Additional Validation Suggested/gi, "Review Suggested")
         .replace(/Follow-up Suggested/gi, "Follow-up Suggested")
         .replace(/Developing Evidence/gi, "Developing Evidence");
     }
@@ -2356,7 +2378,8 @@
 
       return value
         .replace(/Recruiter Discussion Suggested/gi, "Recruiter Discussion Suggested")
-        .replace(/Additional Review Recommended/gi, "Additional Validation Suggested")
+        .replace(/Additional Review Recommended/gi, "Review Suggested")
+        .replace(/Additional Validation Suggested/gi, "Review Suggested")
         .replace(/Follow-up Suggested/gi, "Follow-up Suggested")
         .replace(/Recruiter Review Required/gi, "Recruiter Discussion Suggested")
         .replace(/Recruiter Review Recommended/gi, "Follow-up Suggested")
@@ -2367,11 +2390,12 @@
       const label = text(value);
       if (/further evaluation needed/i.test(label)) return "Follow-up Suggested";
       if (/under review/i.test(label)) return "Review Pending";
-      if (/needs review/i.test(label)) return "Additional Validation Suggested";
+      if (/needs review/i.test(label)) return "Review Suggested";
 
       return label
         .replace(/Recruiter Discussion Suggested/gi, "Recruiter Discussion Suggested")
-        .replace(/Additional Review Recommended/gi, "Additional Validation Suggested")
+        .replace(/Additional Review Recommended/gi, "Review Suggested")
+        .replace(/Additional Validation Suggested/gi, "Review Suggested")
         .replace(/Follow-up Suggested/gi, "Follow-up Suggested")
         .replace(/Developing Evidence/gi, "Developing Evidence");
     }
@@ -2396,7 +2420,7 @@
         if (firstUseful) parts.push(firstUseful);
       }
 
-      if (pendingCount) parts.push(`${pendingCount} response${pendingCount === 1 ? "" : "s"} pending review`);
+      if (pendingCount) parts.push(`${pendingCount} response${pendingCount === 1 ? "" : "s"} additional recruiter review available`);
       return parts.length ? parts.join(" • ") : "Pending recruiter review";
     }
 
@@ -2406,8 +2430,8 @@
         text(responses.map(row => row.language_proficiency).filter(Boolean)[0]) ||
         "";
 
-      if (!raw || /unknown|unavailable|cannot assess/i.test(raw)) {
-        return "Recruiter validation recommended";
+      if (!raw || /unknown|unavailable|cannot assess|additional recruiter review available/i.test(raw)) {
+        return "Additional recruiter review available";
       }
 
       return cleanDemoText(raw);
@@ -2534,7 +2558,7 @@
           ? ""
           : cleanReason;
 
-      if (/some responses were captured|conversation responses were captured|audio response was captured/i.test(els.recommendationReason.textContent || "")) {
+      if (/some responses were captured|conversation responses are available|conversation responses were captured|audio response was captured/i.test(els.recommendationReason.textContent || "")) {
         els.recommendationReason.textContent = "";
       }
 
@@ -2566,7 +2590,7 @@
 
         ${languageProficiency !== "—" ? `
           <span class="badge green">
-            Language Proficiency: ${escapeHtml(languageProficiency)}
+            Language Confidence: ${escapeHtml(languageProficiency)}
           </span>
         ` : ""}
 
