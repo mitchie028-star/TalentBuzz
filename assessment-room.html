@@ -806,6 +806,79 @@ button:hover,
     min-height:180px;
   }
 }
+
+.timer-pill{
+  display:inline-flex;
+  align-items:center;
+  gap:10px;
+  border:1px solid var(--blue-line);
+  background:rgba(255,255,255,.9);
+  color:var(--blue-deep);
+  border-radius:999px;
+  padding:8px 13px;
+  font-size:.78rem;
+  font-weight:800;
+  backdrop-filter:blur(10px);
+}
+
+.timer-pill strong{
+  font-size:.95rem;
+  letter-spacing:-.02em;
+  color:var(--ink-strong);
+  font-variant-numeric:tabular-nums;
+}
+
+.timer-label{
+  color:var(--muted);
+  font-size:.72rem;
+  text-transform:uppercase;
+  letter-spacing:.07em;
+  font-weight:900;
+}
+
+.timer-pill.warning{
+  border-color:#fde68a;
+  background:#fffbeb;
+  color:#b45309;
+}
+
+.timer-pill.expired{
+  border-color:#fecaca;
+  background:#fef2f2;
+  color:#b42318;
+}
+
+.timer-pill.expired strong{
+  color:#b42318;
+}
+
+body.assessment-expired textarea,
+body.assessment-expired .choice-option{
+  pointer-events:none;
+  opacity:.72;
+}
+
+body.assessment-expired #saveBtn,
+body.assessment-expired #nextBtn,
+body.assessment-expired #submitBtn{
+  opacity:.62;
+  cursor:not-allowed;
+  transform:none!important;
+  box-shadow:none!important;
+}
+
+.expired-card{
+  margin-top:18px;
+  padding:14px 15px;
+  border-radius:16px;
+  border:1px solid #fecaca;
+  background:#fef2f2;
+  color:#b42318;
+  font-size:.82rem;
+  line-height:1.6;
+  font-weight:800;
+}
+
 </style>
 
 </head>
@@ -821,6 +894,12 @@ button:hover,
       </a>
 
       <span class="pill" id="assessmentStatus">Assessment</span>
+
+      <div class="timer-pill" id="timerPill">
+        <span class="timer-label">Time remaining</span>
+        <strong id="timerValue">--:--</strong>
+      </div>
+
     </div>
 
     <nav class="flow" aria-label="Application progress">
@@ -975,6 +1054,8 @@ button:hover,
   </main>
 
   <script>
+    console.log('TalentBuzz assessment-room-timed v2026-05-22 loaded');
+
     const SUPABASE_URL = "https://dilalntcxmvdcmwxjcct.supabase.co";
     const SUPABASE_ANON_KEY = "sb_publishable_HrLVIUwnaRo54yijtrbWBQ_1aeb4ezs";
 
@@ -994,6 +1075,8 @@ button:hover,
 
     const els = {
       assessmentStatus: document.getElementById("assessmentStatus"),
+      timerPill: document.getElementById("timerPill"),
+      timerValue: document.getElementById("timerValue"),
       assessmentTitle: document.getElementById("assessmentTitle"),
       assessmentIntro: document.getElementById("assessmentIntro"),
       estimatedTime: document.getElementById("estimatedTime"),
@@ -1040,6 +1123,229 @@ button:hover,
     let activeAudio = null;
     let autosaveTimer = null;
     let talentConversationPreGenerated = false;
+    let assessmentTimerInterval = null;
+    let assessmentStartedAt = null;
+    let assessmentDueAt = null;
+    let assessmentExpired = false;
+    let assessmentTimeLimitMinutes = 60;
+
+
+    function parseDateOrNull(value) {
+      if (!value) return null;
+      const date = new Date(value);
+      return Number.isNaN(date.getTime()) ? null : date;
+    }
+
+    function getConfiguredTimeLimitMinutes() {
+      const metadataMinutes =
+        questions?.[0]?.metadata?.time_limit_minutes ||
+        questions?.[0]?.metadata?.estimated_minutes ||
+        assessment?.time_limit_minutes ||
+        assessment?.duration_minutes ||
+        assessment?.estimated_minutes ||
+        60;
+
+      const minutes = Number(metadataMinutes);
+      return Number.isFinite(minutes) && minutes > 0 ? Math.round(minutes) : 60;
+    }
+
+    function formatCountdown(ms) {
+      const totalSeconds = Math.max(0, Math.floor(ms / 1000));
+      const hours = Math.floor(totalSeconds / 3600);
+      const minutes = Math.floor((totalSeconds % 3600) / 60);
+      const seconds = totalSeconds % 60;
+
+      if (hours > 0) {
+        return `${hours}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+      }
+
+      return `${minutes}:${String(seconds).padStart(2, "0")}`;
+    }
+
+    function getTimeSpentSeconds() {
+      const started = parseDateOrNull(assessmentStartedAt);
+      if (!started) return null;
+
+      const end =
+        parseDateOrNull(assessment?.completed_at) ||
+        parseDateOrNull(assessment?.submitted_at) ||
+        new Date();
+
+      return Math.max(0, Math.floor((end.getTime() - started.getTime()) / 1000));
+    }
+
+    function setTimedControlsDisabled(disabled) {
+      [els.saveBtn, els.nextBtn, els.submitBtn].forEach(button => {
+        if (button) button.disabled = !!disabled;
+      });
+
+      if (els.answerInput) els.answerInput.disabled = !!disabled;
+
+      els.choiceArea?.querySelectorAll(".choice-option").forEach(button => {
+        button.disabled = !!disabled;
+      });
+    }
+
+    function markAssessmentExpired() {
+      assessmentExpired = true;
+      document.body.classList.add("assessment-expired");
+
+      if (els.timerPill) {
+        els.timerPill.classList.remove("warning");
+        els.timerPill.classList.add("expired");
+      }
+
+      if (els.timerValue) {
+        els.timerValue.textContent = "Expired";
+      }
+
+      els.assessmentStatus.textContent = "Assessment expired";
+      setTimedControlsDisabled(true);
+
+      showStatus(
+        "Time has expired. Your assessment can no longer be edited or submitted from this page.",
+        "error"
+      );
+
+      if (els.summaryPanel?.classList.contains("show")) {
+        showSummaryStatus(
+          "Time has expired. Your assessment can no longer be submitted from this page.",
+          "error"
+        );
+      }
+
+      if (assessment?.id && assessment?.status !== "completed" && assessment?.status !== "expired") {
+        supabaseClient
+          .from("role_assessments")
+          .update({
+            status: "expired",
+            expired_at: new Date().toISOString(),
+            time_spent_seconds: getTimeSpentSeconds()
+          })
+          .eq("id", assessment.id)
+          .then(({ error }) => {
+            if (error) console.warn("Unable to mark assessment expired:", error);
+          });
+      }
+    }
+
+    function updateTimerDisplay() {
+      if (!els.timerPill || !els.timerValue) return;
+
+      if (assessment?.status === "completed") {
+        els.timerPill.classList.remove("warning", "expired");
+        els.timerValue.textContent = "Submitted";
+        return;
+      }
+
+      const due = parseDateOrNull(assessmentDueAt);
+      if (!due) {
+        els.timerValue.textContent = "--:--";
+        return;
+      }
+
+      const remainingMs = due.getTime() - Date.now();
+
+      if (remainingMs <= 0) {
+        markAssessmentExpired();
+        return;
+      }
+
+      els.timerValue.textContent = formatCountdown(remainingMs);
+      els.timerPill.classList.toggle("warning", remainingMs <= 5 * 60 * 1000);
+      els.timerPill.classList.remove("expired");
+    }
+
+    function startAssessmentTimer() {
+      if (assessmentTimerInterval) {
+        clearInterval(assessmentTimerInterval);
+      }
+
+      updateTimerDisplay();
+      assessmentTimerInterval = setInterval(updateTimerDisplay, 1000);
+    }
+
+    async function ensureAssessmentTimingStarted() {
+      if (!assessment?.id) return;
+
+      assessmentTimeLimitMinutes = getConfiguredTimeLimitMinutes();
+
+      const existingStartedAt = parseDateOrNull(assessment.started_at);
+      const existingDueAt = parseDateOrNull(assessment.due_at);
+
+      const startedAt = existingStartedAt || new Date();
+      const dueAt = existingDueAt || new Date(startedAt.getTime() + assessmentTimeLimitMinutes * 60 * 1000);
+
+      assessmentStartedAt = startedAt.toISOString();
+      assessmentDueAt = dueAt.toISOString();
+
+      const nextStatus =
+        assessment.status === "completed"
+          ? "completed"
+          : dueAt.getTime() <= Date.now()
+            ? "expired"
+            : "in_progress";
+
+      const updatePayload = {
+        status: nextStatus,
+        started_at: assessment.started_at || assessmentStartedAt,
+        due_at: assessment.due_at || assessmentDueAt,
+        time_limit_minutes: assessment.time_limit_minutes || assessmentTimeLimitMinutes
+      };
+
+      const attempts = [
+        updatePayload,
+        {
+          status: nextStatus,
+          started_at: assessment.started_at || assessmentStartedAt,
+          due_at: assessment.due_at || assessmentDueAt
+        },
+        {
+          status: nextStatus,
+          started_at: assessment.started_at || assessmentStartedAt
+        }
+      ];
+
+      for (const payload of attempts) {
+        const { error } = await supabaseClient
+          .from("role_assessments")
+          .update(payload)
+          .eq("id", assessment.id);
+
+        if (!error) break;
+        console.warn("Timing update attempt failed:", error.message || error, payload);
+      }
+
+      assessment = {
+        ...assessment,
+        ...updatePayload
+      };
+
+      if (els.estimatedTime) {
+        els.estimatedTime.textContent = `${assessmentTimeLimitMinutes} minutes`;
+      }
+
+      if (nextStatus === "expired") {
+        markAssessmentExpired();
+      } else {
+        startAssessmentTimer();
+      }
+    }
+
+    function guardAssessmentNotExpired(target = "question") {
+      updateTimerDisplay();
+
+      if (!assessmentExpired) return true;
+
+      if (target === "summary") {
+        showSummaryStatus("Time has expired. You can no longer submit this assessment.", "error");
+      } else {
+        showStatus("Time has expired. You can no longer edit this assessment.", "error");
+      }
+
+      return false;
+    }
+
 
     function updateAutosaveState(state, message) {
       if (!els.autosaveIndicator) return;
@@ -1341,6 +1647,8 @@ button:hover,
 
         els.choiceArea.querySelectorAll(".choice-option").forEach(button => {
           button.addEventListener("click", () => {
+            if (!guardAssessmentNotExpired()) return;
+
             const optionId = button.getAttribute("data-option-id") || "";
             const optionText = button.getAttribute("data-option-text") || "";
 
@@ -1406,6 +1714,10 @@ button:hover,
 
       els.backBtn.disabled = currentIndex === 0 || saving;
       els.nextBtn.textContent = currentIndex === total - 1 ? "Review" : "Next";
+
+      if (assessmentExpired) {
+        setTimedControlsDisabled(true);
+      }
     }
 
     async function generateAssessmentForApplication(appId) {
@@ -1495,6 +1807,8 @@ button:hover,
     }
 
     async function saveCurrentAnswer(options = {}) {
+      if (!guardAssessmentNotExpired()) return false;
+
       const question = currentQuestion();
       if (!question) return false;
 
@@ -1638,6 +1952,8 @@ button:hover,
     }
 
     function showReview() {
+      if (!guardAssessmentNotExpired('summary')) return;
+
       preGenerateTalentConversation();
 
       els.assessmentCard.style.display = "none";
@@ -1666,12 +1982,16 @@ button:hover,
     }
 
     async function submitAssessment() {
+      if (!guardAssessmentNotExpired("summary")) return;
+
       const activeQuestion = currentQuestion();
 
       if (activeQuestion && els.assessmentCard.style.display !== "none") {
         responses[activeQuestion.id] = {
           ...(responses[activeQuestion.id] || {}),
-          text_response: isChoiceQuestion(question) ? String(answerFor(question.id) || "").trim() : els.answerInput.value.trim()
+          text_response: isChoiceQuestion(activeQuestion)
+            ? String(answerFor(activeQuestion.id) || "").trim()
+            : els.answerInput.value.trim()
         };
       }
 
@@ -1691,7 +2011,9 @@ button:hover,
           .from("role_assessments")
           .update({
             status: "completed",
-            completed_at: new Date().toISOString()
+            submitted_at: new Date().toISOString(),
+            completed_at: new Date().toISOString(),
+            time_spent_seconds: getTimeSpentSeconds()
           })
           .eq("id", assessment.id);
 
@@ -1759,16 +2081,19 @@ button:hover,
           els.estimatedTime.textContent = `${estimatedMinutes} minutes`;
         }
 
-        await supabaseClient
-          .from("role_assessments")
-          .update({
-            status: assessment.status === "completed" ? "completed" : "in_progress",
-            started_at: assessment.started_at || new Date().toISOString()
-          })
-          .eq("id", assessment.id);
+        assessmentTimeLimitMinutes = getConfiguredTimeLimitMinutes();
+
+        if (els.estimatedTime) {
+          els.estimatedTime.textContent = `${assessmentTimeLimitMinutes} minutes`;
+        }
 
         if (assessment.status === "completed") {
           markAssessmentComplete();
+          assessmentStarted = true;
+          startAssessmentTimer();
+        } else if (assessment.status === "in_progress" || assessment.started_at) {
+          assessmentStarted = true;
+          await ensureAssessmentTimingStarted();
         }
 
         renderQuestion();
@@ -1788,6 +2113,7 @@ button:hover,
       els.startAssessmentBtn.textContent = "Starting...";
 
       assessmentStarted = true;
+      await ensureAssessmentTimingStarted();
       renderQuestion();
 
       await listenToIntro();
@@ -1805,10 +2131,13 @@ button:hover,
     if (els.listenBtn) els.listenBtn.addEventListener("click", listenToCurrentQuestion);
 
     if (els.saveBtn) els.saveBtn.addEventListener("click", async () => {
+      if (!guardAssessmentNotExpired()) return;
       await saveCurrentAnswer();
     });
 
     if (els.nextBtn) els.nextBtn.addEventListener("click", async () => {
+      if (!guardAssessmentNotExpired()) return;
+
       const question = currentQuestion();
       if (!question) return;
 
@@ -1873,6 +2202,8 @@ button:hover,
     if (els.submitBtn) els.submitBtn.addEventListener("click", submitAssessment);
 
     if (els.answerInput) els.answerInput.addEventListener("input", () => {
+      if (!guardAssessmentNotExpired()) return;
+
       const question = currentQuestion();
 
       if (question && !isChoiceQuestion(question)) {
