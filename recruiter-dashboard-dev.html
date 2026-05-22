@@ -2037,7 +2037,7 @@
   </div>
 
   <script>
-    console.log('TalentBuzz recruiter-workspace-send-assessment-invite v2026-05-20 loaded');
+    console.log('TalentBuzz recruiter-workspace-candidate-review-route-fix v2026-05-22 loaded');
 
     const CONFIG = {
       SUPABASE_URL: window.TALENTBUZZ_SUPABASE_URL || localStorage.getItem('TALENTBUZZ_SUPABASE_URL') || '',
@@ -4005,16 +4005,41 @@ async function bulkUploadResumes(){
     function markDashboardSynced(){dashboardLastSyncedAt=new Date();updateLiveStatusLabel()}
 
     function openCandidateReviewByApplicationId(applicationId){
-      if (!applicationId) {
-        showNotice('Unable to open Candidate Review because this row has no application ID.', 'error');
+      const id = safeText(applicationId || "");
+
+      if (!id) {
+        showNotice("Unable to open Candidate Review because this row has no application ID.", "error");
         return;
       }
 
-      console.log('Direct Candidate Review route:', applicationId);
+      const url = `candidate-review.html?application_id=${encodeURIComponent(id)}&v=${Date.now()}`;
+      console.log("Opening Candidate Review:", url);
 
-      window.location.assign(
-        `candidate-review.html?application_id=${encodeURIComponent(applicationId)}&v=${Date.now()}`
-      );
+      window.location.href = url;
+    }
+
+    function openCandidateReviewForRow(row){
+      const applicationId =
+        row?.id ||
+        row?.app?.id ||
+        row?.application_id ||
+        row?.app?.application_id ||
+        "";
+
+      openCandidateReviewByApplicationId(applicationId);
+    }
+
+    function openSelectedCandidateReview(){
+      const row =
+        state.allRows.find(item => item.id === state.selectedId) ||
+        state.filteredRows.find(item => item.id === state.selectedId);
+
+      if (!row) {
+        showNotice("Open or select a candidate first.", "error");
+        return;
+      }
+
+      openCandidateReviewForRow(row);
     }
 
     function openBulkUploadModal(){
@@ -4255,7 +4280,7 @@ async function bulkUploadResumes(){
         els.moreFiltersBtn.textContent=isOpen?'Less filters':'More filters';
         els.moreFiltersBtn.classList.toggle('active', !!isOpen);
         saveUiPreference(PREF_KEYS.advancedFilters, !!isOpen);
-      });els.closeDrawerBtn.addEventListener('click',closeDrawer);els.prevBtn.addEventListener('click',()=>openSelectedOffset(-1));els.nextBtn.addEventListener('click',()=>openSelectedOffset(1));els.openCandidateWorkspaceBtn.addEventListener('click',openCandidateModal); els.openCandidateReviewBtn?.addEventListener('click',()=>openCandidateReviewByApplicationId(state.selectedId)); els.openAssessmentEmailBtn?.addEventListener('click',()=>openAssessmentEmailModal(state.selectedId));
+      });els.closeDrawerBtn.addEventListener('click',closeDrawer);els.prevBtn.addEventListener('click',()=>openSelectedOffset(-1));els.nextBtn.addEventListener('click',()=>openSelectedOffset(1));els.openCandidateWorkspaceBtn.addEventListener('click',openCandidateModal); els.openCandidateReviewBtn?.addEventListener('click', openSelectedCandidateReview); els.openAssessmentEmailBtn?.addEventListener('click',()=>openAssessmentEmailModal(state.selectedId));
       els.headerLogoutBtn.addEventListener('click',handleLogout);els.sidebarSourcingBtn?.addEventListener('click',()=>showNotice('Sourcing link will be added after the base dashboard is stable.','info'));
       els.applicationsTable.addEventListener('click',async event=>{
         const button=event.target.closest('button[data-action]');
