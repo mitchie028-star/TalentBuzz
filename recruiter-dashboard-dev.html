@@ -1723,6 +1723,25 @@ tr.row-assessment-progress:hover td{
   }
 }
 
+
+    /* Resume viewer: view first, download only on user action inside modal */
+    #resumeModal .modal-card{
+      width:min(1180px,96vw);
+      height:min(90vh,920px);
+    }
+    #resumeModal .modal-body{
+      flex:1 1 auto;
+      min-height:0;
+      background:#f8fafc;
+    }
+    #resumeModal .resume-frame{
+      width:100%;
+      height:100%;
+      min-height:72vh;
+      border:0;
+      background:#fff;
+    }
+
 </style>
 </head>
 <body class="auth-pending">
@@ -2029,7 +2048,6 @@ tr.row-assessment-progress:hover td{
                 <p class="small" id="resumeMeta">No resume selected.</p>
                 <div class="actions">
                   <button class="btn btn-xs" id="viewResumeBtn" type="button">View Resume</button>
-                  <button class="btn btn-xs" id="downloadResumeBtn" type="button">Download</button>
                   <button class="btn btn-primary btn-xs" id="parseResumeBtn" type="button">Refresh Resume Brief</button>
                   <button class="btn btn-xs" id="openCandidateWorkspaceBtn" type="button">Details</button>
                   <button class="btn btn-xs candidate-review-link" id="openCandidateReviewBtn" type="button" data-hard-review-route="1">Review</button>
@@ -2281,7 +2299,6 @@ tr.row-assessment-progress:hover td{
             <p class="small" id="modalResumeMeta">No resume selected.</p>
             <div class="actions">
               <button class="btn btn-xs" id="modalViewResumeBtn" type="button">View Resume</button>
-              <button class="btn btn-xs" id="modalDownloadResumeBtn" type="button">Download</button>
               <button class="btn btn-primary btn-xs" id="modalParseResumeBtn" type="button">Refresh Resume Brief</button>
             </div>
             <div class="upload-box">
@@ -2297,8 +2314,14 @@ tr.row-assessment-progress:hover td{
   <div class="modal" id="resumeModal">
     <div class="modal-card">
       <div class="modal-head">
-        <strong id="resumeModalTitle">Resume Viewer</strong>
-        <button class="btn btn-xs" id="resumeModalClose" type="button">Close</button>
+        <div>
+          <strong id="resumeModalTitle">Resume Viewer</strong>
+          <div class="small" id="resumeModalSubtitle">Resume preview opens here. Use Download only if you need a local copy.</div>
+        </div>
+        <div class="actions">
+          <button class="btn btn-xs" id="resumeModalDownloadBtn" type="button">Download</button>
+          <button class="btn btn-xs" id="resumeModalClose" type="button">Close</button>
+        </div>
       </div>
       <div class="modal-body">
         <iframe class="resume-frame" id="resumeFrame" title="Resume Viewer"></iframe>
@@ -2307,7 +2330,7 @@ tr.row-assessment-progress:hover td{
   </div>
 
   <script>
-    console.log('BuzzHire recruiter-dashboard-demo-final-v2026-05-22 loaded');
+    console.log('BuzzHire recruiter-dashboard-resume-viewer-v2026-05-24 loaded');
 
     const CONFIG = {
       SUPABASE_URL: window.TALENTBUZZ_SUPABASE_URL || localStorage.getItem('TALENTBUZZ_SUPABASE_URL') || '',
@@ -2327,6 +2350,8 @@ tr.row-assessment-progress:hover td{
       selectedId: null,
       selectedResumeUrl: '',
       selectedResumePath: '',
+      currentResumeViewerUrl: '',
+      currentResumeViewerPath: '',
       loading: false,
       currentUser: null,
       recruiterProfile: null,
@@ -2355,7 +2380,7 @@ tr.row-assessment-progress:hover td{
       resumeMeta:$('resumeMeta'), profileSummary:$('profileSummary'), viewResumeBtn:$('viewResumeBtn'), downloadResumeBtn:$('downloadResumeBtn'), parseResumeBtn:$('parseResumeBtn'), openCandidateWorkspaceBtn:$('openCandidateWorkspaceBtn'), openCandidateReviewBtn:$('openCandidateReviewBtn'), resumeUploadInput:$('resumeUploadInput'), uploadResumeBtn:$('uploadResumeBtn'), editFollowUpStatus:$('editFollowUpStatus'), editFollowUpDate:$('editFollowUpDate'), editFollowUpNote:$('editFollowUpNote'), markNeedsFollowUpBtn:$('markNeedsFollowUpBtn'), markFollowedUpBtn:$('markFollowedUpBtn'), editNotes:$('editNotes'), editStatus:$('editStatus'), saveBtn:$('saveBtn'),
       candidateModal:$('candidateModal'), candidateModalClose:$('candidateModalClose'), candidateModalTitle:$('candidateModalTitle'), candidateModalSubtitle:$('candidateModalSubtitle'), modalCandidateName:$('modalCandidateName'), modalCandidateMeta:$('modalCandidateMeta'), modalProfileSummary:$('modalProfileSummary'),
       modalEditCandidateName:$('modalEditCandidateName'), modalEditCandidateEmail:$('modalEditCandidateEmail'), modalEditCandidatePhone:$('modalEditCandidatePhone'), modalEditCandidateLocation:$('modalEditCandidateLocation'), modalEditCandidateCountry:$('modalEditCandidateCountry'), modalEditCandidateTimezone:$('modalEditCandidateTimezone'), modalEditCandidateWorkSetup:$('modalEditCandidateWorkSetup'), modalEditCandidateAuthorization:$('modalEditCandidateAuthorization'), modalEditCandidateSalaryCurrency:$('modalEditCandidateSalaryCurrency'), modalEditCandidateSalary:$('modalEditCandidateSalary'), modalEditCandidateExperience:$('modalEditCandidateExperience'), modalEditCandidateRole:$('modalEditCandidateRole'), modalEditCandidateAvailableHours:$('modalEditCandidateAvailableHours'), modalSaveCandidateInfoBtn:$('modalSaveCandidateInfoBtn'), modalSnapEmail:$('modalSnapEmail'), modalSnapPhone:$('modalSnapPhone'), modalSnapLocation:$('modalSnapLocation'), modalSnapCountry:$('modalSnapCountry'), modalSnapTimezone:$('modalSnapTimezone'), modalSnapWorkSetup:$('modalSnapWorkSetup'), modalSnapWorkAuthorization:$('modalSnapWorkAuthorization'), modalSnapSalary:$('modalSnapSalary'), modalSnapAvailableHours:$('modalSnapAvailableHours'), modalSnapExperience:$('modalSnapExperience'), modalSnapJob:$('modalSnapJob'), modalEditFollowUpStatus:$('modalEditFollowUpStatus'), modalEditFollowUpDate:$('modalEditFollowUpDate'), modalEditFollowUpNote:$('modalEditFollowUpNote'), modalEditNotes:$('modalEditNotes'), modalEditStatus:$('modalEditStatus'), modalSaveBtn:$('modalSaveBtn'), modalMatchScore:$('modalMatchScore'), modalScoringSource:$('modalScoringSource'), modalProfileScore:$('modalProfileScore'), modalResumeScore:$('modalResumeScore'), modalMatchReason:$('modalMatchReason'), modalResumeMeta:$('modalResumeMeta'), modalViewResumeBtn:$('modalViewResumeBtn'), modalDownloadResumeBtn:$('modalDownloadResumeBtn'), modalParseResumeBtn:$('modalParseResumeBtn'), modalResumeUploadInput:$('modalResumeUploadInput'), modalUploadResumeBtn:$('modalUploadResumeBtn'),
-      resumeModal:$('resumeModal'), resumeModalTitle:$('resumeModalTitle'), resumeFrame:$('resumeFrame'), resumeModalClose:$('resumeModalClose'),
+      resumeModal:$('resumeModal'), resumeModalTitle:$('resumeModalTitle'), resumeModalSubtitle:$('resumeModalSubtitle'), resumeFrame:$('resumeFrame'), resumeModalClose:$('resumeModalClose'), resumeModalDownloadBtn:$('resumeModalDownloadBtn'),
       headerLogoutBtn:$('headerLogoutBtn'), newApplicantsBadge:$('newApplicantsBadge'), liveStatusText:$('liveStatusText'), sidebarSourcingBtn:$('sidebarSourcingBtn'), sidebarBulkUploadBtn:$('sidebarBulkUploadBtn'), quickClearFiltersBtn:$('quickClearFiltersBtn'),
       bulkUploadModal:$('bulkUploadModal'), bulkUploadModalClose:$('bulkUploadModalClose'), bulkRoleSelect:$('bulkRoleSelect'), bulkResumeInput:$('bulkResumeInput'), bulkUploadBtn:$('bulkUploadBtn'), bulkUploadStatus:$('bulkUploadStatus'),
       assessmentEmailModal:$('assessmentEmailModal'), assessmentEmailModalClose:$('assessmentEmailModalClose'), assessmentModalSubtitle:$('assessmentModalSubtitle'), assessmentCandidateName:$('assessmentCandidateName'), assessmentCandidateEmail:$('assessmentCandidateEmail'), assessmentRoleName:$('assessmentRoleName'), assessmentCompanyName:$('assessmentCompanyName'), assessmentType:$('assessmentType'), assessmentDueDate:$('assessmentDueDate'), assessmentLink:$('assessmentLink'), assessmentCustomMessage:$('assessmentCustomMessage'), assessmentEmailPreview:$('assessmentEmailPreview'), sendAssessmentEmailBtn:$('sendAssessmentEmailBtn'), copyAssessmentEmailBtn:$('copyAssessmentEmailBtn'), assessmentEmailStatus:$('assessmentEmailStatus'), openAssessmentEmailBtn:$('openAssessmentEmailBtn'), drawerAssessmentBadge:$('drawerAssessmentBadge'), drawerAssessmentDetail:$('drawerAssessmentDetail'), drawerAssessmentActionBtn:$('drawerAssessmentActionBtn'),
@@ -2937,89 +2962,93 @@ tr.row-assessment-progress:hover td{
     }
 
     async function getResumeUrl(profile, app){
-  const pathCandidates = buildResumePathCandidates(profile, app);
-
-  const email = normalizeEmail(profile?.email || app?.email || app?.applicant_email || '');
-  const emailFolder = normalizeEmailFolder(email);
-
-  if (emailFolder) {
-    pathCandidates.push(`manual/${emailFolder}`);
-    pathCandidates.push(`sourced-candidates/${emailFolder}`);
-  }
-
-  const candidates = uniq(pathCandidates.map(cleanResumePath).filter(Boolean));
-
-  console.log('Resume resolver paths:', candidates);
-
-  for (const candidatePath of candidates) {
-    const cleanPath = cleanResumePath(candidatePath);
-    if (!cleanPath) continue;
-
-    if (isDirectResumeUrl(candidatePath)) {
-      return {
-        url: candidatePath,
-        path: cleanPath
-      };
-    }
-
-    if (isResumeFilePath(cleanPath)) {
-      const signedUrl = await tryCreateSignedUrl(cleanPath);
-
-      if (signedUrl) {
+      const directUrl = safeText(profile?.resume_url || '');
+      if (isDirectResumeUrl(directUrl)) {
         return {
-          url: signedUrl,
-          path: cleanPath
+          url: directUrl,
+          path: directUrl,
+          source: 'external'
         };
       }
 
-      continue;
-    }
+      const pathCandidates = buildResumePathCandidates(profile, app);
 
-    try {
-      const { data: files, error } = await supabaseClient
-        .storage
-        .from(CONFIG.RESUME_BUCKET)
-        .list(cleanPath, {
-          limit: 50,
-          sortBy: {
-            column: 'created_at',
-            order: 'desc'
+      const email = normalizeEmail(profile?.email || app?.email || app?.applicant_email || '');
+      const emailFolder = normalizeEmailFolder(email);
+
+      if (emailFolder) {
+        pathCandidates.push(`manual/${emailFolder}`);
+        pathCandidates.push(`sourced-candidates/${emailFolder}`);
+      }
+
+      const candidates = uniq(pathCandidates.map(cleanResumePath).filter(Boolean));
+
+      console.log('Resume resolver paths:', candidates);
+
+      for (const candidatePath of candidates) {
+        const cleanPath = cleanResumePath(candidatePath);
+        if (!cleanPath) continue;
+
+        if (isResumeFilePath(cleanPath)) {
+          const signedUrl = await tryCreateSignedUrl(cleanPath);
+
+          if (signedUrl) {
+            return {
+              url: signedUrl,
+              path: cleanPath,
+              source: 'storage'
+            };
           }
-        });
 
-      if (error) {
-        console.warn('Resume folder lookup failed:', cleanPath, error);
-        continue;
+          continue;
+        }
+
+        try {
+          const { data: files, error } = await supabaseClient
+            .storage
+            .from(CONFIG.RESUME_BUCKET)
+            .list(cleanPath, {
+              limit: 50,
+              sortBy: {
+                column: 'created_at',
+                order: 'desc'
+              }
+            });
+
+          if (error) {
+            console.warn('Resume folder lookup failed:', cleanPath, error);
+            continue;
+          }
+
+          const resumeFile = (files || []).find((file) =>
+            /\.(pdf|doc|docx|rtf)$/i.test(file.name || '')
+          );
+
+          if (!resumeFile) continue;
+
+          const fullPath = `${cleanPath}/${resumeFile.name}`;
+          const signedUrl = await tryCreateSignedUrl(fullPath);
+
+          if (signedUrl) {
+            return {
+              url: signedUrl,
+              path: fullPath,
+              source: 'storage'
+            };
+          }
+        } catch (error) {
+          console.warn('Resume folder lookup exception:', cleanPath, error);
+        }
       }
 
-      const resumeFile = (files || []).find((file) =>
-        /\.(pdf|doc|docx|rtf)$/i.test(file.name || '')
-      );
+      console.warn('Resume not found. Tried paths:', candidates);
 
-      if (!resumeFile) continue;
-
-      const fullPath = `${cleanPath}/${resumeFile.name}`;
-      const signedUrl = await tryCreateSignedUrl(fullPath);
-
-      if (signedUrl) {
-        return {
-          url: signedUrl,
-          path: fullPath
-        };
-      }
-    } catch (error) {
-      console.warn('Resume folder lookup exception:', cleanPath, error);
-    }
-  }
-
-  console.warn('Resume not found. Tried paths:', candidates);
-
-  return {
-    url: '',
-    path: ''
-  };
+      return {
+        url: '',
+        path: '',
+        source: ''
+      };
 }
-
     async function fetchAll(table,select,orderColumn='created_at'){
       const {data,error}=await supabaseClient.from(table).select(select).order(orderColumn,{ascending:false}).limit(CONFIG.PAGE_SIZE);
       if(error)throw error;
@@ -3670,32 +3699,39 @@ tr.row-assessment-progress:hover td{
       els.resumeMeta.textContent='Resolving resume...';if(els.parseResumeBtn)els.parseResumeBtn.disabled=true;if(els.uploadResumeBtn)els.uploadResumeBtn.disabled=false;state.selectedResumeUrl='';state.selectedResumePath='';
       const resume=await getResumeUrl(row.profile,row.app);state.selectedResumeUrl=resume.url;state.selectedResumePath=resume.path;
       if(resume.url){
-        els.resumeMeta.textContent=resume.path||'Resume available';
+        const isExternalResume = resume.source === 'external' || isDirectResumeUrl(resume.path);
+        els.resumeMeta.textContent=isExternalResume ? 'External resume link available' : (resume.path||'Resume available');
         if(els.parseResumeBtn)els.parseResumeBtn.disabled=false;
         if(els.viewResumeBtn)els.viewResumeBtn.disabled=false;
-        if(els.downloadResumeBtn)els.downloadResumeBtn.disabled=false;
       }else{
         els.resumeMeta.textContent='No resume found. Check applicant_profiles.resume_path/resume_url and Supabase Storage folder.';
         if(els.viewResumeBtn)els.viewResumeBtn.disabled=true;
-        if(els.downloadResumeBtn)els.downloadResumeBtn.disabled=true;
       }
       renderTable();
     }
     function closeDrawer(){state.selectedId=null;state.selectedResumeUrl='';state.selectedResumePath='';renderCandidateTimeline(null);els.workspace.classList.remove('drawer-open');renderTable();updateDrawerNavMeta()}
     function openSelectedOffset(step){const idx=getSelectedIndex();const next=state.filteredRows[idx+step];if(next)openDrawer(next.id)}
     function openResumeModal(url,title='Resume Viewer'){
-      if(!url)return showNotice('Resume file not found in storage.','error');
+      if(!url)return showNotice('Resume file not found.','error');
 
-      const isPdf = isPdfPathOrUrl(state.selectedResumePath || url);
+      state.currentResumeViewerUrl = url;
+      state.currentResumeViewerPath = title || state.selectedResumePath || url;
 
-      if(!isPdf){
-        window.open(url,'_blank','noopener,noreferrer');
-        showNotice('This resume format opens in a new tab. Use Download if the browser cannot preview it.','info');
-        return;
+      els.resumeModalTitle.textContent = title && title !== url ? title : 'Resume Viewer';
+      if(els.resumeModalSubtitle){
+        els.resumeModalSubtitle.textContent = isDirectResumeUrl(url)
+          ? 'External resume preview. If the source blocks previewing, use Download from this viewer.'
+          : 'Resume preview. Use Download only if you need a local copy.';
+      }
+      if(els.resumeModalDownloadBtn){
+        els.resumeModalDownloadBtn.disabled = false;
       }
 
-      els.resumeModalTitle.textContent=title;
-      els.resumeFrame.src=url;
+      els.resumeFrame.src = 'about:blank';
+      setTimeout(() => {
+        els.resumeFrame.src = url;
+      }, 0);
+
       els.resumeModal.classList.add('show');
     }
 
@@ -3705,9 +3741,15 @@ tr.row-assessment-progress:hover td{
     }
 
     async function downloadResumeFile(url, pathOrUrl, fallbackName='resume'){
-      if(!url)return showNotice('Resume file not found in storage.','error');
+      if(!url)return showNotice('Resume file not found.','error');
 
       const fileName = getResumeDownloadName(pathOrUrl || url, fallbackName);
+
+      if(isDirectResumeUrl(url) && /^https?:\/\//i.test(url) && !String(url).includes('/storage/v1/object/')){
+        window.open(url, '_blank', 'noopener,noreferrer');
+        showNotice('External resume opened from the viewer. Download it there if needed.', 'info');
+        return;
+      }
 
       try{
         const response = await fetch(url);
@@ -3723,11 +3765,12 @@ tr.row-assessment-progress:hover td{
         document.body.removeChild(link);
         URL.revokeObjectURL(blobUrl);
       }catch(error){
-        console.warn('Direct download failed, opening resume instead:', error);
+        console.warn('Download failed, opening resume instead:', error);
         window.open(url,'_blank','noopener,noreferrer');
-        showNotice('Download could not start automatically, so the resume was opened in a new tab.','info');
+        showNotice('Download could not start, so the resume was opened instead.', 'info');
       }
     }
+
     function fillCandidateModal(row){
       if(!row)return;
 
@@ -4784,7 +4827,7 @@ async function bulkUploadResumes(){
         }
         if(action==='assessment'){ await openDrawer(id); return openAssessmentEmailModal(id); }
       });
-      els.viewResumeBtn?.addEventListener('click',()=>openResumeModal(state.selectedResumeUrl,state.selectedResumePath||'Resume Viewer')); els.downloadResumeBtn?.addEventListener('click',()=>downloadResumeFile(state.selectedResumeUrl,state.selectedResumePath,'resume')); els.markNeedsFollowUpBtn?.addEventListener('click',()=>setFollowUpQuick('needs_follow_up')); els.markFollowedUpBtn?.addEventListener('click',()=>setFollowUpQuick('followed_up')); els.parseResumeBtn?.addEventListener('click',parseSelectedResume);
+      els.viewResumeBtn?.addEventListener('click',()=>openResumeModal(state.selectedResumeUrl,state.selectedResumePath||'Resume Viewer')); els.markNeedsFollowUpBtn?.addEventListener('click',()=>setFollowUpQuick('needs_follow_up')); els.markFollowedUpBtn?.addEventListener('click',()=>setFollowUpQuick('followed_up')); els.parseResumeBtn?.addEventListener('click',parseSelectedResume);
       els.uploadResumeBtn?.addEventListener('click',()=>uploadResumeForSelected(false));
       els.saveBtn?.addEventListener('click',saveSelectedRow);
       els.saveCandidateInfoBtn?.addEventListener('click',updateCandidateInfo);
@@ -4796,7 +4839,7 @@ async function bulkUploadResumes(){
       els.copyAssessmentEmailBtn?.addEventListener('click',copyAssessmentEmail);
       els.candidateModalClose?.addEventListener('click',closeCandidateModal);
       els.modalSaveBtn?.addEventListener('click',saveSelectedRow);
-      els.modalViewResumeBtn?.addEventListener('click',()=>openResumeModal(state.selectedResumeUrl,state.selectedResumePath||'Resume Viewer')); els.modalDownloadResumeBtn?.addEventListener('click',()=>downloadResumeFile(state.selectedResumeUrl,state.selectedResumePath,'resume')); els.modalParseResumeBtn?.addEventListener('click',parseSelectedResume);
+      els.modalViewResumeBtn?.addEventListener('click',()=>openResumeModal(state.selectedResumeUrl,state.selectedResumePath||'Resume Viewer')); els.modalParseResumeBtn?.addEventListener('click',parseSelectedResume);
       els.modalUploadResumeBtn?.addEventListener('click',()=>uploadResumeForSelected(true));
       els.candidateModal?.addEventListener('click',event=>{if(event.target===els.candidateModal)closeCandidateModal();});
       els.resumeModalClose.addEventListener('click',()=>{els.resumeModal.classList.remove('show');els.resumeFrame.src=''});
