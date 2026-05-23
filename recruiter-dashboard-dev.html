@@ -2877,10 +2877,24 @@ tr.row-assessment-progress:hover td{
       return 'info';
     }
 
+    function isExternalResumeUrl(url){
+      const value = safeText(url);
+      return /^https?:\/\//i.test(value) && !/\/storage\/v1\/object\/(public|sign)\/resumes\//i.test(value);
+    }
+
+    function isIndeedResumeUrl(url){
+      return /indeed\.com|indeedemail\.com|cts\.indeed\.com/i.test(safeText(url));
+    }
+
     function cleanResumePath(path){
       let value=safeText(path);
       if(!value)return '';
       try{value=decodeURIComponent(value)}catch(_){ }
+
+      // Never convert third-party resume URLs into storage paths.
+      // This prevents errors like: {"statusCode":"404","error":"Bucket not found"}.
+      if(isExternalResumeUrl(value))return value;
+
       value=value.split('?')[0].split('#')[0]
         .replace(/^https?:\/\/[^/]+\//i,'')
         .replace(/^storage\/v1\/object\/(public|sign)\/resumes\//i,'')
@@ -2891,24 +2905,52 @@ tr.row-assessment-progress:hover td{
         .replace(/^\/+/, '');
       return value;
     }
-    function getFileNameFromValue(value){const clean=cleanResumePath(value);if(!clean)return '';const parts=clean.split('/').filter(Boolean);return parts.length?parts[parts.length-1]:''}
+
+    function getFileNameFromValue(value){
+      const original = safeText(value);
+      if(isExternalResumeUrl(original)){
+        try{
+          const parsed = new URL(original);
+          const name = parsed.pathname.split('/').filter(Boolean).pop() || '';
+          return name || 'resume';
+        }catch(_){return 'resume'}
+      }
+      const clean=cleanResumePath(value);
+      if(!clean)return '';
+      const parts=clean.split('/').filter(Boolean);
+      return parts.length?parts[parts.length-1]:'';
+    }
+
     function isDirectResumeUrl(url){const value=safeText(url);return /^https?:\/\//i.test(value)||value.startsWith('blob:')||value.startsWith('data:')}
     function normalizeEmailFolder(email){return safeText(email).toLowerCase().replace(/@/g,'_').replace(/[^a-z0-9._-]/g,'_').replace(/_+/g,'_').replace(/^_+|_+$/g,'')}
-    function isResumeFilePath(path){return /\.(pdf|doc|docx|rtf)$/i.test(cleanResumePath(path))}
+    function isResumeFilePath(path){
+      const value = safeText(path);
+      if(isExternalResumeUrl(value))return false;
+      return /\.(pdf|doc|docx|rtf)$/i.test(cleanResumePath(path));
+    }
     function isPdfPathOrUrl(value){return /\.pdf(?:$|\?)/i.test(safeText(value))}
 
     function buildResumePathCandidates(profile, app){
       const emailCandidates=uniq([profile?.email,app?.email,app?.applicant_email].map(safeText));
-      const rawPathCandidates=uniq([profile?.resume_path,profile?.resume_url,profile?.resume_file_name].map(cleanResumePath));
+
+      // Only storage paths go into storage lookup candidates.
+      // External resume_url values are handled directly in getResumeUrl().
+      const storageSourceValues = [
+        profile?.resume_path,
+        profile?.resume_file_name,
+        !isDirectResumeUrl(profile?.resume_url) ? profile?.resume_url : ''
+      ];
+
+      const rawPathCandidates=uniq(storageSourceValues.map(cleanResumePath).filter(path => path && !isExternalResumeUrl(path)));
       const fileNameCandidates=uniq([
         profile?.resume_file_name,
         getFileNameFromValue(profile?.resume_path),
-        getFileNameFromValue(profile?.resume_url)
+        !isDirectResumeUrl(profile?.resume_url) ? getFileNameFromValue(profile?.resume_url) : ''
       ].map(safeText));
 
       const candidates=[];
       rawPathCandidates.forEach(raw=>{
-        if(!raw)return;
+        if(!raw || isExternalResumeUrl(raw))return;
         candidates.push(raw);
         if(!raw.includes('/')){
           emailCandidates.forEach(email=>{
@@ -2936,12 +2978,12 @@ tr.row-assessment-progress:hover td{
         if(folder)candidates.push(`manual/${folder}`);
       });
 
-      return uniq(candidates.map(cleanResumePath));
+      return uniq(candidates.map(cleanResumePath).filter(path => path && !isExternalResumeUrl(path)));
     }
 
     async function tryCreateSignedUrl(path){
       const cleanPath=cleanResumePath(path);
-      if(!cleanPath)return '';
+      if(!cleanPath || isExternalResumeUrl(cleanPath))return '';
       try{
         const {data,error}=await supabaseClient.storage.from(CONFIG.RESUME_BUCKET).createSignedUrl(cleanPath,3600);
         if(!error&&data?.signedUrl)return data.signedUrl;
@@ -2952,7 +2994,7 @@ tr.row-assessment-progress:hover td{
 
     async function findResumeFileInFolder(folderPath){
       const cleanFolder=cleanResumePath(folderPath).replace(/\/+$/,'');
-      if(!cleanFolder)return '';
+      if(!cleanFolder || isExternalResumeUrl(cleanFolder))return '';
       try{
         const {data,error}=await supabaseClient.storage.from(CONFIG.RESUME_BUCKET).list(cleanFolder,{limit:50,sortBy:{column:'created_at',order:'desc'}});
         if(error)throw error;
@@ -2963,11 +3005,22 @@ tr.row-assessment-progress:hover td{
 
     async function getResumeUrl(profile, app){
       const directUrl = safeText(profile?.resume_url || '');
-      if (isDirectResumeUrl(directUrl)) {
+
+      // Indeed and other third-party URLs must not be resolved through Supabase Storage.
+      if (isExternalResumeUrl(directUrl)) {
         return {
           url: directUrl,
           path: directUrl,
-          source: 'external'
+          source: isIndeedResumeUrl(directUrl) ? 'indeed' : 'external'
+        };
+      }
+
+      // Some uploaded resumes may already be stored as a direct Supabase URL.
+      if (isDirectResumeUrl(directUrl) && !isExternalResumeUrl(directUrl)) {
+        return {
+          url: directUrl,
+          path: directUrl,
+          source: 'storage-url'
         };
       }
 
@@ -2981,13 +3034,13 @@ tr.row-assessment-progress:hover td{
         pathCandidates.push(`sourced-candidates/${emailFolder}`);
       }
 
-      const candidates = uniq(pathCandidates.map(cleanResumePath).filter(Boolean));
+      const candidates = uniq(pathCandidates.map(cleanResumePath).filter(path => path && !isExternalResumeUrl(path)));
 
-      console.log('Resume resolver paths:', candidates);
+      console.log('Resume resolver storage paths:', candidates);
 
       for (const candidatePath of candidates) {
         const cleanPath = cleanResumePath(candidatePath);
-        if (!cleanPath) continue;
+        if (!cleanPath || isExternalResumeUrl(cleanPath)) continue;
 
         if (isResumeFilePath(cleanPath)) {
           const signedUrl = await tryCreateSignedUrl(cleanPath);
@@ -3041,14 +3094,14 @@ tr.row-assessment-progress:hover td{
         }
       }
 
-      console.warn('Resume not found. Tried paths:', candidates);
+      console.warn('Resume not found. Tried storage paths:', candidates);
 
       return {
         url: '',
         path: '',
         source: ''
       };
-}
+    }
     async function fetchAll(table,select,orderColumn='created_at'){
       const {data,error}=await supabaseClient.from(table).select(select).order(orderColumn,{ascending:false}).limit(CONFIG.PAGE_SIZE);
       if(error)throw error;
@@ -3717,10 +3770,17 @@ tr.row-assessment-progress:hover td{
       state.currentResumeViewerUrl = url;
       state.currentResumeViewerPath = title || state.selectedResumePath || url;
 
+      // Indeed blocks iframe/modals with X-Frame-Options/CSP. Do not force it into the viewer.
+      if(isIndeedResumeUrl(url)){
+        window.open(url, '_blank', 'noopener,noreferrer');
+        showNotice('Indeed blocks embedded preview, so the resume opened in a browser tab. Use Import from Clipboard after copying the page text.', 'info');
+        return;
+      }
+
       els.resumeModalTitle.textContent = title && title !== url ? title : 'Resume Viewer';
       if(els.resumeModalSubtitle){
-        els.resumeModalSubtitle.textContent = isDirectResumeUrl(url)
-          ? 'External resume preview. If the source blocks previewing, use Download from this viewer.'
+        els.resumeModalSubtitle.textContent = isExternalResumeUrl(url)
+          ? 'External resume preview. If the source blocks previewing, use Download/Open from this viewer.'
           : 'Resume preview. Use Download only if you need a local copy.';
       }
       if(els.resumeModalDownloadBtn){
@@ -3745,9 +3805,9 @@ tr.row-assessment-progress:hover td{
 
       const fileName = getResumeDownloadName(pathOrUrl || url, fallbackName);
 
-      if(isDirectResumeUrl(url) && /^https?:\/\//i.test(url) && !String(url).includes('/storage/v1/object/')){
+      if(isExternalResumeUrl(url)){
         window.open(url, '_blank', 'noopener,noreferrer');
-        showNotice('External resume opened from the viewer. Download it there if needed.', 'info');
+        showNotice('External resume opened. Download it from the source page if needed.', 'info');
         return;
       }
 
