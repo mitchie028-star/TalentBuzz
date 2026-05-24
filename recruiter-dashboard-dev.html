@@ -3015,13 +3015,20 @@ tr.row-assessment-progress:hover td{
         };
       }
 
-      // Some uploaded resumes may already be stored as a direct Supabase URL.
+      // Some uploaded resumes may already be stored as a Supabase signed/public URL.
+      // Never reuse that URL directly because signed URLs expire and cause InvalidJWT exp errors.
+      // Convert it back to a storage path and create a fresh signed URL at click/resolve time.
       if (isDirectResumeUrl(directUrl) && !isExternalResumeUrl(directUrl)) {
-        return {
-          url: directUrl,
-          path: directUrl,
-          source: 'storage-url'
-        };
+        const storagePathFromUrl = cleanResumePath(directUrl);
+        const signedUrl = await tryCreateSignedUrl(storagePathFromUrl);
+
+        if (signedUrl) {
+          return {
+            url: signedUrl,
+            path: storagePathFromUrl,
+            source: 'storage'
+          };
+        }
       }
 
       const pathCandidates = buildResumePathCandidates(profile, app);
@@ -3752,7 +3759,7 @@ tr.row-assessment-progress:hover td{
       els.resumeMeta.textContent='Resolving resume...';if(els.parseResumeBtn)els.parseResumeBtn.disabled=true;if(els.uploadResumeBtn)els.uploadResumeBtn.disabled=false;state.selectedResumeUrl='';state.selectedResumePath='';
       const resume=await getResumeUrl(row.profile,row.app);state.selectedResumeUrl=resume.url;state.selectedResumePath=resume.path;
       if(resume.url){
-        const isExternalResume = resume.source === 'external' || isDirectResumeUrl(resume.path);
+        const isExternalResume = ['external','indeed'].includes(resume.source) || isExternalResumeUrl(resume.url);
         els.resumeMeta.textContent=isExternalResume ? 'External resume link available' : (resume.path||'Resume available');
         if(els.parseResumeBtn)els.parseResumeBtn.disabled=false;
         if(els.viewResumeBtn)els.viewResumeBtn.disabled=false;
@@ -4904,6 +4911,7 @@ async function bulkUploadResumes(){
       els.candidateModal?.addEventListener('click',event=>{if(event.target===els.candidateModal)closeCandidateModal();});
       els.resumeModalClose.addEventListener('click',()=>{els.resumeModal.classList.remove('show');els.resumeFrame.src=''});
       els.resumeModal.addEventListener('click',event=>{if(event.target===els.resumeModal){els.resumeModal.classList.remove('show');els.resumeFrame.src=''}});
+      els.resumeModalDownloadBtn?.addEventListener('click',()=>downloadResumeFile(state.currentResumeViewerUrl,state.currentResumeViewerPath,'resume'));
       window.setInterval(updateLiveStatusLabel,5000);
     }
 
