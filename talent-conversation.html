@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Talent Conversation | TalentBuzz</title>
+  <title>Talent Conversation</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -185,6 +185,9 @@ body.conversation-integrity-warning .integrity-pill{
   color:#b45309;
 }
 
+
+/* Applicant-facing safety: internal integrity labels are hidden from candidates. */
+.integrity-pill{display:none!important}
 </style>
 </head>
 
@@ -193,14 +196,14 @@ body.conversation-integrity-warning .integrity-pill{
     <div class="topbar">
       <a class="brand" href="applicants.html">
         <span class="brand-logo" aria-hidden="true">
-          <img src="logo.svg" alt="TalentBuzz Logo" class="brand-logo-image" />
+          <img src="logo.svg" alt="Company logo" class="brand-logo-image" />
         </span>
-        <span class="brand-name">TalentBuzz</span>
+        <span class="brand-name">Talent Conversation</span>
       </a>
 
       <span class="pill" id="conversationStatus">Talent Conversation</span>
 
-      <span class="integrity-pill" id="integrityPill">Conversation integrity: Standard</span>
+      <span class="integrity-pill" id="integrityPill" aria-hidden="true"></span>
 
     </div>
 
@@ -255,11 +258,10 @@ body.conversation-integrity-warning .integrity-pill{
 
 
       <div class="integrity-card" id="integrityCard">
-        <strong>Conversation integrity confirmation</strong>
+        <strong>Candidate confirmation</strong>
         <p>
           Please confirm that you are the candidate assigned to this conversation and that you will complete it independently.
-          TalentBuzz may log session continuity, window changes, copy/paste activity, connection interruptions, and response consistency signals
-          to support fair recruiter review.
+          This helps keep the process fair for all candidates.
         </p>
 
         <label class="confirm-row" for="identityConfirm">
@@ -273,7 +275,7 @@ body.conversation-integrity-warning .integrity-pill{
         </label>
 
         <div class="integrity-note">
-          These signals are used as recruiter review guidance only. They do not automatically reject or disqualify candidates.
+          You can continue even if you experience a connection issue. If something unexpected happens, please complete the conversation as soon as you are able.
         </div>
       </div>
 
@@ -301,8 +303,8 @@ body.conversation-integrity-warning .integrity-pill{
         <div class="sift-stage">
           <div class="sift-bubble">
             <div class="sift-speaker">
-              <span class="sift-avatar">T</span>
-              <span>TalentBuzz</span>
+              <span class="sift-avatar">H</span>
+              <span>Hiring Team</span>
               <div class="sift-wave" id="siftWave" aria-hidden="true">
                 <span></span><span></span><span></span><span></span><span></span>
               </div>
@@ -334,7 +336,7 @@ body.conversation-integrity-warning .integrity-pill{
             <div class="recorder-panel">
               <div class="recording-state">
                 <span class="record-dot" id="recordDot"></span>
-                <span id="recordingStateText">Waiting for Sift</span>
+                <span id="recordingStateText">Waiting for question</span>
                 <span class="record-timer" id="recordTimer">00:00</span>
               </div>
 
@@ -373,7 +375,7 @@ body.conversation-integrity-warning .integrity-pill{
 
     <section class="summary" id="summaryPanel">
       <h2>Review your Talent Conversation</h2>
-      <p>Please review your recordings before completing this conversation. Once submitted, your conversation will be completed and moved to recruiter review.</p>
+      <p>Please review your recordings before completing this conversation. Once submitted, your conversation will be marked complete.</p>
 
       <div class="review-list" id="reviewList"></div>
 
@@ -397,7 +399,7 @@ body.conversation-integrity-warning .integrity-pill{
   </main>
 
   <script>
-    console.log("TalentBuzz talent-conversation-integrity-gemini-analysis v2026-05-23 loaded");
+    console.log("Talent Conversation applicant page loaded");
 
     const SUPABASE_URL = "https://dilalntcxmvdcmwxjcct.supabase.co";
     const SUPABASE_ANON_KEY = "sb_publishable_HrLVIUwnaRo54yijtrbWBQ_1aeb4ezs";
@@ -545,26 +547,14 @@ body.conversation-integrity-warning .integrity-pill{
     }
 
     function updateConversationIntegrityPill() {
-      if (!els.integrityPill) return;
-
+      // Internal integrity scoring is saved for the hiring workflow only.
+      // Do not show monitoring/status labels on the applicant-facing page.
       conversationIntegrityState.recruiter_review_recommendation = getConversationIntegrityRecommendation();
-
-      if (conversationIntegrityState.recruiter_review_recommendation === "review_recommended") {
-        els.integrityPill.className = "integrity-pill review";
-        els.integrityPill.textContent = "Conversation integrity: Review suggested";
-        document.body.classList.add("conversation-integrity-warning");
-        return;
+      if (els.integrityPill) {
+        els.integrityPill.className = "integrity-pill";
+        els.integrityPill.textContent = "";
+        els.integrityPill.setAttribute("aria-hidden", "true");
       }
-
-      if (conversationIntegrityState.recruiter_review_recommendation === "monitor") {
-        els.integrityPill.className = "integrity-pill warning";
-        els.integrityPill.textContent = "Conversation integrity: Monitor";
-        document.body.classList.add("conversation-integrity-warning");
-        return;
-      }
-
-      els.integrityPill.className = "integrity-pill";
-      els.integrityPill.textContent = "Conversation integrity: Standard";
       document.body.classList.remove("conversation-integrity-warning");
     }
 
@@ -592,7 +582,7 @@ body.conversation-integrity-warning .integrity-pill{
         background_environment_status: conversationIntegrityState.background_environment_status,
         audio_device_change_status: conversationIntegrityState.audio_device_change_status,
         recruiter_review_recommendation: conversationIntegrityState.recruiter_review_recommendation,
-        note: "Voice consistency is a recruiter review signal only, not an automatic decision.",
+        note: "Voice consistency is a process signal only, not an automatic decision.",
         ...extra
       };
     }
@@ -824,7 +814,7 @@ body.conversation-integrity-warning .integrity-pill{
         error?.message ||
         "The function returned a non-2xx response.";
 
-      return `${functionName} failed: ${details}`;
+      return "This step could not be completed right now. Please try again.";
     }
 
     async function invokeEdgeFunction(functionName, body) {
@@ -986,7 +976,7 @@ body.conversation-integrity-warning .integrity-pill{
       audioChunks = [];
       els.recordTimer.textContent = "00:00";
       els.recordDot.classList.remove("live");
-      els.recordingStateText.textContent = "Waiting for Sift";
+      els.recordingStateText.textContent = "Waiting for question";
       els.startRecordingBtn.disabled = false;
       els.stopRecordingBtn.disabled = true;
       els.audioPreview.style.display = "none";
@@ -1881,7 +1871,7 @@ body.conversation-integrity-warning .integrity-pill{
         analyzeConversationAudioInBackground(data, question);
         currentAudioBlob = null;
 
-        showMicroFeedback("Response saved. Great — you can continue when ready. Audio review is running in the background.");
+        showMicroFeedback("Response saved. Great — you can continue when ready.");
         showStatus("Response saved.", "success");
 
         return true;
@@ -2041,7 +2031,7 @@ body.conversation-integrity-warning .integrity-pill{
               `${answeredCount()} of ${questions.length} responses were recorded.`
           };
 
-          showSummaryStatus("Final review service is unavailable, but your recordings were saved. Completing submission safely...", "info");
+          showSummaryStatus("Your recordings were saved. Completing submission safely...", "info");
         }
 
         const reviewPayload = buildLocalReviewPayload(finalizeData);
