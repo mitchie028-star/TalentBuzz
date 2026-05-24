@@ -2445,7 +2445,7 @@ tr.row-assessment-progress:hover td{
   </div>
 
   <script>
-    console.log('BuzzHire recruiter-dashboard-auto-refresh-v2026-05-24 loaded');
+    console.log('BuzzHire recruiter-dashboard-activity-dedupe-final-v2026-05-24 loaded');
 
     const CONFIG = {
       SUPABASE_URL: window.TALENTBUZZ_SUPABASE_URL || localStorage.getItem('TALENTBUZZ_SUPABASE_URL') || '',
@@ -2761,6 +2761,7 @@ tr.row-assessment-progress:hover td{
 
       const renderedItems = items
         .filter(item => item && (item.title || item.text))
+        .sort((a,b)=>new Date(b.time || 0).getTime() - new Date(a.time || 0).getTime())
         .slice(0, 14);
 
       els.candidateTimeline.innerHTML=renderedItems.map(item=>`
@@ -3411,13 +3412,135 @@ tr.row-assessment-progress:hover td{
     }
 
 
+    function normalizeIdentityName(value){
+      return safeText(value)
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+    }
+
+    function isGeneralApplicantPoolRow(row){
+      const role = safeText(row?.jobTitle || row?.app?.job_title || row?.job?.title).toLowerCase();
+      const client = safeText(row?.clientName || row?.job?.client_name).toLowerCase();
+      return role === 'general applicant pool' || (role.includes('general applicant') && client.includes('talentbuzz'));
+    }
+
+    function getDashboardIdentityKey(row){
+      const profile = row?.profile || {};
+      const app = row?.app || {};
+      const profileId = safeText(profile.id || app.applicant_profile_id);
+      const indeedEmail = normalizeEmail(profile.indeed_email || app.indeed_email || '');
+      const realEmail = normalizeEmail(profile.email || app.email || app.applicant_email || '');
+      const originalEmail = normalizeEmail(profile.original_source_email || profile.external_candidate_id || '');
+      const name = normalizeIdentityName(profile.full_name || row?.displayName || '');
+
+      if(profileId)return `profile:${profileId}`;
+      if(indeedEmail)return `indeed:${indeedEmail}`;
+      if(realEmail)return `email:${realEmail}`;
+      if(originalEmail)return `source:${originalEmail}`;
+      if(name)return `name:${name}`;
+      return `app:${safeText(row?.id || app.id)}`;
+    }
+
+    function mergeDashboardActivities(rows){
+      const activityByIdentity = new Map();
+
+      rows.forEach(row => {
+        const key = getDashboardIdentityKey(row);
+        const current = activityByIdentity.get(key) || [];
+        activityByIdentity.set(key, current.concat(row.activities || []));
+      });
+
+      rows.forEach(row => {
+        const key = getDashboardIdentityKey(row);
+        row.activities = normalizeActivityRecords(activityByIdentity.get(key) || row.activities || []);
+      });
+
+      return rows;
+    }
+
+    function normalizeActivityRecords(activities){
+      const seen = new Set();
+      return (activities || [])
+        .filter(Boolean)
+        .filter(activity => {
+          const key = safeText(activity.id) ||
+            `${safeText(activity.source_message_id)}:${safeText(activity.activity_type)}:${safeText(activity.created_at)}:${safeText(activity.body).slice(0, 80)}`;
+          if(!key || seen.has(key))return false;
+          seen.add(key);
+          return true;
+        })
+        .sort((a,b)=>new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
+    }
+
+    function dedupeDashboardApplicationRows(rows){
+      const mergedRows = mergeDashboardActivities(rows || []);
+      const groups = new Map();
+
+      mergedRows.forEach(row => {
+        const key = getDashboardIdentityKey(row);
+        if(!groups.has(key))groups.set(key, []);
+        groups.get(key).push(row);
+      });
+
+      const output = [];
+      groups.forEach(group => {
+        if(group.length <= 1){
+          output.push(...group);
+          return;
+        }
+
+        const hasSpecificRole = group.some(row => !isGeneralApplicantPoolRow(row));
+        if(!hasSpecificRole){
+          output.push(...group);
+          return;
+        }
+
+        const specificRows = group.filter(row => !isGeneralApplicantPoolRow(row));
+        const generalRows = group.filter(row => isGeneralApplicantPoolRow(row));
+
+        const pooledActivities = normalizeActivityRecords(group.flatMap(row => row.activities || []));
+        specificRows.forEach(row => {
+          row.activities = pooledActivities;
+        });
+
+        if(generalRows.length){
+          console.info('Dashboard hiding duplicate General Applicant Pool application rows:', generalRows.map(row => ({
+            applicationId: row.id,
+            profileId: row.profile?.id || row.app?.applicant_profile_id,
+            candidate: row.displayName,
+            role: row.jobTitle
+          })));
+        }
+
+        output.push(...specificRows);
+      });
+
+      return output.sort((a,b)=>new Date(b.appliedAt || 0).getTime() - new Date(a.appliedAt || 0).getTime());
+    }
+
+
     async function fetchActivitiesForRowDirect(row){
-      const profileId = safeText(row?.profile?.id || row?.app?.applicant_profile_id || '');
-      const applicationId = safeText(row?.app?.id || row?.id || '');
+      const identityKey = getDashboardIdentityKey(row);
+      const siblingRows = (state.allRows || []).filter(item => getDashboardIdentityKey(item) === identityKey);
+      const profileIds = uniq([
+        row?.profile?.id,
+        row?.app?.applicant_profile_id,
+        ...siblingRows.map(item => item?.profile?.id),
+        ...siblingRows.map(item => item?.app?.applicant_profile_id)
+      ].map(safeText));
+      const applicationIds = uniq([
+        row?.app?.id,
+        row?.id,
+        ...siblingRows.map(item => item?.app?.id),
+        ...siblingRows.map(item => item?.id)
+      ].map(safeText));
+
       const collected = [];
       const seen = new Set();
       const addMany = items => (items || []).forEach(activity => {
-        const key = safeText(activity?.id) || `${safeText(activity?.source_message_id)}:${safeText(activity?.activity_type)}:${safeText(activity?.created_at)}`;
+        const key = safeText(activity?.id) || `${safeText(activity?.source_message_id)}:${safeText(activity?.activity_type)}:${safeText(activity?.created_at)}:${safeText(activity?.body).slice(0,80)}`;
         if(!key || seen.has(key))return;
         seen.add(key);
         collected.push(activity);
@@ -3426,39 +3549,42 @@ tr.row-assessment-progress:hover td{
       const selectColumns = 'id,applicant_profile_id,application_id,activity_type,title,body,source,source_message_id,created_at';
 
       try{
-        if(profileId){
+        if(profileIds.length){
           const {data,error}=await supabaseClient
             .from('candidate_activities')
             .select(selectColumns)
-            .eq('applicant_profile_id', profileId)
+            .in('applicant_profile_id', profileIds)
             .order('created_at',{ascending:false})
-            .limit(100);
+            .limit(200);
           if(error)throw error;
           addMany(data);
         }
 
-        if(applicationId){
+        if(applicationIds.length){
           const {data,error}=await supabaseClient
             .from('candidate_activities')
             .select(selectColumns)
-            .eq('application_id', applicationId)
+            .in('application_id', applicationIds)
             .order('created_at',{ascending:false})
-            .limit(100);
+            .limit(200);
           if(error)throw error;
           addMany(data);
         }
       }catch(error){
-        console.warn('candidate_activities direct row query failed:', error?.message || error);
-        if(safeText(error?.message).toLowerCase().includes('permission') || safeText(error?.message).toLowerCase().includes('policy')){
-          showNotice('Activity messages are saved, but the dashboard cannot read candidate_activities yet. Add a SELECT policy for recruiters/anon.', 'error');
+        console.warn('candidate_activities direct row query failed:', error?.message || error, {
+          identityKey,
+          profileIds,
+          applicationIds
+        });
+        const errorMessage = safeText(error?.message).toLowerCase();
+        if(errorMessage.includes('permission') || errorMessage.includes('policy') || errorMessage.includes('row-level security') || errorMessage.includes('rls')){
+          showNotice('Activity messages are saved, but the dashboard cannot read candidate_activities yet. Add a SELECT policy for authenticated recruiters.', 'error');
+        }else{
+          showNotice(`Activity lookup failed: ${error?.message || error}`, 'error');
         }
       }
 
-      return collected.sort((a,b)=>{
-        const aTime = new Date(a.created_at || 0).getTime();
-        const bTime = new Date(b.created_at || 0).getTime();
-        return bTime - aTime;
-      });
+      return normalizeActivityRecords(collected);
     }
 
 
@@ -3629,13 +3755,14 @@ tr.row-assessment-progress:hover td{
         const profilesById=new Map(profiles.map(item=>[item.id,item]));
         const jobsById=new Map(jobs.map(item=>[item.id,item]));
         const activityLookup = buildCandidateActivityLookup(candidateActivities || []);
-        state.allRows=(applications||[]).map(app=>{
+        const rawRows=(applications||[]).map(app=>{
           const profile=profilesById.get(app.applicant_profile_id)||profiles.find(p=>normalizeEmail(p.email)===normalizeEmail(app.email))||{};
           const job=jobsById.get(app.job_id)||jobs.find(j=>safeText(j.title)===safeText(app.job_title))||{};
           const score=basicScore(profile,app,job);
           const activities = getActivitiesForApplicationRow(app, profile, activityLookup);
           return {id:app.id,app,profile,job,score,activities,assessment:state.assessmentsByApplicationId.get(safeText(app.id))||null,assessmentInfo:null,displayName:safeText(profile.full_name||app.email||'Unnamed candidate'),status:safeText(app.client_feedback_status||app.status||'submitted'),recruiter:safeText(app.recruiter_email)||'Unassigned',source:safeText(app.application_source||'—'),appliedAt:app.created_at,clientName:safeText(job.client_name||'—'),jobTitle:safeText(job.title||app.job_title||'—'),followUp:getFollowUpInfo(app)};
         }).map(row => ({...row, assessmentInfo: getAssessmentInfo(row)}));
+        state.allRows=dedupeDashboardApplicationRows(rawRows);
         const previousRowCount = Number(state.lastKnownRowCount || 0);
         state.lastKnownRowCount = state.allRows.length;
         if(silent && previousRowCount && state.allRows.length > previousRowCount){
@@ -4846,18 +4973,18 @@ tr.row-assessment-progress:hover td{
       if(els.editFollowUpNote)els.editFollowUpNote.value=row.followUp?.note||'';
       els.profileSummary.textContent=getProfileSummary(row.profile)||'No candidate brief yet.';
       const directActivities = await fetchActivitiesForRowDirect(row);
-      if(directActivities.length){
-        row.activities = directActivities;
-        const allRow = state.allRows.find(item => item.id === row.id);
-        if(allRow)allRow.activities = directActivities;
-        const filteredRow = state.filteredRows.find(item => item.id === row.id);
-        if(filteredRow)filteredRow.activities = directActivities;
-      }
+      const mergedActivities = normalizeActivityRecords([...(row.activities || []), ...directActivities]);
+      row.activities = mergedActivities;
+      const allRow = state.allRows.find(item => item.id === row.id);
+      if(allRow)allRow.activities = mergedActivities;
+      const filteredRow = state.filteredRows.find(item => item.id === row.id);
+      if(filteredRow)filteredRow.activities = mergedActivities;
       console.log('Candidate activity render debug:', {
         applicationId: row.id,
         profileId: row.profile?.id || row.app?.applicant_profile_id,
-        activityCount: (row.activities || []).length,
-        activities: row.activities || []
+        identityKey: getDashboardIdentityKey(row),
+        activityCount: mergedActivities.length,
+        activities: mergedActivities
       });
       renderCandidateTimeline(row);
       els.resumeMeta.textContent='Resolving resume...';if(els.parseResumeBtn)els.parseResumeBtn.disabled=true;if(els.uploadResumeBtn)els.uploadResumeBtn.disabled=false;state.selectedResumeUrl='';state.selectedResumePath='';
