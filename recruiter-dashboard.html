@@ -284,6 +284,7 @@
       text-align:left;
     }
     .action-card:hover{border-color:var(--accent-line);background:var(--accent-soft)}
+    .action-card.active{border-color:var(--accent);background:var(--accent-soft);box-shadow:0 8px 18px rgba(37,99,235,.12)}
     .action-card strong{display:block;font-size:.92rem;margin-bottom:4px}
     .action-card span{display:block;color:var(--muted);font-size:.8rem;line-height:1.45}
     .count-pill{
@@ -4174,6 +4175,47 @@ tr.row-assessment-progress:hover td{
       return getAssessmentInfo(row).key === 'in_progress';
     }
 
+    function isNeedsReviewQueue(row){
+      const status = normalizeStatus(row?.status || row?.app?.status || '');
+      return ['new','submitted',''].includes(status) && !isReadyForReview(row) && !isClosedStatus(status) && !isHiredStatus(status);
+    }
+
+    function setActivePriorityCard(filter=''){
+      document.querySelectorAll('[data-quick-filter]').forEach(btn=>{
+        btn.classList.toggle('active', !!filter && btn.dataset.quickFilter === filter);
+      });
+    }
+
+    function scrollPipelineIntoView(){
+      requestAnimationFrame(()=>{
+        document.getElementById('pipeline')?.scrollIntoView({behavior:'smooth', block:'start'});
+      });
+    }
+
+    function setSavedViewWithoutApplying(name='all'){
+      state.savedView = name || DEFAULT_SAVED_VIEW;
+      saveUiPreference(PREF_KEYS.savedView, state.savedView);
+      document.querySelectorAll('[data-saved-view]').forEach(btn=>{
+        btn.classList.toggle('active', btn.dataset.savedView === state.savedView);
+      });
+    }
+
+    function applyPriorityQueueFilter(filter){
+      clearFilters(false);
+      setActivePriorityCard(filter);
+
+      const priorityToSavedView = {
+        needs_review: 'needs_review',
+        follow_up: 'my_followups',
+        ready_for_review: 'ready_for_review',
+        awaiting_assessment: 'awaiting_assessment'
+      };
+
+      setSavedViewWithoutApplying(priorityToSavedView[filter] || DEFAULT_SAVED_VIEW);
+      applyFilters();
+      scrollPipelineIntoView();
+    }
+
     function assessmentTone(key){
       if(key === 'completed')return 'good';
       if(key === 'in_progress')return 'warn';
@@ -4359,6 +4401,8 @@ tr.row-assessment-progress:hover td{
 
     function rowMatchesSavedView(row){
       switch(state.savedView){
+        case 'needs_review':
+          return isNeedsReviewQueue(row);
         case 'ready_for_review':
           return isReadyForReview(row);
         case 'awaiting_assessment':
@@ -4510,7 +4554,7 @@ tr.row-assessment-progress:hover td{
       const onboardedCount = count(r => ['onboarded'].includes(normalizeStatus(r.status)));
       const withdrawnCount = count(r => ['withdrawn','not interested','candidate withdrawn'].includes(normalizeStatus(r.status)));
       const followUpCount = count(r => hasOpenFollowUp(r));
-      const reviewCount = count(r => ['submitted',''].includes(normalizeStatus(r.status)));
+      const reviewCount = count(r => isNeedsReviewQueue(r));
       const assessmentCompletedCount = count(r => isReadyForReview(r));
       const assessmentSentCount = count(r => isAwaitingAssessment(r));
       const assessmentInProgressCount = count(r => isAssessmentInProgress(r));
@@ -6418,7 +6462,8 @@ async function bulkUploadResumes(){
       const score = safeText(els.scoreFilter?.value);
 
       let active = 'all';
-      if(state.savedView === 'ready_for_review')active = 'ready_review';
+      if(state.savedView === 'needs_review')active = 'new';
+      else if(state.savedView === 'ready_for_review')active = 'ready_review';
       else if(state.savedView === 'awaiting_assessment')active = 'awaiting_assessment';
       else if(state.savedView === 'assessment_in_progress')active = 'assessment_in_progress';
       else if(state.savedView === 'unassigned' || safeText(els.recruiterFilter?.value).toLowerCase() === 'unassigned')active = 'unassigned';
@@ -6436,33 +6481,25 @@ async function bulkUploadResumes(){
 
     function applyQuickFilterChip(filter){
       clearFilters(false);
-      state.savedView = DEFAULT_SAVED_VIEW;
-      saveUiPreference(PREF_KEYS.savedView, DEFAULT_SAVED_VIEW);
-      document.querySelectorAll('[data-saved-view]').forEach(btn=>btn.classList.toggle('active', btn.dataset.savedView === 'all'));
+      setActivePriorityCard('');
+      setSavedViewWithoutApplying(DEFAULT_SAVED_VIEW);
 
+      if(filter === 'new'){
+        setSavedViewWithoutApplying('needs_review');
+      }
       if(filter === 'ready_review' || filter === 'ready_for_review'){
-        state.savedView = 'ready_for_review';
-        saveUiPreference(PREF_KEYS.savedView, 'ready_for_review');
-        document.querySelectorAll('[data-saved-view]').forEach(btn=>btn.classList.toggle('active', btn.dataset.savedView === 'ready_for_review'));
+        setSavedViewWithoutApplying('ready_for_review');
       }
       if(filter === 'awaiting_assessment'){
-        state.savedView = 'awaiting_assessment';
-        saveUiPreference(PREF_KEYS.savedView, 'awaiting_assessment');
-        document.querySelectorAll('[data-saved-view]').forEach(btn=>btn.classList.toggle('active', btn.dataset.savedView === 'awaiting_assessment'));
+        setSavedViewWithoutApplying('awaiting_assessment');
       }
       if(filter === 'assessment_in_progress'){
-        state.savedView = 'assessment_in_progress';
-        saveUiPreference(PREF_KEYS.savedView, 'assessment_in_progress');
-        document.querySelectorAll('[data-saved-view]').forEach(btn=>btn.classList.toggle('active', btn.dataset.savedView === 'assessment_in_progress'));
+        setSavedViewWithoutApplying('assessment_in_progress');
       }
-
       if(filter === 'unassigned'){
-        state.savedView = 'unassigned';
-        saveUiPreference(PREF_KEYS.savedView, 'unassigned');
-        document.querySelectorAll('[data-saved-view]').forEach(btn=>btn.classList.toggle('active', btn.dataset.savedView === 'unassigned'));
+        setSavedViewWithoutApplying('unassigned');
       }
-      if(filter === 'new')els.statusFilter.value = 'submitted';
-      if(filter === 'follow_up')els.followUpFilter.value = 'all_open';
+      if(filter === 'follow_up')setSavedViewWithoutApplying('my_followups');
       if(filter === 'interview')els.statusFilter.value = 'for interview';
       if(filter === 'endorsed')els.statusFilter.value = 'endorsed';
       if(filter === 'rejected')els.statusFilter.value = 'rejected';
@@ -6471,7 +6508,7 @@ async function bulkUploadResumes(){
       if(filter === 'low_fit')els.scoreFilter.value = 'weak';
 
       applyFilters();
-      document.getElementById('pipeline')?.scrollIntoView({behavior:'smooth',block:'start'});
+      scrollPipelineIntoView();
     }
 
     function clearFilters(shouldApply=true){
@@ -6481,6 +6518,7 @@ async function bulkUploadResumes(){
       document.querySelectorAll('[data-saved-view]').forEach(btn=>{
         btn.classList.toggle('active', btn.dataset.savedView === 'all');
       });
+      setActivePriorityCard('');
       if(shouldApply)applyFilters();
     }
 
@@ -6766,18 +6804,7 @@ async function bulkUploadResumes(){
     function bindEvents(){
       [els.searchInput,els.candidateNameFilter,els.statusFilter,els.recruiterFilter,els.followUpFilter,els.jobFilter,els.clientFilter,els.countryFilter,els.workSetupFilter,els.scoreFilter].forEach(el=>{el?.addEventListener('input',applyFilters);el?.addEventListener('change',applyFilters)});
       document.querySelectorAll('[data-quick-filter]').forEach(btn=>btn.addEventListener('click',()=>{
-        clearFilters(false);
-        const f=btn.dataset.quickFilter;
-        if(f==='unassigned'){
-          setSavedView('unassigned');
-        }else{
-          if(f==='follow_up')els.followUpFilter.value='all_open';
-          if(f==='high_match')els.scoreFilter.value='strong';
-          if(f==='low_fit')els.scoreFilter.value='weak';
-          if(f==='needs_review')els.statusFilter.value='submitted';
-          applyFilters();
-        }
-        document.getElementById('pipeline')?.scrollIntoView({behavior:'smooth',block:'start'});
+        applyPriorityQueueFilter(btn.dataset.quickFilter || '');
       }));
 
       document.querySelectorAll('[data-chip-filter]').forEach(chip=>chip.addEventListener('click',()=>{
