@@ -2445,7 +2445,7 @@ tr.row-assessment-progress:hover td{
   </div>
 
   <script>
-    console.log('BuzzHire recruiter-dashboard-activity-dedupe-final-v2026-05-24 loaded');
+    console.log('BuzzHire recruiter-dashboard-role-save-final-v2026-05-24 loaded');
 
     const CONFIG = {
       SUPABASE_URL: window.TALENTBUZZ_SUPABASE_URL || localStorage.getItem('TALENTBUZZ_SUPABASE_URL') || '',
@@ -4997,6 +4997,12 @@ tr.row-assessment-progress:hover td{
       if(!values.email)return showNotice('Candidate email is required.', 'error');
 
       const now = new Date().toISOString();
+      const currentJobId = safeText(row.app?.job_id || row.job?.id || '');
+      const selectedJobId = safeText(values.job_id || '');
+      const selectedJob = selectedJobId ? values.job : null;
+      const selectedJobTitle = selectedJob ? safeText(selectedJob.title || '') : '';
+      const selectedClientName = selectedJob ? safeText(selectedJob.client_name || '') : '';
+      const roleWasChanged = !!selectedJobId && String(selectedJobId) !== String(currentJobId);
 
       const profilePayload = {
         full_name: values.full_name || null,
@@ -5015,15 +5021,6 @@ tr.row-assessment-progress:hover td{
         available_working_hours: values.available_working_hours || null,
         updated_at: now
       };
-
-      const appPayload = {
-        email: values.email,
-        updated_at: now
-      };
-      if(values.job_id){
-        appPayload.job_id = values.job_id;
-        appPayload.job_title = values.job?.title || row.app?.job_title || null;
-      }
 
       const stripSchemaErrorColumn = (payload, error) => {
         const message = safeText(error?.message || error?.details || error?.hint || error);
@@ -5074,6 +5071,123 @@ tr.row-assessment-progress:hover td{
         throw lastError || new Error(`Unable to update ${table}.`);
       };
 
+      const updateApplicationCandidateAndRole = async (applicationId, profileId) => {
+        const basePayload = {
+          email: values.email,
+          updated_at: now
+        };
+        if(profileId && !row.app?.applicant_profile_id){
+          basePayload.applicant_profile_id = profileId;
+        }
+
+        const rolePayload = selectedJobId ? {
+          job_id: selectedJobId,
+          job_title: selectedJobTitle || row.app?.job_title || row.jobTitle || null,
+          updated_at: now
+        } : {};
+
+        const attempts = [];
+
+        if(selectedJobId){
+          attempts.push({...basePayload, ...rolePayload});
+          attempts.push({
+            email: values.email,
+            job_id: selectedJobId,
+            job_title: selectedJobTitle || null,
+            updated_at: now
+          });
+          attempts.push({
+            job_id: selectedJobId,
+            job_title: selectedJobTitle || null,
+            updated_at: now
+          });
+          attempts.push({
+            job_id: selectedJobId,
+            updated_at: now
+          });
+          // Some older dashboards used only a denormalized role title. Keep this as a fallback,
+          // but never let it replace the preferred job_id update when job_id exists.
+          attempts.push({
+            job_title: selectedJobTitle || null,
+            updated_at: now
+          });
+        }else{
+          attempts.push(basePayload);
+        }
+
+        attempts.push(basePayload);
+
+        let lastError = null;
+        let savedPayload = null;
+
+        for(const originalAttempt of attempts){
+          let attempt = Object.fromEntries(
+            Object.entries(originalAttempt).filter(([,value]) => value !== undefined)
+          );
+
+          for(let retry = 0; retry < 8; retry += 1){
+            const { error } = await supabaseClient
+              .from('applications')
+              .update(attempt)
+              .eq('id', applicationId);
+
+            if(!error){
+              savedPayload = attempt;
+              break;
+            }
+
+            lastError = error;
+            console.warn('applications role/profile update failed:', error?.message || error, attempt);
+            const reduced = stripSchemaErrorColumn(attempt, error);
+            if(!reduced || Object.keys(reduced).length === Object.keys(attempt).length)break;
+            attempt = reduced;
+          }
+
+          if(savedPayload)break;
+        }
+
+        if(!savedPayload){
+          throw lastError || new Error('Unable to update application role.');
+        }
+
+        // If recruiter selected a new role, the save must persist either job_id or job_title.
+        // Otherwise the UI would appear saved but revert after refresh.
+        if(selectedJobId && !Object.prototype.hasOwnProperty.call(savedPayload, 'job_id') && !Object.prototype.hasOwnProperty.call(savedPayload, 'job_title')){
+          throw new Error('Role was not saved because neither job_id nor job_title exists on applications.');
+        }
+
+        // Best-effort read-back verification. If the role still does not match, warn loudly.
+        if(selectedJobId){
+          try{
+            const verify = await supabaseClient
+              .from('applications')
+              .select('id,job_id,job_title')
+              .eq('id', applicationId)
+              .maybeSingle();
+
+            if(!verify.error && verify.data){
+              const savedJobId = safeText(verify.data.job_id || '');
+              const savedJobTitle = safeText(verify.data.job_title || '');
+              const idMatches = savedJobId && String(savedJobId) === String(selectedJobId);
+              const titleMatches = selectedJobTitle && savedJobTitle === selectedJobTitle;
+
+              if(!idMatches && !titleMatches){
+                console.warn('Role save verification mismatch:', {selectedJobId, selectedJobTitle, saved: verify.data});
+                throw new Error('Role update did not verify after saving. Please check applications.job_id/job_title permissions or schema.');
+              }
+            }else if(verify.error){
+              console.warn('Role save verification skipped:', verify.error?.message || verify.error);
+            }
+          }catch(error){
+            // Do not hide a real verification mismatch; surface it to the recruiter.
+            if(String(error?.message || '').includes('did not verify'))throw error;
+            console.warn('Role save verification unavailable:', error?.message || error);
+          }
+        }
+
+        return savedPayload;
+      };
+
       const findOrCreateProfileId = async () => {
         if(row.profile?.id)return row.profile.id;
 
@@ -5103,14 +5217,29 @@ tr.row-assessment-progress:hover td{
 
         const profileId = await findOrCreateProfileId();
         const savedProfilePayload = await updateAdaptive('applicant_profiles', profileId, profilePayload, ['full_name','email','phone','location','updated_at']);
+        const savedApplicationPayload = await updateApplicationCandidateAndRole(row.id, profileId);
 
-        const finalAppPayload = {...appPayload};
-        if(profileId && !row.app?.applicant_profile_id)finalAppPayload.applicant_profile_id = profileId;
+        // Optimistic local update so the drawer/table changes immediately while loadDashboard refreshes.
+        row.profile = {
+          ...(row.profile || {}),
+          id: profileId,
+          ...savedProfilePayload
+        };
+        row.app = {
+          ...(row.app || {}),
+          ...savedApplicationPayload
+        };
+        if(selectedJobId){
+          row.app.job_id = selectedJobId;
+          if(selectedJobTitle)row.app.job_title = selectedJobTitle;
+          row.job = selectedJob || row.job;
+          row.jobTitle = selectedJobTitle || row.jobTitle;
+          row.clientName = selectedClientName || row.clientName;
+        }
+        row.displayName = safeText(row.profile?.full_name || row.app?.email || row.displayName);
 
-        await updateAdaptive('applications', row.id, finalAppPayload, ['email','updated_at']);
-
-        console.log('Candidate profile saved:', {applicationId: row.id, profileId, savedProfilePayload, finalAppPayload});
-        showNotice('Candidate info updated.', 'success');
+        console.log('Candidate profile saved:', {applicationId: row.id, profileId, savedProfilePayload, savedApplicationPayload, roleWasChanged});
+        showNotice(roleWasChanged ? 'Candidate info and role updated.' : 'Candidate info updated.', 'success');
         await loadDashboard();
         await openDrawer(row.id);
         if(isCandidateModalOpen()){
