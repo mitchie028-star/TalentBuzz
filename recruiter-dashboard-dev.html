@@ -2445,7 +2445,7 @@ tr.row-assessment-progress:hover td{
   </div>
 
   <script>
-    console.log('BuzzHire recruiter-dashboard-ai-clipboard-parser-v2026-05-24 loaded');
+    console.log('BuzzHire recruiter-dashboard-auto-refresh-v2026-05-24 loaded');
 
     const CONFIG = {
       SUPABASE_URL: window.TALENTBUZZ_SUPABASE_URL || localStorage.getItem('TALENTBUZZ_SUPABASE_URL') || '',
@@ -2453,6 +2453,8 @@ tr.row-assessment-progress:hover td{
       RESUME_BUCKET: 'resumes',
       PAGE_SIZE: 1000,
       ASSESSMENT_INVITE_FUNCTION: 'send-assessment-invite',
+      DASHBOARD_AUTO_REFRESH_MS: 60000,
+      DASHBOARD_AUTO_REFRESH_WHEN_HIDDEN_MS: 300000,
     };
 
     const STATUS_OPTIONS = [
@@ -2477,6 +2479,10 @@ tr.row-assessment-progress:hover td{
       assessmentsByApplicationId: new Map(),
       resumeParserRowId: null,
       resumeParserParsed: null,
+      autoRefreshTimer: null,
+      autoRefreshInFlight: false,
+      lastAutoRefreshAttemptAt: null,
+      lastKnownRowCount: 0,
     };
 
     function $(id){return document.getElementById(id)}
@@ -3413,10 +3419,15 @@ tr.row-assessment-progress:hover td{
       }
     }
 
-    async function loadDashboard(){
+    async function loadDashboard(options = {}){
       if(!supabaseClient)return;
-      state.loading=true;hideNotice();
-      els.applicationsTable.innerHTML='<tr><td colspan="8" class="small">Loading candidates...</td></tr>';
+      const silent = !!options.silent;
+      state.loading=true;
+      if(!silent){
+        hideNotice();
+        els.applicationsTable.innerHTML='<tr><td colspan="8" class="small">Loading candidates...</td></tr>';
+      }
+      if(silent && els.liveStatusText)els.liveStatusText.textContent='Syncing…';
       try{
         const [applications,profiles,jobs,assessmentsByApplicationId]=await Promise.all([
           fetchApplicationsRows(),
@@ -3434,6 +3445,13 @@ tr.row-assessment-progress:hover td{
           const score=basicScore(profile,app,job);
           return {id:app.id,app,profile,job,score,assessment:state.assessmentsByApplicationId.get(safeText(app.id))||null,assessmentInfo:null,displayName:safeText(profile.full_name||app.email||'Unnamed candidate'),status:safeText(app.client_feedback_status||app.status||'submitted'),recruiter:safeText(app.recruiter_email)||'Unassigned',source:safeText(app.application_source||'—'),appliedAt:app.created_at,clientName:safeText(job.client_name||'—'),jobTitle:safeText(job.title||app.job_title||'—'),followUp:getFollowUpInfo(app)};
         }).map(row => ({...row, assessmentInfo: getAssessmentInfo(row)}));
+        const previousRowCount = Number(state.lastKnownRowCount || 0);
+        state.lastKnownRowCount = state.allRows.length;
+        if(silent && previousRowCount && state.allRows.length > previousRowCount){
+          const addedCount = state.allRows.length - previousRowCount;
+          showNotice(`${addedCount} new candidate${addedCount === 1 ? '' : 's'} synced into the dashboard.`, 'success');
+        }
+
         console.log('Unassigned candidates loaded:', state.allRows.filter(row => isUnassignedRecruiter(row)).length);
         console.log('Eric Se visibility debug:', state.allRows.filter(row =>
           [row.displayName, row.profile?.email, row.app?.email].join(' ').toLowerCase().includes('eric')
@@ -3446,7 +3464,16 @@ tr.row-assessment-progress:hover td{
         });
         applyFilters();
         markDashboardSynced();
-      }catch(error){console.error(error);els.applicationsTable.innerHTML=`<tr><td colspan="8" class="small">Unable to load dashboard: ${escapeHtml(error.message||String(error))}</td></tr>`;showNotice(`Unable to load dashboard: ${error.message||error}`,'error')}
+      }catch(error){
+        console.error(error);
+        if(!silent){
+          els.applicationsTable.innerHTML=`<tr><td colspan="8" class="small">Unable to load dashboard: ${escapeHtml(error.message||String(error))}</td></tr>`;
+          showNotice(`Unable to load dashboard: ${error.message||error}`,'error');
+        }else{
+          updateLiveStatusLabel('Sync failed');
+          console.warn('Silent dashboard refresh failed:', error?.message || error);
+        }
+      }
       finally{state.loading=false}
     }
 
@@ -5455,8 +5482,64 @@ async function bulkUploadResumes(){
       els.sidebarUserName.textContent=`Hi ${name.split(/\s+/)[0]||'there'}!`;els.sidebarUserEmail.textContent=email||'Recruiter workspace';
     }
     async function handleLogout(){try{await supabaseClient.auth.signOut();window.location.href='login.html'}catch(error){showNotice(`Logout failed: ${error.message||error}`,'error')}}
-    function updateLiveStatusLabel(){if(!dashboardLastSyncedAt){els.liveStatusText.textContent='Live';return}const seconds=Math.max(0,Math.floor((Date.now()-dashboardLastSyncedAt.getTime())/1000));els.liveStatusText.textContent=seconds<10?'Live':`Synced ${seconds}s ago`}
+    function updateLiveStatusLabel(overrideText){
+      if(!els.liveStatusText)return;
+      if(overrideText){
+        els.liveStatusText.textContent = overrideText;
+        return;
+      }
+      if(!dashboardLastSyncedAt){
+        els.liveStatusText.textContent='Live';
+        return;
+      }
+      const seconds=Math.max(0,Math.floor((Date.now()-dashboardLastSyncedAt.getTime())/1000));
+      if(seconds < 10){
+        els.liveStatusText.textContent='Live';
+      }else if(seconds < 60){
+        els.liveStatusText.textContent=`Synced ${seconds}s ago`;
+      }else{
+        const minutes=Math.floor(seconds/60);
+        els.liveStatusText.textContent=`Synced ${minutes}m ago`;
+      }
+    }
     function markDashboardSynced(){dashboardLastSyncedAt=new Date();updateLiveStatusLabel()}
+
+    function isDashboardBusyForAutoRefresh(){
+      const active = document.activeElement;
+      const isEditing = active && ['INPUT','TEXTAREA','SELECT'].includes(active.tagName);
+      const modalOpen = !!document.querySelector('.modal.show');
+      const parserOpen = els.resumeParserModal?.classList.contains('show');
+      return !!(state.loading || state.autoRefreshInFlight || isEditing || modalOpen || parserOpen);
+    }
+
+    async function refreshDashboardSilently(force = false){
+      if(!supabaseClient)return;
+      const hiddenDelay = Number(CONFIG.DASHBOARD_AUTO_REFRESH_WHEN_HIDDEN_MS || 300000);
+      const lastAttemptAt = state.lastAutoRefreshAttemptAt ? state.lastAutoRefreshAttemptAt.getTime() : 0;
+
+      if(!force){
+        if(document.hidden && Date.now() - lastAttemptAt < hiddenDelay)return;
+        if(isDashboardBusyForAutoRefresh())return;
+      }
+
+      state.autoRefreshInFlight = true;
+      state.lastAutoRefreshAttemptAt = new Date();
+      try{
+        await loadDashboard({silent:true});
+      }finally{
+        state.autoRefreshInFlight = false;
+      }
+    }
+
+    function startDashboardAutoRefresh(){
+      if(state.autoRefreshTimer)window.clearInterval(state.autoRefreshTimer);
+      const interval = Math.max(30000, Number(CONFIG.DASHBOARD_AUTO_REFRESH_MS || 60000));
+      state.autoRefreshTimer = window.setInterval(()=>refreshDashboardSilently(false), interval);
+      document.addEventListener('visibilitychange',()=>{
+        if(!document.hidden)refreshDashboardSilently(true);
+      });
+      window.addEventListener('focus',()=>refreshDashboardSilently(true));
+    }
 
     function openCandidateReviewByApplicationId(applicationId){
       routeToCandidateReview(applicationId);
@@ -5693,6 +5776,7 @@ async function bulkUploadResumes(){
         saveUiPreference(PREF_KEYS.compactRows, state.compactRows);
         renderTable();
       });
+      document.getElementById('liveStatusPill')?.addEventListener('click',()=>refreshDashboardSilently(true));
       els.clearFiltersBtn.addEventListener('click',clearFilters);els.quickClearFiltersBtn?.addEventListener('click',clearFilters);els.bulkUploadBtn?.addEventListener('click',bulkUploadResumes);els.sidebarBulkUploadBtn?.addEventListener('click',openBulkUploadModal);els.bulkUploadModalClose?.addEventListener('click',closeBulkUploadModal);
       els.moreFiltersBtn?.addEventListener('click',()=>{
         els.filtersPanel?.classList.toggle('show-advanced');
@@ -5832,7 +5916,7 @@ async function bulkUploadResumes(){
 
     async function startDashboardApp(){
       if(!initClient())return;loadUiPreferences();bindEvents();installCandidateReviewHardRouteGuard();setProtectedUiState(false);
-      try{const allowed=await requireRecruiterAccess();if(!allowed)return;await loadDashboard();}
+      try{const allowed=await requireRecruiterAccess();if(!allowed)return;await loadDashboard();startDashboardAutoRefresh();}
       catch(error){console.error(error);setAuthMessage(error?.message||'Unable to verify recruiter access.');showNotice(`Unable to start dashboard: ${error?.message||error}`,'error')}
     }
     void startDashboardApp();
