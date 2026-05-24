@@ -2544,7 +2544,7 @@ tr.row-assessment-progress:hover td{
   </div>
 
   <script>
-    console.log('BuzzHire recruiter-dashboard-message-inbox-v2026-05-24 loaded');
+    console.log('BuzzHire recruiter-dashboard-role-assessment-ready-review-v2026-05-24 loaded');
 
     const CONFIG = {
       SUPABASE_URL: window.TALENTBUZZ_SUPABASE_URL || localStorage.getItem('TALENTBUZZ_SUPABASE_URL') || '',
@@ -3780,9 +3780,12 @@ tr.row-assessment-progress:hover td{
 
     async function fetchLatestRoleAssessments(){
       try{
+        // Assessment completion is stored in role_assessments, not applications.
+        // Keep this select limited to columns that exist in the current schema so
+        // one missing optional field does not make the whole dashboard lose assessment state.
         const {data,error}=await supabaseClient
           .from('role_assessments')
-          .select('id,application_id,status,assessment_type,created_at,updated_at,started_at,completed_at,due_at,evaluation_summary')
+          .select('id,application_id,applicant_profile_id,job_id,assessment_type,role_family,channel_type,status,overall_score,communication_score,technical_score,problem_solving_score,authenticity_score,evaluation_summary,started_at,completed_at,created_at,invited_at')
           .order('created_at',{ascending:false})
           .limit(CONFIG.PAGE_SIZE);
 
@@ -3791,7 +3794,29 @@ tr.row-assessment-progress:hover td{
         const map = new Map();
         (data || []).forEach(item=>{
           const appId = safeText(item.application_id);
-          if(appId && !map.has(appId))map.set(appId,item);
+          if(!appId)return;
+
+          const existing = map.get(appId);
+          if(!existing){
+            map.set(appId,item);
+            return;
+          }
+
+          // Prefer completed assessment records; otherwise keep the newest by created_at.
+          const itemCompleted = normalizeAssessmentStatus(item.status) === 'completed' || Boolean(item.completed_at);
+          const existingCompleted = normalizeAssessmentStatus(existing.status) === 'completed' || Boolean(existing.completed_at);
+
+          if(itemCompleted && !existingCompleted){
+            map.set(appId,item);
+            return;
+          }
+
+          const itemTime = new Date(item.completed_at || item.started_at || item.created_at || 0).getTime();
+          const existingTime = new Date(existing.completed_at || existing.started_at || existing.created_at || 0).getTime();
+
+          if(itemCompleted === existingCompleted && itemTime > existingTime){
+            map.set(appId,item);
+          }
         });
 
         return map;
@@ -4055,7 +4080,7 @@ tr.row-assessment-progress:hover td{
       const assessment = row?.assessment || state.assessmentsByApplicationId?.get?.(safeText(app.id)) || null;
       const inviteStatus = normalizeAssessmentStatus(app.assessment_invite_status || '');
       const assessmentStatus = normalizeAssessmentStatus(assessment?.status || '');
-      const dueAt = assessment?.due_at || app.assessment_due_at || null;
+      const dueAt = app.assessment_due_at || null;
       const dueDate = parseFollowUpDate(dueAt);
       const now = new Date();
 
@@ -4065,7 +4090,7 @@ tr.row-assessment-progress:hover td{
         key = 'completed';
       }else if(assessmentStatus === 'in_progress' || assessment?.started_at){
         key = 'in_progress';
-      }else if(assessmentStatus === 'sent' || inviteStatus === 'sent' || app.assessment_invite_sent_at || assessment?.id){
+      }else if(assessmentStatus === 'sent' || inviteStatus === 'sent' || app.assessment_invite_sent_at || assessment?.invited_at || assessment?.id){
         key = 'sent';
       }
 
