@@ -2593,6 +2593,7 @@ tr.row-assessment-progress:hover td{
       RESUME_BUCKET: 'resumes',
       PAGE_SIZE: 1000,
       ASSESSMENT_INVITE_FUNCTION: 'send-assessment-invite',
+      INTERVIEW_INVITE_FUNCTION: 'send-interview-invite',
       DASHBOARD_AUTO_REFRESH_MS: 60000,
       DASHBOARD_AUTO_REFRESH_WHEN_HIDDEN_MS: 300000,
     };
@@ -2651,7 +2652,7 @@ tr.row-assessment-progress:hover td{
       headerLogoutBtn:$('headerLogoutBtn'), headerInboxBtn:$('headerInboxBtn'), sidebarInboxBtn:$('sidebarInboxBtn'), newApplicantsBadge:$('newApplicantsBadge'), liveStatusText:$('liveStatusText'), sidebarSourcingBtn:$('sidebarSourcingBtn'), sidebarBulkUploadBtn:$('sidebarBulkUploadBtn'), quickClearFiltersBtn:$('quickClearFiltersBtn'), messageInboxModal:$('messageInboxModal'), messageInboxList:$('messageInboxList'), messageInboxClose:$('messageInboxClose'), messageInboxRefreshBtn:$('messageInboxRefreshBtn'),
       bulkUploadModal:$('bulkUploadModal'), bulkUploadModalClose:$('bulkUploadModalClose'), bulkRoleSelect:$('bulkRoleSelect'), bulkResumeInput:$('bulkResumeInput'), bulkUploadBtn:$('bulkUploadBtn'), bulkUploadStatus:$('bulkUploadStatus'),
       assessmentEmailModal:$('assessmentEmailModal'), assessmentEmailModalClose:$('assessmentEmailModalClose'), assessmentModalSubtitle:$('assessmentModalSubtitle'), assessmentCandidateName:$('assessmentCandidateName'), assessmentCandidateEmail:$('assessmentCandidateEmail'), assessmentRoleName:$('assessmentRoleName'), assessmentCompanyName:$('assessmentCompanyName'), assessmentType:$('assessmentType'), assessmentDueDate:$('assessmentDueDate'), assessmentLink:$('assessmentLink'), assessmentCustomMessage:$('assessmentCustomMessage'), assessmentEmailPreview:$('assessmentEmailPreview'), sendAssessmentEmailBtn:$('sendAssessmentEmailBtn'), copyAssessmentEmailBtn:$('copyAssessmentEmailBtn'), assessmentEmailStatus:$('assessmentEmailStatus'), openAssessmentEmailBtn:$('openAssessmentEmailBtn'), drawerAssessmentBadge:$('drawerAssessmentBadge'), drawerAssessmentDetail:$('drawerAssessmentDetail'), drawerAssessmentActionBtn:$('drawerAssessmentActionBtn'),
-      interviewDateTime:$('interviewDateTime'), interviewType:$('interviewType'), interviewInterviewer:$('interviewInterviewer'), interviewLocation:$('interviewLocation'), interviewNotes:$('interviewNotes'), scheduleInterviewBtn:$('scheduleInterviewBtn'), clearInterviewFormBtn:$('clearInterviewFormBtn'), interviewSummary:$('interviewSummary'),
+      interviewDateTime:$('interviewDateTime'), interviewType:$('interviewType'), interviewTimezone:$('interviewTimezone'), interviewDurationMinutes:$('interviewDurationMinutes'), interviewInterviewer:$('interviewInterviewer'), interviewInterviewerEmails:$('interviewInterviewerEmails'), interviewLocation:$('interviewLocation'), interviewNotes:$('interviewNotes'), interviewEmailPreview:$('interviewEmailPreview'), scheduleInterviewBtn:$('scheduleInterviewBtn'), clearInterviewFormBtn:$('clearInterviewFormBtn'), interviewSummary:$('interviewSummary'),
     };
 
     let supabaseClient = null;
@@ -3868,6 +3869,18 @@ tr.row-assessment-progress:hover td{
       return Number.isNaN(date.getTime()) ? null : date.toISOString();
     }
 
+    function normalizeInterviewStage(value){
+      const normalized = safeText(value).toLowerCase().replace(/[\s-]+/g, '_');
+      if(normalized === 'operations_interview' || normalized === 'operations')return 'operations';
+      if(normalized === 'technical_interview' || normalized === 'technical')return 'technical';
+      if(normalized === 'hr_interview' || normalized === 'hr')return 'hr';
+      if(normalized === 'client_interview' || normalized === 'client')return 'client';
+      if(normalized === 'final_interview' || normalized === 'final')return 'final';
+      if(normalized === 'initial_interview' || normalized === 'initial')return 'initial';
+      if(normalized === 'screening_call' || normalized === 'recruiter_screen' || normalized === 'screening')return 'screening';
+      return 'screening';
+    }
+
     function formatInterviewType(value){
       return safeText(value || 'client_interview').replace(/_/g,' ').replace(/\b\w/g, char => char.toUpperCase());
     }
@@ -4552,8 +4565,14 @@ tr.row-assessment-progress:hover td{
       );
     }
 
+    function isNeedsReviewQueue(row){
+      return ['submitted','new',''].includes(normalizeStatus(row.status)) && !isReadyForReview(row);
+    }
+
     function rowMatchesSavedView(row){
       switch(state.savedView){
+        case 'needs_review_queue':
+          return isNeedsReviewQueue(row);
         case 'ready_for_review':
           return isReadyForReview(row);
         case 'awaiting_assessment':
@@ -4705,7 +4724,7 @@ tr.row-assessment-progress:hover td{
       const onboardedCount = count(r => ['onboarded'].includes(normalizeStatus(r.status)));
       const withdrawnCount = count(r => ['withdrawn','not interested','candidate withdrawn'].includes(normalizeStatus(r.status)));
       const followUpCount = count(r => hasOpenFollowUp(r));
-      const reviewCount = count(r => ['submitted',''].includes(normalizeStatus(r.status)));
+      const reviewCount = count(r => isNeedsReviewQueue(r));
       const assessmentCompletedCount = count(r => isReadyForReview(r));
       const assessmentSentCount = count(r => isAwaitingAssessment(r));
       const assessmentInProgressCount = count(r => isAssessmentInProgress(r));
@@ -4726,11 +4745,12 @@ tr.row-assessment-progress:hover td{
       setText(els.kpiOnboarded, onboardedCount);
       setText(els.kpiWithdrawn, withdrawnCount);
 
-      // Priority cards also follow the visible/filtered set.
-      setText(els.actionNeedsReview, reviewCount);
-      setText(els.actionFollowUps, followUpCount);
-      setText(els.actionReadyReview, assessmentCompletedCount);
-      setText(els.actionAwaitingAssessment, assessmentSentCount);
+      // Priority cards are global jump queues; clicking each card updates the pipeline table to the same queue.
+      const allRows = state.allRows || [];
+      setText(els.actionNeedsReview, allRows.filter(r => isNeedsReviewQueue(r)).length);
+      setText(els.actionFollowUps, allRows.filter(r => hasOpenFollowUp(r)).length);
+      setText(els.actionReadyReview, allRows.filter(r => isReadyForReview(r)).length);
+      setText(els.actionAwaitingAssessment, allRows.filter(r => isAwaitingAssessment(r)).length);
       updateMessageInboxBadge();
     }
 
@@ -4739,7 +4759,7 @@ tr.row-assessment-progress:hover td{
       if(els.densityToggleBtn)els.densityToggleBtn.textContent = state.compactRows ? 'Comfortable rows' : 'Compact rows';
       const searchBypass = hasActiveCandidateSearch();
       const viewSuffix = state.savedView && state.savedView !== 'all'
-        ? ` • ${searchBypass ? 'searching all candidates' : (document.querySelector(`[data-saved-view="${state.savedView}"]`)?.childNodes?.[0]?.textContent?.trim() || 'Saved view')}`
+        ? ` • ${searchBypass ? 'searching all candidates' : (state.savedView === 'needs_review_queue' ? 'Needs Review' : (document.querySelector(`[data-saved-view="${state.savedView}"]`)?.childNodes?.[0]?.textContent?.trim() || 'Saved view'))}`
         : '';
       els.tableCount.textContent=`${state.filteredRows.length} candidate${state.filteredRows.length===1?'':'s'}${viewSuffix}`;
       if(!state.filteredRows.length){
@@ -5782,23 +5802,99 @@ tr.row-assessment-progress:hover td{
       }
     }
 
+
+    const INTERVIEW_STAGE_TEMPLATES = {
+      screening: {
+        label: 'Screening',
+        subject: 'Interview Invitation: Screening Call for {{role}}',
+        intro: 'We would like to invite you to a screening call for the {{role}} role. During this call, we will discuss your background, experience, availability, and next steps.'
+      },
+      initial: {
+        label: 'Initial Interview',
+        subject: 'Interview Invitation: Initial Interview for {{role}}',
+        intro: 'We would like to invite you to an initial interview for the {{role}} role. This conversation will help us learn more about your experience and fit for the role.'
+      },
+      operations: {
+        label: 'Operations Interview',
+        subject: 'Interview Invitation: Operations Interview for {{role}}',
+        intro: 'You are invited to an operations interview for the {{role}} role. This discussion may cover work setup, process expectations, role responsibilities, and day-to-day scenarios.'
+      },
+      technical: {
+        label: 'Technical Interview',
+        subject: 'Interview Invitation: Technical Interview for {{role}}',
+        intro: 'You are invited to a technical interview for the {{role}} role. Please be prepared to discuss your technical experience, tools, workflows, and role-specific scenarios.'
+      },
+      hr: {
+        label: 'HR Interview',
+        subject: 'Interview Invitation: HR Interview for {{role}}',
+        intro: 'You are invited to an HR interview for the {{role}} role. We will discuss expectations, compensation, availability, work preferences, and employment requirements.'
+      },
+      client: {
+        label: 'Client Interview',
+        subject: 'Interview Invitation: Client Interview for {{role}}',
+        intro: 'You are invited to a client interview for the {{role}} role. This will be a conversation with the client or hiring team to discuss your qualifications and fit.'
+      },
+      final: {
+        label: 'Final Interview',
+        subject: 'Interview Invitation: Final Interview for {{role}}',
+        intro: 'You are invited to the final interview for the {{role}} role. This is the final step before a hiring decision or offer discussion.'
+      }
+    };
+
+    function getInterviewStageTemplate(stage){
+      return INTERVIEW_STAGE_TEMPLATES[safeText(stage || 'screening')] || INTERVIEW_STAGE_TEMPLATES.screening;
+    }
+
+    function renderInterviewEmailPreview(){
+      if(!els.interviewEmailPreview)return;
+      const row = state.allRows.find(item => item.id === state.selectedId);
+      const stage = safeText(els.interviewType?.value || 'screening');
+      const template = getInterviewStageTemplate(stage);
+      const role = row?.jobTitle || row?.app?.job_title || 'the role';
+      const when = els.interviewDateTime?.value ? formatDateTime(dateTimeLocalToIso(els.interviewDateTime.value)) : 'Date/time not selected';
+      const timezone = safeText(els.interviewTimezone?.value || 'Asia/Manila');
+      const location = safeText(els.interviewLocation?.value || 'Meeting link/location to be provided');
+      const interviewer = safeText(els.interviewInterviewer?.value || els.interviewInterviewerEmails?.value || 'Hiring team');
+      const note = safeText(els.interviewNotes?.value || '');
+      const intro = template.intro.replaceAll('{{role}}', role);
+      els.interviewEmailPreview.textContent = [
+        `Subject: ${template.subject.replaceAll('{{role}}', role)}`,
+        '',
+        intro,
+        '',
+        `When: ${when}`,
+        `Timezone: ${timezone}`,
+        `Interviewer(s): ${interviewer}`,
+        `Meeting / Location: ${location}`,
+        note ? `\nAdditional note:\n${note}` : ''
+      ].filter(Boolean).join('\n');
+    }
+
     function fillInterviewFields(row){
       const interview = row?.interview || null;
       if(els.interviewDateTime)els.interviewDateTime.value = toDateTimeLocalValue(getInterviewScheduledAt(interview));
-      if(els.interviewType)els.interviewType.value = getInterviewType(interview);
+      if(els.interviewType)els.interviewType.value = normalizeInterviewStage(getInterviewType(interview));
       if(els.interviewInterviewer)els.interviewInterviewer.value = getInterviewInterviewer(interview);
+      if(els.interviewInterviewerEmails)els.interviewInterviewerEmails.value = Array.isArray(interview?.interviewer_emails) ? interview.interviewer_emails.join(', ') : safeText(interview?.interviewer_emails || interview?.attendees || '');
+      if(els.interviewTimezone)els.interviewTimezone.value = safeText(interview?.timezone || 'Asia/Manila');
+      if(els.interviewDurationMinutes)els.interviewDurationMinutes.value = safeText(interview?.duration_minutes || interview?.durationMinutes || '30') || '30';
       if(els.interviewLocation)els.interviewLocation.value = getInterviewLocation(interview);
       if(els.interviewNotes)els.interviewNotes.value = getInterviewNotes(interview);
       if(els.interviewSummary)els.interviewSummary.textContent = getInterviewSummary(row);
-      if(els.scheduleInterviewBtn)els.scheduleInterviewBtn.textContent = interview ? 'Reschedule Interview' : 'Schedule Interview';
+      if(els.scheduleInterviewBtn)els.scheduleInterviewBtn.textContent = interview ? 'Reschedule + Send Invite' : 'Schedule + Send Invite';
+      renderInterviewEmailPreview();
     }
 
     function clearInterviewForm(){
       if(els.interviewDateTime)els.interviewDateTime.value = '';
-      if(els.interviewType)els.interviewType.value = 'client_interview';
+      if(els.interviewType)els.interviewType.value = 'screening';
       if(els.interviewInterviewer)els.interviewInterviewer.value = '';
+      if(els.interviewInterviewerEmails)els.interviewInterviewerEmails.value = '';
+      if(els.interviewTimezone)els.interviewTimezone.value = 'Asia/Manila';
+      if(els.interviewDurationMinutes)els.interviewDurationMinutes.value = '30';
       if(els.interviewLocation)els.interviewLocation.value = '';
       if(els.interviewNotes)els.interviewNotes.value = '';
+      renderInterviewEmailPreview();
     }
 
     async function scheduleInterviewForSelected(){
@@ -5814,84 +5910,42 @@ tr.row-assessment-progress:hover td{
         return;
       }
 
-      const now = new Date().toISOString();
-      const interviewType = safeText(els.interviewType?.value || 'client_interview');
-      const interviewer = safeText(els.interviewInterviewer?.value || '');
-      const location = safeText(els.interviewLocation?.value || '');
-      const notes = safeText(els.interviewNotes?.value || '');
-
-      const interviewPayload = {
-        application_id: row.id,
-        applicant_profile_id: row.profile?.id || row.app?.applicant_profile_id || null,
-        job_id: row.job?.id || row.app?.job_id || row.app?.job_id_uuid || null,
-        candidate_email: row.profile?.email || row.app?.email || null,
-        candidate_name: row.displayName || row.profile?.full_name || null,
-        interview_type: interviewType,
-        type: interviewType,
-        session_type: interviewType,
-        status: 'scheduled',
-        interview_status: 'scheduled',
-        scheduled_at: scheduledIso,
-        scheduled_start_at: scheduledIso,
-        start_time: scheduledIso,
-        starts_at: scheduledIso,
-        interview_at: scheduledIso,
-        interview_datetime: scheduledIso,
-        scheduled_for: scheduledIso,
-        interviewer_email: interviewer || state.currentUser?.email || null,
-        interviewer: interviewer || null,
-        interviewer_name: interviewer || null,
-        client_contact: interviewer || null,
-        meeting_link: location || null,
-        meeting_url: location || null,
-        location: location || null,
-        interview_link: location || null,
-        video_link: location || null,
-        notes: notes || null,
-        interview_notes: notes || null,
-        description: notes || null,
-        created_by: state.currentUser?.email || null,
-        recruiter_email: state.currentUser?.email || row.recruiter || null,
-        created_at: now,
-        updated_at: now
-      };
+      const stage = normalizeInterviewStage(els.interviewType?.value || 'screening');
+      const interviewerName = safeText(els.interviewInterviewer?.value || '');
+      const interviewerEmails = safeText(els.interviewInterviewerEmails?.value || '');
+      const locationOrLink = safeText(els.interviewLocation?.value || '');
+      const timezone = safeText(els.interviewTimezone?.value || 'Asia/Manila') || 'Asia/Manila';
+      const durationMinutes = Number(els.interviewDurationMinutes?.value || 30);
+      const customMessage = safeText(els.interviewNotes?.value || '');
 
       try{
         if(els.scheduleInterviewBtn){
           els.scheduleInterviewBtn.disabled = true;
-          els.scheduleInterviewBtn.textContent = 'Scheduling...';
+          els.scheduleInterviewBtn.textContent = 'Sending invite...';
         }
 
-        const savedInterview = await insertAdaptive('interview_sessions', interviewPayload, ['application_id']);
-
-        await updateApplicationWithFallback(row.id, {
-          status: 'for interview',
-          recruiter_notes: row.app?.recruiter_notes || null,
-          stage_note_label: row.app?.stage_note_label || row.app?.recruiter_notes || null,
-          updated_at: now,
-          follow_up_required: row.app?.follow_up_required,
-          follow_up_status: row.app?.follow_up_status,
-          follow_up_date: row.app?.follow_up_date,
-          follow_up_due_at: row.app?.follow_up_due_at,
-          follow_up_note: row.app?.follow_up_note,
-          last_followed_up_at: row.app?.last_followed_up_at
+        const { data, error } = await supabaseClient.functions.invoke(CONFIG.INTERVIEW_INVITE_FUNCTION, {
+          body: {
+            application_id: row.id,
+            stage,
+            scheduled_at: scheduledIso,
+            duration_minutes: Number.isFinite(durationMinutes) ? durationMinutes : 30,
+            timezone,
+            interviewer_name: interviewerName,
+            interviewer_emails: interviewerEmails,
+            meeting_link: /^https?:\/\//i.test(locationOrLink) ? locationOrLink : '',
+            location: /^https?:\/\//i.test(locationOrLink) ? '' : locationOrLink,
+            custom_message: customMessage,
+            recruiter_email: state.currentUser?.email || row.recruiter || '',
+            send_to_interviewers: true,
+            include_calendar_invite: true
+          }
         });
 
-        await insertCandidateActivitySafe({
-          applicant_profile_id: row.profile?.id || row.app?.applicant_profile_id || null,
-          application_id: row.id,
-          activity_type: 'interview_scheduled',
-          title: 'Interview scheduled',
-          source: 'dashboard',
-          body: getInterviewSummary({ ...row, interview: savedInterview || interviewPayload }),
-          created_at: now
-        });
+        if(error)throw error;
+        if(data && data.success === false)throw new Error(data.error || 'Interview invite failed.');
 
-        row.interview = savedInterview || interviewPayload;
-        row.status = 'for interview';
-        row.app = {...row.app, status:'for interview', updated_at: now};
-
-        showNotice('Interview scheduled and candidate moved to For Interview.', 'success');
+        showNotice('Interview scheduled and invite sent to the candidate.', 'success');
         await loadDashboard();
         await openDrawer(row.id);
       }catch(error){
@@ -5901,7 +5955,7 @@ tr.row-assessment-progress:hover td{
         if(els.scheduleInterviewBtn){
           els.scheduleInterviewBtn.disabled = false;
           const refreshed = state.allRows.find(item => item.id === row.id) || row;
-          els.scheduleInterviewBtn.textContent = refreshed.interview ? 'Reschedule Interview' : 'Schedule Interview';
+          els.scheduleInterviewBtn.textContent = refreshed.interview ? 'Reschedule + Send Invite' : 'Schedule + Send Invite';
         }
       }
     }
@@ -7087,16 +7141,16 @@ async function bulkUploadResumes(){
       [els.searchInput,els.candidateNameFilter,els.statusFilter,els.recruiterFilter,els.followUpFilter,els.jobFilter,els.clientFilter,els.countryFilter,els.workSetupFilter,els.scoreFilter].forEach(el=>{el?.addEventListener('input',applyFilters);el?.addEventListener('change',applyFilters)});
       document.querySelectorAll('[data-quick-filter]').forEach(btn=>btn.addEventListener('click',()=>{
         clearFilters(false);
-        const f=btn.dataset.quickFilter;
-        if(f==='unassigned'){
-          setSavedView('unassigned');
-        }else{
-          if(f==='follow_up')els.followUpFilter.value='all_open';
-          if(f==='high_match')els.scoreFilter.value='strong';
-          if(f==='low_fit')els.scoreFilter.value='weak';
-          if(f==='needs_review')els.statusFilter.value='submitted';
-          applyFilters();
-        }
+        const f = btn.dataset.quickFilter;
+        const savedViewMap = {
+          needs_review: 'needs_review_queue',
+          follow_up: 'my_followups',
+          ready_for_review: 'ready_for_review',
+          awaiting_assessment: 'awaiting_assessment',
+          unassigned: 'unassigned'
+        };
+        const targetView = savedViewMap[f] || 'all';
+        setSavedView(targetView);
         document.getElementById('pipeline')?.scrollIntoView({behavior:'smooth',block:'start'});
       }));
 
@@ -7156,6 +7210,7 @@ async function bulkUploadResumes(){
       els.viewResumeBtn?.addEventListener('click',()=>openResumeModal(state.selectedResumeUrl,state.selectedResumePath||'Resume Viewer')); els.importClipboardResumeBtn?.addEventListener('click',importResumeFromClipboard); els.markNeedsFollowUpBtn?.addEventListener('click',()=>setFollowUpQuick('needs_follow_up')); els.markFollowedUpBtn?.addEventListener('click',()=>setFollowUpQuick('followed_up')); els.parseResumeBtn?.addEventListener('click',parseSelectedResume);
       els.uploadResumeBtn?.addEventListener('click',()=>uploadResumeForSelected(false));
       els.saveBtn?.addEventListener('click',saveSelectedRow);
+      [els.interviewDateTime, els.interviewType, els.interviewTimezone, els.interviewDurationMinutes, els.interviewInterviewer, els.interviewInterviewerEmails, els.interviewLocation, els.interviewNotes].forEach(el=>{el?.addEventListener('input',renderInterviewEmailPreview);el?.addEventListener('change',renderInterviewEmailPreview);});
       els.scheduleInterviewBtn?.addEventListener('click',scheduleInterviewForSelected);
       els.clearInterviewFormBtn?.addEventListener('click',clearInterviewForm);
       els.saveCandidateInfoBtn?.addEventListener('click',updateCandidateInfo);
