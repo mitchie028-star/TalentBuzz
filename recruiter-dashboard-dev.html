@@ -2396,7 +2396,7 @@ tr.row-assessment-progress:hover td{
       <div class="modal-head">
         <div>
           <strong>Import Resume Text</strong>
-          <div class="small" id="resumeParserSubtitle">Paste copied Indeed resume/application text, review the extracted fields, then save.</div>
+          <div class="small" id="resumeParserSubtitle">Paste copied Indeed resume/application text, parse with TalentBuzz AI, review, then save.</div>
         </div>
         <button class="btn btn-xs" id="resumeParserClose" type="button">Close</button>
       </div>
@@ -2409,7 +2409,7 @@ tr.row-assessment-progress:hover td{
           </div>
           <div class="actions" style="margin-top:10px;">
             <button class="btn btn-xs" id="resumeParserPasteBtn" type="button">Paste from Clipboard</button>
-            <button class="btn btn-primary btn-xs" id="resumeParserParseBtn" type="button">Parse Preview</button>
+            <button class="btn btn-primary btn-xs" id="resumeParserParseBtn" type="button">Parse with AI</button>
             <button class="btn btn-xs" id="resumeParserClearBtn" type="button">Clear</button>
           </div>
           <div class="resume-parser-status hidden" id="resumeParserStatus">Paste text to begin.</div>
@@ -2440,7 +2440,7 @@ tr.row-assessment-progress:hover td{
   </div>
 
   <script>
-    console.log('BuzzHire recruiter-dashboard-resume-viewer-v2026-05-24 loaded');
+    console.log('BuzzHire recruiter-dashboard-ai-clipboard-parser-v2026-05-24 loaded');
 
     const CONFIG = {
       SUPABASE_URL: window.TALENTBUZZ_SUPABASE_URL || localStorage.getItem('TALENTBUZZ_SUPABASE_URL') || '',
@@ -4155,6 +4155,213 @@ tr.row-assessment-progress:hover td{
 
     async function importResumeFromClipboard(){
       openResumeParserModal();
+    }
+
+
+    /* ===== AI-powered clipboard resume parser =====
+       Reuses the same parse-resume-gemini flow as recruiter-add-candidate.html:
+       pasted text -> temporary .txt in resumes bucket -> Gemini preview parse -> recruiter reviews -> save.
+       The older regex parser remains above only as an emergency fallback. These functions intentionally override it.
+    */
+
+    function normalizeParserSkills(value){
+      if(Array.isArray(value))return value.map(safeText).filter(Boolean).join(', ');
+      return safeText(value || '');
+    }
+
+    function normalizeParserYears(value){
+      const raw = safeText(value);
+      if(!raw)return '';
+      if(/less than/i.test(raw))return '0';
+      const match = raw.match(/\d+(?:\.\d+)?/);
+      return match ? match[0] : raw;
+    }
+
+    function getParserSummary(parsed){
+      return safeText(
+        parsed?.summary ||
+        parsed?.experience_summary ||
+        parsed?.profile_summary ||
+        parsed?.candidate_summary ||
+        parsed?.raw_resume_text ||
+        ''
+      );
+    }
+
+    function buildClipboardResumePath(row){
+      const profile = row?.profile || {};
+      const email = normalizeEmail(profile.email || row?.app?.email || 'unknown');
+      const folder = normalizeEmailFolder(email) || safeText(profile.id || row?.id || 'unknown');
+      return `clipboard/${folder}/${Date.now()}-pasted-resume.txt`;
+    }
+
+    async function uploadClipboardTextForParsing(row, rawText){
+      if(!row?.profile?.id)throw new Error('This candidate does not have an applicant profile ID.');
+      const cleanText = String(rawText || '').trim();
+      if(cleanText.length < 50)throw new Error('Paste at least 50 characters of resume/application text before parsing.');
+
+      const uploadPath = buildClipboardResumePath(row);
+      const blob = new Blob([cleanText], { type: 'text/plain;charset=utf-8' });
+
+      const { error } = await supabaseClient.storage
+        .from(CONFIG.RESUME_BUCKET)
+        .upload(uploadPath, blob, {
+          contentType: 'text/plain;charset=utf-8',
+          upsert: true
+        });
+
+      if(error)throw new Error(getReadableError(error));
+      return uploadPath;
+    }
+
+    async function invokeGeminiParserPreview({ row, resumePath }){
+      const sessionResult = await supabaseClient.auth.getSession();
+      const accessToken = sessionResult?.data?.session?.access_token;
+
+      const response = await fetch(`${CONFIG.SUPABASE_URL}/functions/v1/parse-resume-gemini`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'apikey': CONFIG.SUPABASE_ANON_KEY,
+          'Authorization': `Bearer ${accessToken || CONFIG.SUPABASE_ANON_KEY}`
+        },
+        body: JSON.stringify({
+          applicant_profile_id: '00000000-0000-0000-0000-000000000000',
+          resume_path: resumePath,
+          preview_only: true,
+          source: 'clipboard',
+          application_id: row?.id || row?.app?.id || null
+        })
+      });
+
+      const resultText = await response.text();
+      let result;
+      try{ result = JSON.parse(resultText); }
+      catch{ result = { ok:false, error: resultText || `Function returned status ${response.status}` }; }
+
+      console.log('Clipboard resume parser preview response:', result);
+
+      if(!response.ok || !result?.ok){
+        throw new Error(getReadableError(result) || `Parser failed with status ${response.status}`);
+      }
+
+      return result.parsed || result.data?.parsed || result.resume || result;
+    }
+
+    async function parseResumeParserPreview(){
+      const row = state.allRows.find(item => item.id === (state.resumeParserRowId || state.selectedId));
+      const rawText = safeText(els.resumeParserRawText?.value || '');
+
+      if(!row)return showNotice('Open a candidate first.', 'error');
+      if(rawText.length < 50){
+        setResumeParserStatus('Paste at least 50 characters of resume/application text before parsing.', 'error');
+        return null;
+      }
+
+      try{
+        if(els.resumeParserParseBtn){
+          els.resumeParserParseBtn.disabled = true;
+          els.resumeParserParseBtn.textContent = 'Parsing with AI...';
+        }
+
+        setResumeParserStatus('Uploading pasted text and parsing with TalentBuzz AI...', 'info');
+
+        const uploadPath = await uploadClipboardTextForParsing(row, rawText);
+        const parsedFromGemini = await invokeGeminiParserPreview({ row, resumePath: uploadPath });
+
+        const parsed = {
+          ...parsedFromGemini,
+          full_name: parsedFromGemini.full_name || parsedFromGemini.name || '',
+          email: parsedFromGemini.email || '',
+          phone: parsedFromGemini.phone || parsedFromGemini.mobile || parsedFromGemini.phone_number || '',
+          location: parsedFromGemini.location || parsedFromGemini.city || parsedFromGemini.address || '',
+          years_of_experience: normalizeParserYears(parsedFromGemini.years_of_experience ?? parsedFromGemini.years_experience),
+          skills: normalizeParserSkills(parsedFromGemini.skills),
+          summary: getParserSummary(parsedFromGemini),
+          raw_resume_text: rawText,
+          imported_from: 'clipboard_ai_preview',
+          clipboard_resume_path: uploadPath,
+          imported_at: new Date().toISOString()
+        };
+
+        state.resumeParserParsed = parsed;
+        fillResumeParserFields(parsed, row);
+
+        const warnings = [];
+        if(looksLikeDashboardPaste(rawText))warnings.push('This paste includes dashboard text. AI parsing still ran, but review fields before saving. For best results, copy only the Indeed resume page content.');
+        if(!parsed.email)warnings.push('No email detected by AI.');
+        if(!parsed.phone)warnings.push('No phone number detected by AI.');
+
+        setResumeParserStatus(warnings.length ? warnings.join('\n') : 'AI parsed preview ready. Review the fields, then save.', warnings.length ? 'info' : 'success');
+        return parsed;
+      }catch(error){
+        console.error('AI clipboard parsing failed:', error);
+        setResumeParserStatus(`AI parsing failed: ${getReadableError(error)}\n\nFallback: you can still type/edit the fields manually before saving.`, 'error');
+        return null;
+      }finally{
+        if(els.resumeParserParseBtn){
+          els.resumeParserParseBtn.disabled = false;
+          els.resumeParserParseBtn.textContent = 'Parse with AI';
+        }
+      }
+    }
+
+    async function saveResumeParserImport(){
+      const row = state.allRows.find(item => item.id === (state.resumeParserRowId || state.selectedId));
+      if(!row)return showNotice('Open a candidate first.', 'error');
+      const rawText = safeText(els.resumeParserRawText?.value || '');
+      if(rawText.length < 50){
+        setResumeParserStatus('Paste resume/application text before saving.', 'error');
+        return;
+      }
+
+      let parsedPreview = state.resumeParserParsed;
+      if(!parsedPreview){
+        parsedPreview = await parseResumeParserPreview();
+      }
+      if(!parsedPreview)return;
+
+      const edited = getResumeParserValues();
+      const parsed = {
+        ...parsedPreview,
+        full_name: edited.full_name,
+        email: edited.email,
+        phone: edited.phone,
+        location: edited.location,
+        years_of_experience: normalizeParserYears(edited.years_of_experience),
+        skills: edited.skills,
+        summary: edited.summary,
+        raw_resume_text: rawText,
+        imported_from: 'clipboard_ai_reviewed',
+        imported_at: new Date().toISOString()
+      };
+
+      try{
+        if(els.resumeParserSaveBtn){
+          els.resumeParserSaveBtn.disabled = true;
+          els.resumeParserSaveBtn.textContent = 'Saving...';
+        }
+
+        await updateApplicantProfileFromClipboard(row, rawText, parsed, {job_id: edited.job_id, job: edited.job});
+        setResumeParserStatus('Parsed details saved to candidate profile.', 'success');
+        showNotice('Parsed resume details saved.', 'success');
+        closeResumeParserModal();
+        await loadDashboard();
+        await openDrawer(row.id);
+        if(isCandidateModalOpen()){
+          const refreshed = state.allRows.find(item => item.id === row.id);
+          fillCandidateModal(refreshed || row);
+        }
+      }catch(error){
+        console.error('Unable to save AI parsed resume text:', error);
+        setResumeParserStatus(`Unable to save parsed details: ${getReadableError(error)}`, 'error');
+        showNotice(`Unable to save parsed details: ${getReadableError(error)}`, 'error');
+      }finally{
+        if(els.resumeParserSaveBtn){
+          els.resumeParserSaveBtn.disabled = false;
+          els.resumeParserSaveBtn.textContent = 'Save Parsed Details';
+        }
+      }
     }
 
     async function updateCandidateInfo(){
