@@ -2619,10 +2619,43 @@ tr.row-assessment-progress:hover td{
       return date.toLocaleDateString(undefined,{month:'short',day:'numeric'}) + ' • ' + date.toLocaleTimeString(undefined,{hour:'numeric',minute:'2-digit'});
     }
 
+    function decodeHtmlEntitiesForTimeline(value){
+      let text = safeText(value);
+      if(!text)return '';
+
+      try{
+        const textarea = document.createElement('textarea');
+        for(let i = 0; i < 3; i += 1){
+          textarea.innerHTML = text;
+          const decoded = textarea.value;
+          if(decoded === text)break;
+          text = decoded;
+        }
+      }catch(_){
+        text = text
+          .replace(/&lt;/gi, '<')
+          .replace(/&gt;/gi, '>')
+          .replace(/&amp;/gi, '&')
+          .replace(/&nbsp;/gi, ' ')
+          .replace(/&#39;/g, "'")
+          .replace(/&quot;/g, '"');
+      }
+
+      return text;
+    }
+
     function stripHtmlForTimeline(value){
-      const raw = safeText(value);
-      if(!raw)return '';
-      let cleaned = raw;
+      let cleaned = decodeHtmlEntitiesForTimeline(value);
+      if(!cleaned)return '';
+
+      cleaned = cleaned
+        .replace(/<!--[\s\S]*?-->/g, ' ')
+        .replace(/<!doctype[\s\S]*?>/gi, ' ')
+        .replace(/<head[\s\S]*?<\/head>/gi, ' ')
+        .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+        .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+        .replace(/<br\s*\/?\s*>/gi, '\n')
+        .replace(/<\/(p|div|tr|td|table|h1|h2|h3|h4|li)>/gi, '\n');
 
       if(/<[^>]+>/.test(cleaned)){
         try{
@@ -2635,12 +2668,161 @@ tr.row-assessment-progress:hover td{
 
       return cleaned
         .replace(/\u00a0/g, ' ')
-        .replace(/&nbsp;/gi, ' ')
-        .replace(/&amp;/gi, '&')
-        .replace(/&#39;/g, "'")
-        .replace(/&quot;/g, '"')
+        .replace(/[ \t]+/g, ' ')
+        .replace(/\n\s*\n+/g, '\n')
         .replace(/\s+/g, ' ')
         .trim();
+    }
+
+    function getTimelineLines(value){
+      const decoded = decodeHtmlEntitiesForTimeline(value);
+      if(!decoded)return [];
+
+      let working = decoded;
+
+      // If this is a full HTML email, strip comments/head/script/style first.
+      working = working
+        .replace(/<!--[\s\S]*?-->/g, ' ')
+        .replace(/<!doctype[\s\S]*?>/gi, ' ')
+        .replace(/<head[\s\S]*?<\/head>/gi, ' ')
+        .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+        .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+        .replace(/<meta[\s\S]*?>/gi, ' ')
+        .replace(/<title[\s\S]*?<\/title>/gi, ' ')
+        .replace(/<br\s*\/?\s*>/gi, '\n')
+        .replace(/<\/(p|div|tr|td|table|h1|h2|h3|h4|li|span|a)>/gi, '\n')
+        .replace(/<[^>]+>/g, '\n');
+
+      return working
+        .replace(/\u00a0/g, ' ')
+        .replace(/&nbsp;/gi, ' ')
+        .split(/\n+/)
+        .map(line => line.replace(/\s+/g, ' ').trim())
+        .filter(Boolean);
+    }
+
+    function isIndeedNoiseLine(line){
+      const text = safeText(line).toLowerCase();
+      return !text ||
+        text === 'indeed for employers' ||
+        text === 'indeed' ||
+        text === 'download app' ||
+        text === 'reply to message' ||
+        text.includes('skip to content') ||
+        text.includes('using talentbuzz mail') ||
+        text.includes('enable desktop notifications') ||
+        text.includes('you can reply to this email') ||
+        text.includes('this message is part of a conversation') ||
+        text.includes('suspect spam or fraud') ||
+        text.includes('indeed processes and analyzes') ||
+        text.includes('by replying or using an @indeedemail.com') ||
+        text.includes('cookie policy') ||
+        text.includes('privacy policy') ||
+        text.includes('terms of service') ||
+        text.includes('© 2026 indeed') ||
+        text.includes('collyer quay') ||
+        text.includes('ocean financial centre') ||
+        text.includes('singapore operations') ||
+        text.includes('to see the current list of recipients') ||
+        text.includes('to respond to this message');
+    }
+
+    function looksLikeIndeedEmail(value){
+      const text = decodeHtmlEntitiesForTimeline(value).toLowerCase();
+      return text.includes('indeed for employers') ||
+        text.includes("you've received a new message from") ||
+        text.includes('you’ve received a new message from') ||
+        text.includes('reply to message') ||
+        text.includes('indeedemail.com') ||
+        text.includes('indeed processes and analyzes');
+    }
+
+    function isLikelyJobOrLocationLine(line){
+      const text = safeText(line);
+      const lower = text.toLowerCase();
+
+      if(!text)return false;
+      if(/\b(package|incentives|representative|csr|assistant|specialist|associate|agent|manager|healthcare|customer service|sales|developer|accounting|bookkeeper)\b/i.test(text) && /[|–-]/.test(text))return true;
+      if(/^(healthcare|customer service|csr|sales|virtual assistant|bookkeeper|developer|accounting|admin|office)\b/i.test(text) && text.length > 18)return true;
+      if(/^(lipa city|manila|cebu|makati|taguig|pasig|quezon city|davao|iloilo|bacolod|philippines)$/i.test(text))return true;
+      if(['resolveiq','talentbuzz','resultsCX'.toLowerCase()].includes(lower))return true;
+      return false;
+    }
+
+    function extractIndeedCandidateMessage(value){
+      const lines = getTimelineLines(value);
+      if(!lines.length)return '';
+
+      // Indeed's normal layout is:
+      // You've received a new message from NAME
+      // <candidate message>
+      // <job title>
+      // <company/location>
+      const markerIndex = lines.findIndex(line => /you[’']?ve received a new message from/i.test(line));
+      if(markerIndex >= 0){
+        const collected = [];
+
+        for(let i = markerIndex + 1; i < lines.length; i += 1){
+          const line = safeText(lines[i]);
+          if(!line)continue;
+
+          if(isIndeedNoiseLine(line)){
+            if(collected.length)break;
+            continue;
+          }
+
+          if(isLikelyJobOrLocationLine(line) && collected.length)break;
+          if(/^reply to message$/i.test(line))break;
+
+          // Avoid accidentally showing the candidate name line or the email subject.
+          if(/^new message from/i.test(line))continue;
+          if(/new message from .* - /i.test(line))continue;
+          if(/you[’']?ve received a new message from/i.test(line))continue;
+
+          collected.push(line);
+          if(collected.join(' ').length >= 600)break;
+        }
+
+        const message = collected
+          .filter(line => !isIndeedNoiseLine(line))
+          .filter(line => !isLikelyJobOrLocationLine(line))
+          .join(' ')
+          .replace(/\s+/g, ' ')
+          .trim();
+
+        if(message)return message;
+      }
+
+      // Fallback: take the cleanest line before "Reply to message" that is not system/job/legal text.
+      const replyIndex = lines.findIndex(line => /^reply to message$/i.test(line));
+      const beforeReply = replyIndex >= 0 ? lines.slice(0, replyIndex) : lines;
+      const candidates = beforeReply
+        .filter(line => !isIndeedNoiseLine(line))
+        .filter(line => !isLikelyJobOrLocationLine(line))
+        .filter(line => !/you[’']?ve received a new message from/i.test(line))
+        .filter(line => !/new message from .* - /i.test(line))
+        .filter(line => line.length <= 500);
+
+      // Prefer short natural-language reply lines over long email boilerplate.
+      const shortCandidate = candidates.find(line => line.length <= 180 && /[a-zA-Z]/.test(line));
+      if(shortCandidate)return shortCandidate;
+      if(candidates.length)return candidates.slice(0, 2).join(' ').replace(/\s+/g, ' ').trim();
+
+      return stripHtmlForTimeline(value);
+    }
+
+    function getActivityBodyForTimeline(activity){
+      const type = safeText(activity?.activity_type).toLowerCase();
+      const source = safeText(activity?.source).toLowerCase();
+      const body = activity?.body;
+
+      // Use the Indeed extractor even when source was stored as gmail/empty,
+      // because older ingested rows saved the entire Indeed forwarded HTML body.
+      if(type === 'candidate_message' && (source.includes('indeed') || looksLikeIndeedEmail(body))){
+        return extractIndeedCandidateMessage(body);
+      }
+
+      return stripHtmlForTimeline(body);
     }
 
     function formatActivityTitle(activity){
@@ -2673,8 +2855,8 @@ tr.row-assessment-progress:hover td{
           if(seen.has(uniqueKey))return null;
           seen.add(uniqueKey);
 
-          const body = stripHtmlForTimeline(activity.body);
-          const preview = body.length > 900 ? `${body.slice(0, 900)}…` : body;
+          const body = getActivityBodyForTimeline(activity);
+          const preview = body.length > 500 ? `${body.slice(0, 500)}…` : body;
 
           return {
             title: formatActivityTitle(activity),
