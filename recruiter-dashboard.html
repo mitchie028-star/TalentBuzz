@@ -4492,7 +4492,6 @@ tr.row-assessment-progress:hover td{
     async function updateCandidateInfo(){
       const row = state.allRows.find(item => item.id === state.selectedId);
       if(!row)return showNotice('Open a candidate first.', 'error');
-      if(!row.profile?.id)return showNotice('This candidate does not have an applicant profile ID.', 'error');
 
       const values = getCandidateEditValues(isCandidateModalOpen());
       if(!values.email)return showNotice('Candidate email is required.', 'error');
@@ -4526,48 +4525,91 @@ tr.row-assessment-progress:hover td{
         appPayload.job_title = values.job?.title || row.app?.job_title || null;
       }
 
-      const updateWithFallbacks = async (table, id, attempts) => {
+      const stripSchemaErrorColumn = (payload, error) => {
+        const message = safeText(error?.message || error?.details || error?.hint || error);
+        const patterns = [
+          /Could not find the '([^']+)' column/i,
+          /column "([^"]+)" (?:of relation .* )?does not exist/i,
+          /schema cache.*'([^']+)'/i
+        ];
+        for(const pattern of patterns){
+          const match = message.match(pattern);
+          if(match?.[1] && Object.prototype.hasOwnProperty.call(payload, match[1])){
+            const next = {...payload};
+            delete next[match[1]];
+            return next;
+          }
+        }
+        return null;
+      };
+
+      const updateAdaptive = async (table, id, payload, requiredKeys = ['updated_at']) => {
+        let cleanPayload = Object.fromEntries(
+          Object.entries(payload).filter(([,value]) => value !== undefined)
+        );
         let lastError = null;
-        for(const attempt of attempts){
-          const cleanPayload = Object.fromEntries(
-            Object.entries(attempt).filter(([,value]) => value !== undefined)
-          );
+
+        // Retry by removing only columns that the current Supabase schema reports as missing.
+        // This lets newer environments save all profile fields, while older schemas still save core edits.
+        for(let attempt = 0; attempt < 12; attempt += 1){
           const { error } = await supabaseClient.from(table).update(cleanPayload).eq('id', id);
           if(!error)return cleanPayload;
           lastError = error;
-          console.warn(`${table} candidate edit update attempt failed:`, error?.message || error, cleanPayload);
+          console.warn(`${table} adaptive update failed:`, error?.message || error, cleanPayload);
+
+          const reduced = stripSchemaErrorColumn(cleanPayload, error);
+          if(!reduced || Object.keys(reduced).length === Object.keys(cleanPayload).length)break;
+          cleanPayload = reduced;
+        }
+
+        // Last-resort safe update so the UI does not report total failure when optional columns differ.
+        const safePayload = Object.fromEntries(
+          Object.entries(cleanPayload).filter(([key]) => requiredKeys.includes(key))
+        );
+        if(Object.keys(safePayload).length){
+          const { error } = await supabaseClient.from(table).update(safePayload).eq('id', id);
+          if(!error)return safePayload;
+          lastError = error;
         }
         throw lastError || new Error(`Unable to update ${table}.`);
+      };
+
+      const findOrCreateProfileId = async () => {
+        if(row.profile?.id)return row.profile.id;
+
+        const byEmail = await supabaseClient
+          .from('applicant_profiles')
+          .select('id')
+          .eq('email', values.email)
+          .maybeSingle();
+
+        if(byEmail.error && byEmail.error.code !== 'PGRST116')throw byEmail.error;
+        if(byEmail.data?.id)return byEmail.data.id;
+
+        const insertPayload = Object.fromEntries(
+          Object.entries(profilePayload).filter(([,value]) => value !== undefined)
+        );
+        const inserted = await supabaseClient
+          .from('applicant_profiles')
+          .insert(insertPayload)
+          .select('id')
+          .single();
+        if(inserted.error)throw inserted.error;
+        return inserted.data?.id;
       };
 
       try{
         [els.saveCandidateInfoBtn, els.modalSaveCandidateInfoBtn].forEach(btn=>{ if(btn){btn.disabled=true; btn.textContent='Saving...';} });
 
-        // Some BuzzHire environments do not have every optional profile column yet.
-        // Try the complete update first, then fall back to the safest core fields.
-        await updateWithFallbacks('applicant_profiles', row.profile.id, [
-          profilePayload,
-          {
-            full_name: profilePayload.full_name,
-            email: profilePayload.email,
-            phone: profilePayload.phone,
-            location: profilePayload.location,
-            education: profilePayload.education,
-            updated_at: profilePayload.updated_at
-          },
-          {
-            full_name: profilePayload.full_name,
-            email: profilePayload.email,
-            updated_at: profilePayload.updated_at
-          }
-        ]);
+        const profileId = await findOrCreateProfileId();
+        const savedProfilePayload = await updateAdaptive('applicant_profiles', profileId, profilePayload, ['full_name','email','phone','location','updated_at']);
 
-        await updateWithFallbacks('applications', row.id, [
-          appPayload,
-          values.job_id ? { job_id: appPayload.job_id, job_title: appPayload.job_title, updated_at: now } : { updated_at: now },
-          { updated_at: now }
-        ]);
+        const finalAppPayload = {...appPayload};
+        if(profileId && !row.app?.applicant_profile_id)finalAppPayload.applicant_profile_id = profileId;
 
+        await updateAdaptive('applications', row.id, finalAppPayload, ['email','updated_at']);
+
+        console.log('Candidate profile saved:', {applicationId: row.id, profileId, savedProfilePayload, finalAppPayload});
         showNotice('Candidate info updated.', 'success');
         await loadDashboard();
         await openDrawer(row.id);
