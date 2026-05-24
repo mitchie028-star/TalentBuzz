@@ -1898,6 +1898,58 @@ tr.row-assessment-progress:hover td{
     }
     @media(max-width:760px){.interview-grid{grid-template-columns:1fr}}
 
+
+    /* Interview scheduler multi-interviewer controls */
+    .interviewer-email-box{
+      min-height:74px!important;
+    }
+    .interviewer-chip-row{
+      display:flex;
+      flex-wrap:wrap;
+      gap:7px;
+      margin-top:8px;
+    }
+    .interviewer-chip{
+      display:inline-flex;
+      align-items:center;
+      gap:6px;
+      min-height:28px;
+      padding:4px 9px;
+      border-radius:999px;
+      background:var(--accent-soft);
+      color:var(--accent-deep);
+      border:1px solid var(--accent-line);
+      font-size:.72rem;
+      font-weight:850;
+      max-width:100%;
+    }
+    .interviewer-chip.invalid{
+      background:var(--bad-bg);
+      border-color:#fecdca;
+      color:var(--bad);
+    }
+    .interviewer-chip button{
+      border:0;
+      background:transparent;
+      color:inherit;
+      font-weight:900;
+      padding:0;
+      line-height:1;
+    }
+    .interview-email-preview{
+      margin-top:10px;
+      padding:11px 12px;
+      border:1px solid var(--line);
+      border-radius:13px;
+      background:#fff;
+      color:#344054;
+      font-size:.78rem;
+      line-height:1.5;
+      white-space:pre-wrap;
+      max-height:210px;
+      overflow:auto;
+    }
+
 </style>
 </head>
 <body class="auth-pending">
@@ -2193,13 +2245,20 @@ tr.row-assessment-progress:hover td{
                 <h3>Interview Schedule</h3>
                 <div class="interview-grid">
                   <div class="field"><label for="interviewDateTime">Date and time</label><input id="interviewDateTime" type="datetime-local" /></div>
-                  <div class="field"><label for="interviewType">Interview type</label><select id="interviewType"><option value="client_interview">Client interview</option><option value="recruiter_screen">Recruiter screen</option><option value="technical_interview">Technical interview</option><option value="final_interview">Final interview</option></select></div>
-                  <div class="field"><label for="interviewInterviewer">Interviewer / Client</label><input id="interviewInterviewer" type="text" placeholder="Interviewer name or email" /></div>
+                  <div class="field"><label for="interviewType">Interview stage</label><select id="interviewType"><option value="screening">Screening</option><option value="initial">Initial Interview</option><option value="operations">Operations Interview</option><option value="technical">Technical Interview</option><option value="hr">HR Interview</option><option value="client">Client Interview</option><option value="final">Final Interview</option></select></div>
+                  <div class="field"><label for="interviewTimezone">Timezone</label><input id="interviewTimezone" type="text" value="Asia/Manila" placeholder="Asia/Manila" /></div>
+                  <div class="field"><label for="interviewDurationMinutes">Duration</label><select id="interviewDurationMinutes"><option value="15">15 minutes</option><option value="30" selected>30 minutes</option><option value="45">45 minutes</option><option value="60">60 minutes</option><option value="90">90 minutes</option><option value="120">120 minutes</option></select></div>
+                  <div class="field full"><label for="interviewInterviewerEmails">Interviewers / CC emails</label><textarea id="interviewInterviewerEmails" class="interviewer-email-box" placeholder="Add one or more interviewer emails, separated by commas, semicolons, spaces, or new lines. Example:
+client@company.com
+opslead@company.com"></textarea></div>
+                  <div class="field"><label for="interviewInterviewer">Interviewer display name</label><input id="interviewInterviewer" type="text" placeholder="Optional: Hiring team, client panel, or lead interviewer" /></div>
                   <div class="field"><label for="interviewLocation">Meeting link / location</label><input id="interviewLocation" type="text" placeholder="Google Meet, Zoom, office, or phone" /></div>
-                  <div class="field full"><label for="interviewNotes">Interview notes</label><textarea id="interviewNotes" placeholder="Agenda, client instructions, prep notes, or reminders..."></textarea></div>
+                  <div class="field full"><label for="interviewNotes">Candidate invite note</label><textarea id="interviewNotes" placeholder="Prep notes, agenda, client instructions, or reminders for the candidate..."></textarea></div>
                 </div>
+                <div class="interviewer-chip-row" id="interviewerEmailChips"></div>
+                <div class="interview-email-preview" id="interviewEmailPreview">Select a candidate and interview stage to preview the invitation.</div>
                 <div class="actions" style="margin-top:10px;">
-                  <button class="btn btn-primary btn-xs" id="scheduleInterviewBtn" type="button">Schedule Interview</button>
+                  <button class="btn btn-primary btn-xs" id="scheduleInterviewBtn" type="button">Schedule + Send Invite</button>
                   <button class="btn btn-xs" id="clearInterviewFormBtn" type="button">Clear</button>
                 </div>
                 <div class="interview-summary" id="interviewSummary">No interview scheduled yet.</div>
@@ -2585,7 +2644,7 @@ tr.row-assessment-progress:hover td{
   </div>
 
   <script>
-    console.log('BuzzHire recruiter-dashboard-interview-scheduling-v2026-05-24 loaded');
+    console.log('BuzzHire recruiter-dashboard-multiple-interviewers-v2026-05-24 loaded');
 
     const CONFIG = {
       SUPABASE_URL: window.TALENTBUZZ_SUPABASE_URL || localStorage.getItem('TALENTBUZZ_SUPABASE_URL') || '',
@@ -3840,7 +3899,7 @@ tr.row-assessment-progress:hover td{
     }
 
     function getInterviewType(interview){
-      return safeText(interview?.interview_type || interview?.type || interview?.session_type || 'client_interview') || 'client_interview';
+      return normalizeInterviewStage(interview?.interview_type || interview?.type || interview?.session_type || interview?.interview_stage || interview?.stage || 'screening');
     }
 
     function getInterviewLocation(interview){
@@ -3848,7 +3907,10 @@ tr.row-assessment-progress:hover td{
     }
 
     function getInterviewInterviewer(interview){
-      return safeText(interview?.interviewer_email || interview?.interviewer || interview?.interviewer_name || interview?.client_contact || '');
+      const emails = Array.isArray(interview?.interviewer_emails)
+        ? interview.interviewer_emails.filter(Boolean).join(', ')
+        : safeText(interview?.interviewer_emails || interview?.attendees || '');
+      return safeText(interview?.interviewer_name || interview?.interviewer || interview?.client_contact || emails || interview?.interviewer_email || '');
     }
 
     function getInterviewNotes(interview){
@@ -3882,7 +3944,8 @@ tr.row-assessment-progress:hover td{
     }
 
     function formatInterviewType(value){
-      return safeText(value || 'client_interview').replace(/_/g,' ').replace(/\b\w/g, char => char.toUpperCase());
+      const template = getInterviewStageTemplate(normalizeInterviewStage(value));
+      return template?.label || safeText(value || 'Screening').replace(/_/g,' ').replace(/\b\w/g, char => char.toUpperCase());
     }
 
     function getInterviewSummary(row){
@@ -5845,26 +5908,74 @@ tr.row-assessment-progress:hover td{
       return INTERVIEW_STAGE_TEMPLATES[safeText(stage || 'screening')] || INTERVIEW_STAGE_TEMPLATES.screening;
     }
 
+    function isValidEmail(value){
+      return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(safeText(value));
+    }
+
+    function parseInterviewEmailTokens(value){
+      return safeText(value)
+        .split(/[\s,;]+/g)
+        .map(normalizeEmail)
+        .filter(Boolean);
+    }
+
+    function parseValidInterviewEmails(value){
+      const seen = new Set();
+      return parseInterviewEmailTokens(value)
+        .filter(email => isValidEmail(email))
+        .filter(email => {
+          if(seen.has(email))return false;
+          seen.add(email);
+          return true;
+        });
+    }
+
+    function renderInterviewerEmailChips(){
+      const container = document.getElementById('interviewerEmailChips');
+      if(!container)return;
+      const rawTokens = parseInterviewEmailTokens(els.interviewInterviewerEmails?.value || '');
+      if(!rawTokens.length){
+        container.innerHTML = '<span class="small">Interviewers added here will be CC’d on the candidate invite.</span>';
+        return;
+      }
+
+      const seen = new Set();
+      container.innerHTML = rawTokens.map(email => {
+        const duplicate = seen.has(email);
+        seen.add(email);
+        const valid = isValidEmail(email) && !duplicate;
+        return `<span class="interviewer-chip ${valid ? '' : 'invalid'}">${escapeHtml(email)}${valid ? '' : duplicate ? ' • duplicate' : ' • invalid'} <button type="button" data-remove-interviewer-email="${escapeHtml(email)}" aria-label="Remove ${escapeHtml(email)}">×</button></span>`;
+      }).join('');
+    }
+
     function renderInterviewEmailPreview(){
+      renderInterviewerEmailChips();
       if(!els.interviewEmailPreview)return;
       const row = state.allRows.find(item => item.id === state.selectedId);
-      const stage = safeText(els.interviewType?.value || 'screening');
+      const stage = normalizeInterviewStage(els.interviewType?.value || 'screening');
       const template = getInterviewStageTemplate(stage);
       const role = row?.jobTitle || row?.app?.job_title || 'the role';
+      const candidate = row?.displayName || row?.profile?.full_name || row?.app?.email || 'Candidate';
       const when = els.interviewDateTime?.value ? formatDateTime(dateTimeLocalToIso(els.interviewDateTime.value)) : 'Date/time not selected';
       const timezone = safeText(els.interviewTimezone?.value || 'Asia/Manila');
+      const duration = safeText(els.interviewDurationMinutes?.value || '30');
       const location = safeText(els.interviewLocation?.value || 'Meeting link/location to be provided');
-      const interviewer = safeText(els.interviewInterviewer?.value || els.interviewInterviewerEmails?.value || 'Hiring team');
+      const interviewerName = safeText(els.interviewInterviewer?.value || 'Hiring team');
+      const interviewerEmails = parseValidInterviewEmails(els.interviewInterviewerEmails?.value || '');
       const note = safeText(els.interviewNotes?.value || '');
       const intro = template.intro.replaceAll('{{role}}', role);
       els.interviewEmailPreview.textContent = [
+        `To: ${candidate}`,
+        interviewerEmails.length ? `CC: ${interviewerEmails.join(', ')}` : 'CC: none',
         `Subject: ${template.subject.replaceAll('{{role}}', role)}`,
         '',
         intro,
         '',
+        `Stage: ${template.label}`,
         `When: ${when}`,
         `Timezone: ${timezone}`,
-        `Interviewer(s): ${interviewer}`,
+        `Duration: ${duration} minutes`,
+        `Interviewer(s): ${interviewerName}${interviewerEmails.length ? ` (${interviewerEmails.join(', ')})` : ''}`,
         `Meeting / Location: ${location}`,
         note ? `\nAdditional note:\n${note}` : ''
       ].filter(Boolean).join('\n');
@@ -5912,7 +6023,13 @@ tr.row-assessment-progress:hover td{
 
       const stage = normalizeInterviewStage(els.interviewType?.value || 'screening');
       const interviewerName = safeText(els.interviewInterviewer?.value || '');
-      const interviewerEmails = safeText(els.interviewInterviewerEmails?.value || '');
+      const rawInterviewerEmails = safeText(els.interviewInterviewerEmails?.value || '');
+      const interviewerEmails = parseValidInterviewEmails(rawInterviewerEmails);
+      const invalidInterviewerEmails = parseInterviewEmailTokens(rawInterviewerEmails).filter(email => !isValidEmail(email));
+      if(invalidInterviewerEmails.length){
+        showNotice(`Please fix invalid interviewer email(s): ${invalidInterviewerEmails.join(', ')}`, 'error');
+        return;
+      }
       const locationOrLink = safeText(els.interviewLocation?.value || '');
       const timezone = safeText(els.interviewTimezone?.value || 'Asia/Manila') || 'Asia/Manila';
       const durationMinutes = Number(els.interviewDurationMinutes?.value || 30);
@@ -5945,7 +6062,7 @@ tr.row-assessment-progress:hover td{
         if(error)throw error;
         if(data && data.success === false)throw new Error(data.error || 'Interview invite failed.');
 
-        showNotice('Interview scheduled and invite sent to the candidate.', 'success');
+        showNotice(interviewerEmails.length ? 'Interview scheduled. Candidate invite sent with interviewer CCs.' : 'Interview scheduled and invite sent to the candidate.', 'success');
         await loadDashboard();
         await openDrawer(row.id);
       }catch(error){
@@ -7211,6 +7328,14 @@ async function bulkUploadResumes(){
       els.uploadResumeBtn?.addEventListener('click',()=>uploadResumeForSelected(false));
       els.saveBtn?.addEventListener('click',saveSelectedRow);
       [els.interviewDateTime, els.interviewType, els.interviewTimezone, els.interviewDurationMinutes, els.interviewInterviewer, els.interviewInterviewerEmails, els.interviewLocation, els.interviewNotes].forEach(el=>{el?.addEventListener('input',renderInterviewEmailPreview);el?.addEventListener('change',renderInterviewEmailPreview);});
+      document.getElementById('interviewerEmailChips')?.addEventListener('click',event=>{
+        const btn = event.target.closest('[data-remove-interviewer-email]');
+        if(!btn || !els.interviewInterviewerEmails)return;
+        const removeEmail = normalizeEmail(btn.dataset.removeInterviewerEmail || '');
+        const remaining = parseInterviewEmailTokens(els.interviewInterviewerEmails.value).filter(email => email !== removeEmail);
+        els.interviewInterviewerEmails.value = remaining.join(', ');
+        renderInterviewEmailPreview();
+      });
       els.scheduleInterviewBtn?.addEventListener('click',scheduleInterviewForSelected);
       els.clearInterviewFormBtn?.addEventListener('click',clearInterviewForm);
       els.saveCandidateInfoBtn?.addEventListener('click',updateCandidateInfo);
