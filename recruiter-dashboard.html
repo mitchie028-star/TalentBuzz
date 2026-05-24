@@ -3360,6 +3360,9 @@ tr.row-assessment-progress:hover td{
         return data || [];
       }catch(error){
         console.warn('candidate_activities query failed:', error?.message || error);
+        if(safeText(error?.message).toLowerCase().includes('permission') || safeText(error?.message).toLowerCase().includes('policy')){
+          showNotice('Activity messages are saved, but the dashboard cannot read candidate_activities yet. Add a SELECT policy for recruiters/anon.', 'error');
+        }
         return [];
       }
     }
@@ -3401,6 +3404,57 @@ tr.row-assessment-progress:hover td{
       (lookup?.byProfileId?.get(safeText(app?.applicant_profile_id || profile?.id)) || []).forEach(addActivity);
 
       return activities.sort((a,b)=>{
+        const aTime = new Date(a.created_at || 0).getTime();
+        const bTime = new Date(b.created_at || 0).getTime();
+        return bTime - aTime;
+      });
+    }
+
+
+    async function fetchActivitiesForRowDirect(row){
+      const profileId = safeText(row?.profile?.id || row?.app?.applicant_profile_id || '');
+      const applicationId = safeText(row?.app?.id || row?.id || '');
+      const collected = [];
+      const seen = new Set();
+      const addMany = items => (items || []).forEach(activity => {
+        const key = safeText(activity?.id) || `${safeText(activity?.source_message_id)}:${safeText(activity?.activity_type)}:${safeText(activity?.created_at)}`;
+        if(!key || seen.has(key))return;
+        seen.add(key);
+        collected.push(activity);
+      });
+
+      const selectColumns = 'id,applicant_profile_id,application_id,activity_type,title,body,source,source_message_id,created_at';
+
+      try{
+        if(profileId){
+          const {data,error}=await supabaseClient
+            .from('candidate_activities')
+            .select(selectColumns)
+            .eq('applicant_profile_id', profileId)
+            .order('created_at',{ascending:false})
+            .limit(100);
+          if(error)throw error;
+          addMany(data);
+        }
+
+        if(applicationId){
+          const {data,error}=await supabaseClient
+            .from('candidate_activities')
+            .select(selectColumns)
+            .eq('application_id', applicationId)
+            .order('created_at',{ascending:false})
+            .limit(100);
+          if(error)throw error;
+          addMany(data);
+        }
+      }catch(error){
+        console.warn('candidate_activities direct row query failed:', error?.message || error);
+        if(safeText(error?.message).toLowerCase().includes('permission') || safeText(error?.message).toLowerCase().includes('policy')){
+          showNotice('Activity messages are saved, but the dashboard cannot read candidate_activities yet. Add a SELECT policy for recruiters/anon.', 'error');
+        }
+      }
+
+      return collected.sort((a,b)=>{
         const aTime = new Date(a.created_at || 0).getTime();
         const bTime = new Date(b.created_at || 0).getTime();
         return bTime - aTime;
@@ -3565,7 +3619,7 @@ tr.row-assessment-progress:hover td{
       try{
         const [applications,profiles,jobs,assessmentsByApplicationId,candidateActivities]=await Promise.all([
           fetchApplicationsRows(),
-          fetchAll('applicant_profiles','id,full_name,email,phone,location,country,timezone,work_authorization,preferred_work_setup,salary_currency,salary_expectation,available_working_hours,headline,current_title,resume_url,resume_path,resume_file_name,raw_resume_text,parsed_resume_json,years_of_experience,experience_years,years_experience,total_experience,experience,skills,updated_at'),
+          fetchAll('applicant_profiles','id,full_name,email,indeed_email,external_candidate_id,original_source_email,phone,location,country,timezone,work_authorization,preferred_work_setup,salary_currency,salary_expectation,available_working_hours,headline,current_title,resume_url,resume_path,resume_file_name,raw_resume_text,parsed_resume_json,years_of_experience,experience_years,years_experience,total_experience,experience,skills,updated_at'),
           fetchAll('jobs','id,title,client_name,job_description,keywords,industry,screening_enabled,status,work_setup,location,slug'),
           fetchLatestRoleAssessments(),
           fetchCandidateActivities()
@@ -4791,6 +4845,20 @@ tr.row-assessment-progress:hover td{
       if(els.editFollowUpDate)els.editFollowUpDate.value=toDateInputValue(row.followUp?.dueAt);
       if(els.editFollowUpNote)els.editFollowUpNote.value=row.followUp?.note||'';
       els.profileSummary.textContent=getProfileSummary(row.profile)||'No candidate brief yet.';
+      const directActivities = await fetchActivitiesForRowDirect(row);
+      if(directActivities.length){
+        row.activities = directActivities;
+        const allRow = state.allRows.find(item => item.id === row.id);
+        if(allRow)allRow.activities = directActivities;
+        const filteredRow = state.filteredRows.find(item => item.id === row.id);
+        if(filteredRow)filteredRow.activities = directActivities;
+      }
+      console.log('Candidate activity render debug:', {
+        applicationId: row.id,
+        profileId: row.profile?.id || row.app?.applicant_profile_id,
+        activityCount: (row.activities || []).length,
+        activities: row.activities || []
+      });
       renderCandidateTimeline(row);
       els.resumeMeta.textContent='Resolving resume...';if(els.parseResumeBtn)els.parseResumeBtn.disabled=true;if(els.uploadResumeBtn)els.uploadResumeBtn.disabled=false;state.selectedResumeUrl='';state.selectedResumePath='';
       const resume=await getResumeUrl(row.profile,row.app);state.selectedResumeUrl=resume.url;state.selectedResumePath=resume.path;
