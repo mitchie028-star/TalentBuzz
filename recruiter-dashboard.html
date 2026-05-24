@@ -1801,6 +1801,78 @@ tr.row-assessment-progress:hover td{
       .resume-parser-footer .actions{display:grid;width:100%}
     }
 
+
+    /* ===== In-page candidate message inbox ===== */
+    .message-inbox-modal-card{
+      width:min(820px,96vw);
+      max-height:88vh;
+    }
+    .message-inbox-list{
+      display:grid;
+      gap:10px;
+    }
+    .message-inbox-item{
+      width:100%;
+      padding:13px 14px;
+      border:1px solid var(--line);
+      border-radius:16px;
+      background:#fff;
+      text-align:left;
+      display:grid;
+      gap:6px;
+      transition:.14s ease;
+    }
+    .message-inbox-item:hover{
+      border-color:var(--accent-line);
+      background:#f8fbff;
+      transform:translateY(-1px);
+      box-shadow:var(--shadow-soft);
+    }
+    .message-inbox-item.unmatched{
+      opacity:.82;
+    }
+    .message-inbox-top{
+      display:flex;
+      align-items:flex-start;
+      justify-content:space-between;
+      gap:10px;
+    }
+    .message-inbox-name{
+      font-weight:900;
+      color:var(--ink);
+      letter-spacing:-.02em;
+    }
+    .message-inbox-time{
+      color:var(--muted-2);
+      font-size:.72rem;
+      font-weight:800;
+      white-space:nowrap;
+    }
+    .message-inbox-meta{
+      display:flex;
+      gap:8px;
+      align-items:center;
+      flex-wrap:wrap;
+      color:var(--muted);
+      font-size:.76rem;
+      font-weight:700;
+    }
+    .message-inbox-body{
+      color:#344054;
+      font-size:.84rem;
+      line-height:1.5;
+      white-space:pre-wrap;
+      word-break:break-word;
+    }
+    .message-inbox-empty{
+      padding:22px 16px;
+      text-align:center;
+      border:1px dashed var(--line-strong);
+      border-radius:16px;
+      color:var(--muted);
+      background:var(--surface-soft);
+    }
+
 </style>
 </head>
 <body class="auth-pending">
@@ -1825,7 +1897,7 @@ tr.row-assessment-progress:hover td{
         <div class="nav-label">Workspace</div>
         <a class="nav-item active" href="#"><span class="nav-icon">◎</span> Today</a>
         <a class="nav-item" href="#pipeline"><span class="nav-icon">▦</span> Pipeline</a>
-        <a class="nav-item" href="recruiter-inbox.html"><span class="nav-icon">✉</span> Inbox</a>
+        <button class="nav-item" id="sidebarInboxBtn" type="button"><span class="nav-icon">✉</span> Inbox</button>
         <a class="nav-item" href="#assistant"><span class="nav-icon">✦</span> Hiring Guide</a>
         <a class="nav-item" href="#calendar"><span class="nav-icon">◷</span> Calendar</a>
         <a class="nav-item" href="#analytics"><span class="nav-icon">↗</span> Analytics</a>
@@ -1857,7 +1929,7 @@ tr.row-assessment-progress:hover td{
             <input id="searchInput" type="search" placeholder="Search candidates, jobs, or clients..." />
           </label>
           <button class="btn btn-soft" id="liveStatusPill" type="button"><span>●</span><span id="liveStatusText">Live</span></button>
-          <a class="btn btn-soft" href="recruiter-inbox.html">Inbox <span id="newApplicantsBadge">0</span></a>
+          <button class="btn btn-soft" id="headerInboxBtn" type="button">Inbox <span id="newApplicantsBadge">0</span></button>
           <button class="btn btn-primary" id="headerLogoutBtn" type="button">Logout</button>
         </div>
       </header>
@@ -2156,6 +2228,27 @@ tr.row-assessment-progress:hover td{
     </main>
   </div>
 
+
+  <div class="modal" id="messageInboxModal">
+    <div class="modal-card message-inbox-modal-card">
+      <div class="modal-head">
+        <div>
+          <strong>Candidate Messages</strong>
+          <div class="small">Latest messages received from Indeed and direct candidate emails. Click a message to open the candidate in the table.</div>
+        </div>
+        <div class="actions">
+          <button class="btn btn-xs" id="messageInboxRefreshBtn" type="button">Refresh</button>
+          <button class="btn btn-xs" id="messageInboxClose" type="button">Close</button>
+        </div>
+      </div>
+      <div class="modal-body" style="min-height:auto;padding:16px;overflow:auto;">
+        <div class="message-inbox-list" id="messageInboxList">
+          <div class="message-inbox-empty">Loading candidate messages…</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <div class="modal" id="bulkUploadModal">
     <div class="modal-card bulk-upload-modal-card">
       <div class="modal-head">
@@ -2451,7 +2544,7 @@ tr.row-assessment-progress:hover td{
   </div>
 
   <script>
-    console.log('BuzzHire recruiter-dashboard-ready-review-final-v2026-05-24 loaded');
+    console.log('BuzzHire recruiter-dashboard-message-inbox-v2026-05-24 loaded');
 
     const CONFIG = {
       SUPABASE_URL: window.TALENTBUZZ_SUPABASE_URL || localStorage.getItem('TALENTBUZZ_SUPABASE_URL') || '',
@@ -2489,6 +2582,8 @@ tr.row-assessment-progress:hover td{
       autoRefreshInFlight: false,
       lastAutoRefreshAttemptAt: null,
       lastKnownRowCount: 0,
+      messageInboxRows: [],
+      messageInboxLoading: false,
     };
 
     function $(id){return document.getElementById(id)}
@@ -2511,7 +2606,7 @@ tr.row-assessment-progress:hover td{
       modalEditCandidateName:$('modalEditCandidateName'), modalEditCandidateEmail:$('modalEditCandidateEmail'), modalEditCandidatePhone:$('modalEditCandidatePhone'), modalEditCandidateLocation:$('modalEditCandidateLocation'), modalEditCandidateCountry:$('modalEditCandidateCountry'), modalEditCandidateTimezone:$('modalEditCandidateTimezone'), modalEditCandidateWorkSetup:$('modalEditCandidateWorkSetup'), modalEditCandidateAuthorization:$('modalEditCandidateAuthorization'), modalEditCandidateSalaryCurrency:$('modalEditCandidateSalaryCurrency'), modalEditCandidateSalary:$('modalEditCandidateSalary'), modalEditCandidateExperience:$('modalEditCandidateExperience'), modalEditCandidateEducation:$('modalEditCandidateEducation'), modalEditCandidateRole:$('modalEditCandidateRole'), modalEditCandidateAvailableHours:$('modalEditCandidateAvailableHours'), modalSaveCandidateInfoBtn:$('modalSaveCandidateInfoBtn'), modalSnapEmail:$('modalSnapEmail'), modalSnapPhone:$('modalSnapPhone'), modalSnapLocation:$('modalSnapLocation'), modalSnapCountry:$('modalSnapCountry'), modalSnapTimezone:$('modalSnapTimezone'), modalSnapWorkSetup:$('modalSnapWorkSetup'), modalSnapWorkAuthorization:$('modalSnapWorkAuthorization'), modalSnapSalary:$('modalSnapSalary'), modalSnapAvailableHours:$('modalSnapAvailableHours'), modalSnapExperience:$('modalSnapExperience'), modalSnapEducation:$('modalSnapEducation'), modalSnapJob:$('modalSnapJob'), modalEditFollowUpStatus:$('modalEditFollowUpStatus'), modalEditFollowUpDate:$('modalEditFollowUpDate'), modalEditFollowUpNote:$('modalEditFollowUpNote'), modalEditNotes:$('modalEditNotes'), modalEditStatus:$('modalEditStatus'), modalSaveBtn:$('modalSaveBtn'), modalMatchScore:$('modalMatchScore'), modalScoringSource:$('modalScoringSource'), modalProfileScore:$('modalProfileScore'), modalResumeScore:$('modalResumeScore'), modalMatchReason:$('modalMatchReason'), modalResumeMeta:$('modalResumeMeta'), modalViewResumeBtn:$('modalViewResumeBtn'), modalDownloadResumeBtn:$('modalDownloadResumeBtn'), modalImportClipboardResumeBtn:$('modalImportClipboardResumeBtn'), modalParseResumeBtn:$('modalParseResumeBtn'), modalResumeUploadInput:$('modalResumeUploadInput'), modalUploadResumeBtn:$('modalUploadResumeBtn'),
       resumeModal:$('resumeModal'), resumeModalTitle:$('resumeModalTitle'), resumeModalSubtitle:$('resumeModalSubtitle'), resumeFrame:$('resumeFrame'), resumeModalClose:$('resumeModalClose'), resumeModalDownloadBtn:$('resumeModalDownloadBtn'),
       resumeParserModal:$('resumeParserModal'), resumeParserClose:$('resumeParserClose'), resumeParserSubtitle:$('resumeParserSubtitle'), resumeParserRawText:$('resumeParserRawText'), resumeParserPasteBtn:$('resumeParserPasteBtn'), resumeParserParseBtn:$('resumeParserParseBtn'), resumeParserClearBtn:$('resumeParserClearBtn'), resumeParserStatus:$('resumeParserStatus'), resumeParserName:$('resumeParserName'), resumeParserEmail:$('resumeParserEmail'), resumeParserPhone:$('resumeParserPhone'), resumeParserLocation:$('resumeParserLocation'), resumeParserExperience:$('resumeParserExperience'), resumeParserEducation:$('resumeParserEducation'), resumeParserRole:$('resumeParserRole'), resumeParserSkills:$('resumeParserSkills'), resumeParserSummary:$('resumeParserSummary'), resumeParserCancelBtn:$('resumeParserCancelBtn'), resumeParserSaveBtn:$('resumeParserSaveBtn'),
-      headerLogoutBtn:$('headerLogoutBtn'), newApplicantsBadge:$('newApplicantsBadge'), liveStatusText:$('liveStatusText'), sidebarSourcingBtn:$('sidebarSourcingBtn'), sidebarBulkUploadBtn:$('sidebarBulkUploadBtn'), quickClearFiltersBtn:$('quickClearFiltersBtn'),
+      headerLogoutBtn:$('headerLogoutBtn'), headerInboxBtn:$('headerInboxBtn'), sidebarInboxBtn:$('sidebarInboxBtn'), newApplicantsBadge:$('newApplicantsBadge'), liveStatusText:$('liveStatusText'), sidebarSourcingBtn:$('sidebarSourcingBtn'), sidebarBulkUploadBtn:$('sidebarBulkUploadBtn'), quickClearFiltersBtn:$('quickClearFiltersBtn'), messageInboxModal:$('messageInboxModal'), messageInboxList:$('messageInboxList'), messageInboxClose:$('messageInboxClose'), messageInboxRefreshBtn:$('messageInboxRefreshBtn'),
       bulkUploadModal:$('bulkUploadModal'), bulkUploadModalClose:$('bulkUploadModalClose'), bulkRoleSelect:$('bulkRoleSelect'), bulkResumeInput:$('bulkResumeInput'), bulkUploadBtn:$('bulkUploadBtn'), bulkUploadStatus:$('bulkUploadStatus'),
       assessmentEmailModal:$('assessmentEmailModal'), assessmentEmailModalClose:$('assessmentEmailModalClose'), assessmentModalSubtitle:$('assessmentModalSubtitle'), assessmentCandidateName:$('assessmentCandidateName'), assessmentCandidateEmail:$('assessmentCandidateEmail'), assessmentRoleName:$('assessmentRoleName'), assessmentCompanyName:$('assessmentCompanyName'), assessmentType:$('assessmentType'), assessmentDueDate:$('assessmentDueDate'), assessmentLink:$('assessmentLink'), assessmentCustomMessage:$('assessmentCustomMessage'), assessmentEmailPreview:$('assessmentEmailPreview'), sendAssessmentEmailBtn:$('sendAssessmentEmailBtn'), copyAssessmentEmailBtn:$('copyAssessmentEmailBtn'), assessmentEmailStatus:$('assessmentEmailStatus'), openAssessmentEmailBtn:$('openAssessmentEmailBtn'), drawerAssessmentBadge:$('drawerAssessmentBadge'), drawerAssessmentDetail:$('drawerAssessmentDetail'), drawerAssessmentActionBtn:$('drawerAssessmentActionBtn'),
     };
@@ -2874,6 +2969,175 @@ tr.row-assessment-progress:hover td{
         })
         .filter(Boolean);
     }
+
+
+    function isCandidateMessageActivity(activity){
+      return safeText(activity?.activity_type).toLowerCase() === 'candidate_message';
+    }
+
+    function findRowForMessageActivity(activity, rows = state.allRows){
+      const applicationId = safeText(activity?.application_id);
+      const profileId = safeText(activity?.applicant_profile_id);
+
+      return (rows || []).find(row => safeText(row?.app?.id || row?.id) === applicationId) ||
+        (rows || []).find(row => safeText(row?.profile?.id || row?.app?.applicant_profile_id) === profileId) ||
+        null;
+    }
+
+    function buildMessageInboxRows(activities = [], rows = state.allRows){
+      return (activities || [])
+        .filter(isCandidateMessageActivity)
+        .map(activity => {
+          const row = findRowForMessageActivity(activity, rows);
+          const body = getActivityBodyForTimeline(activity) || stripHtmlForTimeline(activity?.body || '');
+          const preview = body.length > 900 ? `${body.slice(0, 900)}…` : body;
+
+          return {
+            id: safeText(activity.id || `${activity.source_message_id}:${activity.created_at}`),
+            activity,
+            rowId: row?.id || '',
+            applicantProfileId: safeText(activity.applicant_profile_id || row?.profile?.id || ''),
+            applicationId: safeText(activity.application_id || row?.app?.id || ''),
+            candidateName: safeText(row?.displayName || row?.profile?.full_name || 'Unknown candidate'),
+            candidateEmail: safeText(row?.profile?.email || row?.app?.email || ''),
+            role: safeText(row?.jobTitle || row?.app?.job_title || ''),
+            client: safeText(row?.clientName || row?.job?.client_name || ''),
+            source: safeText(activity.source || 'gmail'),
+            title: formatActivityTitle(activity),
+            body: preview || 'No message body captured.',
+            createdAt: activity.created_at,
+            matched: Boolean(row?.id)
+          };
+        })
+        .sort((a,b)=>new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime())
+        .slice(0, 75);
+    }
+
+    function updateMessageInboxBadge(){
+      if(!els.newApplicantsBadge)return;
+      const count = state.messageInboxRows?.length || 0;
+      els.newApplicantsBadge.textContent = count > 99 ? '99+' : String(count);
+      els.newApplicantsBadge.title = `${count} candidate message${count === 1 ? '' : 's'}`;
+    }
+
+    function renderMessageInboxList(){
+      if(!els.messageInboxList)return;
+
+      const messages = state.messageInboxRows || [];
+      if(!messages.length){
+        els.messageInboxList.innerHTML = '<div class="message-inbox-empty">No candidate messages yet. New Indeed replies and direct candidate emails will appear here after Gmail ingestion saves them as activity.</div>';
+        return;
+      }
+
+      els.messageInboxList.innerHTML = messages.map(message => {
+        const sourceLabel = message.source.toLowerCase().includes('indeed') ? 'Indeed' : 'Gmail';
+        const roleText = [message.role, message.client].filter(Boolean).join(' • ');
+        return `
+          <button class="message-inbox-item ${message.matched ? '' : 'unmatched'}" type="button" data-message-id="${escapeHtml(message.id)}">
+            <div class="message-inbox-top">
+              <div>
+                <div class="message-inbox-name">${escapeHtml(message.candidateName)}</div>
+                <div class="small">${escapeHtml(message.candidateEmail || 'No email on file')}</div>
+              </div>
+              <div class="message-inbox-time">${escapeHtml(formatTimelineTime(message.createdAt))}</div>
+            </div>
+            <div class="message-inbox-meta">
+              <span class="pill info">${escapeHtml(sourceLabel)}</span>
+              <span>${escapeHtml(roleText || 'No role found')}</span>
+              ${message.matched ? '' : '<span class="pill warn">Candidate not visible</span>'}
+            </div>
+            <div class="message-inbox-body">${escapeHtml(message.body)}</div>
+          </button>
+        `;
+      }).join('');
+    }
+
+    async function refreshMessageInbox(){
+      if(!supabaseClient)return;
+      state.messageInboxLoading = true;
+      if(els.messageInboxList){
+        els.messageInboxList.innerHTML = '<div class="message-inbox-empty">Loading candidate messages…</div>';
+      }
+
+      try{
+        const {data, error} = await supabaseClient
+          .from('candidate_activities')
+          .select('id,applicant_profile_id,application_id,activity_type,title,body,source,source_message_id,created_at')
+          .eq('activity_type', 'candidate_message')
+          .order('created_at', {ascending:false})
+          .limit(75);
+
+        if(error)throw error;
+
+        state.messageInboxRows = buildMessageInboxRows(data || [], state.allRows);
+        updateMessageInboxBadge();
+        renderMessageInboxList();
+      }catch(error){
+        console.warn('Message inbox query failed:', error?.message || error);
+        if(els.messageInboxList){
+          els.messageInboxList.innerHTML = `<div class="message-inbox-empty">Unable to load candidate messages: ${escapeHtml(error?.message || String(error))}</div>`;
+        }
+      }finally{
+        state.messageInboxLoading = false;
+      }
+    }
+
+    async function openMessageInbox(){
+      if(!els.messageInboxModal)return;
+      els.messageInboxModal.classList.add('show');
+      if(!state.messageInboxRows?.length){
+        await refreshMessageInbox();
+      }else{
+        renderMessageInboxList();
+      }
+    }
+
+    function closeMessageInbox(){
+      els.messageInboxModal?.classList.remove('show');
+    }
+
+    function openCandidateFromInboxMessage(messageId){
+      const message = (state.messageInboxRows || []).find(item => item.id === messageId);
+      if(!message)return;
+
+      let row = message.rowId
+        ? state.allRows.find(item => item.id === message.rowId)
+        : null;
+
+      if(!row){
+        row = state.allRows.find(item => safeText(item?.app?.id || item?.id) === message.applicationId) ||
+          state.allRows.find(item => safeText(item?.profile?.id || item?.app?.applicant_profile_id) === message.applicantProfileId) ||
+          null;
+      }
+
+      if(!row){
+        showNotice('Message found, but the matching candidate is not currently loaded in the dashboard.', 'error');
+        return;
+      }
+
+      closeMessageInbox();
+      clearFilters(false);
+
+      if(els.searchInput){
+        els.searchInput.value = row.displayName || row.profile?.email || row.app?.email || '';
+      }
+
+      state.savedView = 'all';
+      saveUiPreference(PREF_KEYS.savedView, 'all');
+      document.querySelectorAll('[data-saved-view]').forEach(btn=>{
+        btn.classList.toggle('active', btn.dataset.savedView === 'all');
+      });
+
+      applyFilters();
+      openDrawer(row.id);
+
+      requestAnimationFrame(()=>{
+        document.getElementById('pipeline')?.scrollIntoView({behavior:'smooth', block:'start'});
+        const targetRow = document.querySelector(`tr[data-id="${CSS.escape(row.id)}"]`);
+        targetRow?.scrollIntoView({behavior:'smooth', block:'center'});
+      });
+    }
+
 
     function renderCandidateTimeline(row){
       if(!els.candidateTimeline)return;
@@ -3987,6 +4251,8 @@ tr.row-assessment-progress:hover td{
           return {id:app.id,app,profile,job,score,activities,assessment:state.assessmentsByApplicationId.get(safeText(app.id))||null,assessmentInfo:null,displayName:safeText(profile.full_name||app.email||'Unnamed candidate'),status:safeText(app.client_feedback_status||app.status||'submitted'),recruiter:safeText(app.recruiter_email)||'Unassigned',source:safeText(app.application_source||'—'),appliedAt:app.created_at,clientName:safeText(job.client_name||'—'),jobTitle:safeText(job.title||app.job_title||'—'),followUp:getFollowUpInfo(app)};
         }).map(row => ({...row, assessmentInfo: getAssessmentInfo(row)}));
         state.allRows=dedupeDashboardApplicationRows(rawRows);
+        state.messageInboxRows = buildMessageInboxRows(candidateActivities || [], state.allRows);
+        updateMessageInboxBadge();
         const previousRowCount = Number(state.lastKnownRowCount || 0);
         state.lastKnownRowCount = state.allRows.length;
         if(silent && previousRowCount && state.allRows.length > previousRowCount){
@@ -4245,7 +4511,7 @@ tr.row-assessment-progress:hover td{
       setText(els.actionFollowUps, followUpCount);
       setText(els.actionReadyReview, assessmentCompletedCount);
       setText(els.actionAwaitingAssessment, assessmentSentCount);
-      setText(els.newApplicantsBadge, unassignedCount);
+      updateMessageInboxBadge();
     }
 
     function renderTable(){
@@ -6504,6 +6770,12 @@ async function bulkUploadResumes(){
         renderTable();
       });
       document.getElementById('liveStatusPill')?.addEventListener('click',()=>refreshDashboardSilently(true));
+      els.headerInboxBtn?.addEventListener('click',openMessageInbox);
+      els.sidebarInboxBtn?.addEventListener('click',openMessageInbox);
+      els.messageInboxClose?.addEventListener('click',closeMessageInbox);
+      els.messageInboxRefreshBtn?.addEventListener('click',refreshMessageInbox);
+      els.messageInboxModal?.addEventListener('click',event=>{if(event.target===els.messageInboxModal)closeMessageInbox();});
+      els.messageInboxList?.addEventListener('click',event=>{const item=event.target.closest('.message-inbox-item[data-message-id]'); if(item)openCandidateFromInboxMessage(item.dataset.messageId || '');});
       els.clearFiltersBtn.addEventListener('click',clearFilters);els.quickClearFiltersBtn?.addEventListener('click',clearFilters);els.bulkUploadBtn?.addEventListener('click',bulkUploadResumes);els.sidebarBulkUploadBtn?.addEventListener('click',openBulkUploadModal);els.bulkUploadModalClose?.addEventListener('click',closeBulkUploadModal);
       els.moreFiltersBtn?.addEventListener('click',()=>{
         els.filtersPanel?.classList.toggle('show-advanced');
