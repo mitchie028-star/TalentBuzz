@@ -1742,6 +1742,65 @@ tr.row-assessment-progress:hover td{
       background:#fff;
     }
 
+
+    /* Resume paste parser: paste first, preview, then save */
+    .resume-parser-modal-card{
+      width:min(920px,96vw);
+      max-height:94vh;
+    }
+    .resume-parser-body{
+      min-height:0!important;
+      max-height:76vh;
+      overflow:auto;
+      padding:16px;
+      background:#fbfcfe;
+      display:grid;
+      gap:14px;
+    }
+    .resume-parser-grid{
+      display:grid;
+      grid-template-columns:repeat(2,minmax(0,1fr));
+      gap:12px;
+    }
+    .resume-parser-grid .field.full{grid-column:1/-1}
+    .resume-parser-textarea{
+      min-height:220px!important;
+      font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace;
+      font-size:.78rem;
+      line-height:1.55;
+      background:#fff!important;
+    }
+    .resume-parser-preview{
+      padding:12px;
+      border:1px solid var(--line);
+      border-radius:14px;
+      background:#fff;
+    }
+    .resume-parser-footer{
+      display:flex;
+      justify-content:space-between;
+      align-items:center;
+      gap:10px;
+      padding:14px 18px;
+      border-top:1px solid var(--line);
+      background:#fff;
+    }
+    .resume-parser-status{
+      padding:10px 12px;
+      border-radius:12px;
+      border:1px dashed var(--line-strong);
+      background:var(--surface-soft);
+      color:var(--muted);
+      font-size:.8rem;
+      line-height:1.45;
+      white-space:pre-wrap;
+    }
+    @media(max-width:760px){
+      .resume-parser-grid{grid-template-columns:1fr}
+      .resume-parser-footer{align-items:stretch;flex-direction:column}
+      .resume-parser-footer .actions{display:grid;width:100%}
+    }
+
 </style>
 </head>
 <body class="auth-pending">
@@ -1989,7 +2048,7 @@ tr.row-assessment-progress:hover td{
                   <div class="field"><label for="editCandidateSalaryCurrency">Salary currency</label><input id="editCandidateSalaryCurrency" type="text" placeholder="PHP, USD, etc." /></div>
                   <div class="field"><label for="editCandidateSalary">Salary expectation</label><input id="editCandidateSalary" type="text" placeholder="Expected salary" /></div>
                   <div class="field"><label for="editCandidateExperience">Years experience</label><input id="editCandidateExperience" type="text" placeholder="e.g. 5" /></div>
-                  <div class="field"><label for="editCandidateRole">Role</label><select id="editCandidateRole"><option value="">Keep current role</option></select></div>
+                  <div class="field"><label for="editCandidateRole">Role applied</label><select id="editCandidateRole"><option value="">Keep current role</option></select></div>
                   <div class="field full"><label for="editCandidateAvailableHours">Available hours</label><input id="editCandidateAvailableHours" type="text" placeholder="Preferred / available working hours" /></div>
                 </div>
                 <div class="candidate-edit-actions">
@@ -2048,6 +2107,7 @@ tr.row-assessment-progress:hover td{
                 <p class="small" id="resumeMeta">No resume selected.</p>
                 <div class="actions">
                   <button class="btn btn-xs" id="viewResumeBtn" type="button">View Resume</button>
+                  <button class="btn btn-primary btn-xs" id="importClipboardResumeBtn" type="button">Import from Clipboard</button>
                   <button class="btn btn-primary btn-xs" id="parseResumeBtn" type="button">Refresh Resume Brief</button>
                   <button class="btn btn-xs" id="openCandidateWorkspaceBtn" type="button">Details</button>
                   <button class="btn btn-xs candidate-review-link" id="openCandidateReviewBtn" type="button" data-hard-review-route="1">Review</button>
@@ -2217,7 +2277,7 @@ tr.row-assessment-progress:hover td{
               <div class="field"><label for="modalEditCandidateSalaryCurrency">Salary currency</label><input id="modalEditCandidateSalaryCurrency" type="text" /></div>
               <div class="field"><label for="modalEditCandidateSalary">Salary expectation</label><input id="modalEditCandidateSalary" type="text" /></div>
               <div class="field"><label for="modalEditCandidateExperience">Years experience</label><input id="modalEditCandidateExperience" type="text" /></div>
-              <div class="field"><label for="modalEditCandidateRole">Role</label><select id="modalEditCandidateRole"><option value="">Keep current role</option></select></div>
+              <div class="field"><label for="modalEditCandidateRole">Role applied</label><select id="modalEditCandidateRole"><option value="">Keep current role</option></select></div>
               <div class="field full"><label for="modalEditCandidateAvailableHours">Available hours</label><input id="modalEditCandidateAvailableHours" type="text" /></div>
             </div>
             <div class="candidate-edit-actions">
@@ -2299,6 +2359,7 @@ tr.row-assessment-progress:hover td{
             <p class="small" id="modalResumeMeta">No resume selected.</p>
             <div class="actions">
               <button class="btn btn-xs" id="modalViewResumeBtn" type="button">View Resume</button>
+              <button class="btn btn-primary btn-xs" id="modalImportClipboardResumeBtn" type="button">Import from Clipboard</button>
               <button class="btn btn-primary btn-xs" id="modalParseResumeBtn" type="button">Refresh Resume Brief</button>
             </div>
             <div class="upload-box">
@@ -2325,6 +2386,55 @@ tr.row-assessment-progress:hover td{
       </div>
       <div class="modal-body">
         <iframe class="resume-frame" id="resumeFrame" title="Resume Viewer"></iframe>
+      </div>
+    </div>
+  </div>
+
+
+  <div class="modal" id="resumeParserModal">
+    <div class="modal-card resume-parser-modal-card">
+      <div class="modal-head">
+        <div>
+          <strong>Import Resume Text</strong>
+          <div class="small" id="resumeParserSubtitle">Paste copied Indeed resume/application text, review the extracted fields, then save.</div>
+        </div>
+        <button class="btn btn-xs" id="resumeParserClose" type="button">Close</button>
+      </div>
+      <div class="resume-parser-body">
+        <div class="drawer-section">
+          <h3>1) Paste resume/application text</h3>
+          <p class="small" style="margin-top:-4px;">Open the Indeed resume, select the resume/application content, copy it, then paste it below. This avoids accidentally importing the whole ATS dashboard.</p>
+          <div class="field full">
+            <textarea id="resumeParserRawText" class="resume-parser-textarea" placeholder="Paste copied resume/application text here..."></textarea>
+          </div>
+          <div class="actions" style="margin-top:10px;">
+            <button class="btn btn-xs" id="resumeParserPasteBtn" type="button">Paste from Clipboard</button>
+            <button class="btn btn-primary btn-xs" id="resumeParserParseBtn" type="button">Parse Preview</button>
+            <button class="btn btn-xs" id="resumeParserClearBtn" type="button">Clear</button>
+          </div>
+          <div class="resume-parser-status hidden" id="resumeParserStatus">Paste text to begin.</div>
+        </div>
+
+        <div class="drawer-section resume-parser-preview">
+          <h3>2) Review extracted details</h3>
+          <div class="resume-parser-grid">
+            <div class="field"><label for="resumeParserName">Full name</label><input id="resumeParserName" type="text" placeholder="Candidate full name" /></div>
+            <div class="field"><label for="resumeParserEmail">Email</label><input id="resumeParserEmail" type="email" placeholder="candidate@email.com" /></div>
+            <div class="field"><label for="resumeParserPhone">Phone</label><input id="resumeParserPhone" type="text" placeholder="Phone number" /></div>
+            <div class="field"><label for="resumeParserLocation">Location</label><input id="resumeParserLocation" type="text" placeholder="City / address" /></div>
+            <div class="field"><label for="resumeParserExperience">Years experience</label><input id="resumeParserExperience" type="text" placeholder="e.g. 2" /></div>
+            <div class="field"><label for="resumeParserRole">Role applied</label><select id="resumeParserRole"><option value="">Keep current role</option></select></div>
+            <div class="field full"><label for="resumeParserSkills">Skills / keywords</label><input id="resumeParserSkills" type="text" placeholder="Skills found in resume" /></div>
+            <div class="field full"><label for="resumeParserSummary">Candidate brief</label><textarea id="resumeParserSummary" placeholder="Short parsed candidate brief"></textarea></div>
+          </div>
+        </div>
+      </div>
+      <div class="resume-parser-footer">
+        <span class="small">Nothing is saved until you click Save Parsed Details.</span>
+        <div class="actions">
+          <button class="btn btn-soft" id="resumeParserCancelBtn" type="button">Cancel</button>
+          <button class="btn btn-primary" id="resumeParserSaveBtn" type="button">Save Parsed Details</button>
+        </div>
       </div>
     </div>
   </div>
@@ -2360,6 +2470,8 @@ tr.row-assessment-progress:hover td{
       jobs: [],
       selectedAssessmentRowId: null,
       assessmentsByApplicationId: new Map(),
+      resumeParserRowId: null,
+      resumeParserParsed: null,
     };
 
     function $(id){return document.getElementById(id)}
@@ -2377,10 +2489,11 @@ tr.row-assessment-progress:hover td{
       overallScore:$('overallScore'), scoringSource:$('scoringSource'), profileScore:$('profileScore'), resumeScore:$('resumeScore'), overallReason:$('overallReason'),
       snapEmail:$('snapEmail'), snapPhone:$('snapPhone'), snapLocation:$('snapLocation'), snapCountry:$('snapCountry'), snapTimezone:$('snapTimezone'), snapWorkSetup:$('snapWorkSetup'), snapWorkAuthorization:$('snapWorkAuthorization'), snapSalary:$('snapSalary'), snapAvailableHours:$('snapAvailableHours'), snapExperience:$('snapExperience'), snapJob:$('snapJob'),
       editCandidateName:$('editCandidateName'), editCandidateEmail:$('editCandidateEmail'), editCandidatePhone:$('editCandidatePhone'), editCandidateLocation:$('editCandidateLocation'), editCandidateCountry:$('editCandidateCountry'), editCandidateTimezone:$('editCandidateTimezone'), editCandidateWorkSetup:$('editCandidateWorkSetup'), editCandidateAuthorization:$('editCandidateAuthorization'), editCandidateSalaryCurrency:$('editCandidateSalaryCurrency'), editCandidateSalary:$('editCandidateSalary'), editCandidateExperience:$('editCandidateExperience'), editCandidateRole:$('editCandidateRole'), editCandidateAvailableHours:$('editCandidateAvailableHours'), saveCandidateInfoBtn:$('saveCandidateInfoBtn'),
-      resumeMeta:$('resumeMeta'), profileSummary:$('profileSummary'), viewResumeBtn:$('viewResumeBtn'), downloadResumeBtn:$('downloadResumeBtn'), parseResumeBtn:$('parseResumeBtn'), openCandidateWorkspaceBtn:$('openCandidateWorkspaceBtn'), openCandidateReviewBtn:$('openCandidateReviewBtn'), resumeUploadInput:$('resumeUploadInput'), uploadResumeBtn:$('uploadResumeBtn'), editFollowUpStatus:$('editFollowUpStatus'), editFollowUpDate:$('editFollowUpDate'), editFollowUpNote:$('editFollowUpNote'), markNeedsFollowUpBtn:$('markNeedsFollowUpBtn'), markFollowedUpBtn:$('markFollowedUpBtn'), editNotes:$('editNotes'), editStatus:$('editStatus'), saveBtn:$('saveBtn'),
+      resumeMeta:$('resumeMeta'), profileSummary:$('profileSummary'), viewResumeBtn:$('viewResumeBtn'), downloadResumeBtn:$('downloadResumeBtn'), importClipboardResumeBtn:$('importClipboardResumeBtn'), parseResumeBtn:$('parseResumeBtn'), openCandidateWorkspaceBtn:$('openCandidateWorkspaceBtn'), openCandidateReviewBtn:$('openCandidateReviewBtn'), resumeUploadInput:$('resumeUploadInput'), uploadResumeBtn:$('uploadResumeBtn'), editFollowUpStatus:$('editFollowUpStatus'), editFollowUpDate:$('editFollowUpDate'), editFollowUpNote:$('editFollowUpNote'), markNeedsFollowUpBtn:$('markNeedsFollowUpBtn'), markFollowedUpBtn:$('markFollowedUpBtn'), editNotes:$('editNotes'), editStatus:$('editStatus'), saveBtn:$('saveBtn'),
       candidateModal:$('candidateModal'), candidateModalClose:$('candidateModalClose'), candidateModalTitle:$('candidateModalTitle'), candidateModalSubtitle:$('candidateModalSubtitle'), modalCandidateName:$('modalCandidateName'), modalCandidateMeta:$('modalCandidateMeta'), modalProfileSummary:$('modalProfileSummary'),
-      modalEditCandidateName:$('modalEditCandidateName'), modalEditCandidateEmail:$('modalEditCandidateEmail'), modalEditCandidatePhone:$('modalEditCandidatePhone'), modalEditCandidateLocation:$('modalEditCandidateLocation'), modalEditCandidateCountry:$('modalEditCandidateCountry'), modalEditCandidateTimezone:$('modalEditCandidateTimezone'), modalEditCandidateWorkSetup:$('modalEditCandidateWorkSetup'), modalEditCandidateAuthorization:$('modalEditCandidateAuthorization'), modalEditCandidateSalaryCurrency:$('modalEditCandidateSalaryCurrency'), modalEditCandidateSalary:$('modalEditCandidateSalary'), modalEditCandidateExperience:$('modalEditCandidateExperience'), modalEditCandidateRole:$('modalEditCandidateRole'), modalEditCandidateAvailableHours:$('modalEditCandidateAvailableHours'), modalSaveCandidateInfoBtn:$('modalSaveCandidateInfoBtn'), modalSnapEmail:$('modalSnapEmail'), modalSnapPhone:$('modalSnapPhone'), modalSnapLocation:$('modalSnapLocation'), modalSnapCountry:$('modalSnapCountry'), modalSnapTimezone:$('modalSnapTimezone'), modalSnapWorkSetup:$('modalSnapWorkSetup'), modalSnapWorkAuthorization:$('modalSnapWorkAuthorization'), modalSnapSalary:$('modalSnapSalary'), modalSnapAvailableHours:$('modalSnapAvailableHours'), modalSnapExperience:$('modalSnapExperience'), modalSnapJob:$('modalSnapJob'), modalEditFollowUpStatus:$('modalEditFollowUpStatus'), modalEditFollowUpDate:$('modalEditFollowUpDate'), modalEditFollowUpNote:$('modalEditFollowUpNote'), modalEditNotes:$('modalEditNotes'), modalEditStatus:$('modalEditStatus'), modalSaveBtn:$('modalSaveBtn'), modalMatchScore:$('modalMatchScore'), modalScoringSource:$('modalScoringSource'), modalProfileScore:$('modalProfileScore'), modalResumeScore:$('modalResumeScore'), modalMatchReason:$('modalMatchReason'), modalResumeMeta:$('modalResumeMeta'), modalViewResumeBtn:$('modalViewResumeBtn'), modalDownloadResumeBtn:$('modalDownloadResumeBtn'), modalParseResumeBtn:$('modalParseResumeBtn'), modalResumeUploadInput:$('modalResumeUploadInput'), modalUploadResumeBtn:$('modalUploadResumeBtn'),
+      modalEditCandidateName:$('modalEditCandidateName'), modalEditCandidateEmail:$('modalEditCandidateEmail'), modalEditCandidatePhone:$('modalEditCandidatePhone'), modalEditCandidateLocation:$('modalEditCandidateLocation'), modalEditCandidateCountry:$('modalEditCandidateCountry'), modalEditCandidateTimezone:$('modalEditCandidateTimezone'), modalEditCandidateWorkSetup:$('modalEditCandidateWorkSetup'), modalEditCandidateAuthorization:$('modalEditCandidateAuthorization'), modalEditCandidateSalaryCurrency:$('modalEditCandidateSalaryCurrency'), modalEditCandidateSalary:$('modalEditCandidateSalary'), modalEditCandidateExperience:$('modalEditCandidateExperience'), modalEditCandidateRole:$('modalEditCandidateRole'), modalEditCandidateAvailableHours:$('modalEditCandidateAvailableHours'), modalSaveCandidateInfoBtn:$('modalSaveCandidateInfoBtn'), modalSnapEmail:$('modalSnapEmail'), modalSnapPhone:$('modalSnapPhone'), modalSnapLocation:$('modalSnapLocation'), modalSnapCountry:$('modalSnapCountry'), modalSnapTimezone:$('modalSnapTimezone'), modalSnapWorkSetup:$('modalSnapWorkSetup'), modalSnapWorkAuthorization:$('modalSnapWorkAuthorization'), modalSnapSalary:$('modalSnapSalary'), modalSnapAvailableHours:$('modalSnapAvailableHours'), modalSnapExperience:$('modalSnapExperience'), modalSnapJob:$('modalSnapJob'), modalEditFollowUpStatus:$('modalEditFollowUpStatus'), modalEditFollowUpDate:$('modalEditFollowUpDate'), modalEditFollowUpNote:$('modalEditFollowUpNote'), modalEditNotes:$('modalEditNotes'), modalEditStatus:$('modalEditStatus'), modalSaveBtn:$('modalSaveBtn'), modalMatchScore:$('modalMatchScore'), modalScoringSource:$('modalScoringSource'), modalProfileScore:$('modalProfileScore'), modalResumeScore:$('modalResumeScore'), modalMatchReason:$('modalMatchReason'), modalResumeMeta:$('modalResumeMeta'), modalViewResumeBtn:$('modalViewResumeBtn'), modalDownloadResumeBtn:$('modalDownloadResumeBtn'), modalImportClipboardResumeBtn:$('modalImportClipboardResumeBtn'), modalParseResumeBtn:$('modalParseResumeBtn'), modalResumeUploadInput:$('modalResumeUploadInput'), modalUploadResumeBtn:$('modalUploadResumeBtn'),
       resumeModal:$('resumeModal'), resumeModalTitle:$('resumeModalTitle'), resumeModalSubtitle:$('resumeModalSubtitle'), resumeFrame:$('resumeFrame'), resumeModalClose:$('resumeModalClose'), resumeModalDownloadBtn:$('resumeModalDownloadBtn'),
+      resumeParserModal:$('resumeParserModal'), resumeParserClose:$('resumeParserClose'), resumeParserSubtitle:$('resumeParserSubtitle'), resumeParserRawText:$('resumeParserRawText'), resumeParserPasteBtn:$('resumeParserPasteBtn'), resumeParserParseBtn:$('resumeParserParseBtn'), resumeParserClearBtn:$('resumeParserClearBtn'), resumeParserStatus:$('resumeParserStatus'), resumeParserName:$('resumeParserName'), resumeParserEmail:$('resumeParserEmail'), resumeParserPhone:$('resumeParserPhone'), resumeParserLocation:$('resumeParserLocation'), resumeParserExperience:$('resumeParserExperience'), resumeParserRole:$('resumeParserRole'), resumeParserSkills:$('resumeParserSkills'), resumeParserSummary:$('resumeParserSummary'), resumeParserCancelBtn:$('resumeParserCancelBtn'), resumeParserSaveBtn:$('resumeParserSaveBtn'),
       headerLogoutBtn:$('headerLogoutBtn'), newApplicantsBadge:$('newApplicantsBadge'), liveStatusText:$('liveStatusText'), sidebarSourcingBtn:$('sidebarSourcingBtn'), sidebarBulkUploadBtn:$('sidebarBulkUploadBtn'), quickClearFiltersBtn:$('quickClearFiltersBtn'),
       bulkUploadModal:$('bulkUploadModal'), bulkUploadModalClose:$('bulkUploadModalClose'), bulkRoleSelect:$('bulkRoleSelect'), bulkResumeInput:$('bulkResumeInput'), bulkUploadBtn:$('bulkUploadBtn'), bulkUploadStatus:$('bulkUploadStatus'),
       assessmentEmailModal:$('assessmentEmailModal'), assessmentEmailModalClose:$('assessmentEmailModalClose'), assessmentModalSubtitle:$('assessmentModalSubtitle'), assessmentCandidateName:$('assessmentCandidateName'), assessmentCandidateEmail:$('assessmentCandidateEmail'), assessmentRoleName:$('assessmentRoleName'), assessmentCompanyName:$('assessmentCompanyName'), assessmentType:$('assessmentType'), assessmentDueDate:$('assessmentDueDate'), assessmentLink:$('assessmentLink'), assessmentCustomMessage:$('assessmentCustomMessage'), assessmentEmailPreview:$('assessmentEmailPreview'), sendAssessmentEmailBtn:$('sendAssessmentEmailBtn'), copyAssessmentEmailBtn:$('copyAssessmentEmailBtn'), assessmentEmailStatus:$('assessmentEmailStatus'), openAssessmentEmailBtn:$('openAssessmentEmailBtn'), drawerAssessmentBadge:$('drawerAssessmentBadge'), drawerAssessmentDetail:$('drawerAssessmentDetail'), drawerAssessmentActionBtn:$('drawerAssessmentActionBtn'),
@@ -3633,6 +3746,415 @@ tr.row-assessment-progress:hover td{
         job_id: jobId,
         job
       };
+    }
+
+
+    function getKnownResumeEmails(text){
+      const value = safeText(text);
+      const emails = [];
+      const emailRe = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.(?:com|net|org|edu|gov|ph|co|io|pro|info|biz|me|us|uk|ca|au|sg|dev|app)\b/ig;
+      let match;
+      while((match = emailRe.exec(value))){
+        const email = normalizeEmail(match[0]).replace(/[.,;:)]+$/,'');
+        if(email && !emails.includes(email))emails.push(email);
+      }
+      return emails;
+    }
+
+    function normalizeResumePasteText(rawText){
+      let text = safeText(rawText)
+        .replace(/\r/g,'\n')
+        .replace(/\u00a0/g,' ')
+        .replace(/[ \t]+/g,' ')
+        .replace(/\n{3,}/g,'\n\n');
+
+      // Add structure when browser copy collapses resume sections into one long line.
+      const markers = [
+        'Objective','Summary','Profile','Personal Details','Education','Experience','Employment','Work Experience','Work History',
+        'Skills','Core Competencies','Certifications','Qualifications','Screener Questions','Relevant experience','Date of Birth',
+        'Marital Status','Nationality','Religion','Gender','Age','Place of Birth'
+      ];
+      markers.forEach(marker => {
+        const re = new RegExp(`([^\\n])(${marker.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')})`, 'ig');
+        text = text.replace(re, '$1\n$2');
+      });
+      text = text.replace(/(\d{11})(\s*\|?\s*)/g,'$1\n');
+      text = text.replace(/([a-z0-9._%+-]+@[a-z0-9.-]+\.(?:com|net|org|edu|gov|ph|co|io|pro|info|biz|me|us|uk|ca|au|sg|dev|app))(?=[A-Z][a-z])/gi,'$1\n');
+      return text.replace(/\n{3,}/g,'\n\n').trim();
+    }
+
+    function looksLikeDashboardPaste(text){
+      return /Recruiter Workspace|Candidate Work Queue|Today.s Priority Queue|All Candidates|Saved recruiter views|BuzzHire/i.test(safeText(text));
+    }
+
+    function extractLikelyResumeSegment(rawText, row){
+      let text = normalizeResumePasteText(rawText);
+      if(!looksLikeDashboardPaste(text))return text;
+
+      const candidateHints = uniq([
+        row?.profile?.full_name,
+        row?.displayName,
+        row?.profile?.email,
+        row?.app?.email
+      ].map(safeText).filter(Boolean));
+
+      const lower = text.toLowerCase();
+      let bestStart = -1;
+      candidateHints.forEach(hint => {
+        const idx = lower.indexOf(hint.toLowerCase());
+        if(idx >= 0 && (bestStart < 0 || idx < bestStart))bestStart = idx;
+      });
+
+      if(bestStart >= 0){
+        const endMarkers = ['General Applicant Pool','Candidate Info','Snapshot','Candidate Brief','Candidate Snapshot','Activity','Resume\nExternal resume link'];
+        let end = text.length;
+        endMarkers.forEach(marker => {
+          const idx = lower.indexOf(marker.toLowerCase(), bestStart + 80);
+          if(idx > bestStart && idx < end)end = idx;
+        });
+        return text.slice(bestStart, end).trim();
+      }
+
+      // Last resort: keep text around the first email/phone cluster and avoid the dashboard table.
+      const firstEmail = getKnownResumeEmails(text)[0] || '';
+      if(firstEmail){
+        const idx = lower.indexOf(firstEmail.toLowerCase());
+        if(idx >= 0)return text.slice(Math.max(0, idx - 250), Math.min(text.length, idx + 4500)).trim();
+      }
+
+      return text;
+    }
+
+    function extractPhilippinesPhone(text){
+      const value = safeText(text);
+      const candidates = [];
+      const phoneRe = /(?:\+?63|0)\s*9[\d\s().-]{8,14}\d/g;
+      let match;
+      while((match = phoneRe.exec(value))){
+        const raw = match[0];
+        const digits = raw.replace(/\D/g,'');
+        if((digits.startsWith('09') && digits.length === 11) || (digits.startsWith('639') && digits.length === 12)){
+          candidates.push(raw.replace(/\s+/g,' ').trim());
+        }
+      }
+      return candidates[0] || '';
+    }
+
+    function getResumeLines(text){
+      return normalizeResumePasteText(text)
+        .split('\n')
+        .map(line => safeText(line))
+        .filter(Boolean)
+        .filter(line => !/^(BuzzHire|Recruiter Workspace|Workspace|Today|Pipeline|Inbox|Analytics|Tools|Details|Review|Send Assessment|View Resume|Import from Clipboard|Save Candidate Info)$/i.test(line));
+    }
+
+    function extractNameFromResume(lines, row){
+      const currentName = safeText(row?.profile?.full_name || row?.displayName || '');
+      const bad = /indeed|resume|curriculum|application|profile|contact|email|phone|mobile|location|address|experience|education|skills|summary|objective|work history|download|view|start of main content|general applicant pool|talentbuzz/i;
+
+      const strongCandidate = lines.find(line => {
+        const clean = line.replace(/[^a-zA-Z .,'-]/g,' ').replace(/\s+/g,' ').trim();
+        const words = clean.split(/\s+/).filter(Boolean);
+        const upperRatio = clean.replace(/[^A-Z]/g,'').length / Math.max(1, clean.replace(/[^A-Za-z]/g,'').length);
+        return clean.length >= 6 && clean.length <= 80 && words.length >= 2 && words.length <= 7 && upperRatio > .55 && !bad.test(clean);
+      });
+      if(strongCandidate)return strongCandidate.replace(/\s+/g,' ').trim();
+
+      const normalCandidate = lines.find(line => {
+        const clean = line.replace(/[^a-zA-Z .,'-]/g,' ').replace(/\s+/g,' ').trim();
+        const words = clean.split(/\s+/).filter(Boolean);
+        return clean.length >= 6 && clean.length <= 70 && words.length >= 2 && words.length <= 6 && !bad.test(clean) && !/@/.test(line);
+      });
+
+      return normalCandidate || currentName || '';
+    }
+
+    function extractLocationFromResume(lines, parsedName, email, phone){
+      const bad = /objective|summary|experience|education|skills|personal details|date of birth|marital|nationality|religion|gender|age|place of birth|bachelor|college|university|high school|medical billing|customer|invoice|billing|training|interview|candidate|applicant/i;
+      const locationKeywords = /\b(address|barangay|brgy|city|metro manila|manila|quezon|pasig|taguig|makati|lipa|batangas|laguna|cavite|rizal|bulacan|cebu|davao|pampanga|philippines|purok|street|st\.|blk|lot)\b/i;
+
+      for(const line of lines){
+        let clean = line
+          .replace(parsedName || '', '')
+          .replace(email || '', '')
+          .replace(phone || '', '')
+          .replace(/^address\s*:?-?\s*/i,'')
+          .replace(/\s+/g,' ')
+          .trim();
+        if(clean.length < 5 || clean.length > 180)continue;
+        if(bad.test(clean))continue;
+        if(locationKeywords.test(clean))return clean;
+      }
+      return '';
+    }
+
+    function extractSkillsFromResume(text){
+      const value = normalizeResumePasteText(text);
+      const skillsMatch = value.match(/(?:Skills|Core Competencies|Technical Skills)\s*:?\s*([\s\S]{0,700}?)(?:\n(?:Experience|Education|Employment|Work History|Certifications|Personal Details)\b|$)/i);
+      if(skillsMatch){
+        return skillsMatch[1].replace(/\n+/g, ', ').replace(/\s+/g,' ').replace(/,+/g,',').trim().slice(0,500);
+      }
+      const keywords = ['medical billing','billing','invoicing','reconciliation','customer service','data entry','ATS','onboarding','interview scheduling','ISO 9001','documentation','Microsoft Office','bookkeeping'];
+      return keywords.filter(k => new RegExp(k.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'),'i').test(value)).join(', ');
+    }
+
+    function buildCandidateBrief(text, parsed){
+      const lines = getResumeLines(text);
+      const experienceIdx = lines.findIndex(line => /^(Experience|Employment|Work Experience|Work History)$/i.test(line) || /\bExperience\b/i.test(line));
+      const educationLine = lines.find(line => /bachelor|college|university|degree|diploma|high school/i.test(line));
+      const roleLines = lines.filter(line => /assistant|specialist|representative|staff|billing|customer|document|recruiter|admin|encoder|analyst|developer|nurse|csr/i.test(line)).slice(0,4);
+      const parts = [];
+      if(parsed.full_name)parts.push(`${parsed.full_name}${parsed.location ? ` is based in ${parsed.location}` : ''}.`);
+      if(roleLines.length)parts.push(`Relevant experience: ${roleLines.join(' • ')}.`);
+      if(educationLine)parts.push(`Education: ${educationLine}.`);
+      if(parsed.skills)parts.push(`Skills/keywords: ${parsed.skills}.`);
+      if(parts.length)return parts.join('\n');
+      return lines.slice(Math.max(0, experienceIdx), Math.max(8, experienceIdx + 8)).join('\n').slice(0,900) || safeText(text).slice(0,900);
+    }
+
+    function parseResumeTextBasic(rawText, row=null){
+      const resumeSegment = extractLikelyResumeSegment(rawText, row);
+      const text = normalizeResumePasteText(resumeSegment);
+      const compact = text.replace(/\s+/g, ' ').trim();
+      const lines = getResumeLines(text);
+
+      const emails = getKnownResumeEmails(compact).filter(email => !/@talentbuzz\.|@getresolveiq\.|@indeedemail\./i.test(email));
+      const fallbackEmails = getKnownResumeEmails(compact);
+      const email = emails[0] || fallbackEmails[0] || '';
+      const phone = extractPhilippinesPhone(compact);
+      const fullName = extractNameFromResume(lines, row);
+      const location = extractLocationFromResume(lines, fullName, email, phone);
+      const skills = extractSkillsFromResume(text);
+      const yearsMatch = compact.match(/(\d{1,2})\+?\s*(?:years|yrs)\b/i);
+
+      const parsed = {
+        full_name: fullName,
+        email,
+        phone,
+        location,
+        education: (lines.find(line => /bachelor|college|university|degree|diploma|high school/i.test(line)) || ''),
+        skills,
+        experience_summary: (lines.find(line => /assistant|specialist|representative|staff|billing|customer|document|recruiter|admin|encoder|analyst|developer|nurse|csr/i.test(line)) || ''),
+        years_of_experience: yearsMatch ? yearsMatch[1] : '',
+        summary: '',
+        raw_resume_text: text,
+        imported_from: 'manual_paste',
+        imported_at: new Date().toISOString()
+      };
+      parsed.summary = buildCandidateBrief(text, parsed);
+      return parsed;
+    }
+
+    function setResumeParserStatus(message, type='info'){
+      if(!els.resumeParserStatus)return;
+      els.resumeParserStatus.classList.remove('hidden');
+      els.resumeParserStatus.textContent = message;
+      els.resumeParserStatus.style.borderColor = type === 'error' ? '#fecdca' : type === 'success' ? '#abefc6' : 'var(--line-strong)';
+      els.resumeParserStatus.style.color = type === 'error' ? 'var(--bad)' : type === 'success' ? 'var(--good)' : 'var(--muted)';
+    }
+
+    function fillResumeParserFields(parsed={}, row=null){
+      if(els.resumeParserName)els.resumeParserName.value = safeText(parsed.full_name || row?.profile?.full_name || row?.displayName || '');
+      if(els.resumeParserEmail)els.resumeParserEmail.value = safeText(parsed.email || row?.profile?.email || row?.app?.email || '');
+      if(els.resumeParserPhone)els.resumeParserPhone.value = safeText(parsed.phone || row?.profile?.phone || '');
+      if(els.resumeParserLocation)els.resumeParserLocation.value = safeText(parsed.location || getLocation(row?.profile || {}) || '');
+      if(els.resumeParserExperience)els.resumeParserExperience.value = safeText(parsed.years_of_experience || row?.profile?.years_of_experience || row?.profile?.experience_years || '');
+      if(els.resumeParserSkills)els.resumeParserSkills.value = safeText(parsed.skills || row?.profile?.skills || '');
+      if(els.resumeParserSummary)els.resumeParserSummary.value = safeText(parsed.summary || getProfileSummary(row?.profile || '') || '');
+      populateRoleEditor(els.resumeParserRole, row?.job?.id || row?.app?.job_id || '');
+    }
+
+    function getResumeParserValues(){
+      const jobId = safeText(els.resumeParserRole?.value || '');
+      const job = (state.jobs||[]).find(item => String(item.id) === String(jobId));
+      return {
+        full_name: safeText(els.resumeParserName?.value || ''),
+        email: normalizeEmail(els.resumeParserEmail?.value || ''),
+        phone: safeText(els.resumeParserPhone?.value || ''),
+        location: safeText(els.resumeParserLocation?.value || ''),
+        years_of_experience: safeText(els.resumeParserExperience?.value || ''),
+        skills: safeText(els.resumeParserSkills?.value || ''),
+        summary: safeText(els.resumeParserSummary?.value || ''),
+        job_id: jobId,
+        job
+      };
+    }
+
+    function openResumeParserModal(){
+      const row = state.allRows.find(item => item.id === state.selectedId);
+      if(!row)return showNotice('Open a candidate first.', 'error');
+      state.resumeParserRowId = row.id;
+      state.resumeParserParsed = null;
+      if(els.resumeParserRawText)els.resumeParserRawText.value = '';
+      fillResumeParserFields({}, row);
+      setResumeParserStatus('Paste copied Indeed resume/application text, then click Parse Preview.', 'info');
+      els.resumeParserModal?.classList.add('show');
+      setTimeout(()=>els.resumeParserRawText?.focus(), 50);
+    }
+
+    function closeResumeParserModal(){
+      els.resumeParserModal?.classList.remove('show');
+    }
+
+    async function pasteIntoResumeParser(){
+      try{
+        if(!navigator.clipboard?.readText){
+          setResumeParserStatus('Clipboard access is unavailable. Paste manually into the text box.', 'error');
+          return;
+        }
+        const text = await navigator.clipboard.readText();
+        if(els.resumeParserRawText)els.resumeParserRawText.value = text;
+        parseResumeParserPreview();
+      }catch(error){
+        setResumeParserStatus(`Unable to read clipboard: ${getReadableError(error)}. Paste manually instead.`, 'error');
+      }
+    }
+
+    function parseResumeParserPreview(){
+      const row = state.allRows.find(item => item.id === (state.resumeParserRowId || state.selectedId));
+      const rawText = safeText(els.resumeParserRawText?.value || '');
+      if(rawText.length < 50){
+        setResumeParserStatus('Paste at least 50 characters of resume/application text before parsing.', 'error');
+        return null;
+      }
+      const parsed = parseResumeTextBasic(rawText, row);
+      state.resumeParserParsed = parsed;
+      fillResumeParserFields(parsed, row);
+      const warnings = [];
+      if(looksLikeDashboardPaste(rawText))warnings.push('Dashboard text detected. I tried to isolate only this candidate/resume segment. Review before saving.');
+      if(!parsed.email)warnings.push('No real email detected.');
+      if(!parsed.phone)warnings.push('No Philippine mobile number detected.');
+      setResumeParserStatus(warnings.length ? warnings.join('\n') : 'Parsed preview ready. Review the fields, then save.', warnings.length ? 'info' : 'success');
+      return parsed;
+    }
+
+    async function updateApplicantProfileFromClipboard(row, rawText, parsed, options={}){
+      if(!row?.profile?.id)throw new Error('This candidate does not have an applicant profile ID.');
+      const now = new Date().toISOString();
+      const current = row.profile || {};
+      const cleanRawText = normalizeResumePasteText(rawText);
+
+      const fullPayload = {
+        full_name: parsed.full_name || current.full_name || row.displayName || null,
+        email: parsed.email || current.email || row.app?.email || null,
+        phone: parsed.phone || current.phone || null,
+        location: parsed.location || getLocation(current) || null,
+        years_of_experience: parsed.years_of_experience || current.years_of_experience || null,
+        skills: parsed.skills || current.skills || null,
+        raw_resume_text: cleanRawText,
+        parsed_resume_json: parsed,
+        profile_summary: parsed.summary || current.profile_summary || null,
+        updated_at: now
+      };
+
+      const attempts = [
+        fullPayload,
+        {
+          full_name: fullPayload.full_name,
+          email: fullPayload.email,
+          phone: fullPayload.phone,
+          location: fullPayload.location,
+          raw_resume_text: cleanRawText,
+          parsed_resume_json: parsed,
+          updated_at: now
+        },
+        {
+          full_name: fullPayload.full_name,
+          email: fullPayload.email,
+          phone: fullPayload.phone,
+          location: fullPayload.location,
+          raw_resume_text: cleanRawText,
+          updated_at: now
+        },
+        {
+          full_name: fullPayload.full_name,
+          email: fullPayload.email,
+          phone: fullPayload.phone,
+          location: fullPayload.location,
+          updated_at: now
+        }
+      ];
+
+      let savedPayload = null;
+      let lastError = null;
+      for(const payload of attempts){
+        const cleanPayload = Object.fromEntries(Object.entries(payload).filter(([,value]) => value !== undefined));
+        const { error } = await supabaseClient.from('applicant_profiles').update(cleanPayload).eq('id', row.profile.id);
+        if(!error){ savedPayload = cleanPayload; break; }
+        lastError = error;
+        console.warn('Clipboard profile update attempt failed:', error?.message || error, cleanPayload);
+      }
+      if(!savedPayload)throw lastError || new Error('Unable to update applicant profile from pasted resume text.');
+
+      if(options.job_id || parsed.email){
+        const appPayload = { updated_at: now };
+        if(parsed.email)appPayload.email = parsed.email;
+        if(options.job_id){
+          appPayload.job_id = options.job_id;
+          appPayload.job_title = options.job?.title || row.app?.job_title || null;
+        }
+        const appAttempts = [
+          appPayload,
+          options.job_id ? { job_id: appPayload.job_id, job_title: appPayload.job_title, updated_at: now } : { updated_at: now },
+          { updated_at: now }
+        ];
+        for(const payload of appAttempts){
+          const cleanPayload = Object.fromEntries(Object.entries(payload).filter(([,value]) => value !== undefined));
+          const { error } = await supabaseClient.from('applications').update(cleanPayload).eq('id', row.id);
+          if(!error)break;
+          console.warn('Clipboard application update attempt failed:', error?.message || error, cleanPayload);
+        }
+      }
+      return savedPayload;
+    }
+
+    async function saveResumeParserImport(){
+      const row = state.allRows.find(item => item.id === (state.resumeParserRowId || state.selectedId));
+      if(!row)return showNotice('Open a candidate first.', 'error');
+      const rawText = safeText(els.resumeParserRawText?.value || '');
+      if(rawText.length < 50){
+        setResumeParserStatus('Paste resume/application text before saving.', 'error');
+        return;
+      }
+      const parsedPreview = state.resumeParserParsed || parseResumeParserPreview();
+      if(!parsedPreview)return;
+      const edited = getResumeParserValues();
+      const parsed = {
+        ...parsedPreview,
+        full_name: edited.full_name,
+        email: edited.email,
+        phone: edited.phone,
+        location: edited.location,
+        years_of_experience: edited.years_of_experience,
+        skills: edited.skills,
+        summary: edited.summary,
+        imported_from: 'manual_paste_reviewed',
+        imported_at: new Date().toISOString()
+      };
+
+      try{
+        if(els.resumeParserSaveBtn){els.resumeParserSaveBtn.disabled = true; els.resumeParserSaveBtn.textContent = 'Saving...';}
+        await updateApplicantProfileFromClipboard(row, rawText, parsed, {job_id: edited.job_id, job: edited.job});
+        setResumeParserStatus('Parsed details saved to candidate profile.', 'success');
+        showNotice('Parsed resume details saved.', 'success');
+        closeResumeParserModal();
+        await loadDashboard();
+        await openDrawer(row.id);
+        if(isCandidateModalOpen()){
+          const refreshed = state.allRows.find(item => item.id === row.id);
+          fillCandidateModal(refreshed || row);
+        }
+      }catch(error){
+        console.error('Unable to save parsed resume text:', error);
+        setResumeParserStatus(`Unable to save parsed details: ${getReadableError(error)}`, 'error');
+        showNotice(`Unable to save parsed details: ${getReadableError(error)}`, 'error');
+      }finally{
+        if(els.resumeParserSaveBtn){els.resumeParserSaveBtn.disabled = false; els.resumeParserSaveBtn.textContent = 'Save Parsed Details';}
+      }
+    }
+
+    async function importResumeFromClipboard(){
+      openResumeParserModal();
     }
 
     async function updateCandidateInfo(){
@@ -4894,7 +5416,7 @@ async function bulkUploadResumes(){
         }
         if(action==='assessment'){ await openDrawer(id); return openAssessmentEmailModal(id); }
       });
-      els.viewResumeBtn?.addEventListener('click',()=>openResumeModal(state.selectedResumeUrl,state.selectedResumePath||'Resume Viewer')); els.markNeedsFollowUpBtn?.addEventListener('click',()=>setFollowUpQuick('needs_follow_up')); els.markFollowedUpBtn?.addEventListener('click',()=>setFollowUpQuick('followed_up')); els.parseResumeBtn?.addEventListener('click',parseSelectedResume);
+      els.viewResumeBtn?.addEventListener('click',()=>openResumeModal(state.selectedResumeUrl,state.selectedResumePath||'Resume Viewer')); els.importClipboardResumeBtn?.addEventListener('click',importResumeFromClipboard); els.markNeedsFollowUpBtn?.addEventListener('click',()=>setFollowUpQuick('needs_follow_up')); els.markFollowedUpBtn?.addEventListener('click',()=>setFollowUpQuick('followed_up')); els.parseResumeBtn?.addEventListener('click',parseSelectedResume);
       els.uploadResumeBtn?.addEventListener('click',()=>uploadResumeForSelected(false));
       els.saveBtn?.addEventListener('click',saveSelectedRow);
       els.saveCandidateInfoBtn?.addEventListener('click',updateCandidateInfo);
@@ -4906,12 +5428,21 @@ async function bulkUploadResumes(){
       els.copyAssessmentEmailBtn?.addEventListener('click',copyAssessmentEmail);
       els.candidateModalClose?.addEventListener('click',closeCandidateModal);
       els.modalSaveBtn?.addEventListener('click',saveSelectedRow);
-      els.modalViewResumeBtn?.addEventListener('click',()=>openResumeModal(state.selectedResumeUrl,state.selectedResumePath||'Resume Viewer')); els.modalParseResumeBtn?.addEventListener('click',parseSelectedResume);
+      els.modalViewResumeBtn?.addEventListener('click',()=>openResumeModal(state.selectedResumeUrl,state.selectedResumePath||'Resume Viewer')); els.modalImportClipboardResumeBtn?.addEventListener('click',importResumeFromClipboard); els.modalParseResumeBtn?.addEventListener('click',parseSelectedResume);
       els.modalUploadResumeBtn?.addEventListener('click',()=>uploadResumeForSelected(true));
       els.candidateModal?.addEventListener('click',event=>{if(event.target===els.candidateModal)closeCandidateModal();});
       els.resumeModalClose.addEventListener('click',()=>{els.resumeModal.classList.remove('show');els.resumeFrame.src=''});
       els.resumeModal.addEventListener('click',event=>{if(event.target===els.resumeModal){els.resumeModal.classList.remove('show');els.resumeFrame.src=''}});
       els.resumeModalDownloadBtn?.addEventListener('click',()=>downloadResumeFile(state.currentResumeViewerUrl,state.currentResumeViewerPath,'resume'));
+      els.resumeParserClose?.addEventListener('click',closeResumeParserModal);
+      els.resumeParserCancelBtn?.addEventListener('click',closeResumeParserModal);
+      els.resumeParserModal?.addEventListener('click',event=>{if(event.target===els.resumeParserModal)closeResumeParserModal();});
+      els.resumeParserPasteBtn?.addEventListener('click',pasteIntoResumeParser);
+      els.resumeParserParseBtn?.addEventListener('click',parseResumeParserPreview);
+      els.resumeParserClearBtn?.addEventListener('click',()=>{ if(els.resumeParserRawText)els.resumeParserRawText.value=''; state.resumeParserParsed=null; fillResumeParserFields({}, state.allRows.find(item=>item.id===state.selectedId)); setResumeParserStatus('Paste text to begin.','info'); });
+      els.resumeParserSaveBtn?.addEventListener('click',saveResumeParserImport);
+      els.resumeParserRawText?.addEventListener('input',()=>{ state.resumeParserParsed=null; });
+      [els.resumeParserName,els.resumeParserEmail,els.resumeParserPhone,els.resumeParserLocation,els.resumeParserExperience,els.resumeParserSkills,els.resumeParserSummary,els.resumeParserRole].forEach(el=>el?.addEventListener('input',()=>{ state.resumeParserParsed = state.resumeParserParsed || {}; }));
       window.setInterval(updateLiveStatusLabel,5000);
     }
 
