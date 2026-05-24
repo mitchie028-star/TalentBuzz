@@ -2619,6 +2619,74 @@ tr.row-assessment-progress:hover td{
       return date.toLocaleDateString(undefined,{month:'short',day:'numeric'}) + ' • ' + date.toLocaleTimeString(undefined,{hour:'numeric',minute:'2-digit'});
     }
 
+    function stripHtmlForTimeline(value){
+      const raw = safeText(value);
+      if(!raw)return '';
+      let cleaned = raw;
+
+      if(/<[^>]+>/.test(cleaned)){
+        try{
+          const doc = new DOMParser().parseFromString(cleaned, 'text/html');
+          cleaned = doc.body?.textContent || cleaned;
+        }catch(_){
+          cleaned = cleaned.replace(/<[^>]+>/g, ' ');
+        }
+      }
+
+      return cleaned
+        .replace(/\u00a0/g, ' ')
+        .replace(/&nbsp;/gi, ' ')
+        .replace(/&amp;/gi, '&')
+        .replace(/&#39;/g, "'")
+        .replace(/&quot;/g, '"')
+        .replace(/\s+/g, ' ')
+        .trim();
+    }
+
+    function formatActivityTitle(activity){
+      const type = safeText(activity?.activity_type).toLowerCase();
+      const title = safeText(activity?.title);
+
+      if(title)return title;
+      if(type === 'candidate_message')return activity?.source === 'indeed' ? 'Indeed message received' : 'Candidate email received';
+      if(type === 'resume_uploaded')return 'Resume received from email';
+      if(type === 'application_submitted')return 'Application submitted';
+      return 'Activity';
+    }
+
+    function getActivityTone(activity){
+      const type = safeText(activity?.activity_type).toLowerCase();
+      if(type === 'resume_uploaded')return 'good';
+      if(type === 'candidate_message')return 'info';
+      if(type.includes('follow'))return 'warn';
+      return '';
+    }
+
+    function normalizeTimelineActivities(activities){
+      const seen = new Set();
+
+      return (activities || [])
+        .filter(Boolean)
+        .map(activity => {
+          const uniqueKey = safeText(activity.id) ||
+            `${safeText(activity.activity_type)}:${safeText(activity.source_message_id)}:${safeText(activity.body)}`;
+          if(seen.has(uniqueKey))return null;
+          seen.add(uniqueKey);
+
+          const body = stripHtmlForTimeline(activity.body);
+          const preview = body.length > 900 ? `${body.slice(0, 900)}…` : body;
+
+          return {
+            title: formatActivityTitle(activity),
+            time: activity.created_at,
+            text: escapeHtml(preview || 'No message body captured.'),
+            tone: getActivityTone(activity),
+            source: 'candidate_activities'
+          };
+        })
+        .filter(Boolean);
+    }
+
     function renderCandidateTimeline(row){
       if(!els.candidateTimeline)return;
       if(!row){
@@ -2634,6 +2702,9 @@ tr.row-assessment-progress:hover td{
           tone:''
         }
       ];
+
+      const candidateActivityItems = normalizeTimelineActivities(row.activities || []);
+      items.push(...candidateActivityItems);
 
       if(hasResumeEvidence(row.profile)){
         items.push({
@@ -2652,7 +2723,6 @@ tr.row-assessment-progress:hover td{
           tone:'good'
         });
       }
-
 
       const assessmentInfo = getAssessmentInfo(row);
       if(assessmentInfo.key !== 'not_sent'){
@@ -2689,7 +2759,11 @@ tr.row-assessment-progress:hover td{
         tone:getStatusTone(row.status)==='good'?'good':getStatusTone(row.status)==='warn'?'warn':''
       });
 
-      els.candidateTimeline.innerHTML=items.slice(0,6).map(item=>`
+      const renderedItems = items
+        .filter(item => item && (item.title || item.text))
+        .slice(0, 14);
+
+      els.candidateTimeline.innerHTML=renderedItems.map(item=>`
         <div class="timeline-item">
           <div class="timeline-dot ${item.tone || ''}"></div>
           <div class="timeline-content">
@@ -3274,6 +3348,66 @@ tr.row-assessment-progress:hover td{
       }
     }
 
+    async function fetchCandidateActivities(){
+      try{
+        const {data,error}=await supabaseClient
+          .from('candidate_activities')
+          .select('id,applicant_profile_id,application_id,activity_type,title,body,source,source_message_id,created_at')
+          .order('created_at',{ascending:false})
+          .limit(CONFIG.PAGE_SIZE);
+
+        if(error)throw error;
+        return data || [];
+      }catch(error){
+        console.warn('candidate_activities query failed:', error?.message || error);
+        return [];
+      }
+    }
+
+    function buildCandidateActivityLookup(activities){
+      const byProfileId = new Map();
+      const byApplicationId = new Map();
+
+      (activities || []).forEach(activity=>{
+        const profileId = safeText(activity.applicant_profile_id);
+        const applicationId = safeText(activity.application_id);
+
+        if(profileId){
+          if(!byProfileId.has(profileId))byProfileId.set(profileId, []);
+          byProfileId.get(profileId).push(activity);
+        }
+
+        if(applicationId){
+          if(!byApplicationId.has(applicationId))byApplicationId.set(applicationId, []);
+          byApplicationId.get(applicationId).push(activity);
+        }
+      });
+
+      return {byProfileId, byApplicationId};
+    }
+
+    function getActivitiesForApplicationRow(app, profile, lookup){
+      const seen = new Set();
+      const activities = [];
+      const addActivity = activity => {
+        const key = safeText(activity?.id) ||
+          `${safeText(activity?.source_message_id)}:${safeText(activity?.activity_type)}:${safeText(activity?.created_at)}`;
+        if(!key || seen.has(key))return;
+        seen.add(key);
+        activities.push(activity);
+      };
+
+      (lookup?.byApplicationId?.get(safeText(app?.id)) || []).forEach(addActivity);
+      (lookup?.byProfileId?.get(safeText(app?.applicant_profile_id || profile?.id)) || []).forEach(addActivity);
+
+      return activities.sort((a,b)=>{
+        const aTime = new Date(a.created_at || 0).getTime();
+        const bTime = new Date(b.created_at || 0).getTime();
+        return bTime - aTime;
+      });
+    }
+
+
     function normalizeAssessmentStatus(value){
       const status = safeText(value).toLowerCase().replace(/\s+/g,'_').replace(/-/g,'_');
       if(['complete','completed','submitted','done'].includes(status))return 'completed';
@@ -3429,21 +3563,24 @@ tr.row-assessment-progress:hover td{
       }
       if(silent && els.liveStatusText)els.liveStatusText.textContent='Syncing…';
       try{
-        const [applications,profiles,jobs,assessmentsByApplicationId]=await Promise.all([
+        const [applications,profiles,jobs,assessmentsByApplicationId,candidateActivities]=await Promise.all([
           fetchApplicationsRows(),
           fetchAll('applicant_profiles','id,full_name,email,phone,location,country,timezone,work_authorization,preferred_work_setup,salary_currency,salary_expectation,available_working_hours,headline,current_title,resume_url,resume_path,resume_file_name,raw_resume_text,parsed_resume_json,years_of_experience,experience_years,years_experience,total_experience,experience,skills,updated_at'),
           fetchAll('jobs','id,title,client_name,job_description,keywords,industry,screening_enabled,status,work_setup,location,slug'),
-          fetchLatestRoleAssessments()
+          fetchLatestRoleAssessments(),
+          fetchCandidateActivities()
         ]);
         state.assessmentsByApplicationId = assessmentsByApplicationId || new Map();
         state.jobs = jobs || [];
         const profilesById=new Map(profiles.map(item=>[item.id,item]));
         const jobsById=new Map(jobs.map(item=>[item.id,item]));
+        const activityLookup = buildCandidateActivityLookup(candidateActivities || []);
         state.allRows=(applications||[]).map(app=>{
           const profile=profilesById.get(app.applicant_profile_id)||profiles.find(p=>normalizeEmail(p.email)===normalizeEmail(app.email))||{};
           const job=jobsById.get(app.job_id)||jobs.find(j=>safeText(j.title)===safeText(app.job_title))||{};
           const score=basicScore(profile,app,job);
-          return {id:app.id,app,profile,job,score,assessment:state.assessmentsByApplicationId.get(safeText(app.id))||null,assessmentInfo:null,displayName:safeText(profile.full_name||app.email||'Unnamed candidate'),status:safeText(app.client_feedback_status||app.status||'submitted'),recruiter:safeText(app.recruiter_email)||'Unassigned',source:safeText(app.application_source||'—'),appliedAt:app.created_at,clientName:safeText(job.client_name||'—'),jobTitle:safeText(job.title||app.job_title||'—'),followUp:getFollowUpInfo(app)};
+          const activities = getActivitiesForApplicationRow(app, profile, activityLookup);
+          return {id:app.id,app,profile,job,score,activities,assessment:state.assessmentsByApplicationId.get(safeText(app.id))||null,assessmentInfo:null,displayName:safeText(profile.full_name||app.email||'Unnamed candidate'),status:safeText(app.client_feedback_status||app.status||'submitted'),recruiter:safeText(app.recruiter_email)||'Unassigned',source:safeText(app.application_source||'—'),appliedAt:app.created_at,clientName:safeText(job.client_name||'—'),jobTitle:safeText(job.title||app.job_title||'—'),followUp:getFollowUpInfo(app)};
         }).map(row => ({...row, assessmentInfo: getAssessmentInfo(row)}));
         const previousRowCount = Number(state.lastKnownRowCount || 0);
         state.lastKnownRowCount = state.allRows.length;
