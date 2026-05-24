@@ -284,7 +284,6 @@
       text-align:left;
     }
     .action-card:hover{border-color:var(--accent-line);background:var(--accent-soft)}
-    .action-card.active{border-color:var(--accent);background:var(--accent-soft);box-shadow:0 8px 18px rgba(37,99,235,.12)}
     .action-card strong{display:block;font-size:.92rem;margin-bottom:4px}
     .action-card span{display:block;color:var(--muted);font-size:.8rem;line-height:1.45}
     .count-pill{
@@ -1874,6 +1873,31 @@ tr.row-assessment-progress:hover td{
       background:var(--surface-soft);
     }
 
+
+    /* ===== Client-ready interview scheduling ===== */
+    .interview-card{
+      border-color:#c7ddff;
+      background:linear-gradient(180deg,#ffffff 0%,#f8fbff 100%);
+    }
+    .interview-grid{
+      display:grid;
+      grid-template-columns:repeat(2,minmax(0,1fr));
+      gap:10px;
+    }
+    .interview-grid .field.full{grid-column:1/-1}
+    .interview-summary{
+      margin-top:10px;
+      padding:10px 12px;
+      border:1px dashed var(--accent-line);
+      border-radius:13px;
+      background:#fff;
+      color:#475467;
+      font-size:.8rem;
+      line-height:1.45;
+      white-space:pre-wrap;
+    }
+    @media(max-width:760px){.interview-grid{grid-template-columns:1fr}}
+
 </style>
 </head>
 <body class="auth-pending">
@@ -2163,6 +2187,22 @@ tr.row-assessment-progress:hover td{
                     <button class="btn btn-xs" id="markFollowedUpBtn" type="button">Mark followed up</button>
                   </div>
                 </div>
+              </div>
+
+<div class="drawer-section interview-card">
+                <h3>Interview Schedule</h3>
+                <div class="interview-grid">
+                  <div class="field"><label for="interviewDateTime">Date and time</label><input id="interviewDateTime" type="datetime-local" /></div>
+                  <div class="field"><label for="interviewType">Interview type</label><select id="interviewType"><option value="client_interview">Client interview</option><option value="recruiter_screen">Recruiter screen</option><option value="technical_interview">Technical interview</option><option value="final_interview">Final interview</option></select></div>
+                  <div class="field"><label for="interviewInterviewer">Interviewer / Client</label><input id="interviewInterviewer" type="text" placeholder="Interviewer name or email" /></div>
+                  <div class="field"><label for="interviewLocation">Meeting link / location</label><input id="interviewLocation" type="text" placeholder="Google Meet, Zoom, office, or phone" /></div>
+                  <div class="field full"><label for="interviewNotes">Interview notes</label><textarea id="interviewNotes" placeholder="Agenda, client instructions, prep notes, or reminders..."></textarea></div>
+                </div>
+                <div class="actions" style="margin-top:10px;">
+                  <button class="btn btn-primary btn-xs" id="scheduleInterviewBtn" type="button">Schedule Interview</button>
+                  <button class="btn btn-xs" id="clearInterviewFormBtn" type="button">Clear</button>
+                </div>
+                <div class="interview-summary" id="interviewSummary">No interview scheduled yet.</div>
               </div>
 
 <div class="drawer-section">
@@ -2545,7 +2585,7 @@ tr.row-assessment-progress:hover td{
   </div>
 
   <script>
-    console.log('BuzzHire recruiter-dashboard-role-assessment-ready-review-v2026-05-24 loaded');
+    console.log('BuzzHire recruiter-dashboard-interview-scheduling-v2026-05-24 loaded');
 
     const CONFIG = {
       SUPABASE_URL: window.TALENTBUZZ_SUPABASE_URL || localStorage.getItem('TALENTBUZZ_SUPABASE_URL') || '',
@@ -2577,6 +2617,7 @@ tr.row-assessment-progress:hover td{
       jobs: [],
       selectedAssessmentRowId: null,
       assessmentsByApplicationId: new Map(),
+      interviewsByApplicationId: new Map(),
       resumeParserRowId: null,
       resumeParserParsed: null,
       autoRefreshTimer: null,
@@ -2610,6 +2651,7 @@ tr.row-assessment-progress:hover td{
       headerLogoutBtn:$('headerLogoutBtn'), headerInboxBtn:$('headerInboxBtn'), sidebarInboxBtn:$('sidebarInboxBtn'), newApplicantsBadge:$('newApplicantsBadge'), liveStatusText:$('liveStatusText'), sidebarSourcingBtn:$('sidebarSourcingBtn'), sidebarBulkUploadBtn:$('sidebarBulkUploadBtn'), quickClearFiltersBtn:$('quickClearFiltersBtn'), messageInboxModal:$('messageInboxModal'), messageInboxList:$('messageInboxList'), messageInboxClose:$('messageInboxClose'), messageInboxRefreshBtn:$('messageInboxRefreshBtn'),
       bulkUploadModal:$('bulkUploadModal'), bulkUploadModalClose:$('bulkUploadModalClose'), bulkRoleSelect:$('bulkRoleSelect'), bulkResumeInput:$('bulkResumeInput'), bulkUploadBtn:$('bulkUploadBtn'), bulkUploadStatus:$('bulkUploadStatus'),
       assessmentEmailModal:$('assessmentEmailModal'), assessmentEmailModalClose:$('assessmentEmailModalClose'), assessmentModalSubtitle:$('assessmentModalSubtitle'), assessmentCandidateName:$('assessmentCandidateName'), assessmentCandidateEmail:$('assessmentCandidateEmail'), assessmentRoleName:$('assessmentRoleName'), assessmentCompanyName:$('assessmentCompanyName'), assessmentType:$('assessmentType'), assessmentDueDate:$('assessmentDueDate'), assessmentLink:$('assessmentLink'), assessmentCustomMessage:$('assessmentCustomMessage'), assessmentEmailPreview:$('assessmentEmailPreview'), sendAssessmentEmailBtn:$('sendAssessmentEmailBtn'), copyAssessmentEmailBtn:$('copyAssessmentEmailBtn'), assessmentEmailStatus:$('assessmentEmailStatus'), openAssessmentEmailBtn:$('openAssessmentEmailBtn'), drawerAssessmentBadge:$('drawerAssessmentBadge'), drawerAssessmentDetail:$('drawerAssessmentDetail'), drawerAssessmentActionBtn:$('drawerAssessmentActionBtn'),
+      interviewDateTime:$('interviewDateTime'), interviewType:$('interviewType'), interviewInterviewer:$('interviewInterviewer'), interviewLocation:$('interviewLocation'), interviewNotes:$('interviewNotes'), scheduleInterviewBtn:$('scheduleInterviewBtn'), clearInterviewFormBtn:$('clearInterviewFormBtn'), interviewSummary:$('interviewSummary'),
     };
 
     let supabaseClient = null;
@@ -3184,6 +3226,15 @@ tr.row-assessment-progress:hover td{
           time:assessmentInfo.completedAt || assessmentInfo.startedAt || assessmentInfo.dueAt || row.app?.assessment_invite_sent_at || row.app?.updated_at || row.appliedAt,
           text:assessmentInfo.subtitle || 'Assessment activity is available.',
           tone:assessmentInfo.key === 'completed' ? 'good' : assessmentInfo.key === 'overdue' ? 'warn' : ''
+        });
+      }
+
+      if(row.interview){
+        items.push({
+          title:'Interview scheduled',
+          time:getInterviewScheduledAt(row.interview) || row.interview?.created_at || row.appliedAt,
+          text:escapeHtml(getInterviewSummary(row)),
+          tone:'warn'
         });
       }
 
@@ -3779,6 +3830,147 @@ tr.row-assessment-progress:hover td{
     }
 
 
+    function getInterviewScheduledAt(interview){
+      return interview?.scheduled_at || interview?.scheduled_start_at || interview?.start_time || interview?.starts_at || interview?.interview_at || interview?.interview_datetime || interview?.scheduled_for || interview?.date_time || interview?.created_at || null;
+    }
+
+    function getInterviewStatus(interview){
+      return safeText(interview?.status || interview?.interview_status || 'scheduled') || 'scheduled';
+    }
+
+    function getInterviewType(interview){
+      return safeText(interview?.interview_type || interview?.type || interview?.session_type || 'client_interview') || 'client_interview';
+    }
+
+    function getInterviewLocation(interview){
+      return safeText(interview?.meeting_link || interview?.meeting_url || interview?.location || interview?.interview_link || interview?.video_link || '');
+    }
+
+    function getInterviewInterviewer(interview){
+      return safeText(interview?.interviewer_email || interview?.interviewer || interview?.interviewer_name || interview?.client_contact || '');
+    }
+
+    function getInterviewNotes(interview){
+      return safeText(interview?.notes || interview?.interview_notes || interview?.description || '');
+    }
+
+    function toDateTimeLocalValue(value){
+      if(!value)return '';
+      const date = new Date(value);
+      if(Number.isNaN(date.getTime()))return '';
+      const pad = n => String(n).padStart(2,'0');
+      return `${date.getFullYear()}-${pad(date.getMonth()+1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+    }
+
+    function dateTimeLocalToIso(value){
+      if(!value)return null;
+      const date = new Date(value);
+      return Number.isNaN(date.getTime()) ? null : date.toISOString();
+    }
+
+    function formatInterviewType(value){
+      return safeText(value || 'client_interview').replace(/_/g,' ').replace(/\b\w/g, char => char.toUpperCase());
+    }
+
+    function getInterviewSummary(row){
+      const interview = row?.interview;
+      if(!interview)return 'No interview scheduled yet.';
+      const when = formatDateTime(getInterviewScheduledAt(interview));
+      const type = formatInterviewType(getInterviewType(interview));
+      const status = formatStatusLabel(getInterviewStatus(interview));
+      const interviewer = getInterviewInterviewer(interview);
+      const location = getInterviewLocation(interview);
+      const notes = getInterviewNotes(interview);
+      return [
+        `${type} • ${status}`,
+        `When: ${when}`,
+        interviewer ? `Interviewer: ${interviewer}` : '',
+        location ? `Location / link: ${location}` : '',
+        notes ? `Notes: ${notes}` : ''
+      ].filter(Boolean).join('\n');
+    }
+
+    async function fetchLatestInterviewSessions(){
+      try{
+        const {data,error}=await supabaseClient
+          .from('interview_sessions')
+          .select('*')
+          .order('created_at',{ascending:false})
+          .limit(CONFIG.PAGE_SIZE);
+
+        if(error)throw error;
+
+        const map = new Map();
+        (data || []).forEach(item=>{
+          const appId = safeText(item.application_id || item.applicationId);
+          if(!appId)return;
+          const existing = map.get(appId);
+          if(!existing){
+            map.set(appId,item);
+            return;
+          }
+          const itemTime = new Date(getInterviewScheduledAt(item) || item.updated_at || item.created_at || 0).getTime();
+          const existingTime = new Date(getInterviewScheduledAt(existing) || existing.updated_at || existing.created_at || 0).getTime();
+          if(itemTime > existingTime)map.set(appId,item);
+        });
+        return map;
+      }catch(error){
+        console.warn('interview_sessions query failed:', error?.message || error);
+        return new Map();
+      }
+    }
+
+    function removeMissingColumnFromPayload(error, payload){
+      const message = safeText(error?.message || error?.details || error?.hint || '');
+      const patterns = [
+        /Could not find the '([^']+)' column/i,
+        /column "([^"]+)" of relation/i,
+        /column "([^"]+)" does not exist/i,
+        /record "new" has no field "([^"]+)"/i
+      ];
+      for(const pattern of patterns){
+        const match = message.match(pattern);
+        if(match?.[1] && Object.prototype.hasOwnProperty.call(payload, match[1])){
+          const next = {...payload};
+          delete next[match[1]];
+          return next;
+        }
+      }
+      return null;
+    }
+
+    async function insertAdaptive(table, payload, requiredFields = []){
+      let attempt = Object.fromEntries(Object.entries(payload).filter(([,value]) => value !== undefined));
+      let lastError = null;
+
+      for(let i = 0; i < 18; i += 1){
+        const {data,error} = await supabaseClient
+          .from(table)
+          .insert(attempt)
+          .select('*')
+          .maybeSingle();
+
+        if(!error)return data || attempt;
+        lastError = error;
+        const next = removeMissingColumnFromPayload(error, attempt);
+        if(!next)break;
+        const removedRequired = requiredFields.some(field => Object.prototype.hasOwnProperty.call(attempt, field) && !Object.prototype.hasOwnProperty.call(next, field));
+        if(removedRequired)break;
+        attempt = next;
+      }
+
+      throw lastError || new Error(`Unable to insert into ${table}.`);
+    }
+
+    async function insertCandidateActivitySafe(payload){
+      try{
+        return await insertAdaptive('candidate_activities', payload, ['application_id','activity_type']);
+      }catch(error){
+        console.warn('Unable to insert candidate activity:', error?.message || error, payload);
+        return null;
+      }
+    }
+
     async function fetchLatestRoleAssessments(){
       try{
         // Assessment completion is stored in role_assessments, not applications.
@@ -4175,47 +4367,6 @@ tr.row-assessment-progress:hover td{
       return getAssessmentInfo(row).key === 'in_progress';
     }
 
-    function isNeedsReviewQueue(row){
-      const status = normalizeStatus(row?.status || row?.app?.status || '');
-      return ['new','submitted',''].includes(status) && !isReadyForReview(row) && !isClosedStatus(status) && !isHiredStatus(status);
-    }
-
-    function setActivePriorityCard(filter=''){
-      document.querySelectorAll('[data-quick-filter]').forEach(btn=>{
-        btn.classList.toggle('active', !!filter && btn.dataset.quickFilter === filter);
-      });
-    }
-
-    function scrollPipelineIntoView(){
-      requestAnimationFrame(()=>{
-        document.getElementById('pipeline')?.scrollIntoView({behavior:'smooth', block:'start'});
-      });
-    }
-
-    function setSavedViewWithoutApplying(name='all'){
-      state.savedView = name || DEFAULT_SAVED_VIEW;
-      saveUiPreference(PREF_KEYS.savedView, state.savedView);
-      document.querySelectorAll('[data-saved-view]').forEach(btn=>{
-        btn.classList.toggle('active', btn.dataset.savedView === state.savedView);
-      });
-    }
-
-    function applyPriorityQueueFilter(filter){
-      clearFilters(false);
-      setActivePriorityCard(filter);
-
-      const priorityToSavedView = {
-        needs_review: 'needs_review',
-        follow_up: 'my_followups',
-        ready_for_review: 'ready_for_review',
-        awaiting_assessment: 'awaiting_assessment'
-      };
-
-      setSavedViewWithoutApplying(priorityToSavedView[filter] || DEFAULT_SAVED_VIEW);
-      applyFilters();
-      scrollPipelineIntoView();
-    }
-
     function assessmentTone(key){
       if(key === 'completed')return 'good';
       if(key === 'in_progress')return 'warn';
@@ -4298,14 +4449,16 @@ tr.row-assessment-progress:hover td{
       }
       if(silent && els.liveStatusText)els.liveStatusText.textContent='Syncing…';
       try{
-        const [applications,profiles,jobs,assessmentsByApplicationId,candidateActivities]=await Promise.all([
+        const [applications,profiles,jobs,assessmentsByApplicationId,interviewsByApplicationId,candidateActivities]=await Promise.all([
           fetchApplicationsRows(),
           fetchAll('applicant_profiles','id,full_name,email,indeed_email,external_candidate_id,original_source_email,phone,location,country,timezone,work_authorization,preferred_work_setup,salary_currency,salary_expectation,available_working_hours,headline,current_title,resume_url,resume_path,resume_file_name,raw_resume_text,parsed_resume_json,years_of_experience,experience_years,years_experience,total_experience,experience,skills,updated_at'),
           fetchAll('jobs','id,title,client_name,job_description,keywords,industry,screening_enabled,status,work_setup,location,slug'),
           fetchLatestRoleAssessments(),
+          fetchLatestInterviewSessions(),
           fetchCandidateActivities()
         ]);
         state.assessmentsByApplicationId = assessmentsByApplicationId || new Map();
+        state.interviewsByApplicationId = interviewsByApplicationId || new Map();
         state.jobs = jobs || [];
         const profilesById=new Map(profiles.map(item=>[item.id,item]));
         const jobsById=new Map(jobs.map(item=>[item.id,item]));
@@ -4315,7 +4468,7 @@ tr.row-assessment-progress:hover td{
           const job=jobsById.get(app.job_id)||jobs.find(j=>safeText(j.title)===safeText(app.job_title))||{};
           const score=basicScore(profile,app,job);
           const activities = getActivitiesForApplicationRow(app, profile, activityLookup);
-          return {id:app.id,app,profile,job,score,activities,assessment:state.assessmentsByApplicationId.get(safeText(app.id))||null,assessmentInfo:null,displayName:safeText(profile.full_name||app.email||'Unnamed candidate'),status:safeText(app.client_feedback_status||app.status||'submitted'),recruiter:safeText(app.recruiter_email)||'Unassigned',source:safeText(app.application_source||'—'),appliedAt:app.created_at,clientName:safeText(job.client_name||'—'),jobTitle:safeText(job.title||app.job_title||'—'),followUp:getFollowUpInfo(app)};
+          return {id:app.id,app,profile,job,score,activities,assessment:state.assessmentsByApplicationId.get(safeText(app.id))||null,interview:state.interviewsByApplicationId.get(safeText(app.id))||null,assessmentInfo:null,displayName:safeText(profile.full_name||app.email||'Unnamed candidate'),status:safeText(app.client_feedback_status||app.status||'submitted'),recruiter:safeText(app.recruiter_email)||'Unassigned',source:safeText(app.application_source||'—'),appliedAt:app.created_at,clientName:safeText(job.client_name||'—'),jobTitle:safeText(job.title||app.job_title||'—'),followUp:getFollowUpInfo(app)};
         }).map(row => ({...row, assessmentInfo: getAssessmentInfo(row)}));
         state.allRows=dedupeDashboardApplicationRows(rawRows);
         state.messageInboxRows = buildMessageInboxRows(candidateActivities || [], state.allRows);
@@ -4401,8 +4554,6 @@ tr.row-assessment-progress:hover td{
 
     function rowMatchesSavedView(row){
       switch(state.savedView){
-        case 'needs_review':
-          return isNeedsReviewQueue(row);
         case 'ready_for_review':
           return isReadyForReview(row);
         case 'awaiting_assessment':
@@ -4554,7 +4705,7 @@ tr.row-assessment-progress:hover td{
       const onboardedCount = count(r => ['onboarded'].includes(normalizeStatus(r.status)));
       const withdrawnCount = count(r => ['withdrawn','not interested','candidate withdrawn'].includes(normalizeStatus(r.status)));
       const followUpCount = count(r => hasOpenFollowUp(r));
-      const reviewCount = count(r => isNeedsReviewQueue(r));
+      const reviewCount = count(r => ['submitted',''].includes(normalizeStatus(r.status)));
       const assessmentCompletedCount = count(r => isReadyForReview(r));
       const assessmentSentCount = count(r => isAwaitingAssessment(r));
       const assessmentInProgressCount = count(r => isAssessmentInProgress(r));
@@ -5631,6 +5782,130 @@ tr.row-assessment-progress:hover td{
       }
     }
 
+    function fillInterviewFields(row){
+      const interview = row?.interview || null;
+      if(els.interviewDateTime)els.interviewDateTime.value = toDateTimeLocalValue(getInterviewScheduledAt(interview));
+      if(els.interviewType)els.interviewType.value = getInterviewType(interview);
+      if(els.interviewInterviewer)els.interviewInterviewer.value = getInterviewInterviewer(interview);
+      if(els.interviewLocation)els.interviewLocation.value = getInterviewLocation(interview);
+      if(els.interviewNotes)els.interviewNotes.value = getInterviewNotes(interview);
+      if(els.interviewSummary)els.interviewSummary.textContent = getInterviewSummary(row);
+      if(els.scheduleInterviewBtn)els.scheduleInterviewBtn.textContent = interview ? 'Reschedule Interview' : 'Schedule Interview';
+    }
+
+    function clearInterviewForm(){
+      if(els.interviewDateTime)els.interviewDateTime.value = '';
+      if(els.interviewType)els.interviewType.value = 'client_interview';
+      if(els.interviewInterviewer)els.interviewInterviewer.value = '';
+      if(els.interviewLocation)els.interviewLocation.value = '';
+      if(els.interviewNotes)els.interviewNotes.value = '';
+    }
+
+    async function scheduleInterviewForSelected(){
+      const row = state.allRows.find(item => item.id === state.selectedId);
+      if(!row){
+        showNotice('Open a candidate first.', 'error');
+        return;
+      }
+
+      const scheduledIso = dateTimeLocalToIso(els.interviewDateTime?.value || '');
+      if(!scheduledIso){
+        showNotice('Choose an interview date and time first.', 'error');
+        return;
+      }
+
+      const now = new Date().toISOString();
+      const interviewType = safeText(els.interviewType?.value || 'client_interview');
+      const interviewer = safeText(els.interviewInterviewer?.value || '');
+      const location = safeText(els.interviewLocation?.value || '');
+      const notes = safeText(els.interviewNotes?.value || '');
+
+      const interviewPayload = {
+        application_id: row.id,
+        applicant_profile_id: row.profile?.id || row.app?.applicant_profile_id || null,
+        job_id: row.job?.id || row.app?.job_id || row.app?.job_id_uuid || null,
+        candidate_email: row.profile?.email || row.app?.email || null,
+        candidate_name: row.displayName || row.profile?.full_name || null,
+        interview_type: interviewType,
+        type: interviewType,
+        session_type: interviewType,
+        status: 'scheduled',
+        interview_status: 'scheduled',
+        scheduled_at: scheduledIso,
+        scheduled_start_at: scheduledIso,
+        start_time: scheduledIso,
+        starts_at: scheduledIso,
+        interview_at: scheduledIso,
+        interview_datetime: scheduledIso,
+        scheduled_for: scheduledIso,
+        interviewer_email: interviewer || state.currentUser?.email || null,
+        interviewer: interviewer || null,
+        interviewer_name: interviewer || null,
+        client_contact: interviewer || null,
+        meeting_link: location || null,
+        meeting_url: location || null,
+        location: location || null,
+        interview_link: location || null,
+        video_link: location || null,
+        notes: notes || null,
+        interview_notes: notes || null,
+        description: notes || null,
+        created_by: state.currentUser?.email || null,
+        recruiter_email: state.currentUser?.email || row.recruiter || null,
+        created_at: now,
+        updated_at: now
+      };
+
+      try{
+        if(els.scheduleInterviewBtn){
+          els.scheduleInterviewBtn.disabled = true;
+          els.scheduleInterviewBtn.textContent = 'Scheduling...';
+        }
+
+        const savedInterview = await insertAdaptive('interview_sessions', interviewPayload, ['application_id']);
+
+        await updateApplicationWithFallback(row.id, {
+          status: 'for interview',
+          recruiter_notes: row.app?.recruiter_notes || null,
+          stage_note_label: row.app?.stage_note_label || row.app?.recruiter_notes || null,
+          updated_at: now,
+          follow_up_required: row.app?.follow_up_required,
+          follow_up_status: row.app?.follow_up_status,
+          follow_up_date: row.app?.follow_up_date,
+          follow_up_due_at: row.app?.follow_up_due_at,
+          follow_up_note: row.app?.follow_up_note,
+          last_followed_up_at: row.app?.last_followed_up_at
+        });
+
+        await insertCandidateActivitySafe({
+          applicant_profile_id: row.profile?.id || row.app?.applicant_profile_id || null,
+          application_id: row.id,
+          activity_type: 'interview_scheduled',
+          title: 'Interview scheduled',
+          source: 'dashboard',
+          body: getInterviewSummary({ ...row, interview: savedInterview || interviewPayload }),
+          created_at: now
+        });
+
+        row.interview = savedInterview || interviewPayload;
+        row.status = 'for interview';
+        row.app = {...row.app, status:'for interview', updated_at: now};
+
+        showNotice('Interview scheduled and candidate moved to For Interview.', 'success');
+        await loadDashboard();
+        await openDrawer(row.id);
+      }catch(error){
+        console.error('Unable to schedule interview:', error);
+        showNotice(`Unable to schedule interview: ${getReadableError(error)}`, 'error');
+      }finally{
+        if(els.scheduleInterviewBtn){
+          els.scheduleInterviewBtn.disabled = false;
+          const refreshed = state.allRows.find(item => item.id === row.id) || row;
+          els.scheduleInterviewBtn.textContent = refreshed.interview ? 'Reschedule Interview' : 'Schedule Interview';
+        }
+      }
+    }
+
     function getSelectedIndex(){return state.filteredRows.findIndex(row=>row.id===state.selectedId)}
     function updateDrawerNavMeta(){const idx=getSelectedIndex();els.drawerIndexMeta.textContent=idx>=0?`${idx+1} of ${state.filteredRows.length}`:`0 of ${state.filteredRows.length}`}
     async function openDrawer(rowId){
@@ -5659,6 +5934,7 @@ tr.row-assessment-progress:hover td{
       if(els.editFollowUpStatus)els.editFollowUpStatus.value=row.followUp?.key==='overdue'||row.followUp?.key==='due_today'?'needs_follow_up':(row.followUp?.key||'none');
       if(els.editFollowUpDate)els.editFollowUpDate.value=toDateInputValue(row.followUp?.dueAt);
       if(els.editFollowUpNote)els.editFollowUpNote.value=row.followUp?.note||'';
+      fillInterviewFields(row);
       els.profileSummary.textContent=getProfileSummary(row.profile)||'No candidate brief yet.';
       const directActivities = await fetchActivitiesForRowDirect(row);
       const mergedActivities = normalizeActivityRecords([...(row.activities || []), ...directActivities]);
@@ -6462,8 +6738,7 @@ async function bulkUploadResumes(){
       const score = safeText(els.scoreFilter?.value);
 
       let active = 'all';
-      if(state.savedView === 'needs_review')active = 'new';
-      else if(state.savedView === 'ready_for_review')active = 'ready_review';
+      if(state.savedView === 'ready_for_review')active = 'ready_review';
       else if(state.savedView === 'awaiting_assessment')active = 'awaiting_assessment';
       else if(state.savedView === 'assessment_in_progress')active = 'assessment_in_progress';
       else if(state.savedView === 'unassigned' || safeText(els.recruiterFilter?.value).toLowerCase() === 'unassigned')active = 'unassigned';
@@ -6481,25 +6756,33 @@ async function bulkUploadResumes(){
 
     function applyQuickFilterChip(filter){
       clearFilters(false);
-      setActivePriorityCard('');
-      setSavedViewWithoutApplying(DEFAULT_SAVED_VIEW);
+      state.savedView = DEFAULT_SAVED_VIEW;
+      saveUiPreference(PREF_KEYS.savedView, DEFAULT_SAVED_VIEW);
+      document.querySelectorAll('[data-saved-view]').forEach(btn=>btn.classList.toggle('active', btn.dataset.savedView === 'all'));
 
-      if(filter === 'new'){
-        setSavedViewWithoutApplying('needs_review');
-      }
       if(filter === 'ready_review' || filter === 'ready_for_review'){
-        setSavedViewWithoutApplying('ready_for_review');
+        state.savedView = 'ready_for_review';
+        saveUiPreference(PREF_KEYS.savedView, 'ready_for_review');
+        document.querySelectorAll('[data-saved-view]').forEach(btn=>btn.classList.toggle('active', btn.dataset.savedView === 'ready_for_review'));
       }
       if(filter === 'awaiting_assessment'){
-        setSavedViewWithoutApplying('awaiting_assessment');
+        state.savedView = 'awaiting_assessment';
+        saveUiPreference(PREF_KEYS.savedView, 'awaiting_assessment');
+        document.querySelectorAll('[data-saved-view]').forEach(btn=>btn.classList.toggle('active', btn.dataset.savedView === 'awaiting_assessment'));
       }
       if(filter === 'assessment_in_progress'){
-        setSavedViewWithoutApplying('assessment_in_progress');
+        state.savedView = 'assessment_in_progress';
+        saveUiPreference(PREF_KEYS.savedView, 'assessment_in_progress');
+        document.querySelectorAll('[data-saved-view]').forEach(btn=>btn.classList.toggle('active', btn.dataset.savedView === 'assessment_in_progress'));
       }
+
       if(filter === 'unassigned'){
-        setSavedViewWithoutApplying('unassigned');
+        state.savedView = 'unassigned';
+        saveUiPreference(PREF_KEYS.savedView, 'unassigned');
+        document.querySelectorAll('[data-saved-view]').forEach(btn=>btn.classList.toggle('active', btn.dataset.savedView === 'unassigned'));
       }
-      if(filter === 'follow_up')setSavedViewWithoutApplying('my_followups');
+      if(filter === 'new')els.statusFilter.value = 'submitted';
+      if(filter === 'follow_up')els.followUpFilter.value = 'all_open';
       if(filter === 'interview')els.statusFilter.value = 'for interview';
       if(filter === 'endorsed')els.statusFilter.value = 'endorsed';
       if(filter === 'rejected')els.statusFilter.value = 'rejected';
@@ -6508,7 +6791,7 @@ async function bulkUploadResumes(){
       if(filter === 'low_fit')els.scoreFilter.value = 'weak';
 
       applyFilters();
-      scrollPipelineIntoView();
+      document.getElementById('pipeline')?.scrollIntoView({behavior:'smooth',block:'start'});
     }
 
     function clearFilters(shouldApply=true){
@@ -6518,7 +6801,6 @@ async function bulkUploadResumes(){
       document.querySelectorAll('[data-saved-view]').forEach(btn=>{
         btn.classList.toggle('active', btn.dataset.savedView === 'all');
       });
-      setActivePriorityCard('');
       if(shouldApply)applyFilters();
     }
 
@@ -6804,7 +7086,18 @@ async function bulkUploadResumes(){
     function bindEvents(){
       [els.searchInput,els.candidateNameFilter,els.statusFilter,els.recruiterFilter,els.followUpFilter,els.jobFilter,els.clientFilter,els.countryFilter,els.workSetupFilter,els.scoreFilter].forEach(el=>{el?.addEventListener('input',applyFilters);el?.addEventListener('change',applyFilters)});
       document.querySelectorAll('[data-quick-filter]').forEach(btn=>btn.addEventListener('click',()=>{
-        applyPriorityQueueFilter(btn.dataset.quickFilter || '');
+        clearFilters(false);
+        const f=btn.dataset.quickFilter;
+        if(f==='unassigned'){
+          setSavedView('unassigned');
+        }else{
+          if(f==='follow_up')els.followUpFilter.value='all_open';
+          if(f==='high_match')els.scoreFilter.value='strong';
+          if(f==='low_fit')els.scoreFilter.value='weak';
+          if(f==='needs_review')els.statusFilter.value='submitted';
+          applyFilters();
+        }
+        document.getElementById('pipeline')?.scrollIntoView({behavior:'smooth',block:'start'});
       }));
 
       document.querySelectorAll('[data-chip-filter]').forEach(chip=>chip.addEventListener('click',()=>{
@@ -6863,6 +7156,8 @@ async function bulkUploadResumes(){
       els.viewResumeBtn?.addEventListener('click',()=>openResumeModal(state.selectedResumeUrl,state.selectedResumePath||'Resume Viewer')); els.importClipboardResumeBtn?.addEventListener('click',importResumeFromClipboard); els.markNeedsFollowUpBtn?.addEventListener('click',()=>setFollowUpQuick('needs_follow_up')); els.markFollowedUpBtn?.addEventListener('click',()=>setFollowUpQuick('followed_up')); els.parseResumeBtn?.addEventListener('click',parseSelectedResume);
       els.uploadResumeBtn?.addEventListener('click',()=>uploadResumeForSelected(false));
       els.saveBtn?.addEventListener('click',saveSelectedRow);
+      els.scheduleInterviewBtn?.addEventListener('click',scheduleInterviewForSelected);
+      els.clearInterviewFormBtn?.addEventListener('click',clearInterviewForm);
       els.saveCandidateInfoBtn?.addEventListener('click',updateCandidateInfo);
       els.modalSaveCandidateInfoBtn?.addEventListener('click',updateCandidateInfo);
       els.assessmentEmailModalClose?.addEventListener('click',closeAssessmentEmailModal);
