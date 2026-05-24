@@ -1937,6 +1937,9 @@ tr.row-assessment-progress:hover td{
 
           <div class="saved-view-row" aria-label="Saved recruiter views">
             <button class="saved-view active" type="button" data-saved-view="all">All Candidates <span id="viewCountAll">0</span></button>
+            <button class="saved-view" type="button" data-saved-view="ready_for_review">Ready Review <span id="viewCountReadyReview">0</span></button>
+            <button class="saved-view" type="button" data-saved-view="awaiting_assessment">Awaiting Response <span id="viewCountAwaitingAssessment">0</span></button>
+            <button class="saved-view" type="button" data-saved-view="assessment_in_progress">In Progress <span id="viewCountAssessmentProgress">0</span></button>
             <button class="saved-view" type="button" data-saved-view="unassigned">Unassigned <span id="viewCountUnassigned">0</span></button>
             <button class="saved-view" type="button" data-saved-view="my_followups">Follow-ups <span id="viewCountFollowups">0</span></button>
             <button class="saved-view" type="button" data-saved-view="interview_pipeline">Interview Pipeline <span id="viewCountInterview">0</span></button>
@@ -1951,6 +1954,9 @@ tr.row-assessment-progress:hover td{
               <button class="filter-chip active" type="button" data-chip-filter="all">All</button>
               <button class="filter-chip" type="button" data-chip-filter="unassigned">Unassigned</button>
               <button class="filter-chip" type="button" data-chip-filter="new">New</button>
+              <button class="filter-chip" type="button" data-chip-filter="ready_review">Ready Review</button>
+              <button class="filter-chip" type="button" data-chip-filter="awaiting_assessment">Awaiting Response</button>
+              <button class="filter-chip" type="button" data-chip-filter="assessment_in_progress">In Progress</button>
               <button class="filter-chip" type="button" data-chip-filter="follow_up">Follow-ups</button>
               <button class="filter-chip" type="button" data-chip-filter="interview">Interview</button>
               <button class="filter-chip" type="button" data-chip-filter="endorsed">Endorsed</button>
@@ -2445,7 +2451,7 @@ tr.row-assessment-progress:hover td{
   </div>
 
   <script>
-    console.log('BuzzHire recruiter-dashboard-role-save-final-v2026-05-24 loaded');
+    console.log('BuzzHire recruiter-dashboard-ready-review-final-v2026-05-24 loaded');
 
     const CONFIG = {
       SUPABASE_URL: window.TALENTBUZZ_SUPABASE_URL || localStorage.getItem('TALENTBUZZ_SUPABASE_URL') || '',
@@ -3004,8 +3010,8 @@ tr.row-assessment-progress:hover td{
     }
 
     function getRowPriority(row){
-      if(hasCompletedAssessment(row)){
-        return {key:'attention',label:'Assessment completed'};
+      if(isReadyForReview(row)){
+        return {key:'attention',label:'Ready for review'};
       }
 
       const assessmentInfo = getAssessmentInfo(row);
@@ -3830,8 +3836,44 @@ tr.row-assessment-progress:hover td{
       };
     }
 
-    function hasCompletedAssessment(row){
+    function hasAssessmentCompleted(row){
       return getAssessmentInfo(row).key === 'completed';
+    }
+
+    function hasRecruiterReviewedCompletedAssessment(row){
+      const status = normalizeStatus(row?.status || row?.app?.status || '');
+
+      // These statuses mean a recruiter already reviewed or moved the candidate
+      // after assessment completion, so they should no longer sit in Ready Review.
+      const reviewedOrFinalStatuses = new Set([
+        'shortlisted',
+        'for interview',
+        'endorsed',
+        'rejected',
+        'failed paper screening',
+        'offered jo',
+        'onboarded',
+        'hired',
+        'withdrawn',
+        'candidate withdrawn',
+        'not interested',
+        'no-show onboarding',
+        'on hold',
+        'need more profiles',
+        'sms sent'
+      ]);
+
+      return reviewedOrFinalStatuses.has(status);
+    }
+
+    function isReadyForReview(row){
+      return hasAssessmentCompleted(row) && !hasRecruiterReviewedCompletedAssessment(row);
+    }
+
+    // Backward-compatible alias for older event handlers; Ready Review should use
+    // isReadyForReview so completed-but-already-reviewed candidates do not count.
+    function hasCompletedAssessment(row){
+      return isReadyForReview(row);
     }
 
     function isAwaitingAssessment(row){
@@ -4027,7 +4069,7 @@ tr.row-assessment-progress:hover td{
     function rowMatchesSavedView(row){
       switch(state.savedView){
         case 'ready_for_review':
-          return hasCompletedAssessment(row);
+          return isReadyForReview(row);
         case 'awaiting_assessment':
           return isAwaitingAssessment(row);
         case 'assessment_in_progress':
@@ -4133,7 +4175,7 @@ tr.row-assessment-progress:hover td{
       const count = fn => rows.filter(fn).length;
 
       if(els.viewCountAll)els.viewCountAll.textContent = rows.length;
-      if(els.viewCountReadyReview)els.viewCountReadyReview.textContent = count(r=>hasCompletedAssessment(r));
+      if(els.viewCountReadyReview)els.viewCountReadyReview.textContent = count(r=>isReadyForReview(r));
       if(els.viewCountAwaitingAssessment)els.viewCountAwaitingAssessment.textContent = count(r=>isAwaitingAssessment(r));
       if(els.viewCountAssessmentProgress)els.viewCountAssessmentProgress.textContent = count(r=>isAssessmentInProgress(r));
       if(els.viewCountUnassigned)els.viewCountUnassigned.textContent = count(r=>isUnassignedRecruiter(r));
@@ -4178,7 +4220,7 @@ tr.row-assessment-progress:hover td{
       const withdrawnCount = count(r => ['withdrawn','not interested','candidate withdrawn'].includes(normalizeStatus(r.status)));
       const followUpCount = count(r => hasOpenFollowUp(r));
       const reviewCount = count(r => ['submitted',''].includes(normalizeStatus(r.status)));
-      const assessmentCompletedCount = count(r => hasCompletedAssessment(r));
+      const assessmentCompletedCount = count(r => isReadyForReview(r));
       const assessmentSentCount = count(r => isAwaitingAssessment(r));
       const assessmentInProgressCount = count(r => isAssessmentInProgress(r));
 
@@ -4222,7 +4264,7 @@ tr.row-assessment-progress:hover td{
         const tone=getStatusTone(row.status);const scoreTone=scoreTier(row.score.overall)==='strong'?'good':scoreTier(row.score.overall)==='moderate'?'warn':'bad';
         const priority=getRowPriority(row);
         const assessmentInfo = getAssessmentInfo(row);
-        const rowClasses=[row.id===state.selectedId?'active':'', priority.key==='urgent'?'row-urgent':'', priority.key==='attention'?'row-attention':'', priority.key==='quiet'?'row-quiet':'', assessmentInfo.key==='completed'?'row-ready-review':'', assessmentInfo.key==='overdue'?'row-assessment-overdue':'', assessmentInfo.key==='in_progress'?'row-assessment-progress':''].filter(Boolean).join(' ');
+        const rowClasses=[row.id===state.selectedId?'active':'', priority.key==='urgent'?'row-urgent':'', priority.key==='attention'?'row-attention':'', priority.key==='quiet'?'row-quiet':'', isReadyForReview(row)?'row-ready-review':'', assessmentInfo.key==='overdue'?'row-assessment-overdue':'', assessmentInfo.key==='in_progress'?'row-assessment-progress':''].filter(Boolean).join(' ');
         return `<tr data-id="${escapeHtml(row.id)}" class="${rowClasses}">
           <td><div class="candidate-name">${priority.label?`<span class="priority-dot ${priority.key}" title="${escapeHtml(priority.label)}"></span>`:''}${escapeHtml(row.displayName)}</div><div class="small">${escapeHtml(row.profile?.email||row.app?.email||'—')}</div><div class="small">${escapeHtml([getLocation(row.profile), getCountry(row.profile)].filter(Boolean).join(', ') || '—')}</div>${getPreferredWorkSetup(row.profile)?`<div class="small">🌐 ${escapeHtml(getPreferredWorkSetup(row.profile))}</div>`:''}</td>
           <td><div class="candidate-name">${escapeHtml(row.jobTitle)}</div><div class="small">${escapeHtml(row.clientName||'')}</div></td>
