@@ -2642,7 +2642,7 @@ opslead@company.com"></textarea></div>
       </div>
     </div>
   </div> <script>
-    console.log('BuzzHire recruiter-dashboard-company-isolated-v2026-05-25 loaded');
+    console.log('BuzzHire recruiter-dashboard-company-isolated-v2026-05-25-company-fallback loaded');
 
     const CONFIG = {
       SUPABASE_URL: window.TALENTBUZZ_SUPABASE_URL || localStorage.getItem('TALENTBUZZ_SUPABASE_URL') || '',
@@ -4480,6 +4480,53 @@ opslead@company.com"></textarea></div>
       return 'missing';
     }
 
+    function withDefaultFollowUpFields(rows){
+      return (rows || []).map(row => ({
+        ...row,
+        follow_up_required: row.follow_up_required ?? false,
+        follow_up_status: row.follow_up_status ?? '',
+        follow_up_date: row.follow_up_date ?? null,
+        follow_up_due_at: row.follow_up_due_at ?? null,
+        follow_up_note: row.follow_up_note ?? '',
+        last_followed_up_at: row.last_followed_up_at ?? null
+      }));
+    }
+
+    function uniqueById(rows){
+      const seen = new Set();
+      return (rows || []).filter(row => {
+        const id = safeText(row?.id);
+        if(!id)return false;
+        if(seen.has(id))return false;
+        seen.add(id);
+        return true;
+      });
+    }
+
+    async function fetchApplicationsDirect(select, includeCompanyFallback = true){
+      const companyId = currentCompanyId();
+      let query = supabaseClient
+        .from('applications')
+        .select(select)
+        .order('created_at', { ascending:false })
+        .limit(CONFIG.PAGE_SIZE);
+
+      // Normal workspace isolation: show this company's applications.
+      // Safety fallback: also include company_id IS NULL rows so newly ingested
+      // Indeed applications still appear if the ingest function has not backfilled
+      // applications.company_id yet. loadDashboard filters those null-company rows
+      // back down to jobs that belong to this company.
+      if(companyId){
+        query = includeCompanyFallback
+          ? query.or(`company_id.eq.${companyId},company_id.is.null`)
+          : query.eq('company_id', companyId);
+      }
+
+      const { data, error } = await query;
+      if(error)throw error;
+      return data || [];
+    }
+
     async function fetchApplicationsRows(){
       const withFollowUp = [
         'id','email','job_id','job_title','status','created_at','applicant_profile_id',
@@ -4492,31 +4539,22 @@ opslead@company.com"></textarea></div>
       const base = [
         'id','email','job_id','job_title','status','created_at','applicant_profile_id',
         'recruiter_email','application_source','client_feedback_status','recruiter_notes',
-        'stage_note_label','updated_at'
+        'stage_note_label','updated_at','company_id'
       ].join(',');
 
-      const fetchFrom = async (table, select) => await fetchAll(table, select, 'created_at');
-
       try {
-        return await fetchFrom('applications', withFollowUp);
+        return await fetchApplicationsDirect(withFollowUp, true);
       } catch (applicationsFullError) {
         console.warn('applications full follow-up query failed:', applicationsFullError?.message || applicationsFullError);
 
         try {
-          const rows = await fetchFrom('applications', base);
-          return rows.map(row => ({
-            ...row,
-            follow_up_required: false,
-            follow_up_status: '',
-            follow_up_date: null,
-            follow_up_due_at: null,
-            follow_up_note: '',
-            last_followed_up_at: null
-          }));
+          return withDefaultFollowUpFields(await fetchApplicationsDirect(base, true));
         } catch (applicationsBaseError) {
           console.warn('applications base query failed:', applicationsBaseError?.message || applicationsBaseError);
         }
       }
+
+      const fetchFrom = async (table, select) => await fetchAll(table, select, 'created_at');
 
       try {
         return await fetchFrom('recruiter_dashboard_applications', withFollowUp);
@@ -4524,15 +4562,7 @@ opslead@company.com"></textarea></div>
         console.warn('recruiter_dashboard_applications full follow-up query failed:', viewFullError?.message || viewFullError);
 
         const rows = await fetchFrom('recruiter_dashboard_applications', base);
-        return rows.map(row => ({
-          ...row,
-          follow_up_required: false,
-          follow_up_status: '',
-          follow_up_date: null,
-          follow_up_due_at: null,
-          follow_up_note: '',
-          last_followed_up_at: null
-        }));
+        return withDefaultFollowUpFields(rows);
       }
     }
 
@@ -4572,9 +4602,25 @@ opslead@company.com"></textarea></div>
         const profilesById=new Map(profiles.map(item=>[item.id,item]));
         const jobsById=new Map(jobs.map(item=>[item.id,item]));
         const activityLookup = buildCandidateActivityLookup(candidateActivities || []);
-        const rawRows=(applications||[]).map(app=>{
+        const companyId = currentCompanyId();
+        const companyScopedApplications = uniqueById(applications || []).filter(app => {
+          const appCompanyId = safeText(app.company_id);
+          if(!companyId)return true;
+          if(appCompanyId === companyId)return true;
+
+          // Important ingestion safety: Gmail/Indeed inserts can briefly have
+          // applications.company_id = null. If the matched job belongs to this
+          // workspace, show the candidate instead of hiding them from recruiters.
+          const job = jobsById.get(app.job_id) || jobs.find(j => safeText(j.title) === safeText(app.job_title)) || null;
+          return !appCompanyId && safeText(job?.company_id) === companyId;
+        });
+
+        const rawRows=companyScopedApplications.map(app=>{
           const profile=profilesById.get(app.applicant_profile_id)||profiles.find(p=>normalizeEmail(p.email)===normalizeEmail(app.email))||{};
           const job=jobsById.get(app.job_id)||jobs.find(j=>safeText(j.title)===safeText(app.job_title))||{};
+          if(!safeText(app.company_id) && safeText(job.company_id)){
+            app = {...app, company_id: safeText(job.company_id)};
+          }
           const score=basicScore(profile,app,job);
           const activities = getActivitiesForApplicationRow(app, profile, activityLookup);
           return {id:app.id,app,profile,job,score,activities,assessment:state.assessmentsByApplicationId.get(safeText(app.id))||null,interview:state.interviewsByApplicationId.get(safeText(app.id))||null,assessmentInfo:null,displayName:safeText(profile.full_name||app.email||'Unnamed candidate'),status:safeText(app.client_feedback_status||app.status||'submitted'),recruiter:safeText(app.recruiter_email)||'Unassigned',source:safeText(app.application_source||'—'),appliedAt:app.created_at,clientName:safeText(job.client_name||'—'),jobTitle:safeText(job.title||app.job_title||'—'),followUp:getFollowUpInfo(app)};
