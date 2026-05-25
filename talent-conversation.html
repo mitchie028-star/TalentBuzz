@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Talent Conversation</title>
+  <title>Candidate Conversation | BuzzHire</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -186,6 +186,37 @@ body.conversation-integrity-warning .integrity-pill{
 }
 
 
+
+.loading-elapsed{
+  margin-top:10px;
+  color:var(--muted);
+  font-size:.82rem;
+  font-weight:700;
+}
+
+.save-toast{
+  position:fixed;
+  right:18px;
+  bottom:18px;
+  z-index:999;
+  background:var(--green);
+  color:#fff;
+  padding:12px 16px;
+  border-radius:14px;
+  font-size:.82rem;
+  font-weight:800;
+  box-shadow:0 14px 32px rgba(22,163,74,.25);
+  opacity:0;
+  transform:translateY(10px);
+  transition:all .25s ease;
+  pointer-events:none;
+}
+
+.save-toast.show{
+  opacity:1;
+  transform:translateY(0);
+}
+
 /* Applicant-facing safety: internal integrity labels are hidden from candidates. */
 .integrity-pill{display:none!important}
 </style>
@@ -196,9 +227,9 @@ body.conversation-integrity-warning .integrity-pill{
     <div class="topbar">
       <a class="brand" href="applicants.html">
         <span class="brand-logo" aria-hidden="true">
-          <img src="logo.svg" alt="Company logo" class="brand-logo-image" />
+          <img id="companyLogo" src="logo.svg" alt="Company logo" class="brand-logo-image" />
         </span>
-        <span class="brand-name">Talent Conversation</span>
+        <span class="brand-name" id="companyName">BuzzHire</span>
       </a>
 
       <span class="pill" id="conversationStatus">Talent Conversation</span>
@@ -237,7 +268,7 @@ body.conversation-integrity-warning .integrity-pill{
     <section class="hero">
       <h1>Talent Conversation</h1>
       <p id="conversationIntro">
-        This guided conversation helps us understand your experience, communication style, and role alignment. Take your time and answer naturally.
+        This guided conversation helps the hiring team better understand your experience, communication style, and approach to real work situations. Take your time and answer naturally.
       </p>
     </section>
 
@@ -271,7 +302,7 @@ body.conversation-integrity-warning .integrity-pill{
 
         <label class="confirm-row" for="independentConfirm">
           <input id="independentConfirm" type="checkbox" />
-          <span>I understand this conversation should be completed independently.</span>
+          <span>I will complete this conversation using my own responses and experience.</span>
         </label>
 
         <div class="integrity-note">
@@ -317,7 +348,7 @@ body.conversation-integrity-warning .integrity-pill{
 
             <div class="warm-guidance" id="warmGuidance">
               <strong>Take your time.</strong>
-              Speak naturally in your preferred language or speaking style. We evaluate your communication and thought process, not accent perfection. You can re-record before saving.
+              Speak naturally in your preferred language or speaking style. The hiring team reviews your communication and thought process, not accent perfection. You can re-record before saving.
             </div>
 
             <div class="sift-audio-row">
@@ -353,7 +384,7 @@ body.conversation-integrity-warning .integrity-pill{
             </div>
 
             <div class="trust-note">
-              There are no perfect answers. A clear, honest response is better than a memorized one.
+              There are no perfect answers. Clear and honest responses help the hiring team better understand your communication style and experience.
             </div>
 
             <div class="micro-feedback" id="microFeedback"></div>
@@ -393,10 +424,13 @@ body.conversation-integrity-warning .integrity-pill{
         <span>
           <strong id="emptyTitle">Loading Talent Conversation...</strong>
           <span id="emptyText">Please wait while we prepare your questions.</span>
+          <div id="loadingElapsed" class="loading-elapsed">Preparing your conversation... 00:00</div>
         </span>
       </div>
     </section>
   </main>
+
+  <div class="save-toast" id="saveToast">✓ Response saved</div>
 
   <script>
     console.log("Talent Conversation applicant page loaded");
@@ -480,6 +514,16 @@ body.conversation-integrity-warning .integrity-pill{
     let guidedConversationStarted = false;
     let lastAutoPlayedQuestionId = null;
 
+    let workspaceBranding = {
+      company_name: "BuzzHire",
+      logo_url: "logo.svg",
+      primary_color: "#2563eb",
+      careers_page_title: "Candidate Conversation"
+    };
+
+    let loadingStartedAt = Date.now();
+    let loadingElapsedInterval = null;
+
     const conversationIntegritySessionId =
       (window.crypto?.randomUUID?.() || `conversation-${Date.now()}-${Math.random().toString(16).slice(2)}`);
 
@@ -516,6 +560,90 @@ body.conversation-integrity-warning .integrity-pill{
       recruiter_review_recommendation: "standard"
     };
 
+
+
+    function startLoadingElapsedTimer() {
+      if (loadingElapsedInterval) return;
+
+      loadingElapsedInterval = setInterval(() => {
+        const loadingEl = document.getElementById("loadingElapsed");
+        if (!loadingEl || els.emptyState?.style.display === "none") return;
+
+        const elapsedSeconds = Math.floor((Date.now() - loadingStartedAt) / 1000);
+        const mins = String(Math.floor(elapsedSeconds / 60)).padStart(2, "0");
+        const secs = String(elapsedSeconds % 60).padStart(2, "0");
+
+        loadingEl.textContent = `Preparing your conversation... ${mins}:${secs}`;
+      }, 1000);
+    }
+
+    function resetLoadingTimer() {
+      loadingStartedAt = Date.now();
+      startLoadingElapsedTimer();
+    }
+
+    function showSaveToast() {
+      const toast = document.getElementById("saveToast");
+      if (!toast) return;
+
+      toast.classList.add("show");
+
+      setTimeout(() => {
+        toast.classList.remove("show");
+      }, 2200);
+    }
+
+    async function loadWorkspaceBranding(companyId) {
+      if (!companyId) return;
+
+      try {
+        const { data } = await supabaseClient
+          .from("companies")
+          .select("company_name,logo_url,primary_color,careers_page_title,white_label_enabled")
+          .eq("id", companyId)
+          .maybeSingle();
+
+        if (!data) return;
+
+        workspaceBranding = {
+          ...workspaceBranding,
+          ...data
+        };
+
+        const companyName = document.getElementById("companyName");
+        const companyLogo = document.getElementById("companyLogo");
+
+        if (companyName && data.white_label_enabled !== false && data.company_name) {
+          companyName.textContent = data.company_name;
+        }
+
+        if (companyLogo && data.white_label_enabled !== false && data.logo_url) {
+          companyLogo.src = data.logo_url;
+        }
+
+        if (data.primary_color) {
+          document.documentElement.style.setProperty("--blue", data.primary_color);
+        }
+
+        if (data.careers_page_title) {
+          document.title = `${data.careers_page_title} | Candidate Conversation`;
+        }
+      } catch (error) {
+        console.warn("Branding load failed", error);
+      }
+    }
+
+    async function smoothConversationTransition(callback) {
+      resetLoadingTimer();
+      setLoading(
+        "Preparing next question...",
+        "Loading your next conversation prompt."
+      );
+
+      await new Promise(resolve => setTimeout(resolve, 700));
+
+      callback();
+    }
 
 
     function parseDateOrNull(value) {
@@ -836,7 +964,7 @@ body.conversation-integrity-warning .integrity-pill{
     }
 
     function candidateConversationIntro() {
-      return "This guided conversation helps us understand your experience, communication style, and role alignment. Take your time and answer naturally.";
+      return "This guided conversation helps the hiring team better understand your experience, communication style, and approach to real work situations. Take your time and answer naturally.";
     }
 
     function candidateWelcomeIntro() {
@@ -844,7 +972,7 @@ body.conversation-integrity-warning .integrity-pill{
     }
 
     function getCandidateSafeConversationIntro() {
-      return "This guided conversation helps us understand your experience, communication style, and role alignment. Take your time and answer naturally.";
+      return "This guided conversation helps the hiring team better understand your experience, communication style, and approach to real work situations. Take your time and answer naturally.";
     }
 
     function getCandidateSafeWelcomeIntro() {
@@ -933,6 +1061,7 @@ body.conversation-integrity-warning .integrity-pill{
     }
 
     function setLoading(title, message = "") {
+      resetLoadingTimer();
       hideWelcome();
       els.emptyState.style.display = "block";
       els.emptyTitle.textContent = title;
@@ -1873,6 +2002,7 @@ body.conversation-integrity-warning .integrity-pill{
 
         showMicroFeedback("Response saved. Great — you can continue when ready.");
         showStatus("Response saved.", "success");
+        showSaveToast();
 
         return true;
       } catch (error) {
@@ -2137,6 +2267,12 @@ setTimeout(() => {
 
         await ensureConversationLinked();
 
+        await loadWorkspaceBranding(
+          conversation?.company_id ||
+          applicationContext?.app?.company_id ||
+          applicationContext?.profile?.company_id
+        );
+
         enforceCandidateSafeCopy();
 
         if (conversation.started_at && conversation.status !== "completed") {
@@ -2236,8 +2372,11 @@ setTimeout(() => {
         stopRecording();
         stopSiftSpeech();
         currentIndex += 1;
-        renderQuestion();
-        window.scrollTo({ top: 0, behavior: "smooth" });
+
+        await smoothConversationTransition(() => {
+          renderQuestion();
+          window.scrollTo({ top: 0, behavior: "smooth" });
+        });
 
         setTimeout(() => {
           speakWithSift({ auto: true });
@@ -2286,6 +2425,7 @@ setTimeout(() => {
       window.speechSynthesis.onvoiceschanged = () => window.speechSynthesis.getVoices();
     }
 
+    startLoadingElapsedTimer();
     init();
   </script>
 </body>
