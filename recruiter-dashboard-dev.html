@@ -1950,6 +1950,61 @@ tr.row-assessment-progress:hover td{
       overflow:auto;
     }
 
+
+    /* Candidate review modal + dashboard score breakdown */
+    .candidate-review-modal-card{
+      width:min(1180px,96vw);
+      height:min(92vh,940px);
+    }
+    .candidate-review-modal-card .modal-body{
+      flex:1 1 auto;
+      min-height:0;
+      background:#f8fafc;
+      position:relative;
+    }
+    .candidate-review-frame{
+      width:100%;
+      height:100%;
+      min-height:74vh;
+      border:0;
+      background:#fff;
+    }
+    .candidate-review-loading{
+      position:absolute;
+      inset:0;
+      display:grid;
+      place-items:center;
+      background:linear-gradient(180deg,rgba(248,250,252,.96),rgba(255,255,255,.96));
+      color:var(--muted);
+      font-weight:850;
+      z-index:2;
+    }
+    .candidate-review-loading.hidden{display:none}
+    .signal-breakdown{
+      display:grid;
+      gap:5px;
+      margin-top:7px;
+      min-width:170px;
+    }
+    .signal-row{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:8px;
+      color:#667085;
+      font-size:.69rem;
+      line-height:1.25;
+      font-weight:800;
+    }
+    .signal-row strong{
+      color:#1d2939;
+      font-size:.7rem;
+      white-space:nowrap;
+    }
+    .signal-row .good{color:var(--good)}
+    .signal-row .warn{color:var(--warn)}
+    .signal-row .bad{color:#667085}
+
 </style>
 </head>
 <body class="auth-pending">
@@ -2328,6 +2383,26 @@ opslead@company.com"></textarea></div>
     </main>
   </div>
 
+
+
+  <div class="modal" id="candidateReviewModal">
+    <div class="modal-card candidate-review-modal-card">
+      <div class="modal-head">
+        <div>
+          <strong id="candidateReviewModalTitle">Candidate Review</strong>
+          <div class="small" id="candidateReviewModalSubtitle">Review assessment answers, conversation evidence, language confidence, and recruiter recommendation without leaving the dashboard.</div>
+        </div>
+        <div class="actions">
+          <button class="btn btn-xs" id="candidateReviewOpenNewTabBtn" type="button">Open full page</button>
+          <button class="btn btn-xs" id="candidateReviewModalClose" type="button">Close</button>
+        </div>
+      </div>
+      <div class="modal-body">
+        <div class="candidate-review-loading" id="candidateReviewLoading">Loading candidate review…</div>
+        <iframe class="candidate-review-frame" id="candidateReviewFrame" title="Candidate Review"></iframe>
+      </div>
+    </div>
+  </div>
 
   <div class="modal" id="messageInboxModal">
     <div class="modal-card message-inbox-modal-card">
@@ -2712,6 +2787,7 @@ opslead@company.com"></textarea></div>
       bulkUploadModal:$('bulkUploadModal'), bulkUploadModalClose:$('bulkUploadModalClose'), bulkRoleSelect:$('bulkRoleSelect'), bulkResumeInput:$('bulkResumeInput'), bulkUploadBtn:$('bulkUploadBtn'), bulkUploadStatus:$('bulkUploadStatus'),
       assessmentEmailModal:$('assessmentEmailModal'), assessmentEmailModalClose:$('assessmentEmailModalClose'), assessmentModalSubtitle:$('assessmentModalSubtitle'), assessmentCandidateName:$('assessmentCandidateName'), assessmentCandidateEmail:$('assessmentCandidateEmail'), assessmentRoleName:$('assessmentRoleName'), assessmentCompanyName:$('assessmentCompanyName'), assessmentType:$('assessmentType'), assessmentDueDate:$('assessmentDueDate'), assessmentLink:$('assessmentLink'), assessmentCustomMessage:$('assessmentCustomMessage'), assessmentEmailPreview:$('assessmentEmailPreview'), sendAssessmentEmailBtn:$('sendAssessmentEmailBtn'), copyAssessmentEmailBtn:$('copyAssessmentEmailBtn'), assessmentEmailStatus:$('assessmentEmailStatus'), openAssessmentEmailBtn:$('openAssessmentEmailBtn'), drawerAssessmentBadge:$('drawerAssessmentBadge'), drawerAssessmentDetail:$('drawerAssessmentDetail'), drawerAssessmentActionBtn:$('drawerAssessmentActionBtn'),
       interviewDateTime:$('interviewDateTime'), interviewType:$('interviewType'), interviewTimezone:$('interviewTimezone'), interviewDurationMinutes:$('interviewDurationMinutes'), interviewInterviewer:$('interviewInterviewer'), interviewInterviewerEmails:$('interviewInterviewerEmails'), interviewLocation:$('interviewLocation'), interviewNotes:$('interviewNotes'), interviewEmailPreview:$('interviewEmailPreview'), scheduleInterviewBtn:$('scheduleInterviewBtn'), clearInterviewFormBtn:$('clearInterviewFormBtn'), interviewSummary:$('interviewSummary'),
+      candidateReviewModal:$('candidateReviewModal'), candidateReviewFrame:$('candidateReviewFrame'), candidateReviewLoading:$('candidateReviewLoading'), candidateReviewModalTitle:$('candidateReviewModalTitle'), candidateReviewModalSubtitle:$('candidateReviewModalSubtitle'), candidateReviewModalClose:$('candidateReviewModalClose'), candidateReviewOpenNewTabBtn:$('candidateReviewOpenNewTabBtn'),
     };
 
     let supabaseClient = null;
@@ -2727,7 +2803,7 @@ opslead@company.com"></textarea></div>
 
 
 
-    function routeToCandidateReview(rowOrApplicationId) {
+    function getCandidateReviewUrl(rowOrApplicationId) {
       const applicationId = typeof rowOrApplicationId === "string"
         ? rowOrApplicationId
         : (
@@ -2739,17 +2815,45 @@ opslead@company.com"></textarea></div>
           );
 
       const id = safeText(applicationId);
+      if (!id) return "";
 
-      if (!id) {
+      return `candidate-review.html?application_id=${encodeURIComponent(id)}&embedded=1&v=${Date.now()}`;
+    }
+
+    function routeToCandidateReview(rowOrApplicationId) {
+      const reviewUrl = getCandidateReviewUrl(rowOrApplicationId);
+
+      if (!reviewUrl) {
         showNotice("Unable to open Candidate Review because this candidate has no application ID.", "error");
         return;
       }
 
-      const reviewUrl = `candidate-review.html?application_id=${encodeURIComponent(id)}&v=${Date.now()}`;
-      console.log("[candidate review direct route]", reviewUrl);
-      window.location.assign(reviewUrl);
+      const row = typeof rowOrApplicationId === "string"
+        ? state.allRows.find(item => item.id === rowOrApplicationId) || state.filteredRows.find(item => item.id === rowOrApplicationId)
+        : rowOrApplicationId;
+
+      if (els.candidateReviewModalTitle) {
+        els.candidateReviewModalTitle.textContent = `Candidate Review${row?.displayName ? `: ${row.displayName}` : ""}`;
+      }
+
+      if (els.candidateReviewModalSubtitle) {
+        const role = [row?.jobTitle, row?.clientName].filter(Boolean).join(" • ");
+        els.candidateReviewModalSubtitle.textContent = role || "Review assessment answers, conversation evidence, language confidence, and recruiter recommendation.";
+      }
+
+      if (els.candidateReviewLoading) els.candidateReviewLoading.classList.remove("hidden");
+      if (els.candidateReviewOpenNewTabBtn) {
+        els.candidateReviewOpenNewTabBtn.dataset.reviewUrl = reviewUrl.replace("&embedded=1", "");
+      }
+      if (els.candidateReviewFrame) els.candidateReviewFrame.src = reviewUrl;
+      if (els.candidateReviewModal) els.candidateReviewModal.classList.add("show");
     }
 
+    function closeCandidateReviewModal() {
+      if (els.candidateReviewModal) els.candidateReviewModal.classList.remove("show");
+      if (els.candidateReviewFrame) els.candidateReviewFrame.src = "about:blank";
+      if (els.candidateReviewLoading) els.candidateReviewLoading.classList.remove("hidden");
+    }
 
     function safeText(value){return value == null ? '' : String(value).trim()}
     function escapeHtml(value){return safeText(value).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;')}
@@ -4896,6 +5000,20 @@ opslead@company.com"></textarea></div>
       updateMessageInboxBadge();
     }
 
+    function renderDashboardEvaluationCell(row){
+      const breakdown = getDashboardEvaluationBreakdown(row);
+      return `
+        <span class="pill ${breakdown.overallTone}" title="Overall evaluation: ${breakdown.overall}%">
+          ${escapeHtml(breakdown.overallLabel)}
+        </span>
+        <div class="signal-breakdown" aria-label="Evaluation breakdown">
+          <div class="signal-row"><span>Profile Fit</span><strong class="${breakdown.profileTone}">${escapeHtml(breakdown.profileLabel)}</strong></div>
+          <div class="signal-row"><span>Assessment</span><strong class="${breakdown.assessmentTone}">${escapeHtml(breakdown.assessmentLabel)}</strong></div>
+          <div class="signal-row"><span>Conversation</span><strong class="${breakdown.conversationTone}">${escapeHtml(breakdown.conversationLabel)}</strong></div>
+        </div>
+      `;
+    }
+
     function renderTable(){
       document.body.classList.toggle('compact-rows', !!state.compactRows);
       if(els.densityToggleBtn)els.densityToggleBtn.textContent = state.compactRows ? 'Comfortable rows' : 'Compact rows';
@@ -4920,8 +5038,8 @@ opslead@company.com"></textarea></div>
           <td><span class="assessment-badge ${assessmentInfo.key}">${escapeHtml(assessmentInfo.label)}</span>${assessmentInfo.subtitle?`<div class="assessment-detail">${escapeHtml(assessmentInfo.subtitle)}</div>`:''}</td>
           <td><span class="pill ${getFollowUpTone(row.followUp?.key)}">${escapeHtml(row.followUp?.label||'No Follow-up')}</span>${row.followUp?.dueAt?`<div class="small">Due ${escapeHtml(formatDateTime(row.followUp.dueAt))}</div>`:''}</td>
           <td><span class="pill ${hasResumeEvidence(row.profile)?'resume':'missing'}">${hasResumeEvidence(row.profile)?'Resume':'Missing'}</span></td>
-          <td><span class="pill ${scoreTone}" title="${row.score.overall}% basic match">${scoreTier(row.score.overall)==='strong'?'Strong':scoreTier(row.score.overall)==='moderate'?'Promising':'Review'}</span></td>
-          <td><div class="actions"><button class="btn btn-xs" data-action="open" type="button">Details</button>${row.followUp?.note?'<button class="btn btn-xs" data-action="open" type="button">Note</button>':''}<a class="btn btn-xs candidate-review-link" data-action="review" data-hard-review-route="1" href="candidate-review.html?application_id=${encodeURIComponent(row.id)}">Review</a><button class="btn btn-primary btn-xs" data-action="assessment" type="button">Send Assessment</button></div></td>
+          <td>${renderDashboardEvaluationCell(row)}</td>
+          <td><div class="actions"><button class="btn btn-xs" data-action="open" type="button">Details</button>${row.followUp?.note?'<button class="btn btn-xs" data-action="open" type="button">Note</button>':''}<button class="btn btn-xs candidate-review-link" data-action="review" data-hard-review-route="1" type="button">Review</button><button class="btn btn-primary btn-xs" data-action="assessment" type="button">Send Assessment</button></div></td>
         </tr>`;
       }).join('');
     }
@@ -6696,11 +6814,7 @@ async function bulkUploadResumes(){
         return;
       }
 
-      console.log('Opening Candidate Review by application_id:', appId);
-
-      window.location.assign(
-        `candidate-review.html?application_id=${encodeURIComponent(appId)}&v=${Date.now()}`
-      );
+      routeToCandidateReview(row);
     }
 
     function getFollowUpFormValues(modalOpen=false){
@@ -7388,6 +7502,13 @@ async function bulkUploadResumes(){
       els.headerInboxBtn?.addEventListener('click',openMessageInbox);
       els.sidebarInboxBtn?.addEventListener('click',openMessageInbox);
       els.messageInboxClose?.addEventListener('click',closeMessageInbox);
+      els.candidateReviewModalClose?.addEventListener('click', closeCandidateReviewModal);
+      els.candidateReviewModal?.addEventListener('click', event => { if(event.target === els.candidateReviewModal) closeCandidateReviewModal(); });
+      els.candidateReviewFrame?.addEventListener('load', () => { els.candidateReviewLoading?.classList.add('hidden'); });
+      els.candidateReviewOpenNewTabBtn?.addEventListener('click', () => {
+        const url = els.candidateReviewOpenNewTabBtn?.dataset?.reviewUrl || els.candidateReviewFrame?.src || '';
+        if(url) window.open(url, '_blank', 'noopener');
+      });
       els.messageInboxRefreshBtn?.addEventListener('click',refreshMessageInbox);
       els.messageInboxModal?.addEventListener('click',event=>{if(event.target===els.messageInboxModal)closeMessageInbox();});
       els.messageInboxList?.addEventListener('click',event=>{const item=event.target.closest('.message-inbox-item[data-message-id]'); if(item)openCandidateFromInboxMessage(item.dataset.messageId || '');});
@@ -7547,4 +7668,75 @@ async function bulkUploadResumes(){
     void startDashboardApp();
   </script>
 </body>
-</html>
+</html
+
+    function signalLabelFromScore(value){
+      const score = Math.max(0, Math.min(100, Math.round(Number(value || 0))));
+      if(score >= 85)return 'Strong';
+      if(score >= 70)return 'Promising';
+      if(score >= 50)return 'Emerging';
+      if(score > 0)return 'Review';
+      return 'Pending';
+    }
+
+    function signalToneFromScore(value){
+      const score = Math.max(0, Math.min(100, Math.round(Number(value || 0))));
+      if(score >= 70)return 'good';
+      if(score >= 40)return 'warn';
+      return 'bad';
+    }
+
+    function getAssessmentQualityScore(row){
+      const info = getAssessmentInfo(row);
+      const assessment = info?.assessment || row?.assessment || {};
+      const explicit = Number(assessment.overall_score || 0);
+      if(explicit > 0)return Math.max(0, Math.min(100, Math.round(explicit)));
+
+      const parts = [assessment.communication_score, assessment.technical_score, assessment.problem_solving_score, assessment.authenticity_score]
+        .map(value => Number(value || 0))
+        .filter(value => value > 0);
+      if(parts.length)return Math.round(parts.reduce((sum,value)=>sum+value,0) / parts.length);
+
+      if(info.key === 'completed')return 65;
+      if(info.key === 'in_progress')return 35;
+      if(info.key === 'sent' || info.key === 'overdue')return 15;
+      return 0;
+    }
+
+    function getTalentConversationScore(row){
+      const app = row?.app || {};
+      const explicit = Number(app.ai_interview_score || app.top_talent_score || 0);
+      if(explicit > 0)return Math.max(0, Math.min(100, Math.round(explicit)));
+      if(app.ai_interview_completed_at || app.conversation_id || app.talent_conversation_id || app.latest_conversation_id)return 70;
+      return 0;
+    }
+
+    function getDashboardEvaluationBreakdown(row){
+      const profileFit = Math.max(0, Math.min(100, Math.round(Number(row?.score?.overall || 0))));
+      const assessmentQuality = getAssessmentQualityScore(row);
+      const conversation = getTalentConversationScore(row);
+      const available = [
+        {key:'profile', value:profileFit, weight:0.35},
+        {key:'assessment', value:assessmentQuality, weight:0.30},
+        {key:'conversation', value:conversation, weight:0.35}
+      ].filter(item => item.value > 0);
+
+      const weightTotal = available.reduce((sum,item)=>sum+item.weight,0) || 1;
+      const overall = Math.round(available.reduce((sum,item)=>sum + item.value * item.weight,0) / weightTotal);
+
+      return {
+        overall,
+        profileFit,
+        assessmentQuality,
+        conversation,
+        overallLabel: signalLabelFromScore(overall),
+        overallTone: signalToneFromScore(overall),
+        profileLabel: signalLabelFromScore(profileFit),
+        profileTone: signalToneFromScore(profileFit),
+        assessmentLabel: assessmentQuality ? signalLabelFromScore(assessmentQuality) : 'Pending',
+        assessmentTone: signalToneFromScore(assessmentQuality),
+        conversationLabel: conversation ? signalLabelFromScore(conversation) : 'Pending',
+        conversationTone: signalToneFromScore(conversation)
+      };
+    }
+>
