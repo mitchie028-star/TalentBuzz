@@ -5000,6 +5000,100 @@ opslead@company.com"></textarea></div>
       updateMessageInboxBadge();
     }
 
+
+
+    function signalLabelFromScore(value){
+      const scoreValue = Math.max(0, Math.min(100, Math.round(Number(value || 0))));
+      if(scoreValue >= 85)return 'Strong';
+      if(scoreValue >= 70)return 'Promising';
+      if(scoreValue >= 50)return 'Emerging';
+      if(scoreValue > 0)return 'Review';
+      return 'Pending';
+    }
+
+    function signalToneFromScore(value){
+      const scoreValue = Math.max(0, Math.min(100, Math.round(Number(value || 0))));
+      if(scoreValue >= 70)return 'good';
+      if(scoreValue >= 40)return 'warn';
+      return 'missing';
+    }
+
+    function getAssessmentQualityScore(row){
+      const info = typeof getAssessmentInfo === 'function' ? getAssessmentInfo(row) : null;
+      const assessment = info?.assessment || row?.assessment || {};
+      const explicit = Number(
+        assessment.assessment_quality_score ||
+        assessment.response_quality_score ||
+        assessment.overall_score ||
+        assessment.score ||
+        0
+      );
+      if(explicit > 0)return Math.max(0, Math.min(100, Math.round(explicit)));
+
+      const parts = [
+        assessment.communication_score,
+        assessment.technical_score,
+        assessment.problem_solving_score,
+        assessment.authenticity_score,
+        assessment.confidence_score
+      ]
+        .map(value => Number(value || 0))
+        .filter(value => value > 0);
+
+      if(parts.length)return Math.round(parts.reduce((sum,value)=>sum+value,0) / parts.length);
+
+      if(info?.key === 'completed')return 65;
+      if(info?.key === 'in_progress')return 35;
+      if(info?.key === 'sent' || info?.key === 'overdue')return 15;
+      return 0;
+    }
+
+    function getTalentConversationScore(row){
+      const app = row?.app || {};
+      const explicit = Number(
+        app.ai_interview_score ||
+        app.talent_conversation_score ||
+        app.conversation_score ||
+        app.top_talent_score ||
+        0
+      );
+      if(explicit > 0)return Math.max(0, Math.min(100, Math.round(explicit)));
+      if(app.ai_interview_completed_at || app.conversation_id || app.talent_conversation_id || app.latest_conversation_id)return 70;
+      if(app.ai_interview_status === 'completed')return 70;
+      return 0;
+    }
+
+    function getDashboardEvaluationBreakdown(row){
+      const profileFit = Math.max(0, Math.min(100, Math.round(Number(row?.score?.overall || row?.score?.profile || row?.app?.profile_fit_score || row?.app?.recruiter_score || 0))));
+      const assessmentQuality = getAssessmentQualityScore(row);
+      const conversation = getTalentConversationScore(row);
+      const available = [
+        {key:'profile', value:profileFit, weight:0.35},
+        {key:'assessment', value:assessmentQuality, weight:0.30},
+        {key:'conversation', value:conversation, weight:0.35}
+      ].filter(item => item.value > 0);
+
+      const weightTotal = available.reduce((sum,item)=>sum+item.weight,0) || 1;
+      const overall = available.length
+        ? Math.round(available.reduce((sum,item)=>sum + item.value * item.weight,0) / weightTotal)
+        : 0;
+
+      return {
+        overall,
+        profileFit,
+        assessmentQuality,
+        conversation,
+        overallLabel: signalLabelFromScore(overall),
+        overallTone: signalToneFromScore(overall),
+        profileLabel: profileFit ? signalLabelFromScore(profileFit) : 'Pending',
+        profileTone: signalToneFromScore(profileFit),
+        assessmentLabel: assessmentQuality ? signalLabelFromScore(assessmentQuality) : 'Pending',
+        assessmentTone: signalToneFromScore(assessmentQuality),
+        conversationLabel: conversation ? signalLabelFromScore(conversation) : 'Pending',
+        conversationTone: signalToneFromScore(conversation)
+      };
+    }
+
     function renderDashboardEvaluationCell(row){
       const breakdown = getDashboardEvaluationBreakdown(row);
       return `
@@ -7668,75 +7762,4 @@ async function bulkUploadResumes(){
     void startDashboardApp();
   </script>
 </body>
-</html
-
-    function signalLabelFromScore(value){
-      const score = Math.max(0, Math.min(100, Math.round(Number(value || 0))));
-      if(score >= 85)return 'Strong';
-      if(score >= 70)return 'Promising';
-      if(score >= 50)return 'Emerging';
-      if(score > 0)return 'Review';
-      return 'Pending';
-    }
-
-    function signalToneFromScore(value){
-      const score = Math.max(0, Math.min(100, Math.round(Number(value || 0))));
-      if(score >= 70)return 'good';
-      if(score >= 40)return 'warn';
-      return 'bad';
-    }
-
-    function getAssessmentQualityScore(row){
-      const info = getAssessmentInfo(row);
-      const assessment = info?.assessment || row?.assessment || {};
-      const explicit = Number(assessment.overall_score || 0);
-      if(explicit > 0)return Math.max(0, Math.min(100, Math.round(explicit)));
-
-      const parts = [assessment.communication_score, assessment.technical_score, assessment.problem_solving_score, assessment.authenticity_score]
-        .map(value => Number(value || 0))
-        .filter(value => value > 0);
-      if(parts.length)return Math.round(parts.reduce((sum,value)=>sum+value,0) / parts.length);
-
-      if(info.key === 'completed')return 65;
-      if(info.key === 'in_progress')return 35;
-      if(info.key === 'sent' || info.key === 'overdue')return 15;
-      return 0;
-    }
-
-    function getTalentConversationScore(row){
-      const app = row?.app || {};
-      const explicit = Number(app.ai_interview_score || app.top_talent_score || 0);
-      if(explicit > 0)return Math.max(0, Math.min(100, Math.round(explicit)));
-      if(app.ai_interview_completed_at || app.conversation_id || app.talent_conversation_id || app.latest_conversation_id)return 70;
-      return 0;
-    }
-
-    function getDashboardEvaluationBreakdown(row){
-      const profileFit = Math.max(0, Math.min(100, Math.round(Number(row?.score?.overall || 0))));
-      const assessmentQuality = getAssessmentQualityScore(row);
-      const conversation = getTalentConversationScore(row);
-      const available = [
-        {key:'profile', value:profileFit, weight:0.35},
-        {key:'assessment', value:assessmentQuality, weight:0.30},
-        {key:'conversation', value:conversation, weight:0.35}
-      ].filter(item => item.value > 0);
-
-      const weightTotal = available.reduce((sum,item)=>sum+item.weight,0) || 1;
-      const overall = Math.round(available.reduce((sum,item)=>sum + item.value * item.weight,0) / weightTotal);
-
-      return {
-        overall,
-        profileFit,
-        assessmentQuality,
-        conversation,
-        overallLabel: signalLabelFromScore(overall),
-        overallTone: signalToneFromScore(overall),
-        profileLabel: signalLabelFromScore(profileFit),
-        profileTone: signalToneFromScore(profileFit),
-        assessmentLabel: assessmentQuality ? signalLabelFromScore(assessmentQuality) : 'Pending',
-        assessmentTone: signalToneFromScore(assessmentQuality),
-        conversationLabel: conversation ? signalLabelFromScore(conversation) : 'Pending',
-        conversationTone: signalToneFromScore(conversation)
-      };
-    }
->
+</html>
