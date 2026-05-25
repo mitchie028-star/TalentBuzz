@@ -520,7 +520,7 @@
 
     .overall-grid {
       display: grid;
-      grid-template-columns: repeat(4, minmax(0, 1fr));
+      grid-template-columns: repeat(5, minmax(0, 1fr));
       gap: 14px;
       margin-bottom: 16px;
     }
@@ -553,6 +553,34 @@
     .mini-stat-value.blue {
       color: var(--blue-deep);
       font-size: 1.25rem;
+    }
+
+
+
+    .assessment-answer-summary {
+      margin-top: 12px;
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      background: rgba(255,255,255,.72);
+      padding: 12px;
+    }
+
+    .assessment-answer-summary strong {
+      display: inline;
+      margin: 0;
+      color: var(--ink-strong);
+    }
+
+    .assessment-answer-summary p {
+      margin: 6px 0 0;
+    }
+
+    .score-breakdown-note {
+      margin-top: 12px;
+      color: var(--muted);
+      font-size: .82rem;
+      line-height: 1.6;
+      font-weight: 650;
     }
 
     .translation-block {
@@ -1374,17 +1402,20 @@
                 <div class="mini-stat-value" id="overallFitLabel">Review Needed</div>
               </div>
               <div class="mini-stat">
-                <span class="mini-stat-label">Conversation Completion</span>
+                <span class="mini-stat-label">Profile Fit</span>
+                <div class="mini-stat-value" id="profileFitLabel">—</div>
+              </div>
+              <div class="mini-stat">
+                <span class="mini-stat-label">Assessment Quality</span>
+                <div class="mini-stat-value" id="assessmentQualityLabel">—</div>
+              </div>
+              <div class="mini-stat">
+                <span class="mini-stat-label">Talent Conversation</span>
                 <div class="mini-stat-value blue" id="overallScoreValue">—</div>
               </div>
               <div class="mini-stat">
                 <span class="mini-stat-label">Evidence Coverage</span>
                 <div class="mini-stat-value" id="evaluationConfidence">—</div>
-              </div>
-
-              <div class="mini-stat">
-                <span class="mini-stat-label">Recruiter Readiness</span>
-                <div class="mini-stat-value" id="responseQuality">—</div>
               </div>
             </div>
             <div class="bar">
@@ -1654,6 +1685,8 @@
       headerAssessmentDate: document.getElementById("headerAssessmentDate"),
       heroSignals: document.getElementById("heroSignals"),
       overallFitLabel: document.getElementById("overallFitLabel"),
+      profileFitLabel: document.getElementById("profileFitLabel"),
+      assessmentQualityLabel: document.getElementById("assessmentQualityLabel"),
       overallScoreValue: document.getElementById("overallScoreValue"),
       overallFitReason: document.getElementById("overallFitReason"),
       overallCompletionBar: document.getElementById("overallCompletionBar"),
@@ -2324,6 +2357,181 @@
       return optionText || id || "Selected option";
     }
 
+
+    function getAssessmentRawAnswer(response = {}) {
+      return text(
+        response.text_response ||
+        response.answer_text ||
+        response.response_text ||
+        response.answer ||
+        response.content ||
+        ""
+      );
+    }
+
+    function getAssessmentCorrectKeys(question, options = []) {
+      const metadata = question?.metadata || {};
+      const rawKeys = [
+        metadata.correct_answer,
+        metadata.correctAnswer,
+        metadata.correct_option,
+        metadata.correctOption,
+        metadata.correct_option_id,
+        metadata.correctOptionId,
+        metadata.answer_key,
+        metadata.answerKey,
+        question.correct_answer,
+        question.correct_option,
+        question.answer_key
+      ].filter(value => value !== undefined && value !== null && value !== "");
+
+      options.forEach((option, index) => {
+        if (typeof option === "object" && (option.is_correct || option.correct === true)) {
+          rawKeys.push(getOptionId(option, index));
+          rawKeys.push(getOptionText(option));
+        }
+      });
+
+      return rawKeys.map(normalizeOptionKey).filter(Boolean);
+    }
+
+    function isAssessmentAnswerCorrect(question, response, options = []) {
+      const rawAnswer = getAssessmentRawAnswer(response);
+      const selected = resolveSelectedAssessmentOption(rawAnswer, options);
+      const selectedKeys = [
+        normalizeOptionKey(rawAnswer),
+        selected ? normalizeOptionKey(getOptionId(selected, options.indexOf(selected))) : "",
+        selected ? normalizeOptionKey(getOptionText(selected)) : ""
+      ].filter(Boolean);
+      const correctKeys = getAssessmentCorrectKeys(question, options);
+
+      if (!correctKeys.length || !selectedKeys.length) return null;
+      return selectedKeys.some(key => correctKeys.includes(key));
+    }
+
+    function assessmentQualityLabel(scoreValue) {
+      const value = score(scoreValue);
+      if (value >= 85) return "Strong";
+      if (value >= 70) return "Promising";
+      if (value >= 55) return "Emerging";
+      if (value >= 35) return "Developing";
+      if (value > 0) return "Needs Review";
+      return "No Response";
+    }
+
+    function getAssessmentResponseScore(item) {
+      const question = item?.question || {};
+      const response = item?.response || {};
+      const rawAnswer = getAssessmentRawAnswer(response);
+      if (!rawAnswer) return 0;
+
+      const explicit = Number(
+        response.score ||
+        response.overall_score ||
+        response.evaluation_score ||
+        response.quality_score ||
+        0
+      );
+      if (explicit > 0) return score(explicit);
+
+      const options = getAssessmentOptions(question);
+      const correctness = isAssessmentAnswerCorrect(question, response, options);
+      if (correctness === true) return 88;
+      if (correctness === false) return 45;
+
+      const type = text(question.question_type || question.expected_response_type || "").toLowerCase();
+      const wordCount = rawAnswer.split(/\s+/).filter(Boolean).length;
+
+      if (type.includes("simulation") || type.includes("short") || wordCount > 6) {
+        if (wordCount >= 45) return 85;
+        if (wordCount >= 25) return 75;
+        if (wordCount >= 12) return 62;
+        return 45;
+      }
+
+      // If this is a multiple-choice answer and no answer key exists, score for completion without claiming correctness.
+      return options.length ? 70 : 60;
+    }
+
+    function getAssessmentResponseInsight(item) {
+      const question = item?.question || {};
+      const response = item?.response || {};
+      const rawAnswer = getAssessmentRawAnswer(response);
+      const options = getAssessmentOptions(question);
+      const correctness = isAssessmentAnswerCorrect(question, response, options);
+      const value = getAssessmentResponseScore(item);
+
+      if (!rawAnswer) return "No response found for this assessment item.";
+      if (correctness === true) return "Selected response aligns with the expected answer key.";
+      if (correctness === false) return "Selected response may need recruiter review against the expected answer key.";
+
+      const type = text(question.question_type || question.expected_response_type || "").toLowerCase();
+      if (type.includes("simulation") || rawAnswer.split(/\s+/).filter(Boolean).length > 6) {
+        if (value >= 75) return "Response shows usable detail and role-relevant documentation effort.";
+        if (value >= 55) return "Response is usable but may benefit from more detail or polish.";
+        return "Response appears brief and should be reviewed for completeness.";
+      }
+
+      return "Response captured. No answer key was available, so quality is based on completion evidence.";
+    }
+
+    function buildAssessmentQualitySummary(items = []) {
+      const total = items.length;
+      const answeredItems = items.filter(item => getAssessmentRawAnswer(item.response || {}));
+      const answered = answeredItems.length;
+      const average = answered
+        ? score(answeredItems.reduce((sum, item) => sum + getAssessmentResponseScore(item), 0) / answered)
+        : 0;
+
+      const correctKnown = answeredItems.filter(item => isAssessmentAnswerCorrect(item.question || {}, item.response || {}, getAssessmentOptions(item.question || {})) === true).length;
+      const incorrectKnown = answeredItems.filter(item => isAssessmentAnswerCorrect(item.question || {}, item.response || {}, getAssessmentOptions(item.question || {})) === false).length;
+      const keyed = correctKnown + incorrectKnown;
+
+      return {
+        total,
+        answered,
+        average,
+        label: assessmentQualityLabel(average),
+        keyed,
+        correctKnown,
+        incorrectKnown,
+        completionText: total ? `${answered}/${total} answered` : "No assessment found"
+      };
+    }
+
+    function profileFitScore(conversation, fallback) {
+      const app = fallback?.app || {};
+      const profile = fallback?.profile || {};
+      const explicit = Number(
+        app.profile_fit_score ||
+        app.recruiter_score ||
+        app.top_talent_score ||
+        profile.ai_score ||
+        conversation.profile_fit_score ||
+        0
+      );
+      if (explicit > 0) return score(explicit);
+
+      const hasRole = !!(conversation.role_title || app.job_title || profile.target_role);
+      const hasCandidate = !!(conversation.candidate_name || app.email || profile.full_name || profile.email);
+      const hasProfile = !!(profile.summary || profile.experience_summary || profile.headline || app.screening_review_summary);
+      return score((hasRole ? 30 : 0) + (hasCandidate ? 25 : 0) + (hasProfile ? 30 : 0) + 10);
+    }
+
+    function combinedEvaluationScore(profileFit, assessmentQuality, talentConversation) {
+      return score((profileFit * 0.35) + (assessmentQuality * 0.30) + (talentConversation * 0.35));
+    }
+
+    function combinedEvaluationLabel(value) {
+      const result = score(value);
+      if (result >= 85) return "Strong Candidate";
+      if (result >= 70) return "Promising Candidate";
+      if (result >= 55) return "Emerging Candidate";
+      if (result >= 35) return "Recruiter Discussion Suggested";
+      if (result > 0) return "Review Suggested";
+      return "Review Needed";
+    }
+
     function renderAssessmentEvidence(items) {
       if (!els.assessmentEvidenceList) return;
 
@@ -2333,60 +2541,78 @@
         return;
       }
 
-      els.assessmentEvidenceList.innerHTML = items.map((item, index) => {
-        const question = item.question || {};
-        const response = item.response || {};
+      const qualitySummary = buildAssessmentQualitySummary(items);
 
-        const questionText =
-          question.question_text ||
-          question.prompt ||
-          `Assessment question ${index + 1}`;
+      els.assessmentEvidenceList.innerHTML = `
+        <div class="assessment-answer-summary">
+          <strong>Assessment Response Quality: ${escapeHtml(qualitySummary.label)} (${qualitySummary.average}%)</strong>
+          <p>${escapeHtml(qualitySummary.completionText)}${qualitySummary.keyed ? ` • ${qualitySummary.correctKnown}/${qualitySummary.keyed} answer-key matches` : " • Scored using completion and response quality signals"}</p>
+        </div>
+        ${items.map((item, index) => {
+          const question = item.question || {};
+          const response = item.response || {};
 
-        const rawAnswer =
-          response.text_response ||
-          response.answer_text ||
-          response.response_text ||
-          response.answer ||
-          response.content ||
-          "";
+          const questionText =
+            question.question_text ||
+            question.prompt ||
+            `Assessment question ${index + 1}`;
 
-        const options = getAssessmentOptions(question);
-        const selectedOption = resolveSelectedAssessmentOption(rawAnswer, options);
+          const rawAnswer = getAssessmentRawAnswer(response);
+          const options = getAssessmentOptions(question);
+          const selectedOption = resolveSelectedAssessmentOption(rawAnswer, options);
 
-        const answer = selectedOption
-          ? formatSelectedAssessmentOption(selectedOption, options.indexOf(selectedOption))
-          : rawAnswer || "No written response found.";
+          const answer = selectedOption
+            ? formatSelectedAssessmentOption(selectedOption, options.indexOf(selectedOption))
+            : rawAnswer || "No written response found.";
 
-        const feedback =
-          response.ai_feedback ||
-          response.feedback ||
-          response.evaluation_summary ||
-          "";
+          const qualityScore = getAssessmentResponseScore(item);
+          const qualityLabel = assessmentQualityLabel(qualityScore);
+          const qualityInsight = getAssessmentResponseInsight(item);
 
-        const scoreValue =
-          response.score ||
-          response.overall_score ||
-          response.evaluation_score ||
-          null;
+          const feedback =
+            response.ai_feedback ||
+            response.feedback ||
+            response.evaluation_summary ||
+            "";
 
-        const type =
-          question.question_type ||
-          question.expected_response_type ||
-          "assessment";
+          const type =
+            question.question_type ||
+            question.expected_response_type ||
+            "assessment";
 
-        return `
-          <article class="evidence-item">
-            <strong>${escapeHtml(questionText)}</strong>
-            <p>${escapeHtml(answer)}</p>
+          const qualityClass = qualityScore >= 70 ? "green" : qualityScore >= 45 ? "amber" : "";
 
-            <p><br><strong>Type:</strong> ${escapeHtml(String(type).replaceAll("_", " "))}</p>
+          return `
+            <article class="evidence-item">
+              <div class="evidence-meta">
+                <span class="evidence-chip">Question ${index + 1}</span>
+                <span class="evidence-chip ${qualityClass}">${escapeHtml(qualityLabel)} • ${qualityScore}%</span>
+                <span class="evidence-chip">${escapeHtml(String(type).replaceAll("_", " "))}</span>
+              </div>
 
-            ${feedback ? `
-              <p><br><strong>Assessment insight:</strong> ${escapeHtml(feedback)}</p>
-            ` : ""}
-          </article>
-        `;
-      }).join("");
+              <span class="translation-label">Question</span>
+              <strong>${escapeHtml(questionText)}</strong>
+
+              <div class="translation-block">
+                <span class="translation-label">Candidate Answer</span>
+                <p>${escapeHtml(answer)}</p>
+              </div>
+
+              <div class="translation-block">
+                <span class="translation-label">Response Quality</span>
+                <p>${escapeHtml(qualityInsight)}</p>
+              </div>
+
+              ${feedback ? `
+                <div class="translation-block">
+                  <span class="translation-label">Assessment Insight</span>
+                  <p>${escapeHtml(feedback)}</p>
+                </div>
+              ` : ""}
+            </article>
+          `;
+        }).join("")}
+      `;
     }
 
     function questionEnglishFromRow(row, questionOriginal) {
@@ -3548,6 +3774,12 @@
         ) / 2,
         responses
       );
+      const talentConversationScore = score((communication + alignment + evidence) / 3) || completion;
+      const assessmentSummary = buildAssessmentQualitySummary(assessmentEvidence);
+      const profileFit = profileFitScore(conversation, fallback);
+      const evaluationScore = combinedEvaluationScore(profileFit, assessmentSummary.average, talentConversationScore);
+      const evaluationLabel = combinedEvaluationLabel(evaluationScore);
+
       const insufficientEvidence =
         communication === 0 &&
         alignment === 0 &&
@@ -3579,12 +3811,8 @@
       }
 
       if (els.compactAssessmentStatus) {
-        const answeredAssessments = assessmentEvidence.filter(item => {
-          const response = item.response || {};
-          return text(response.text_response || response.answer_text || response.response_text || response.answer || response.content);
-        }).length;
-        els.compactAssessmentStatus.textContent = assessmentEvidence.length
-          ? `${answeredAssessments}/${assessmentEvidence.length} answered`
+        els.compactAssessmentStatus.textContent = assessmentSummary.total
+          ? `${assessmentSummary.completionText} • ${assessmentSummary.label}`
           : "No assessment found";
       }
 
@@ -3631,21 +3859,26 @@
         "Position not specified";
 
       els.candidateSubtitle.textContent =
-        `${positionApplied} - ${demoFitLabel(overallFitDisplay(conversation, communication, alignment, evidence, insufficientEvidence))} - ${demoRiskLabel(conversation.risk_level || "Follow-up Suggested")} - Language: ${detectedLanguage}`;
+        `${positionApplied} - ${demoFitLabel(evaluationLabel)} - ${demoRiskLabel(conversation.risk_level || "Follow-up Suggested")} - Language: ${detectedLanguage}`;
 
-      els.overallFitLabel.textContent =
-        demoFitLabel(overallFitDisplay(
-          conversation,
-          communication,
-          alignment,
-          evidence,
-          insufficientEvidence
-        ));
+      els.overallFitLabel.textContent = demoFitLabel(evaluationLabel);
 
-      els.overallFitReason.textContent = cleanDemoText(cleanedRecommendation(conversation, insufficientEvidence));
+      if (els.profileFitLabel) {
+        els.profileFitLabel.textContent = `${assessmentQualityLabel(profileFit)} (${profileFit}%)`;
+      }
+
+      if (els.assessmentQualityLabel) {
+        els.assessmentQualityLabel.textContent = assessmentSummary.total
+          ? `${assessmentSummary.label} (${assessmentSummary.average}%)`
+          : "Not Available";
+      }
+
+      els.overallFitReason.textContent = cleanDemoText(
+        `Evaluation breakdown: Profile Fit ${profileFit}%, Assessment Response Quality ${assessmentSummary.average}%, and Talent Conversation ${talentConversationScore}%. ${cleanedRecommendation(conversation, insufficientEvidence)}`
+      );
 
       els.overallScoreValue.textContent =
-        `${completion}%`;
+        `${talentConversationScore}%`;
 
       if (els.overallCompletionBar) {
         els.overallCompletionBar.style.width = `${completion}%`;
@@ -3683,13 +3916,7 @@
       els.heroSignals.innerHTML = `
         <span class="badge ${conversation._isFallback || insufficientEvidence ? "amber" : badgeClass(conversation.hiring_signal)}">
           ${escapeHtml(
-            demoFitLabel(overallFitDisplay(
-              conversation,
-              communication,
-              alignment,
-              evidence,
-              insufficientEvidence
-            ))
+            demoFitLabel(evaluationLabel)
           )}
         </span>
 
