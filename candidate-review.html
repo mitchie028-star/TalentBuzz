@@ -1369,6 +1369,8 @@
 
       <div class="top-actions">
         <span class="workspace-pill">Recruiter Workspace</span>
+        <button class="btn" id="previousApplicantBtn" type="button">← Previous Applicant</button>
+        <button class="btn" id="nextApplicantBtn" type="button">Next Applicant →</button>
         <a href="recruiter-dashboard.html" class="btn">Back to Dashboard</a>
       </div>
     </div>
@@ -1754,6 +1756,7 @@
     let currentConversation = null;
     let currentFallback = null;
     let currentApplicationId = applicationId || "";
+    let pipelineApplicants = [];
 
 
     const els = {
@@ -1824,7 +1827,9 @@
       compactSummaryStatus: document.getElementById("compactSummaryStatus"),
       compactLanguageStatus: document.getElementById("compactLanguageStatus"),
       compactAssessmentStatus: document.getElementById("compactAssessmentStatus"),
-      compactConversationStatus: document.getElementById("compactConversationStatus")
+      compactConversationStatus: document.getElementById("compactConversationStatus"),
+      previousApplicantBtn: document.getElementById("previousApplicantBtn"),
+      nextApplicantBtn: document.getElementById("nextApplicantBtn")
     };
 
     function escapeHtml(value) {
@@ -3613,6 +3618,149 @@
       );
     }
 
+
+    function normalizePipelineFilterValue(value) {
+      return text(value)
+        .toLowerCase()
+        .replace(/-/g, "_")
+        .replace(/\s+/g, " ")
+        .trim();
+    }
+
+    function getPipelineFilters() {
+      const status = normalizePipelineFilterValue(
+        params.get("status") ||
+        params.get("pipeline") ||
+        params.get("filter") ||
+        ""
+      );
+
+      return {
+        status,
+        jobId: text(params.get("job_id") || params.get("job") || ""),
+        recruiterEmail: text(params.get("recruiter_email") || params.get("recruiter") || ""),
+        search: text(params.get("search") || params.get("q") || "")
+      };
+    }
+
+    function isFollowUpStatusFilter(value) {
+      return ["none", "needs_follow_up", "due_today", "followed_up"].includes(value);
+    }
+
+    async function loadPipelineApplicants() {
+      const filters = getPipelineFilters();
+
+      let query = supabaseClient
+        .from("applications")
+        .select("*")
+        .order("created_at", { ascending: false });
+
+      if (filters.status) {
+        if (isFollowUpStatusFilter(filters.status)) {
+          query = query.eq("follow_up_status", filters.status);
+        } else {
+          query = query.eq("status", filters.status);
+        }
+      }
+
+      if (filters.jobId) {
+        query = query.eq("job_id", filters.jobId);
+      }
+
+      if (filters.recruiterEmail) {
+        query = query.eq("recruiter_email", filters.recruiterEmail);
+      }
+
+      const { data, error } = await query;
+
+      if (error) {
+        console.warn("Unable to load filtered pipeline applicants:", error);
+
+        const fallbackQuery = supabaseClient
+          .from("applications")
+          .select("*")
+          .order("created_at", { ascending: false });
+
+        const fallbackResult = await fallbackQuery;
+        if (fallbackResult.error) {
+          console.warn("Unable to load pipeline applicants:", fallbackResult.error);
+          pipelineApplicants = [];
+          return;
+        }
+
+        pipelineApplicants = fallbackResult.data || [];
+        return;
+      }
+
+      pipelineApplicants = data || [];
+
+      if (filters.search) {
+        const searchValue = filters.search.toLowerCase();
+        pipelineApplicants = pipelineApplicants.filter(app => {
+          const haystack = [
+            app.full_name,
+            app.candidate_name,
+            app.name,
+            app.email,
+            app.job_title,
+            app.status,
+            app.follow_up_status
+          ].map(value => text(value).toLowerCase()).join(" ");
+
+          return haystack.includes(searchValue);
+        });
+      }
+    }
+
+    function buildApplicantReviewUrl(appId) {
+      const nextParams = new URLSearchParams(window.location.search);
+
+      nextParams.delete("conversation_id");
+      nextParams.delete("id");
+      nextParams.delete("app_id");
+      nextParams.delete("email");
+      nextParams.delete("candidate_email");
+      nextParams.set("application_id", appId);
+
+      return `candidate-review.html?${nextParams.toString()}`;
+    }
+
+    function bindApplicantNavigation() {
+      const previousBtn = els.previousApplicantBtn;
+      const nextBtn = els.nextApplicantBtn;
+
+      if (!previousBtn || !nextBtn) return;
+
+      const currentId = getResolvedApplicationId();
+      const currentIndex = pipelineApplicants.findIndex(app => String(app.id) === String(currentId));
+
+      if (!currentId || currentIndex === -1) {
+        previousBtn.disabled = true;
+        nextBtn.disabled = true;
+        previousBtn.title = "Current applicant is not in the loaded pipeline filter.";
+        nextBtn.title = "Current applicant is not in the loaded pipeline filter.";
+        return;
+      }
+
+      const previousApplicant = pipelineApplicants[currentIndex - 1];
+      const nextApplicant = pipelineApplicants[currentIndex + 1];
+
+      previousBtn.disabled = !previousApplicant;
+      nextBtn.disabled = !nextApplicant;
+      previousBtn.title = previousApplicant ? "Open previous applicant in this pipeline" : "No previous applicant in this pipeline";
+      nextBtn.title = nextApplicant ? "Open next applicant in this pipeline" : "No next applicant in this pipeline";
+
+      previousBtn.onclick = () => {
+        if (!previousApplicant?.id) return;
+        window.location.href = buildApplicantReviewUrl(previousApplicant.id);
+      };
+
+      nextBtn.onclick = () => {
+        if (!nextApplicant?.id) return;
+        window.location.href = buildApplicantReviewUrl(nextApplicant.id);
+      };
+    }
+
     function showDecisionNotice(message, type = "success") {
       if (!els.decisionNotice) return;
       els.decisionNotice.className = `decision-notice show ${type}`;
@@ -4245,7 +4393,9 @@
           fallback
         );
 
+        await loadPipelineApplicants();
         renderConversation(conversation, responses, assessmentEvidence, fallback);
+        bindApplicantNavigation();
       } catch (error) {
         console.error(error);
         showError(error.message || "Unable to load candidate review.");
