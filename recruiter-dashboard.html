@@ -5364,7 +5364,7 @@ opslead@company.com"></textarea></div>
         if(await endorseApplication(id, true))success += 1;
       }
       state.bulkSelectedIds.clear();
-      await loadDashboardData({silent:true});
+      await loadDashboard({silent:true});
       showNotice(`Endorsed ${success} of ${ids.length} selected candidate${ids.length===1?'':'s'}.`, success === ids.length ? 'success' : 'info');
       if(els.bulkEndorseSelectedBtn){
         els.bulkEndorseSelectedBtn.textContent = 'Bulk Endorse';
@@ -7781,6 +7781,93 @@ async function bulkUploadResumes(){
       }
     }
 
+    function applyAssessmentQueuedLocally(row, payload){
+      if(!row)return;
+      const now = new Date().toISOString();
+      const dueAt = payload?.dueDate ? dateInputToIso(payload.dueDate) : null;
+      const candidateEmail = safeText(payload?.candidateEmail || row.profile?.email || row.app?.email || '');
+
+      const targets = [
+        row,
+        state.allRows.find(item => item.id === row.id),
+        state.filteredRows.find(item => item.id === row.id)
+      ].filter(Boolean);
+
+      [...new Set(targets)].forEach(target=>{
+        target.app = target.app || {};
+        target.app.status = 'assessment';
+        target.app.assessment_invite_status = 'sent';
+        target.app.assessment_invite_sent_at = target.app.assessment_invite_sent_at || now;
+        target.app.assessment_due_at = dueAt;
+        target.app.updated_at = now;
+        target.app.last_status_change_at = now;
+        target.app.follow_up_required = true;
+        target.app.follow_up_status = 'needs_follow_up';
+        target.app.follow_up_date = dueAt;
+        target.app.follow_up_due_at = dueAt;
+        target.app.follow_up_note = `Assessment queued for ${candidateEmail}${payload?.dueDate ? `; due ${payload.dueDate}` : ''}.`;
+        target.status = 'assessment';
+        target.followUp = getFollowUpInfo(target.app);
+        target.assessmentInfo = getAssessmentInfo(target);
+      });
+    }
+
+    function refreshAssessmentUiAfterQueue(row){
+      if(!row)return;
+      try{
+        applyFilters();
+        if(state.selectedId === row.id){
+          openDrawer(row.id).catch(error => console.warn('Unable to refresh drawer after assessment queue:', error));
+        }
+        if(isCandidateModalOpen()){
+          const refreshed = state.allRows.find(item => item.id === row.id) || row;
+          fillCandidateModal(refreshed);
+        }
+      }catch(error){
+        console.warn('Unable to refresh assessment UI:', error);
+      }
+    }
+
+    function finishAssessmentSendInBackground(row, payload){
+      Promise.resolve()
+        .then(async()=>{
+          const { data, error } = await supabaseClient.functions.invoke(CONFIG.ASSESSMENT_INVITE_FUNCTION, {
+            body: payload.backendPayload
+          });
+
+          if(error)throw error;
+          if(!data?.success)throw new Error(data?.error || 'Assessment invitation was not sent.');
+
+          if(els.assessmentLink && data.assessment_link){
+            els.assessmentLink.value = data.assessment_link;
+          }
+
+          await markAssessmentSent(row, {
+            candidateEmail: payload.candidateEmail,
+            dueDate: payload.dueDate
+          });
+
+          showNotice(`Assessment sent to ${payload.candidateEmail}.`, 'success');
+          await loadDashboard({silent:true});
+          if(state.selectedId === row.id){
+            await openDrawer(row.id);
+          }
+        })
+        .catch(error=>{
+          console.error('Unable to send assessment invitation in background:', error);
+          showNotice(`Assessment send failed for ${payload.candidateEmail}: ${getReadableError(error)}`, 'error');
+
+          const target = state.allRows.find(item => item.id === row.id) || row;
+          if(target?.app){
+            target.app.assessment_invite_status = 'not_sent';
+            target.app.assessment_invite_sent_at = null;
+            target.assessmentInfo = getAssessmentInfo(target);
+            target.followUp = getFollowUpInfo(target.app);
+          }
+          refreshAssessmentUiAfterQueue(target);
+        });
+    }
+
     async function sendAssessmentEmail(){
       const row = getAssessmentRow(state.selectedAssessmentRowId);
       if(!row)return showNotice('Open or select a candidate first.', 'error');
@@ -7791,58 +7878,37 @@ async function bulkUploadResumes(){
       const dueDate = safeText(els.assessmentDueDate?.value || '');
       const customMessage = safeText(els.assessmentCustomMessage?.value || '');
 
-      const payload = {
+      const backendPayload = {
         application_id: row.id,
         due_date: dueDate || null,
         custom_message: customMessage || '',
         force: true
       };
 
-      try{
-        if(els.sendAssessmentEmailBtn){
-          els.sendAssessmentEmailBtn.disabled = true;
-          els.sendAssessmentEmailBtn.textContent = 'Sending...';
-        }
+      if(els.sendAssessmentEmailBtn){
+        els.sendAssessmentEmailBtn.disabled = true;
+        els.sendAssessmentEmailBtn.textContent = 'Queued';
+      }
 
-        setAssessmentEmailStatus('Preparing assessment and sending invitation...', 'info');
+      setAssessmentEmailStatus('Assessment queued. You can keep working while BuzzHire sends it in the background.', 'info');
+      showNotice('Assessment queued. You can keep working while it sends in the background.', 'info');
 
-        const { data, error } = await supabaseClient.functions.invoke(CONFIG.ASSESSMENT_INVITE_FUNCTION, {
-          body: payload
-        });
+      applyAssessmentQueuedLocally(row, {candidateEmail, dueDate});
+      closeAssessmentEmailModal();
+      refreshAssessmentUiAfterQueue(row);
 
-        if(error)throw error;
-        if(!data?.success)throw new Error(data?.error || 'Assessment invitation was not sent.');
-
-        if(els.assessmentLink && data.assessment_link){
-          els.assessmentLink.value = data.assessment_link;
-        }
-
-        const resultLines = [
-          'Assessment invitation sent successfully.',
-          data.assessment_id ? `Assessment ID: ${data.assessment_id}` : '',
-          data.assessment_link ? `Link: ${data.assessment_link}` : ''
-        ].filter(Boolean);
-
-        setAssessmentEmailStatus(resultLines.join('\n'), 'success');
-        showNotice('Assessment invitation sent.', 'success');
-
-        await loadDashboard();
-        await openDrawer(row.id);
-
-        if(isCandidateModalOpen()){
-          const refreshed = state.allRows.find(item => item.id === row.id);
-          if(refreshed)fillCandidateModal(refreshed);
-        }
-      }catch(error){
-        console.error('Unable to send assessment invitation:', error);
-        setAssessmentEmailStatus(`Unable to send assessment invitation: ${getReadableError(error)}`, 'error');
-        showNotice(`Unable to send assessment invitation: ${getReadableError(error)}`, 'error');
-      }finally{
+      window.setTimeout(()=>{
         if(els.sendAssessmentEmailBtn){
           els.sendAssessmentEmailBtn.disabled = false;
           els.sendAssessmentEmailBtn.textContent = 'Send Assessment';
         }
-      }
+      }, 250);
+
+      finishAssessmentSendInBackground(row, {
+        candidateEmail,
+        dueDate,
+        backendPayload
+      });
     }
 
     function bindEvents(){
@@ -7903,6 +7969,26 @@ async function bulkUploadResumes(){
       const row = state.allRows.find(item => item.id === state.selectedId) || state.filteredRows.find(item => item.id === state.selectedId);
       routeToCandidateReview(row);
     }); els.openAssessmentEmailBtn?.addEventListener('click',()=>openAssessmentEmailModal(state.selectedId));
+      els.drawerAssessmentActionBtn?.addEventListener('click', event => {
+        event.preventDefault();
+        event.stopPropagation();
+
+        const row = state.allRows.find(item => item.id === state.selectedId) ||
+          state.filteredRows.find(item => item.id === state.selectedId);
+
+        if(!row){
+          showNotice('Open or select a candidate first.', 'error');
+          return;
+        }
+
+        const assessmentInfo = getAssessmentInfo(row);
+        if(assessmentInfo?.key === 'completed'){
+          routeToCandidateReview(row);
+          return;
+        }
+
+        openAssessmentEmailModal(row.id);
+      });
       els.headerLogoutBtn.addEventListener('click',handleLogout);els.sidebarSourcingBtn?.addEventListener('click',()=>showNotice('Sourcing link will be added after the base dashboard is stable.','info'));
       els.applicationsTable.addEventListener('click',async event=>{
         const button=event.target.closest('button[data-action]');
@@ -7924,7 +8010,7 @@ async function bulkUploadResumes(){
           event.preventDefault();
           event.stopPropagation();
           const endorsed = await endorseApplication(id);
-          if(endorsed){ await loadDashboardData({silent:true}); }
+          if(endorsed){ await loadDashboard({silent:true}); }
           return;
         }
         if(action==='schedule'){
