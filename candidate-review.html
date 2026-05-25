@@ -2240,6 +2240,90 @@
       }));
     }
 
+    function getAssessmentOptions(question) {
+      const possibleSources = [
+        question?.metadata?.options,
+        question?.metadata?.choices,
+        question?.options,
+        question?.choices,
+        question?.answer_options,
+        question?.question_options
+      ];
+
+      for (const source of possibleSources) {
+        if (Array.isArray(source)) return source;
+      }
+
+      return [];
+    }
+
+    function normalizeOptionKey(value) {
+      return String(value ?? "")
+        .trim()
+        .replace(/^option\s+/i, "")
+        .replace(/[.)\]:-]+$/g, "")
+        .trim()
+        .toLowerCase();
+    }
+
+    function getOptionId(option, index) {
+      if (typeof option === "string") {
+        return String.fromCharCode(65 + index);
+      }
+
+      return (
+        option?.id ||
+        option?.key ||
+        option?.letter ||
+        option?.option ||
+        String.fromCharCode(65 + index)
+      );
+    }
+
+    function getOptionText(option) {
+      if (typeof option === "string") return option;
+
+      return (
+        option?.text ||
+        option?.label ||
+        option?.description ||
+        option?.answer ||
+        option?.content ||
+        option?.value ||
+        ""
+      );
+    }
+
+    function resolveSelectedAssessmentOption(rawAnswer, options) {
+      const selected = normalizeOptionKey(rawAnswer);
+      if (!selected || !Array.isArray(options) || !options.length) return null;
+
+      return options.find((option, index) => {
+        const optionId = normalizeOptionKey(getOptionId(option, index));
+        const optionText = normalizeOptionKey(getOptionText(option));
+        const optionValue = normalizeOptionKey(
+          typeof option === "object" ? option?.value : option
+        );
+
+        return (
+          selected === optionId ||
+          selected === optionText ||
+          selected === optionValue
+        );
+      }) || null;
+    }
+
+    function formatSelectedAssessmentOption(option, index = 0) {
+      const id = text(getOptionId(option, index));
+      const optionText = text(getOptionText(option));
+
+      if (id && optionText && normalizeOptionKey(id) !== normalizeOptionKey(optionText)) {
+        return `${id}. ${optionText}`;
+      }
+
+      return optionText || id || "Selected option";
+    }
+
     function renderAssessmentEvidence(items) {
       if (!els.assessmentEvidenceList) return;
 
@@ -2258,13 +2342,20 @@
           question.prompt ||
           `Assessment question ${index + 1}`;
 
-        const answer =
+        const rawAnswer =
           response.text_response ||
           response.answer_text ||
           response.response_text ||
           response.answer ||
           response.content ||
-          "No written response found.";
+          "";
+
+        const options = getAssessmentOptions(question);
+        const selectedOption = resolveSelectedAssessmentOption(rawAnswer, options);
+
+        const answer = selectedOption
+          ? formatSelectedAssessmentOption(selectedOption, options.indexOf(selectedOption))
+          : rawAnswer || "No written response found.";
 
         const feedback =
           response.ai_feedback ||
