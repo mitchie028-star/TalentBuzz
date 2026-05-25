@@ -1980,30 +1980,46 @@ tr.row-assessment-progress:hover td{
       z-index:2;
     }
     .candidate-review-loading.hidden{display:none}
-    .signal-breakdown{
+    .overall-assessment-cell{
       display:grid;
       gap:5px;
-      margin-top:7px;
-      min-width:170px;
+      min-width:130px;
     }
-    .signal-row{
-      display:flex;
-      align-items:center;
-      justify-content:space-between;
-      gap:8px;
+    .overall-assessment-label{
       color:#667085;
       font-size:.69rem;
       line-height:1.25;
-      font-weight:800;
+      font-weight:850;
+      text-transform:uppercase;
+      letter-spacing:.04em;
     }
-    .signal-row strong{
-      color:#1d2939;
-      font-size:.7rem;
-      white-space:nowrap;
+    .bulk-action-bar{
+      display:flex;
+      align-items:center;
+      gap:8px;
+      flex-wrap:wrap;
+      margin:0 0 10px;
     }
-    .signal-row .good{color:var(--good)}
-    .signal-row .warn{color:var(--warn)}
-    .signal-row .bad{color:#667085}
+    .bulk-selection-pill{
+      min-height:30px;
+      display:inline-flex;
+      align-items:center;
+      padding:0 10px;
+      border-radius:999px;
+      border:1px solid var(--line);
+      background:#fff;
+      color:#667085;
+      font-size:.72rem;
+      font-weight:850;
+    }
+    .row-select-checkbox,
+    .select-visible-checkbox{
+      width:15px;
+      height:15px;
+      accent-color:var(--accent);
+      vertical-align:-2px;
+      margin-right:8px;
+    }
 
 </style>
 </head>
@@ -2184,6 +2200,12 @@ tr.row-assessment-progress:hover td{
           <button class="btn btn-xs btn-soft more-filters-toggle" id="moreFiltersBtn" type="button">More filters</button>
 
           <p class="small" style="margin:0 0 10px;">Tip: start with Ready for Review, then follow up on waiting or overdue responses.</p>
+          <div class="bulk-action-bar" aria-label="Bulk candidate actions">
+            <span class="bulk-selection-pill" id="bulkSelectionCount">0 selected</span>
+            <button class="btn btn-xs btn-soft" id="selectVisibleRowsBtn" type="button">Select visible</button>
+            <button class="btn btn-xs btn-soft" id="clearSelectedRowsBtn" type="button">Clear selected</button>
+            <button class="btn btn-xs btn-primary" id="bulkEndorseSelectedBtn" type="button">Bulk Endorse</button>
+          </div>
           <div class="table-wrap">
             <table>
               <thead>
@@ -2761,6 +2783,7 @@ opslead@company.com"></textarea></div>
       lastKnownRowCount: 0,
       messageInboxRows: [],
       messageInboxLoading: false,
+      bulkSelectedIds: new Set(),
     };
 
     function $(id){return document.getElementById(id)}
@@ -2787,7 +2810,7 @@ opslead@company.com"></textarea></div>
       bulkUploadModal:$('bulkUploadModal'), bulkUploadModalClose:$('bulkUploadModalClose'), bulkRoleSelect:$('bulkRoleSelect'), bulkResumeInput:$('bulkResumeInput'), bulkUploadBtn:$('bulkUploadBtn'), bulkUploadStatus:$('bulkUploadStatus'),
       assessmentEmailModal:$('assessmentEmailModal'), assessmentEmailModalClose:$('assessmentEmailModalClose'), assessmentModalSubtitle:$('assessmentModalSubtitle'), assessmentCandidateName:$('assessmentCandidateName'), assessmentCandidateEmail:$('assessmentCandidateEmail'), assessmentRoleName:$('assessmentRoleName'), assessmentCompanyName:$('assessmentCompanyName'), assessmentType:$('assessmentType'), assessmentDueDate:$('assessmentDueDate'), assessmentLink:$('assessmentLink'), assessmentCustomMessage:$('assessmentCustomMessage'), assessmentEmailPreview:$('assessmentEmailPreview'), sendAssessmentEmailBtn:$('sendAssessmentEmailBtn'), copyAssessmentEmailBtn:$('copyAssessmentEmailBtn'), assessmentEmailStatus:$('assessmentEmailStatus'), openAssessmentEmailBtn:$('openAssessmentEmailBtn'), drawerAssessmentBadge:$('drawerAssessmentBadge'), drawerAssessmentDetail:$('drawerAssessmentDetail'), drawerAssessmentActionBtn:$('drawerAssessmentActionBtn'),
       interviewDateTime:$('interviewDateTime'), interviewType:$('interviewType'), interviewTimezone:$('interviewTimezone'), interviewDurationMinutes:$('interviewDurationMinutes'), interviewInterviewer:$('interviewInterviewer'), interviewInterviewerEmails:$('interviewInterviewerEmails'), interviewLocation:$('interviewLocation'), interviewNotes:$('interviewNotes'), interviewEmailPreview:$('interviewEmailPreview'), scheduleInterviewBtn:$('scheduleInterviewBtn'), clearInterviewFormBtn:$('clearInterviewFormBtn'), interviewSummary:$('interviewSummary'),
-      candidateReviewModal:$('candidateReviewModal'), candidateReviewFrame:$('candidateReviewFrame'), candidateReviewLoading:$('candidateReviewLoading'), candidateReviewModalTitle:$('candidateReviewModalTitle'), candidateReviewModalSubtitle:$('candidateReviewModalSubtitle'), candidateReviewModalClose:$('candidateReviewModalClose'), candidateReviewOpenNewTabBtn:$('candidateReviewOpenNewTabBtn'),
+      candidateReviewModal:$('candidateReviewModal'), candidateReviewFrame:$('candidateReviewFrame'), candidateReviewLoading:$('candidateReviewLoading'), candidateReviewModalTitle:$('candidateReviewModalTitle'), candidateReviewModalSubtitle:$('candidateReviewModalSubtitle'), candidateReviewModalClose:$('candidateReviewModalClose'), candidateReviewOpenNewTabBtn:$('candidateReviewOpenNewTabBtn'), bulkSelectionCount:$('bulkSelectionCount'), selectVisibleRowsBtn:$('selectVisibleRowsBtn'), clearSelectedRowsBtn:$('clearSelectedRowsBtn'), bulkEndorseSelectedBtn:$('bulkEndorseSelectedBtn'),
     };
 
     let supabaseClient = null;
@@ -3258,6 +3281,7 @@ opslead@company.com"></textarea></div>
           </button>
         `;
       }).join('');
+      updateBulkSelectionCount();
     }
 
     async function refreshMessageInbox(){
@@ -5097,15 +5121,99 @@ opslead@company.com"></textarea></div>
     function renderDashboardEvaluationCell(row){
       const breakdown = getDashboardEvaluationBreakdown(row);
       return `
-        <span class="pill ${breakdown.overallTone}" title="Overall evaluation: ${breakdown.overall}%">
-          ${escapeHtml(breakdown.overallLabel)}
-        </span>
-        <div class="signal-breakdown" aria-label="Evaluation breakdown">
-          <div class="signal-row"><span>Profile Fit</span><strong class="${breakdown.profileTone}">${escapeHtml(breakdown.profileLabel)}</strong></div>
-          <div class="signal-row"><span>Assessment</span><strong class="${breakdown.assessmentTone}">${escapeHtml(breakdown.assessmentLabel)}</strong></div>
-          <div class="signal-row"><span>Conversation</span><strong class="${breakdown.conversationTone}">${escapeHtml(breakdown.conversationLabel)}</strong></div>
+        <div class="overall-assessment-cell">
+          <span class="overall-assessment-label">Overall Assessment</span>
+          <span class="pill ${breakdown.overallTone}" title="Overall assessment: ${breakdown.overall}%">
+            ${escapeHtml(breakdown.overallLabel)}
+          </span>
         </div>
       `;
+    }
+
+    function updateBulkSelectionCount(){
+      if(!state.bulkSelectedIds)state.bulkSelectedIds = new Set();
+      const count = state.bulkSelectedIds.size;
+      if(els.bulkSelectionCount)els.bulkSelectionCount.textContent = `${count} selected`;
+      if(els.bulkEndorseSelectedBtn)els.bulkEndorseSelectedBtn.disabled = count === 0;
+    }
+
+    function clearBulkSelection(){
+      if(!state.bulkSelectedIds)state.bulkSelectedIds = new Set();
+      state.bulkSelectedIds.clear();
+      updateBulkSelectionCount();
+      renderTable();
+    }
+
+    function selectVisibleRows(){
+      if(!state.bulkSelectedIds)state.bulkSelectedIds = new Set();
+      state.filteredRows.forEach(row => state.bulkSelectedIds.add(row.id));
+      updateBulkSelectionCount();
+      renderTable();
+    }
+
+    async function endorseApplication(rowId, silent=false){
+      const row = state.allRows.find(item => item.id === rowId) || state.filteredRows.find(item => item.id === rowId);
+      if(!row){
+        if(!silent)showNotice('Unable to endorse because the candidate was not found.', 'error');
+        return false;
+      }
+      const now = new Date().toISOString();
+      const payloads = [
+        {status:'endorsed', client_feedback_status:'endorsed', endorsement_status:'endorsed', endorsement_sent_at:now, endorsed_by:state.currentUser?.email || state.recruiterProfile?.email || null, last_status_change_at:now, updated_at:now},
+        {status:'endorsed', client_feedback_status:'endorsed', endorsement_status:'endorsed', last_status_change_at:now, updated_at:now},
+        {status:'endorsed', client_feedback_status:'endorsed', last_status_change_at:now, updated_at:now},
+        {status:'endorsed', updated_at:now}
+      ];
+      let lastError = null;
+      for(const payload of payloads){
+        const cleanPayload = Object.fromEntries(Object.entries(payload).filter(([,value]) => value !== undefined));
+        const { error } = await supabaseClient.from('applications').update(cleanPayload).eq('id', row.id);
+        if(!error){
+          row.status = 'endorsed';
+          if(row.app){
+            row.app.status = 'endorsed';
+            row.app.client_feedback_status = 'endorsed';
+            row.app.endorsement_status = 'endorsed';
+          }
+          if(!silent)showNotice(`${row.displayName || 'Candidate'} endorsed.`, 'success');
+          return true;
+        }
+        lastError = error;
+      }
+      if(!silent)showNotice(`Unable to endorse candidate: ${getReadableError(lastError)}`, 'error');
+      return false;
+    }
+
+    async function bulkEndorseSelected(){
+      if(!state.bulkSelectedIds || !state.bulkSelectedIds.size){
+        showNotice('Select candidates to endorse first.', 'info');
+        return;
+      }
+      const ids = Array.from(state.bulkSelectedIds);
+      const ok = window.confirm(`Endorse ${ids.length} selected candidate${ids.length===1?'':'s'}?`);
+      if(!ok)return;
+      if(els.bulkEndorseSelectedBtn){
+        els.bulkEndorseSelectedBtn.disabled = true;
+        els.bulkEndorseSelectedBtn.textContent = 'Endorsing...';
+      }
+      let success = 0;
+      for(const id of ids){
+        if(await endorseApplication(id, true))success += 1;
+      }
+      state.bulkSelectedIds.clear();
+      await loadDashboardData({silent:true});
+      showNotice(`Endorsed ${success} of ${ids.length} selected candidate${ids.length===1?'':'s'}.`, success === ids.length ? 'success' : 'info');
+      if(els.bulkEndorseSelectedBtn){
+        els.bulkEndorseSelectedBtn.textContent = 'Bulk Endorse';
+      }
+      updateBulkSelectionCount();
+    }
+
+    async function openScheduleForRow(rowId){
+      await openDrawer(rowId);
+      const interviewCard = document.querySelector('.interview-card');
+      if(interviewCard)interviewCard.scrollIntoView({behavior:'smooth', block:'start'});
+      showNotice('Interview scheduler opened in the candidate drawer.', 'info');
     }
 
     function renderTable(){
@@ -5126,14 +5234,14 @@ opslead@company.com"></textarea></div>
         const assessmentInfo = getAssessmentInfo(row);
         const rowClasses=[row.id===state.selectedId?'active':'', priority.key==='urgent'?'row-urgent':'', priority.key==='attention'?'row-attention':'', priority.key==='quiet'?'row-quiet':'', isReadyForReview(row)?'row-ready-review':'', assessmentInfo.key==='overdue'?'row-assessment-overdue':'', assessmentInfo.key==='in_progress'?'row-assessment-progress':''].filter(Boolean).join(' ');
         return `<tr data-id="${escapeHtml(row.id)}" class="${rowClasses}">
-          <td><div class="candidate-name">${priority.label?`<span class="priority-dot ${priority.key}" title="${escapeHtml(priority.label)}"></span>`:''}${escapeHtml(row.displayName)}</div><div class="small">${escapeHtml(row.profile?.email||row.app?.email||'—')}</div><div class="small">${escapeHtml([getLocation(row.profile), getCountry(row.profile)].filter(Boolean).join(', ') || '—')}</div>${getPreferredWorkSetup(row.profile)?`<div class="small">🌐 ${escapeHtml(getPreferredWorkSetup(row.profile))}</div>`:''}</td>
+          <td><div class="candidate-name"><input class="row-select-checkbox" type="checkbox" data-bulk-select="${escapeHtml(row.id)}" ${state.bulkSelectedIds?.has(row.id)?'checked':''} aria-label="Select ${escapeHtml(row.displayName)}" />${priority.label?`<span class="priority-dot ${priority.key}" title="${escapeHtml(priority.label)}"></span>`:''}${escapeHtml(row.displayName)}</div><div class="small">${escapeHtml(row.profile?.email||row.app?.email||'—')}</div><div class="small">${escapeHtml([getLocation(row.profile), getCountry(row.profile)].filter(Boolean).join(', ') || '—')}</div>${getPreferredWorkSetup(row.profile)?`<div class="small">🌐 ${escapeHtml(getPreferredWorkSetup(row.profile))}</div>`:''}</td>
           <td><div class="candidate-name">${escapeHtml(row.jobTitle)}</div><div class="small">${escapeHtml(row.clientName||'')}</div></td>
           <td><span class="pill ${tone}">${escapeHtml(formatStatusLabel(row.status||'submitted'))}</span></td>
           <td><span class="assessment-badge ${assessmentInfo.key}">${escapeHtml(assessmentInfo.label)}</span>${assessmentInfo.subtitle?`<div class="assessment-detail">${escapeHtml(assessmentInfo.subtitle)}</div>`:''}</td>
           <td><span class="pill ${getFollowUpTone(row.followUp?.key)}">${escapeHtml(row.followUp?.label||'No Follow-up')}</span>${row.followUp?.dueAt?`<div class="small">Due ${escapeHtml(formatDateTime(row.followUp.dueAt))}</div>`:''}</td>
           <td><span class="pill ${hasResumeEvidence(row.profile)?'resume':'missing'}">${hasResumeEvidence(row.profile)?'Resume':'Missing'}</span></td>
           <td>${renderDashboardEvaluationCell(row)}</td>
-          <td><div class="actions"><button class="btn btn-xs" data-action="open" type="button">Details</button>${row.followUp?.note?'<button class="btn btn-xs" data-action="open" type="button">Note</button>':''}<button class="btn btn-xs candidate-review-link" data-action="review" data-hard-review-route="1" type="button">Review</button><button class="btn btn-primary btn-xs" data-action="assessment" type="button">Send Assessment</button></div></td>
+          <td><div class="actions"><button class="btn btn-xs" data-action="open" type="button">Details</button>${row.followUp?.note?'<button class="btn btn-xs" data-action="open" type="button">Note</button>':''}<button class="btn btn-xs candidate-review-link" data-action="review" data-hard-review-route="1" type="button">Review</button><button class="btn btn-xs" data-action="endorse" type="button">Endorse</button><button class="btn btn-xs" data-action="schedule" type="button">Schedule</button><button class="btn btn-primary btn-xs" data-action="assessment" type="button">Send Assessment</button></div></td>
         </tr>`;
       }).join('');
     }
@@ -7636,8 +7744,34 @@ async function bulkUploadResumes(){
           event.stopPropagation();
           return routeToCandidateReview(id);
         }
+        if(action==='endorse'){
+          event.preventDefault();
+          event.stopPropagation();
+          const endorsed = await endorseApplication(id);
+          if(endorsed){ await loadDashboardData({silent:true}); }
+          return;
+        }
+        if(action==='schedule'){
+          event.preventDefault();
+          event.stopPropagation();
+          return openScheduleForRow(id);
+        }
         if(action==='assessment'){ await openDrawer(id); return openAssessmentEmailModal(id); }
       });
+      els.applicationsTable.addEventListener('change', event=>{
+        const checkbox = event.target.closest('input[data-bulk-select]');
+        if(!checkbox)return;
+        event.stopPropagation();
+        if(!state.bulkSelectedIds)state.bulkSelectedIds = new Set();
+        const id = checkbox.getAttribute('data-bulk-select');
+        if(checkbox.checked)state.bulkSelectedIds.add(id);
+        else state.bulkSelectedIds.delete(id);
+        updateBulkSelectionCount();
+      });
+      els.selectVisibleRowsBtn?.addEventListener('click', selectVisibleRows);
+      els.clearSelectedRowsBtn?.addEventListener('click', clearBulkSelection);
+      els.bulkEndorseSelectedBtn?.addEventListener('click', bulkEndorseSelected);
+      updateBulkSelectionCount();
       els.viewResumeBtn?.addEventListener('click',()=>openResumeModal(state.selectedResumeUrl,state.selectedResumePath||'Resume Viewer')); els.importClipboardResumeBtn?.addEventListener('click',importResumeFromClipboard); els.markNeedsFollowUpBtn?.addEventListener('click',()=>setFollowUpQuick('needs_follow_up')); els.markFollowedUpBtn?.addEventListener('click',()=>setFollowUpQuick('followed_up')); els.parseResumeBtn?.addEventListener('click',parseSelectedResume);
       els.uploadResumeBtn?.addEventListener('click',()=>uploadResumeForSelected(false));
       els.saveBtn?.addEventListener('click',saveSelectedRow);
