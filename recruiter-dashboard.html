@@ -2911,6 +2911,7 @@ opslead@company.com"></textarea></div>
       PAGE_SIZE: 1000,
       ASSESSMENT_INVITE_FUNCTION: 'send-assessment-invite',
       INTERVIEW_INVITE_FUNCTION: 'send-interview-invite',
+      ENDORSEMENT_INVITE_FUNCTION: 'send-client-endorsement',
       DASHBOARD_AUTO_REFRESH_MS: 900000,
       DASHBOARD_AUTO_REFRESH_WHEN_HIDDEN_MS: 1500000,
     };
@@ -5314,20 +5315,225 @@ opslead@company.com"></textarea></div>
       renderTable();
     }
 
-    async function endorseApplication(rowId, silent=false){
-      const row = state.allRows.find(item => item.id === rowId) || state.filteredRows.find(item => item.id === rowId);
-      if(!row){
-        if(!silent)showNotice('Unable to endorse because the candidate was not found.', 'error');
-        return false;
+    function generateShareToken(){
+      const bytes = new Uint8Array(32);
+      window.crypto.getRandomValues(bytes);
+      return Array.from(bytes).map(byte => byte.toString(16).padStart(2, '0')).join('');
+    }
+
+    function getAppBaseUrl(){
+      return window.location.origin + window.location.pathname.replace(/[^/]*$/, '');
+    }
+
+    function getDefaultEndorsementRecipients(row){
+      return [
+        row?.job?.client_contact_email,
+        row?.job?.hiring_manager_email,
+        row?.job?.interview_contact_email,
+        row?.job?.client_email,
+        row?.app?.client_contact_email,
+        row?.app?.hiring_manager_email,
+        row?.app?.interview_contact_email
+      ].map(normalizeEmail).filter(Boolean);
+    }
+
+    function parseRecipientEmails(value){
+      const seen = new Set();
+      return safeText(value)
+        .split(/[\s,;]+/g)
+        .map(normalizeEmail)
+        .filter(Boolean)
+        .filter(email => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
+        .filter(email => {
+          if(seen.has(email))return false;
+          seen.add(email);
+          return true;
+        });
+    }
+
+    function getEndorsementShareLinks(endorsement){
+      const baseUrl = getAppBaseUrl();
+      const token = safeText(endorsement?.share_token || '');
+      return {
+        reviewLink: `${baseUrl}candidate-review.html?token=${encodeURIComponent(token)}`,
+        availabilityLink: `${baseUrl}availability-request.html?token=${encodeURIComponent(token)}`
+      };
+    }
+
+    async function ensureApplicationEndorsement(row){
+      const appId = safeText(row?.id || row?.app?.id || '');
+      if(!appId)throw new Error('Missing application ID.');
+
+      const now = new Date().toISOString();
+      const expiresAt = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString();
+
+      const existingResult = await supabaseClient
+        .from('application_endorsements')
+        .select('*')
+        .eq('application_id', appId)
+        .is('share_revoked_at', null)
+        .order('created_at', { ascending:false })
+        .limit(1)
+        .maybeSingle();
+
+      if(existingResult.error && existingResult.error.code !== 'PGRST116'){
+        console.warn('Endorsement lookup failed:', existingResult.error);
       }
+
+      const existing = existingResult.data || null;
+
+      if(existing?.share_token){
+        return existing;
+      }
+
+      const token = generateShareToken();
+
+      if(existing?.id){
+        const { data, error } = await supabaseClient
+          .from('application_endorsements')
+          .update({
+            share_token: token,
+            share_expires_at: existing.share_expires_at || expiresAt,
+            availability_status: existing.availability_status || 'not_requested',
+            availability_requested_at: existing.availability_requested_at || now,
+            updated_at: now
+          })
+          .eq('id', existing.id)
+          .select('*')
+          .single();
+
+        if(error)throw error;
+        return data;
+      }
+
+      const payload = {
+        application_id: appId,
+        company_id: row?.app?.company_id || row?.job?.company_id || currentCompanyId() || null,
+        client_id: row?.job?.client_id || row?.app?.client_id || null,
+        job_id: row?.app?.job_id || row?.job?.id || null,
+        share_token: token,
+        share_expires_at: expiresAt,
+        availability_status: 'not_requested',
+        availability_requested_at: now,
+        created_at: now,
+        updated_at: now
+      };
+
+      const attempts = [
+        payload,
+        {
+          application_id: payload.application_id,
+          share_token: payload.share_token,
+          share_expires_at: payload.share_expires_at,
+          availability_status: payload.availability_status,
+          availability_requested_at: payload.availability_requested_at
+        }
+      ];
+
+      let lastError = null;
+
+      for(const attempt of attempts){
+        const { data, error } = await supabaseClient
+          .from('application_endorsements')
+          .insert(attempt)
+          .select('*')
+          .single();
+
+        if(!error)return data;
+        lastError = error;
+      }
+
+      throw lastError || new Error('Unable to create endorsement share token.');
+    }
+
+    function buildEndorsementEmailPreview(row, links, recipients){
+      const clientName = safeText(row?.clientName || row?.job?.client_name || row?.job?.company_name || 'your team');
+      const candidateName = safeText(row?.displayName || row?.profile?.full_name || row?.app?.email || 'Candidate');
+      const role = safeText(row?.jobTitle || row?.job?.title || row?.app?.job_title || 'the role');
+      const recruiterName = safeText(state.recruiterProfile?.full_name || state.currentUser?.email || 'Recruiting Team');
+
+      return {
+        to: recipients,
+        subject: `Candidate for review: ${candidateName} — ${role}`,
+        body: [
+          `Hi ${clientName} team,`,
+          '',
+          `A candidate has been endorsed for your review for the ${role} position.`,
+          '',
+          `Candidate: ${candidateName}`,
+          `Role: ${role}`,
+          `Recruiter: ${recruiterName}`,
+          '',
+          `View candidate review: ${links.reviewLink}`,
+          `Provide interview availability: ${links.availabilityLink}`,
+          '',
+          'You can forward this link to the correct interviewer or hiring manager if someone else will handle the interview.',
+          '',
+          'Thank you,',
+          `${clientName} Recruiting Team`
+        ].join('\n')
+      };
+    }
+
+    async function sendEndorsementEmail(row, endorsement, recipients){
+      const links = getEndorsementShareLinks(endorsement);
+      const email = buildEndorsementEmailPreview(row, links, recipients);
+
+      const { data, error } = await supabaseClient.functions.invoke(CONFIG.ENDORSEMENT_INVITE_FUNCTION, {
+        body: {
+          application_id: row.id,
+          endorsement_id: endorsement.id,
+          company_id: endorsement.company_id || row?.app?.company_id || currentCompanyId() || null,
+          client_id: endorsement.client_id || row?.job?.client_id || row?.app?.client_id || null,
+          job_id: endorsement.job_id || row?.app?.job_id || row?.job?.id || null,
+          share_token: endorsement.share_token,
+          recipients,
+          subject: email.subject,
+          body: email.body,
+          review_link: links.reviewLink,
+          availability_link: links.availabilityLink,
+          candidate_name: row?.displayName || row?.profile?.full_name || row?.app?.email || '',
+          candidate_email: row?.profile?.email || row?.app?.email || '',
+          role_title: row?.jobTitle || row?.job?.title || row?.app?.job_title || '',
+          client_name: row?.clientName || row?.job?.client_name || '',
+          recruiter_email: state.currentUser?.email || state.recruiterProfile?.email || ''
+        }
+      });
+
+      if(error)throw error;
+      if(data && data.success === false)throw new Error(data.error || 'Endorsement email failed.');
+
+      return { data, email, links };
+    }
+
+    async function updateApplicationAsEndorsed(row, endorsement, recipients){
       const now = new Date().toISOString();
       const payloads = [
-        {status:'endorsed', client_feedback_status:'endorsed', endorsement_status:'endorsed', endorsement_sent_at:now, endorsed_by:state.currentUser?.email || state.recruiterProfile?.email || null, last_status_change_at:now, updated_at:now},
-        {status:'endorsed', client_feedback_status:'endorsed', endorsement_status:'endorsed', last_status_change_at:now, updated_at:now},
+        {
+          status:'endorsed',
+          client_feedback_status:'endorsed',
+          endorsement_status:'endorsed',
+          endorsement_sent_at:now,
+          endorsement_sent_to: recipients.join(', '),
+          endorsed_by:state.currentUser?.email || state.recruiterProfile?.email || null,
+          last_status_change_at:now,
+          updated_at:now
+        },
+        {
+          status:'endorsed',
+          client_feedback_status:'endorsed',
+          endorsement_status:'endorsed',
+          endorsement_sent_at:now,
+          endorsed_by:state.currentUser?.email || state.recruiterProfile?.email || null,
+          last_status_change_at:now,
+          updated_at:now
+        },
         {status:'endorsed', client_feedback_status:'endorsed', last_status_change_at:now, updated_at:now},
         {status:'endorsed', updated_at:now}
       ];
+
       let lastError = null;
+
       for(const payload of payloads){
         const cleanPayload = Object.fromEntries(Object.entries(payload).filter(([,value]) => value !== undefined));
         const { error } = await supabaseClient.from('applications').update(cleanPayload).eq('id', row.id);
@@ -5337,14 +5543,68 @@ opslead@company.com"></textarea></div>
             row.app.status = 'endorsed';
             row.app.client_feedback_status = 'endorsed';
             row.app.endorsement_status = 'endorsed';
+            row.app.endorsement_sent_at = now;
+            row.app.endorsement_sent_to = recipients.join(', ');
           }
-          if(!silent)showNotice(`${row.displayName || 'Candidate'} endorsed.`, 'success');
           return true;
         }
         lastError = error;
       }
-      if(!silent)showNotice(`Unable to endorse candidate: ${getReadableError(lastError)}`, 'error');
-      return false;
+
+      throw lastError || new Error('Unable to update application endorsement status.');
+    }
+
+    async function endorseApplication(rowId, silent=false){
+      const row = state.allRows.find(item => item.id === rowId) || state.filteredRows.find(item => item.id === rowId);
+      if(!row){
+        if(!silent)showNotice('Unable to endorse because the candidate was not found.', 'error');
+        return false;
+      }
+
+      try{
+        const defaults = getDefaultEndorsementRecipients(row);
+        let recipients = defaults;
+
+        if(!silent){
+          const entered = window.prompt(
+            'Send endorsement to interviewer / hiring manager email(s). You can enter multiple emails separated by commas. They do not need to register.',
+            defaults.join(', ')
+          );
+
+          if(entered === null){
+            showNotice('Endorsement cancelled.', 'info');
+            return false;
+          }
+
+          recipients = parseRecipientEmails(entered);
+
+          if(!recipients.length){
+            showNotice('Add at least one valid interviewer or hiring manager email.', 'error');
+            return false;
+          }
+
+          showNotice('Creating secure client review and availability links...', 'info');
+        }
+
+        if(silent && !recipients.length){
+          console.warn('Bulk endorsement skipped email send because no recipient was available for:', row.displayName);
+          return false;
+        }
+
+        const endorsement = await ensureApplicationEndorsement(row);
+        await sendEndorsementEmail(row, endorsement, recipients);
+        await updateApplicationAsEndorsed(row, endorsement, recipients);
+
+        if(!silent){
+          showNotice(`${row.displayName || 'Candidate'} endorsed. Email sent to ${recipients.join(', ')}.`, 'success');
+        }
+
+        return true;
+      }catch(error){
+        console.error('Unable to endorse candidate:', error);
+        if(!silent)showNotice(`Unable to send endorsement: ${getReadableError(error)}`, 'error');
+        return false;
+      }
     }
 
     async function bulkEndorseSelected(){
@@ -5353,7 +5613,7 @@ opslead@company.com"></textarea></div>
         return;
       }
       const ids = Array.from(state.bulkSelectedIds);
-      const ok = window.confirm(`Endorse ${ids.length} selected candidate${ids.length===1?'':'s'}?`);
+      const ok = window.confirm(`Send client endorsement emails for ${ids.length} selected candidate${ids.length===1?'':'s'}? Candidates without a client/interviewer email on file will be skipped.`);
       if(!ok)return;
       if(els.bulkEndorseSelectedBtn){
         els.bulkEndorseSelectedBtn.disabled = true;
@@ -5365,7 +5625,7 @@ opslead@company.com"></textarea></div>
       }
       state.bulkSelectedIds.clear();
       await loadDashboard({silent:true});
-      showNotice(`Endorsed ${success} of ${ids.length} selected candidate${ids.length===1?'':'s'}.`, success === ids.length ? 'success' : 'info');
+      showNotice(`Sent endorsement emails for ${success} of ${ids.length} selected candidate${ids.length===1?'':'s'}.`, success === ids.length ? 'success' : 'info');
       if(els.bulkEndorseSelectedBtn){
         els.bulkEndorseSelectedBtn.textContent = 'Bulk Endorse';
       }
@@ -5413,7 +5673,7 @@ opslead@company.com"></textarea></div>
                 <div class="row-more-menu">
                   <button class="btn btn-xs" data-action="open" type="button">Open Details</button>
                   <button class="btn btn-xs" data-action="assessment" type="button">Send Assessment</button>
-                  <button class="btn btn-xs" data-action="endorse" type="button">Endorse</button>
+                  <button class="btn btn-xs" data-action="endorse" type="button">Send Endorsement</button>
                 </div>
               </details>
             </div>
