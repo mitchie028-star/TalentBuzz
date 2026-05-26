@@ -5,6 +5,7 @@
   <title>BuzzHire | Candidate Review</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="description" content="Structured recruiter review for BuzzHire candidates." />
+  <meta name="robots" content="noindex,nofollow" />
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
@@ -1354,6 +1355,39 @@
     .workspace-notice.error{background:#fef3f2;color:#b42318;border:1px solid #fecdca;}
     .workspace-notice.info{background:#eff8ff;color:#175cd3;border:1px solid #b2ddff;}
 
+    /* Client share mode */
+    body.client-share-mode .recruiter-only {
+      display: none !important;
+    }
+
+    .client-share-actions {
+      display: none;
+      gap: 10px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+
+    body.client-share-mode .client-share-actions {
+      display: flex;
+    }
+
+    body.client-share-mode .workspace-pill {
+      color: var(--green-deep);
+      border-color: var(--green-line);
+      background: var(--green-soft);
+    }
+
+    .client-share-note {
+      border: 1px solid var(--green-line);
+      background: var(--green-soft);
+      color: var(--green-deep);
+      border-radius: 18px;
+      padding: 13px 14px;
+      line-height: 1.6;
+      font-size: .82rem;
+      font-weight: 800;
+      margin-top: 16px;
+    }
 </style>
 </head>
 
@@ -1368,10 +1402,13 @@
       </a>
 
       <div class="top-actions">
-        <span class="workspace-pill">Recruiter Workspace</span>
-        <button class="btn" id="previousApplicantBtn" type="button">← Previous Applicant</button>
-        <button class="btn" id="nextApplicantBtn" type="button">Next Applicant →</button>
-        <a href="recruiter-dashboard.html" class="btn">Back to Dashboard</a>
+        <span class="workspace-pill" id="workspaceModePill">Recruiter Workspace</span>
+        <button class="btn recruiter-only" id="previousApplicantBtn" type="button">← Previous Applicant</button>
+        <button class="btn recruiter-only" id="nextApplicantBtn" type="button">Next Applicant →</button>
+        <a href="recruiter-dashboard.html" class="btn recruiter-only">Back to Dashboard</a>
+        <div class="client-share-actions">
+          <a href="#" class="btn btn-primary" id="clientAvailabilityLink">Provide Availability</a>
+        </div>
       </div>
     </div>
 
@@ -1414,8 +1451,8 @@
         <button class="tab-button" type="button" data-tab="assessment">Assessment</button>
         <button class="tab-button" type="button" data-tab="conversation">Conversation</button>
         <button class="tab-button" type="button" data-tab="language">Language Proficiency</button>
-        <button class="tab-button" type="button" data-tab="evaluation">Recruiter Evaluation</button>
-        <button class="tab-button" type="button" data-tab="feedback">Review Feedback</button>
+        <button class="tab-button recruiter-only" type="button" data-tab="evaluation">Recruiter Evaluation</button>
+        <button class="tab-button recruiter-only" type="button" data-tab="feedback">Review Feedback</button>
       </div>
 
       <div class="tabs-shell">
@@ -1480,6 +1517,7 @@
           </div>
           <div class="card-body">
             <div id="summaryText" class="summary"></div>
+            <div id="clientShareNote" class="client-share-note" style="display:none;">This review is shared for client review and interview coordination. Internal recruiter notes and private workflow controls are hidden.</div>
             <div id="recommendationReason" class="reason"></div>
           </div>
         </section>
@@ -1532,7 +1570,7 @@
         </section>
           </div>
 
-          <div class="tab-panel" id="tab-evaluation">
+          <div class="tab-panel recruiter-only" id="tab-evaluation">
             <section class="card">
           <div class="card-head">
             <strong>Candidate Signals</strong>
@@ -1591,7 +1629,7 @@
         </section>
           </div>
 
-          <div class="tab-panel" id="tab-feedback">
+          <div class="tab-panel recruiter-only" id="tab-feedback">
             <section class="review-feedback-panel">
           <h3>Review Quality Feedback</h3>
           <p>Capture recruiter feedback so BuzzHire can improve summaries, assessment prompts, and review quality over time.</p>
@@ -1630,7 +1668,7 @@
           </div>
         </div>
 
-        <aside class="tabs-side">
+        <aside class="tabs-side recruiter-only">
           <section class="decision-panel">
           <h3>Recruiter Decision</h3>
           <p>Update the candidate status and add recruiter notes directly from this review.</p>
@@ -1749,6 +1787,11 @@
 
     const params = new URLSearchParams(window.location.search);
 
+    const shareToken = params.get("token") || params.get("share_token") || "";
+    const isClientShareMode = !!shareToken;
+    let sharedEndorsement = null;
+    let sharedApplicationId = "";
+
     const conversationId = params.get("conversation_id") || params.get("id");
     const applicationId = params.get("application_id") || params.get("app_id");
     const candidateEmailParam = params.get("email") || params.get("candidate_email");
@@ -1829,7 +1872,10 @@
       compactAssessmentStatus: document.getElementById("compactAssessmentStatus"),
       compactConversationStatus: document.getElementById("compactConversationStatus"),
       previousApplicantBtn: document.getElementById("previousApplicantBtn"),
-      nextApplicantBtn: document.getElementById("nextApplicantBtn")
+      nextApplicantBtn: document.getElementById("nextApplicantBtn"),
+      workspaceModePill: document.getElementById("workspaceModePill"),
+      clientAvailabilityLink: document.getElementById("clientAvailabilityLink"),
+      clientShareNote: document.getElementById("clientShareNote")
     };
 
     function escapeHtml(value) {
@@ -1857,6 +1903,79 @@
         .split(/\n|,|;/)
         .map(item => item.trim())
         .filter(Boolean);
+    }
+
+
+    function getEffectiveApplicationId() {
+      return sharedApplicationId || currentApplicationId || applicationId || "";
+    }
+
+    function renderAccessError(message) {
+      showError(message || "This endorsement link is invalid or expired.");
+    }
+
+    function applyClientShareMode() {
+      if (!isClientShareMode) return;
+
+      document.body.classList.add("client-share-mode");
+
+      if (els.workspaceModePill) {
+        els.workspaceModePill.textContent = sharedEndorsement?.client_name
+          ? `${sharedEndorsement.client_name} Review`
+          : "Client Review";
+      }
+
+      if (els.clientShareNote) {
+        els.clientShareNote.style.display = "block";
+      }
+
+      if (els.clientAvailabilityLink && shareToken) {
+        els.clientAvailabilityLink.href = `availability-request.html?token=${encodeURIComponent(shareToken)}`;
+      }
+    }
+
+    async function loadSharedEndorsement() {
+      if (!shareToken) return null;
+
+      const { data, error } = await supabaseClient
+        .rpc("get_endorsement_share", {
+          p_token: shareToken
+        });
+
+      if (error) {
+        console.error("Shared endorsement lookup failed:", error);
+        renderAccessError("This endorsement link is invalid or expired.");
+        return null;
+      }
+
+      const row = Array.isArray(data) ? data[0] : data;
+
+      if (!row?.application_id) {
+        renderAccessError("This endorsement link is invalid, expired, or no longer available.");
+        return null;
+      }
+
+      sharedEndorsement = row;
+      sharedApplicationId = row.application_id;
+      currentApplicationId = row.application_id;
+
+      return row;
+    }
+
+    async function markSharedEndorsementViewed() {
+      if (!isClientShareMode || !sharedEndorsement?.endorsement_id) return;
+
+      try {
+        await supabaseClient
+          .from("application_endorsements")
+          .update({
+            last_viewed_at: new Date().toISOString(),
+            viewed_count: Number(sharedEndorsement.viewed_count || 0) + 1
+          })
+          .eq("id", sharedEndorsement.endorsement_id);
+      } catch (error) {
+        console.warn("Unable to update endorsement view count:", error);
+      }
     }
 
     function normalizeCandidateName(value) {
@@ -2038,7 +2157,7 @@
       els.reviewLayout.style.display = "block";
     }
 
-    async function loadApplicationFallback(appId = applicationId) {
+    async function loadApplicationFallback(appId = getEffectiveApplicationId()) {
       if (!appId) return null;
 
       const appResult = await supabaseClient
@@ -2269,9 +2388,12 @@
     }
 
     async function loadConversation() {
+      const reviewApplicationId = getEffectiveApplicationId();
+
       console.log("Candidate Review params:", {
         conversationId,
-        applicationId,
+        applicationId: reviewApplicationId,
+        shareToken: shareToken ? "present" : "",
         candidateEmailParam
       });
 
@@ -2282,14 +2404,14 @@
 
       let fallback = null;
 
-      if (applicationId) {
-        const byApplication = await loadConversationByApplication(applicationId);
+      if (reviewApplicationId) {
+        const byApplication = await loadConversationByApplication(reviewApplicationId);
 
         if (byApplication) {
           return { conversation: byApplication, fallback: null };
         }
 
-        fallback = await loadApplicationFallback(applicationId);
+        fallback = await loadApplicationFallback(reviewApplicationId);
       }
 
       const appEmail =
@@ -2324,7 +2446,7 @@
       const appId =
         conversation?.application_id ||
         fallback?.app?.id ||
-        applicationId ||
+        getEffectiveApplicationId() ||
         null;
 
       if (!appId) return [];
@@ -3610,6 +3732,7 @@
 
     function getResolvedApplicationId() {
       return (
+        sharedApplicationId ||
         currentApplicationId ||
         currentFallback?.app?.id ||
         currentConversation?.application_id ||
@@ -4258,7 +4381,20 @@
       els.recommendationReason.style.display =
         els.recommendationReason.textContent ? "block" : "none";
 
+      if (isClientShareMode && sharedEndorsement) {
+        const clientName = text(sharedEndorsement.client_name || sharedEndorsement.company_name || "");
+        const jobTitle = text(sharedEndorsement.job_title || positionApplied || "");
+
+        els.candidateSubtitle.textContent =
+          `${jobTitle || "Candidate"} review${clientName ? ` for ${clientName}` : ""}.`;
+
+        if (els.headerPositionApplied) {
+          els.headerPositionApplied.textContent = jobTitle || els.headerPositionApplied.textContent;
+        }
+      }
+
       els.heroSignals.innerHTML = `
+        ${isClientShareMode ? '<span class="badge green">Client-ready endorsement</span>' : ""}
         <span class="badge ${conversation._isFallback || insufficientEvidence ? "amber" : badgeClass(conversation.hiring_signal)}">
           ${escapeHtml(
             demoFitLabel(evaluationLabel)
@@ -4344,6 +4480,12 @@
       try {
         setLoading(true);
 
+        if (isClientShareMode) {
+          const share = await loadSharedEndorsement();
+          if (!share) return;
+          applyClientShareMode();
+        }
+
         const loaded = await loadConversation();
         const conversation = loaded.conversation;
         currentConversation = conversation;
@@ -4393,13 +4535,24 @@
           fallback
         );
 
-        await loadPipelineApplicants();
+        if (!isClientShareMode) {
+          await loadPipelineApplicants();
+        }
         renderConversation(conversation, responses, assessmentEvidence, fallback);
-        bindApplicantNavigation();
+        if (isClientShareMode) {
+          await markSharedEndorsementViewed();
+        }
+        if (!isClientShareMode) {
+          bindApplicantNavigation();
+        }
       } catch (error) {
         console.error(error);
         showError(error.message || "Unable to load candidate review.");
       }
+    }
+
+    if (isClientShareMode) {
+      document.body.classList.add("client-share-mode");
     }
 
     bindDecisionActions();
