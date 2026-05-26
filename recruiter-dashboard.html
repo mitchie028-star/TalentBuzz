@@ -2393,7 +2393,7 @@ tr.row-assessment-progress:hover td{
             <div class="field"><label for="candidateNameFilter">Candidate Name</label><input id="candidateNameFilter" type="search" placeholder="Search candidate name" /></div>
             <div class="field"><label for="statusFilter">Actual Status</label><select id="statusFilter"><option value="">All statuses</option></select></div>
             <div class="field"><label for="recruiterFilter">Recruiter</label><select id="recruiterFilter"><option value="">All recruiters</option></select></div>
-            <div class="field"><label for="followUpFilter">Follow-up</label><select id="followUpFilter"><option value="">All follow-ups</option><option value="all_open">All Open Follow-ups</option><option value="needs_follow_up">Needs Follow-up</option><option value="due_today">Due Today</option><option value="overdue">Overdue</option><option value="followed_up">Followed Up</option><option value="none">No Follow-up</option></select></div>
+            <div class="field"><label for="followUpFilter">Follow-up</label><select id="followUpFilter"><option value="">All follow-ups</option><option value="all_open">All Open Follow-ups</option><option value="overdue">Overdue</option><option value="due_today">Due Today</option><option value="upcoming">Upcoming</option><option value="needs_follow_up">Needs Follow-up</option><option value="none">No Follow-up</option></select></div>
             <div class="field advanced-filter"><label for="jobFilter">Job</label><select id="jobFilter"><option value="">All jobs</option></select></div>
             <div class="field advanced-filter"><label for="clientFilter">Client</label><select id="clientFilter"><option value="">All clients</option></select></div>
             <div class="field advanced-filter"><label for="countryFilter">Country</label><select id="countryFilter"><option value="">All countries</option></select></div>
@@ -2502,8 +2502,6 @@ tr.row-assessment-progress:hover td{
                       <select id="editFollowUpStatus">
                         <option value="none">No Follow-up</option>
                         <option value="needs_follow_up">Needs Follow-up</option>
-                        <option value="due_today">Due Today</option>
-                        <option value="followed_up">Followed Up</option>
                       </select>
                     </div>
                     <div class="field">
@@ -2517,7 +2515,7 @@ tr.row-assessment-progress:hover td{
                   </div>
                   <div class="follow-up-quick">
                     <button class="btn btn-xs" id="markNeedsFollowUpBtn" type="button">Needs follow-up</button>
-                    <button class="btn btn-xs" id="markFollowedUpBtn" type="button">Mark followed up</button>
+                    <button class="btn btn-xs" id="markFollowedUpBtn" type="button">Mark contacted</button>
                   </div>
                 </div>
               </div>
@@ -2831,8 +2829,6 @@ opslead@company.com"></textarea></div>
                   <select id="modalEditFollowUpStatus">
                     <option value="none">No Follow-up</option>
                     <option value="needs_follow_up">Needs Follow-up</option>
-                    <option value="due_today">Due Today</option>
-                    <option value="followed_up">Followed Up</option>
                   </select>
                 </div>
                 <div class="field">
@@ -2954,7 +2950,7 @@ opslead@company.com"></textarea></div>
       </div>
     </div>
   </div> <script>
-    console.log('BuzzHire recruiter-dashboard-v2026-05-27-workflow-view-source loaded');
+    console.log('BuzzHire recruiter-dashboard-v2026-05-27-followup-intelligence loaded');
 
     const CONFIG = {
       SUPABASE_URL: window.TALENTBUZZ_SUPABASE_URL || localStorage.getItem('TALENTBUZZ_SUPABASE_URL') || '',
@@ -3967,7 +3963,7 @@ opslead@company.com"></textarea></div>
       needs_follow_up:'Needs Follow-up',
       due_today:'Due Today',
       overdue:'Overdue',
-      followed_up:'Followed Up',
+      upcoming:'Upcoming',
       none:'No Follow-up'
     };
 
@@ -3992,7 +3988,8 @@ opslead@company.com"></textarea></div>
       if(['needs_follow_up','follow_up','for_follow_up','followup','pending_follow_up','pending'].includes(text))return 'needs_follow_up';
       if(['due_today','today'].includes(text))return 'due_today';
       if(['overdue','past_due'].includes(text))return 'overdue';
-      if(['followed_up','done','completed','complete','closed'].includes(text))return 'followed_up';
+      if(['upcoming','scheduled'].includes(text))return 'upcoming';
+      if(['followed_up','contacted','done','completed','complete','closed'].includes(text))return 'none';
       if(['none','no_follow_up','no_followup',''].includes(text))return '';
       return text;
     }
@@ -4009,9 +4006,11 @@ opslead@company.com"></textarea></div>
 
 
     function getFollowUpInfo(app){
+      const openFromView = typeof app?.follow_up_open === 'boolean' ? app.follow_up_open : null;
+      const stateFromView = normalizeFollowUpStatus(app?.follow_up_state);
       const required = isTruthyDb(app?.follow_up_required);
       const raw = normalizeFollowUpStatus(app?.follow_up_status);
-      const dueAt = app?.follow_up_due_at || app?.follow_up_date || null;
+      const dueAt = app?.next_follow_up_at || app?.follow_up_due_at || app?.follow_up_date || null;
       const dueDate = parseFollowUpDate(dueAt);
       const note = safeText(app?.follow_up_note || '');
       const noteFollowUp = noteSuggestsOpenFollowUp(app);
@@ -4022,19 +4021,23 @@ opslead@company.com"></textarea></div>
 
       let key = 'none';
 
-      if(raw === 'followed_up' || app?.last_followed_up_at){
-        key = 'followed_up';
-      }else if(raw === 'overdue'){
-        key = 'overdue';
-      }else if(raw === 'due_today'){
-        key = 'due_today';
-      }else if(raw === 'needs_follow_up' || required || dueDate || noteFollowUp || safeText(app?.follow_up_note)){
+      // Preferred source: SQL operational layer. It already excludes closed/hired rows from open follow-up work.
+      if(openFromView === true){
+        key = ['overdue','due_today','upcoming','needs_follow_up'].includes(stateFromView) ? stateFromView : 'needs_follow_up';
+      }else if(openFromView === false){
+        key = 'none';
+      }else if(['overdue','due_today','upcoming','needs_follow_up'].includes(stateFromView)){
+        key = stateFromView;
+      }else if(['overdue','due_today','upcoming','needs_follow_up'].includes(raw)){
+        key = raw;
+      }else if(required || dueDate || noteFollowUp){
         key = 'needs_follow_up';
       }
 
       if(key === 'needs_follow_up' && dueDate){
         if(dueDate < today)key = 'overdue';
         else if(dueDate >= today && dueDate < tomorrow)key = 'due_today';
+        else key = 'upcoming';
       }
 
       return {
@@ -4042,37 +4045,32 @@ opslead@company.com"></textarea></div>
         label: FOLLOW_UP_OPTIONS[key] || 'No Follow-up',
         dueAt,
         note,
-        required
+        required: key !== 'none',
+        lastContactedAt: app?.last_contacted_at || app?.last_followed_up_at || null
       };
     }
 
     function hasOpenFollowUp(rowOrApp){
       const app = rowOrApp?.app || rowOrApp || {};
+      if(typeof app.follow_up_open === 'boolean')return app.follow_up_open;
+
       const info = rowOrApp?.followUp || getFollowUpInfo(app);
       const raw = normalizeFollowUpStatus(app.follow_up_status);
 
-      const hasSignal = (
-        ['overdue','due_today','needs_follow_up'].includes(info?.key) ||
-        ['overdue','due_today','needs_follow_up'].includes(raw) ||
+      return (
+        ['overdue','due_today','upcoming','needs_follow_up'].includes(info?.key) ||
+        ['overdue','due_today','upcoming','needs_follow_up'].includes(raw) ||
         isTruthyDb(app.follow_up_required) ||
+        !!app.next_follow_up_at ||
         !!app.follow_up_due_at ||
         !!app.follow_up_date ||
-        !!safeText(app.follow_up_note) ||
         noteSuggestsOpenFollowUp(app)
       );
-
-      const isClosed =
-        info?.key === 'followed_up' ||
-        raw === 'followed_up' ||
-        !!app.last_followed_up_at;
-
-      return hasSignal && !isClosed;
     }
 
     function getFollowUpTone(key){
       if(key==='overdue')return 'bad';
-      if(key==='due_today'||key==='needs_follow_up')return 'warn';
-      if(key==='followed_up')return 'good';
+      if(key==='due_today'||key==='needs_follow_up'||key==='upcoming')return 'warn';
       return 'info';
     }
 
@@ -4926,7 +4924,12 @@ opslead@company.com"></textarea></div>
         follow_up_status: row.follow_up_status ?? '',
         follow_up_date: row.follow_up_date ?? null,
         follow_up_due_at: row.follow_up_due_at ?? null,
+        next_follow_up_at: row.next_follow_up_at ?? null,
+        follow_up_state: row.follow_up_state ?? 'none',
+        follow_up_open: row.follow_up_open ?? false,
+        follow_up_priority: row.follow_up_priority ?? 'normal',
         follow_up_note: row.follow_up_note ?? '',
+        last_contacted_at: row.last_contacted_at ?? null,
         last_followed_up_at: row.last_followed_up_at ?? null
       }));
     }
@@ -4991,7 +4994,7 @@ opslead@company.com"></textarea></div>
         'id','email','job_id','job_title','status','created_at','applicant_profile_id',
         'recruiter_email','application_source','client_feedback_status','recruiter_notes',
         'stage_note_label','updated_at','follow_up_required','follow_up_status',
-        'follow_up_date','follow_up_due_at','follow_up_note','last_followed_up_at',
+        'follow_up_date','follow_up_due_at','next_follow_up_at','follow_up_state','follow_up_open','follow_up_priority','follow_up_note','last_contacted_at','last_followed_up_at',
         'last_status_change_at','assessment_invite_status','assessment_invite_sent_at','assessment_due_at','conversation_id','talent_conversation_id','latest_conversation_id','company_id'
       ].join(',');
 
@@ -5092,7 +5095,14 @@ opslead@company.com"></textarea></div>
             awaiting_candidate: typeof workflow.awaiting_candidate === 'boolean' ? workflow.awaiting_candidate : app.awaiting_candidate,
             awaiting_client: typeof workflow.awaiting_client === 'boolean' ? workflow.awaiting_client : app.awaiting_client,
             interview_active: typeof workflow.interview_active === 'boolean' ? workflow.interview_active : app.interview_active,
-            active_pipeline: typeof workflow.active_pipeline === 'boolean' ? workflow.active_pipeline : app.active_pipeline
+            active_pipeline: typeof workflow.active_pipeline === 'boolean' ? workflow.active_pipeline : app.active_pipeline,
+            follow_up_status: safeText(workflow.follow_up_status || app.follow_up_status || ''),
+            follow_up_date: workflow.follow_up_date || app.follow_up_date || null,
+            next_follow_up_at: workflow.next_follow_up_at || app.next_follow_up_at || app.follow_up_due_at || app.follow_up_date || null,
+            last_contacted_at: workflow.last_contacted_at || app.last_contacted_at || app.last_followed_up_at || null,
+            follow_up_priority: safeText(workflow.follow_up_priority || app.follow_up_priority || 'normal'),
+            follow_up_state: safeText(workflow.follow_up_state || app.follow_up_state || ''),
+            follow_up_open: typeof workflow.follow_up_open === 'boolean' ? workflow.follow_up_open : app.follow_up_open
           };
           const score=basicScore(profile,app,job);
           const activities = getActivitiesForApplicationRow(app, profile, activityLookup);
@@ -5264,7 +5274,7 @@ opslead@company.com"></textarea></div>
             if(!isUnassignedRecruiter(row))return false;
           }else if(row.recruiter.toLowerCase()!==recruiter)return false;
         }
-        if(followUp){ if(followUp==='all_open'){ if(!hasOpenFollowUp(row))return false; } else if(row.followUp?.key!==followUp)return false; }
+        if(followUp){ if(followUp==='all_open'){ if(!hasOpenFollowUp(row))return false; } else if(followUp==='none'){ if(hasOpenFollowUp(row) || row.followUp?.key !== 'none')return false; } else if(row.followUp?.key!==followUp)return false; }
         if(job&&row.jobTitle.toLowerCase()!==job)return false;
         if(client&&row.clientName.toLowerCase()!==client)return false;
         if(country&&getCountry(row.profile).toLowerCase()!==country)return false;
@@ -7291,7 +7301,7 @@ opslead@company.com"></textarea></div>
       els.editStatus.value=row.status||row.app?.status||'submitted';
       els.editNotes.value=row.app?.recruiter_notes||row.app?.stage_note_label||'';
       fillCandidateEditFields(row, false);
-      if(els.editFollowUpStatus)els.editFollowUpStatus.value=row.followUp?.key==='overdue'||row.followUp?.key==='due_today'?'needs_follow_up':(row.followUp?.key||'none');
+      if(els.editFollowUpStatus)els.editFollowUpStatus.value=['overdue','due_today','upcoming'].includes(row.followUp?.key)?'needs_follow_up':(row.followUp?.key||'none');
       if(els.editFollowUpDate)els.editFollowUpDate.value=toDateInputValue(row.followUp?.dueAt);
       if(els.editFollowUpNote)els.editFollowUpNote.value=row.followUp?.note||'';
       fillInterviewFields(row);
@@ -7829,14 +7839,16 @@ async function bulkUploadResumes(){
       const noteEl=modalOpen?els.modalEditFollowUpNote:els.editFollowUpNote;
       let key=safeText(statusEl?.value||'none');
       if(key === 'all_open') key = 'needs_follow_up';
+      if(key === 'due_today' || key === 'overdue' || key === 'upcoming') key = 'needs_follow_up';
       const dueIso=dateInputToIso(dateEl?.value||'');
       const note=safeText(noteEl?.value||'');
       return {
         key,
-        required: key && key !== 'none' && key !== 'followed_up',
+        required: key && key !== 'none',
         dueIso,
         note,
-        followedUpAt: key === 'followed_up' ? new Date().toISOString() : null
+        nextFollowUpAt: key && key !== 'none' ? dueIso : null,
+        lastContactedAt: null
       };
     }
 
@@ -7879,7 +7891,9 @@ async function bulkUploadResumes(){
           follow_up_status: payload.follow_up_status,
           follow_up_date: payload.follow_up_date,
           follow_up_due_at: payload.follow_up_due_at,
+          next_follow_up_at: payload.next_follow_up_at,
           follow_up_note: payload.follow_up_note,
+          last_contacted_at: payload.last_contacted_at,
           last_followed_up_at: payload.last_followed_up_at
         },
         {
@@ -7933,8 +7947,10 @@ async function bulkUploadResumes(){
         follow_up_status: followUp.key || 'none',
         follow_up_date: followUp.dueIso,
         follow_up_due_at: followUp.dueIso,
+        next_follow_up_at: followUp.nextFollowUpAt,
         follow_up_note: followUp.note || null,
-        last_followed_up_at: followUp.followedUpAt
+        last_contacted_at: followUp.lastContactedAt,
+        last_followed_up_at: followUp.lastContactedAt
       };
 
       try{
@@ -8000,8 +8016,8 @@ async function bulkUploadResumes(){
         }
       }
 
-      if(key === 'followed_up'){
-        if(statusEl)statusEl.value = 'followed_up';
+      if(key === 'contacted'){
+        if(statusEl)statusEl.value = 'none';
         if(dateEl)dateEl.value = '';
         dueIso = null;
         if(!note){
@@ -8021,11 +8037,13 @@ async function bulkUploadResumes(){
         stage_note_label: followUpNoteForDerivedFallback || null,
         updated_at: now,
         follow_up_required: key === 'needs_follow_up',
-        follow_up_status: key,
-        follow_up_date: dueIso,
-        follow_up_due_at: dueIso,
+        follow_up_status: key === 'contacted' ? 'none' : key,
+        follow_up_date: key === 'needs_follow_up' ? dueIso : null,
+        follow_up_due_at: key === 'needs_follow_up' ? dueIso : null,
+        next_follow_up_at: key === 'needs_follow_up' ? dueIso : null,
         follow_up_note: note || null,
-        last_followed_up_at: key === 'followed_up' ? now : null
+        last_contacted_at: key === 'contacted' ? now : null,
+        last_followed_up_at: key === 'contacted' ? now : null
       };
 
       try{
@@ -8727,7 +8745,7 @@ async function bulkUploadResumes(){
       els.clearSelectedRowsBtn?.addEventListener('click', clearBulkSelection);
       els.bulkEndorseSelectedBtn?.addEventListener('click', bulkEndorseSelected);
       updateBulkSelectionCount();
-      els.viewResumeBtn?.addEventListener('click',()=>openResumeModal(state.selectedResumeUrl,state.selectedResumePath||'Resume Viewer')); els.importClipboardResumeBtn?.addEventListener('click',importResumeFromClipboard); els.markNeedsFollowUpBtn?.addEventListener('click',()=>setFollowUpQuick('needs_follow_up')); els.markFollowedUpBtn?.addEventListener('click',()=>setFollowUpQuick('followed_up')); els.parseResumeBtn?.addEventListener('click',parseSelectedResume);
+      els.viewResumeBtn?.addEventListener('click',()=>openResumeModal(state.selectedResumeUrl,state.selectedResumePath||'Resume Viewer')); els.importClipboardResumeBtn?.addEventListener('click',importResumeFromClipboard); els.markNeedsFollowUpBtn?.addEventListener('click',()=>setFollowUpQuick('needs_follow_up')); els.markFollowedUpBtn?.addEventListener('click',()=>setFollowUpQuick('contacted')); els.parseResumeBtn?.addEventListener('click',parseSelectedResume);
       els.uploadResumeBtn?.addEventListener('click',()=>uploadResumeForSelected(false));
       els.saveBtn?.addEventListener('click',saveSelectedRow);
       [els.interviewDateTime, els.interviewType, els.interviewTimezone, els.interviewDurationMinutes, els.interviewInterviewer, els.interviewInterviewerEmails, els.interviewLocation, els.interviewNotes].forEach(el=>{el?.addEventListener('input',renderInterviewEmailPreview);el?.addEventListener('change',renderInterviewEmailPreview);});
