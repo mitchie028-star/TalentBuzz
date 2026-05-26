@@ -1,1 +1,513 @@
+# availability-request.html
+
+```html
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Interview Availability | BuzzHire</title>
+  <meta name="robots" content="noindex,nofollow" />
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+  <style>
+    :root {
+      --bg: #f5f7fb;
+      --card: #ffffff;
+      --text: #0f172a;
+      --muted: #64748b;
+      --line: #e2e8f0;
+      --primary: #2563eb;
+      --primary-soft: #dbeafe;
+      --success: #166534;
+      --success-soft: #dcfce7;
+      --radius: 20px;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: Inter, system-ui, sans-serif;
+      padding: 32px 18px;
+    }
+
+    .container {
+      max-width: 880px;
+      margin: 0 auto;
+    }
+
+    .hero {
+      background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+      color: white;
+      border-radius: 28px;
+      padding: 34px;
+      margin-bottom: 24px;
+    }
+
+    .hero-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 18px;
+      flex-wrap: wrap;
+    }
+
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-weight: 900;
+      font-size: 1.1rem;
+    }
+
+    .logo-badge {
+      width: 44px;
+      height: 44px;
+      border-radius: 14px;
+      background: rgba(255,255,255,.12);
+      display: grid;
+      place-items: center;
+      font-weight: 900;
+    }
+
+    .hero h1 {
+      margin: 22px 0 10px;
+      font-size: clamp(2rem, 4vw, 2.7rem);
+      line-height: 1.05;
+    }
+
+    .hero p {
+      margin: 0;
+      color: rgba(255,255,255,.78);
+      line-height: 1.7;
+      max-width: 720px;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 22px;
+    }
+
+    .card {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      padding: 24px;
+      box-shadow: 0 12px 28px rgba(15,23,42,.06);
+    }
+
+    .card h2 {
+      margin-top: 0;
+      font-size: 1.1rem;
+    }
+
+    .info-row {
+      display: flex;
+      justify-content: space-between;
+      gap: 18px;
+      padding: 12px 0;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .info-row:last-child {
+      border-bottom: 0;
+      padding-bottom: 0;
+    }
+
+    .label {
+      color: var(--muted);
+      font-size: .88rem;
+      font-weight: 700;
+    }
+
+    .value {
+      text-align: right;
+      font-weight: 700;
+    }
+
+    form {
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+
+    label {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      font-size: .92rem;
+      font-weight: 700;
+    }
+
+    input,
+    textarea,
+    select {
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 14px 16px;
+      font: inherit;
+      background: white;
+    }
+
+    textarea {
+      min-height: 110px;
+      resize: vertical;
+    }
+
+    .availability-group {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+
+    .availability-slot {
+      border: 1px dashed var(--line);
+      border-radius: 18px;
+      padding: 16px;
+      background: #fafcff;
+    }
+
+    .actions {
+      display: flex;
+      justify-content: flex-end;
+    }
+
+    button {
+      border: 0;
+      border-radius: 14px;
+      background: var(--primary);
+      color: white;
+      padding: 14px 20px;
+      font-weight: 800;
+      cursor: pointer;
+      font-size: .95rem;
+    }
+
+    button:disabled {
+      opacity: .6;
+      cursor: wait;
+    }
+
+    .success {
+      display: none;
+      margin-top: 18px;
+      border-radius: 18px;
+      padding: 18px;
+      background: var(--success-soft);
+      color: var(--success);
+      border: 1px solid #bbf7d0;
+      font-weight: 700;
+      line-height: 1.6;
+    }
+
+    .error {
+      display: none;
+      margin-top: 18px;
+      border-radius: 18px;
+      padding: 18px;
+      background: #fef2f2;
+      color: #991b1b;
+      border: 1px solid #fecaca;
+      font-weight: 700;
+      line-height: 1.6;
+    }
+
+    .footer-note {
+      margin-top: 22px;
+      color: var(--muted);
+      font-size: .84rem;
+      line-height: 1.7;
+    }
+
+    @media (max-width: 760px) {
+      .grid,
+      .availability-group {
+        grid-template-columns: 1fr;
+      }
+
+      .info-row {
+        flex-direction: column;
+      }
+
+      .value {
+        text-align: left;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+
+    <section class="hero">
+      <div class="hero-top">
+        <div class="logo">
+          <div class="logo-badge">BH</div>
+          <div id="companyName">BuzzHire</div>
+        </div>
+      </div>
+
+      <h1>Interview Availability Request</h1>
+      <p>
+        Please share your preferred interview availability for the endorsed candidate below.
+      </p>
+    </section>
+
+    <div class="grid">
+      <section class="card">
+        <h2>Candidate Details</h2>
+
+        <div class="info-row">
+          <div class="label">Candidate</div>
+          <div class="value" id="candidateName">—</div>
+        </div>
+
+        <div class="info-row">
+          <div class="label">Position</div>
+          <div class="value" id="jobTitle">—</div>
+        </div>
+
+        <div class="info-row">
+          <div class="label">Company</div>
+          <div class="value" id="clientName">—</div>
+        </div>
+
+        <div class="info-row">
+          <div class="label">Availability Status</div>
+          <div class="value" id="availabilityStatus">Pending</div>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>Provide Availability</h2>
+
+        <form id="availabilityForm">
+
+          <label>
+            Your name
+            <input type="text" id="contactName" required />
+          </label>
+
+          <label>
+            Your email
+            <input type="email" id="contactEmail" required />
+          </label>
+
+          <label>
+            Timezone
+            <select id="timezone">
+              <option value="Asia/Manila">Asia/Manila</option>
+              <option value="America/New_York">America/New_York</option>
+              <option value="Europe/London">Europe/London</option>
+              <option value="Australia/Sydney">Australia/Sydney</option>
+            </select>
+          </label>
+
+          <div class="availability-slot">
+            <div class="availability-group">
+              <label>
+                Preferred date
+                <input type="date" id="availabilityDate" required />
+              </label>
+
+              <label>
+                Preferred time
+                <input type="time" id="availabilityTime" required />
+              </label>
+            </div>
+          </div>
+
+          <label>
+            Interviewer names
+            <input type="text" id="interviewers" placeholder="Jane Doe, John Smith" />
+          </label>
+
+          <label>
+            Notes
+            <textarea id="notes" placeholder="Additional scheduling notes, meeting preferences, or reminders..."></textarea>
+          </label>
+
+          <div class="actions">
+            <button type="submit" id="submitBtn">Submit Availability</button>
+          </div>
+        </form>
+
+        <div class="success" id="successBox">
+          Availability submitted successfully. The recruiting team has been notified.
+        </div>
+
+        <div class="error" id="errorBox"></div>
+
+        <div class="footer-note">
+          This secure scheduling page is linked to a specific endorsement request.
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <script>
+    const SUPABASE_URL = "YOUR_SUPABASE_URL";
+    const SUPABASE_ANON_KEY = "YOUR_SUPABASE_ANON_KEY";
+
+    const supabaseClient = supabase.createClient(
+      SUPABASE_URL,
+      SUPABASE_ANON_KEY
+    );
+
+    const params = new URLSearchParams(window.location.search);
+    const shareToken = params.get("token") || "";
+
+    const els = {
+      companyName: document.getElementById("companyName"),
+      candidateName: document.getElementById("candidateName"),
+      jobTitle: document.getElementById("jobTitle"),
+      clientName: document.getElementById("clientName"),
+      availabilityStatus: document.getElementById("availabilityStatus"),
+      form: document.getElementById("availabilityForm"),
+      contactName: document.getElementById("contactName"),
+      contactEmail: document.getElementById("contactEmail"),
+      timezone: document.getElementById("timezone"),
+      availabilityDate: document.getElementById("availabilityDate"),
+      availabilityTime: document.getElementById("availabilityTime"),
+      interviewers: document.getElementById("interviewers"),
+      notes: document.getElementById("notes"),
+      submitBtn: document.getElementById("submitBtn"),
+      successBox: document.getElementById("successBox"),
+      errorBox: document.getElementById("errorBox")
+    };
+
+    let endorsement = null;
+
+    function showError(message) {
+      els.errorBox.style.display = "block";
+      els.errorBox.textContent = message;
+    }
+
+    function showSuccess() {
+      els.successBox.style.display = "block";
+      els.form.style.display = "none";
+    }
+
+    async function loadSharedEndorsement() {
+      if (!shareToken) {
+        showError("Missing access token.");
+        return null;
+      }
+
+      const { data, error } = await supabaseClient
+        .rpc("get_endorsement_share", {
+          p_token: shareToken
+        });
+
+      if (error) {
+        console.error(error);
+        showError("This scheduling link is invalid or expired.");
+        return null;
+      }
+
+      const row = Array.isArray(data)
+        ? data[0]
+        : data;
+
+      if (!row?.endorsement_id) {
+        showError("This scheduling link is invalid or expired.");
+        return null;
+      }
+
+      endorsement = row;
+
+      els.companyName.textContent =
+        row.company_name || "BuzzHire";
+
+      els.candidateName.textContent =
+        row.candidate_name || "—";
+
+      els.jobTitle.textContent =
+        row.job_title || "—";
+
+      els.clientName.textContent =
+        row.client_name || row.company_name || "—";
+
+      els.availabilityStatus.textContent =
+        row.availability_status || "Pending";
+
+      return row;
+    }
+
+    async function submitAvailability(event) {
+      event.preventDefault();
+
+      if (!endorsement) {
+        showError("Unable to submit availability.");
+        return;
+      }
+
+      els.submitBtn.disabled = true;
+      els.submitBtn.textContent = "Submitting...";
+
+      const availabilityWindows = [
+        {
+          date: els.availabilityDate.value,
+          time: els.availabilityTime.value
+        }
+      ];
+
+      const payload = {
+        endorsement_id: endorsement.endorsement_id,
+        company_id: endorsement.company_id,
+        client_id: endorsement.client_id,
+        job_id: endorsement.job_id,
+        application_id: endorsement.application_id,
+        contact_name: els.contactName.value,
+        contact_email: els.contactEmail.value,
+        timezone: els.timezone.value,
+        availability_windows: availabilityWindows,
+        notes: [
+          els.interviewers.value
+            ? `Interviewers: ${els.interviewers.value}`
+            : "",
+          els.notes.value || ""
+        ].filter(Boolean).join("\n\n")
+      };
+
+      const { error } = await supabaseClient
+        .from("endorsement_availability_requests")
+        .insert(payload);
+
+      if (error) {
+        console.error(error);
+        showError("Unable to submit availability right now.");
+        els.submitBtn.disabled = false;
+        els.submitBtn.textContent = "Submit Availability";
+        return;
+      }
+
+      await supabaseClient
+        .from("application_endorsements")
+        .update({
+          availability_status: "submitted",
+          availability_submitted_at: new Date().toISOString()
+        })
+        .eq("id", endorsement.endorsement_id);
+
+      showSuccess();
+    }
+
+    async function init() {
+      await loadSharedEndorsement();
+    }
+
+    els.form.addEventListener("submit", submitAvailability);
+
+    init();
+  </script>
+</body>
+</html>
+```
 
