@@ -3712,8 +3712,7 @@ opslead@company.com"></textarea></div>
       return 'weak';
     }
     function isInterviewStatus(status){
-      if(!isActiveDashboardRow(status))return false;
-      return ['for interview','shortlisted','assessment','assessment_complete'].includes(normalizeStatus(status));
+      return ['for interview','shortlisted','initial','final','interview'].includes(normalizeStatus(status));
     }
 
     function isClosedStatus(status){
@@ -3733,8 +3732,27 @@ opslead@company.com"></textarea></div>
       return ['hired','onboarded'].includes(normalizeStatus(status));
     }
 
+    function isHandoffStatus(status){
+      return [
+        'endorsed',
+        'for interview',
+        'initial',
+        'final',
+        'shortlisted',
+        'offered jo',
+        'offered',
+        'interview'
+      ].includes(normalizeStatus(status));
+    }
+
     function isFinalPipelineStatus(status){
       return isClosedStatus(status) || isHiredStatus(status);
+    }
+
+    function isRecruiterActivePipelineStatus(status){
+      const value = normalizeStatus(status);
+      if(isFinalPipelineStatus(value) || isHandoffStatus(value))return false;
+      return true;
     }
 
     function isActiveDashboardRow(rowOrStatus){
@@ -3742,9 +3760,10 @@ opslead@company.com"></textarea></div>
         ? rowOrStatus
         : (rowOrStatus?.status || rowOrStatus?.app?.client_feedback_status || rowOrStatus?.app?.status || '');
 
-      // Important: completed assessment/conversation rows are recruiter-active.
-      // Hired/onboarded/rejected/withdrawn/failed screening are final and should not inflate active queues.
-      return !isFinalPipelineStatus(status);
+      // Active queue means still needing recruiter/candidate action in the pre-interview workflow.
+      // Endorsed/interview/final candidates stay searchable and in their pipeline views,
+      // but they must not inflate Active or Awaiting Response.
+      return isRecruiterActivePipelineStatus(status);
     }
 
 
@@ -3839,6 +3858,17 @@ opslead@company.com"></textarea></div>
 
     function isAwaitingAssessment(row){
       if(!isActiveDashboardRow(row))return false;
+      const status = normalizeStatus(row?.status || row?.app?.status || '');
+      const allowedWorkflowStatuses = new Set([
+        '',
+        'new',
+        'submitted',
+        'sms sent',
+        'assessment',
+        'on hold',
+        'need more profiles'
+      ]);
+      if(!allowedWorkflowStatuses.has(status))return false;
       const key = getAssessmentInfo(row).key;
       return key === 'sent' || key === 'overdue';
     }
@@ -5219,7 +5249,7 @@ opslead@company.com"></textarea></div>
         case 'strong_matches':
           return scoreTier(row.score?.overall)==='strong';
         case 'closed':
-          return isFinalPipelineStatus(row.status);
+          return isFinalPipelineStatus(row.status) || isHandoffStatus(row.status);
         case 'global_ready':
           return hasGlobalReadiness(row);
         case 'missing_resume':
@@ -5318,7 +5348,7 @@ opslead@company.com"></textarea></div>
       if(els.viewCountFollowups)els.viewCountFollowups.textContent = count(r=>hasOpenFollowUp(r));
       if(els.viewCountInterview)els.viewCountInterview.textContent = count(r=>isInterviewStatus(r.status));
       if(els.viewCountStrong)els.viewCountStrong.textContent = count(r=>isActiveDashboardRow(r) && scoreTier(r.score?.overall)==='strong');
-      if(els.viewCountClosed)els.viewCountClosed.textContent = count(r=>isFinalPipelineStatus(r.status));
+      if(els.viewCountClosed)els.viewCountClosed.textContent = count(r=>isFinalPipelineStatus(r.status) || isHandoffStatus(r.status));
       if(els.viewCountGlobalReady)els.viewCountGlobalReady.textContent = count(r=>isActiveDashboardRow(r) && hasGlobalReadiness(r));
       if(els.viewCountMissingResume)els.viewCountMissingResume.textContent = count(r=>isActiveDashboardRow(r) && !hasResumeEvidence(r.profile));
     }
