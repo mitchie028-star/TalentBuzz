@@ -2954,7 +2954,7 @@ opslead@company.com"></textarea></div>
       </div>
     </div>
   </div> <script>
-    console.log('BuzzHire recruiter-dashboard-v2026-05-26-production-access-bulk-upload-fix-v2 loaded');
+    console.log('BuzzHire recruiter-dashboard-v2026-05-27-workflow-view-source loaded');
 
     const CONFIG = {
       SUPABASE_URL: window.TALENTBUZZ_SUPABASE_URL || localStorage.getItem('TALENTBUZZ_SUPABASE_URL') || '',
@@ -4316,7 +4316,8 @@ opslead@company.com"></textarea></div>
       'talent_conversation_questions',
       'talent_conversation_responses',
       'role_assessment_questions',
-      'role_assessment_responses'
+      'role_assessment_responses',
+      'vw_dashboard_candidates'
     ]);
 
     function currentCompanyId(){
@@ -4807,6 +4808,15 @@ opslead@company.com"></textarea></div>
       const now = new Date();
 
       let key = 'not_sent';
+      const viewAssessmentState = normalizeAssessmentStatus(app.assessment_state || row?.workflow?.assessment_state || '');
+
+      if(viewAssessmentState === 'completed' && !assessment){
+        key = 'completed';
+      }else if(viewAssessmentState === 'in_progress' && !assessment){
+        key = 'in_progress';
+      }else if(viewAssessmentState === 'sent' && !assessment){
+        key = 'sent';
+      }
 
       if(assessmentStatus === 'completed' || assessment?.completed_at){
         key = 'completed';
@@ -4878,6 +4888,7 @@ opslead@company.com"></textarea></div>
     }
 
     function isReadyForReview(row){
+      if(typeof row?.app?.ready_review === 'boolean')return row.app.ready_review;
       return hasAssessmentCompleted(row) && !hasRecruiterReviewedCompletedAssessment(row);
     }
 
@@ -4888,6 +4899,10 @@ opslead@company.com"></textarea></div>
     }
 
     function isAwaitingAssessment(row){
+      if(typeof row?.app?.awaiting_candidate === 'boolean' && row.app.awaiting_candidate){
+        const key = getAssessmentInfo(row).key;
+        return key === 'sent' || key === 'overdue' || key === 'in_progress';
+      }
       const key = getAssessmentInfo(row).key;
       return key === 'sent' || key === 'overdue';
     }
@@ -4925,6 +4940,26 @@ opslead@company.com"></textarea></div>
         seen.add(id);
         return true;
       });
+    }
+
+    async function fetchDashboardWorkflowRows(){
+      const companyId = currentCompanyId();
+      let query = supabaseClient
+        .from('vw_dashboard_candidates')
+        .select('*')
+        .order('created_at', { ascending:false })
+        .limit(CONFIG.PAGE_SIZE);
+
+      if(companyId){
+        query = query.eq('company_id', companyId);
+      }
+
+      const { data, error } = await query;
+      if(error){
+        console.warn('vw_dashboard_candidates query failed; dashboard will fall back to legacy frontend calculations:', error?.message || error);
+        return [];
+      }
+      return data || [];
     }
 
     async function fetchApplicationsDirect(select, includeCompanyFallback = true){
@@ -5012,19 +5047,21 @@ opslead@company.com"></textarea></div>
       }
       if(silent && els.liveStatusText)els.liveStatusText.textContent='Syncing…';
       try{
-        const [applications,profiles,jobs,assessmentsByApplicationId,interviewsByApplicationId,candidateActivities]=await Promise.all([
+        const [applications,profiles,jobs,assessmentsByApplicationId,interviewsByApplicationId,candidateActivities,dashboardWorkflowRows]=await Promise.all([
           fetchApplicationsRows(),
           fetchAll('applicant_profiles','id,company_id,full_name,email,indeed_email,external_candidate_id,original_source_email,source_email,phone,location,country,timezone,work_authorization,preferred_work_setup,salary_currency,salary_expectation,available_working_hours,headline,current_title,resume_url,resume_path,resume_file_name,has_resume,raw_resume_text,raw_email_metadata,parsed_resume_json,years_of_experience,experience_years,years_experience,total_experience,experience,skills,updated_at'),
           fetchAll('jobs','id,title,client_name,job_description,keywords,industry,screening_enabled,status,work_setup,location,slug,company_id'),
           fetchLatestRoleAssessments(),
           fetchLatestInterviewSessions(),
-          fetchCandidateActivities()
+          fetchCandidateActivities(),
+          fetchDashboardWorkflowRows()
         ]);
         state.assessmentsByApplicationId = assessmentsByApplicationId || new Map();
         state.interviewsByApplicationId = interviewsByApplicationId || new Map();
         state.jobs = jobs || [];
         const profilesById=new Map(profiles.map(item=>[item.id,item]));
         const jobsById=new Map(jobs.map(item=>[item.id,item]));
+        const dashboardWorkflowById = new Map((dashboardWorkflowRows || []).map(item => [safeText(item.id), item]));
         const activityLookup = buildCandidateActivityLookup(candidateActivities || []);
         const companyId = currentCompanyId();
         const companyScopedApplications = uniqueById(applications || []).filter(app => {
@@ -5045,9 +5082,21 @@ opslead@company.com"></textarea></div>
           if(!safeText(app.company_id) && safeText(job.company_id)){
             app = {...app, company_id: safeText(job.company_id)};
           }
+          const workflow = dashboardWorkflowById.get(safeText(app.id)) || {};
+          app = {
+            ...app,
+            workflow_stage: safeText(workflow.workflow_stage || app.workflow_stage || ''),
+            assessment_state: safeText(workflow.assessment_state || app.assessment_state || ''),
+            client_state: safeText(workflow.client_state || app.client_state || ''),
+            ready_review: typeof workflow.ready_review === 'boolean' ? workflow.ready_review : app.ready_review,
+            awaiting_candidate: typeof workflow.awaiting_candidate === 'boolean' ? workflow.awaiting_candidate : app.awaiting_candidate,
+            awaiting_client: typeof workflow.awaiting_client === 'boolean' ? workflow.awaiting_client : app.awaiting_client,
+            interview_active: typeof workflow.interview_active === 'boolean' ? workflow.interview_active : app.interview_active,
+            active_pipeline: typeof workflow.active_pipeline === 'boolean' ? workflow.active_pipeline : app.active_pipeline
+          };
           const score=basicScore(profile,app,job);
           const activities = getActivitiesForApplicationRow(app, profile, activityLookup);
-          return {id:app.id,app,profile,job,score,activities,assessment:state.assessmentsByApplicationId.get(safeText(app.id))||null,interview:state.interviewsByApplicationId.get(safeText(app.id))||null,assessmentInfo:null,displayName:getCandidateNameFromProfile(profile, app),status:safeText(app.client_feedback_status||app.status||'submitted'),recruiter:safeText(app.recruiter_email)||'Unassigned',source:safeText(app.application_source||'—'),appliedAt:app.created_at,clientName:safeText(job.client_name||'—'),jobTitle:safeText(job.title||app.job_title||'—'),followUp:getFollowUpInfo(app)};
+          return {id:app.id,app,workflow,profile,job,score,activities,assessment:state.assessmentsByApplicationId.get(safeText(app.id))||null,interview:state.interviewsByApplicationId.get(safeText(app.id))||null,assessmentInfo:null,displayName:getCandidateNameFromProfile(profile, app) || safeText(workflow.candidate_name),status:safeText(app.client_feedback_status||app.status||workflow.legacy_status||'submitted'),workflowStage:safeText(app.workflow_stage||workflow.workflow_stage||''),recruiter:safeText(app.recruiter_email)||'Unassigned',source:safeText(app.application_source||workflow.application_source||'—'),appliedAt:app.created_at||workflow.created_at,clientName:safeText(job.client_name||'—'),jobTitle:safeText(job.title||app.job_title||workflow.job_title||'—'),followUp:getFollowUpInfo(app)};
         }).map(row => ({...row, assessmentInfo: getAssessmentInfo(row)}));
         state.allRows=dedupeDashboardApplicationRows(rawRows);
         await loadApplicationEndorsements();
@@ -5133,6 +5182,8 @@ opslead@company.com"></textarea></div>
     }
 
     function isNeedsReviewQueue(row){
+      const stage = safeText(row?.workflowStage || row?.app?.workflow_stage || row?.workflow?.workflow_stage || '').toLowerCase();
+      if(stage)return stage === 'new' || stage === 'screening';
       return ['submitted','new',''].includes(normalizeStatus(row.status)) && !isReadyForReview(row);
     }
 
@@ -5151,11 +5202,11 @@ opslead@company.com"></textarea></div>
         case 'my_followups':
           return hasOpenFollowUp(row);
         case 'interview_pipeline':
-          return isInterviewStatus(row.status);
+          return safeText(row.workflowStage || row.app?.workflow_stage).toLowerCase() === 'interview' || isInterviewStatus(row.status);
         case 'strong_matches':
           return scoreTier(row.score?.overall)==='strong';
         case 'closed':
-          return isClosedStatus(row.status) || isHiredStatus(row.status);
+          return ['closed','hired'].includes(safeText(row.workflowStage || row.app?.workflow_stage).toLowerCase()) || isClosedStatus(row.status) || isHiredStatus(row.status);
         case 'global_ready':
           return hasGlobalReadiness(row);
         case 'missing_resume':
@@ -5286,11 +5337,12 @@ opslead@company.com"></textarea></div>
       const strongFitCount = count(r => scoreTier(r.score?.overall) === 'strong');
       const needsReviewCount = count(r => scoreTier(r.score?.overall) === 'weak');
       const unassignedCount = count(r => isUnassignedRecruiter(r));
-      const interviewCount = count(r => ['for interview','shortlisted','assessment'].includes(normalizeStatus(r.status)));
-      const offeredCount = count(r => normalizeStatus(r.status) === 'offered jo');
-      const hiredCount = count(r => ['hired'].includes(normalizeStatus(r.status)));
+      const stageOf = r => safeText(r.workflowStage || r.app?.workflow_stage || r.workflow?.workflow_stage).toLowerCase();
+      const interviewCount = count(r => stageOf(r) === 'interview' || isInterviewStatus(r.status));
+      const offeredCount = count(r => stageOf(r) === 'offer' || normalizeStatus(r.status) === 'offered jo');
+      const hiredCount = count(r => stageOf(r) === 'hired' || ['hired'].includes(normalizeStatus(r.status)));
       const onboardedCount = count(r => ['onboarded'].includes(normalizeStatus(r.status)));
-      const withdrawnCount = count(r => ['withdrawn','not interested','candidate withdrawn'].includes(normalizeStatus(r.status)));
+      const withdrawnCount = count(r => stageOf(r) === 'closed' || ['withdrawn','not interested','candidate withdrawn'].includes(normalizeStatus(r.status)));
       const followUpCount = count(r => hasOpenFollowUp(r));
       const reviewCount = count(r => isNeedsReviewQueue(r));
       const assessmentCompletedCount = count(r => isReadyForReview(r));
