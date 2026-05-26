@@ -2902,7 +2902,7 @@ opslead@company.com"></textarea></div>
       </div>
     </div>
   </div> <script>
-    console.log('BuzzHire recruiter-dashboard-company-isolated-v2026-05-25-company-fallback loaded');
+    console.log('BuzzHire recruiter-dashboard-v2026-05-26-ingest-resume-name-fix loaded');
 
     const CONFIG = {
       SUPABASE_URL: window.TALENTBUZZ_SUPABASE_URL || localStorage.getItem('TALENTBUZZ_SUPABASE_URL') || '',
@@ -3746,8 +3746,86 @@ opslead@company.com"></textarea></div>
       try{return JSON.parse(parsed)}catch(_){return null}
     }
 
+    function getRawEmailMetadata(profile){
+      const metadata = profile?.raw_email_metadata;
+      if(!metadata)return {};
+      if(typeof metadata === 'object')return metadata;
+      try{return JSON.parse(metadata)}catch(_){return {}}
+    }
+
+    function cleanIndeedHeaderName(value){
+      let name = safeText(value);
+      if(!name)return '';
+
+      // Examples:
+      //   Grace Ann Sobior <conversation-graceannsobior-8055t@indeedemail.com>
+      //   "Sahidah Soreño" <conversation-h0pfnu6@indeedemail.com>
+      name = name.split('<')[0] || name;
+      name = name.replace(/^from:\s*/i, '').replace(/["“”]+/g, '').trim();
+      name = name.replace(/\s+/g, ' ').trim();
+
+      if(!name || /indeed|employer|notification|noreply|no-reply/i.test(name))return '';
+      if(/^conversation[-_]/i.test(name) || /@/.test(name))return '';
+      return name;
+    }
+
+    function stripLocationPrefixFromIndeedName(value){
+      const name = safeText(value).replace(/\s+/g, ' ').trim();
+      if(!name)return '';
+
+      // Older ingests sometimes saved names as "Lipa City Irish Garcia" or
+      // "Taguig John Rainier Repalda" because the parser captured the role
+      // location line before the applicant name. Keep this conservative.
+      const locationPrefixes = [
+        'lipa city', 'lipa', 'lapu-lapu city', 'lapu lapu city', 'pasig', 'pasay',
+        'taguig', 'makati', 'manila', 'quezon city', 'marikina city', 'cebu',
+        'iloilo', 'batangas', 'philippines'
+      ];
+
+      for(const prefix of locationPrefixes){
+        const re = new RegExp(`^${prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s+`, 'i');
+        if(re.test(name))return name.replace(re, '').trim();
+      }
+
+      return name;
+    }
+
+    function getIndeedResumeLink(profile){
+      const metadata = getRawEmailMetadata(profile);
+      return safeText(metadata.indeed_resume_link || metadata.resume_url || metadata.resume_link || '');
+    }
+
+    function getCandidateNameFromProfile(profile, app){
+      const metadata = getRawEmailMetadata(profile);
+      const fromHeaderName = cleanIndeedHeaderName(metadata.from || profile?.source_email || '');
+      const metaName = stripLocationPrefixFromIndeedName(metadata.indeed_applicant_name || '');
+      const profileName = stripLocationPrefixFromIndeedName(profile?.full_name || '');
+      const profileEmail = normalizeEmail(profile?.email || '');
+      const appEmail = normalizeEmail(app?.email || '');
+      const isIndeedProfile = Boolean(
+        safeText(profile?.indeed_email) ||
+        /indeedemail\.com/i.test(safeText(profile?.source_email || metadata.from || metadata.indeed_conversation_email || ''))
+      );
+
+      // If the Indeed application did not expose a real email, the From header is
+      // usually the cleanest applicant name. Prefer it over location-prefixed parser output.
+      if(isIndeedProfile && !profileEmail && fromHeaderName)return fromHeaderName;
+
+      return safeText(
+        profileName ||
+        metaName ||
+        fromHeaderName ||
+        profileEmail ||
+        appEmail ||
+        'Unnamed candidate'
+      );
+    }
+
     function hasResumeEvidence(profile){
-      return !!safeText(profile?.resume_path || profile?.resume_url || profile?.resume_file_name);
+      return !!(
+        isTruthyDb(profile?.has_resume) ||
+        safeText(profile?.resume_path || profile?.resume_url || profile?.resume_file_name || getIndeedResumeLink(profile))
+      );
     }
 
     function getProfileSummary(profile){
@@ -3822,13 +3900,13 @@ opslead@company.com"></textarea></div>
       if(safeText(profile?.full_name)){score+=10;evidence.push('profile identified')}
       if(safeText(profile?.email||app?.email)){score+=8;evidence.push('email available')}
       if(safeText(profile?.phone)){score+=6;evidence.push('phone available')}
-      if(safeText(profile?.resume_path||profile?.resume_url||profile?.resume_file_name)){score+=28;evidence.push('resume available')}
+      if(hasResumeEvidence(profile)){score+=28;evidence.push('resume available')}
       const roleText=[profile?.headline,profile?.current_title,profile?.skills,profile?.raw_resume_text,job?.title,job?.keywords].map(safeText).join(' ').toLowerCase();
       const titleWords=safeText(job?.title||app?.job_title).toLowerCase().split(/\s+/).filter(w=>w.length>3);
       const hits=titleWords.filter(w=>roleText.includes(w)).length;
       if(hits>=2){score+=28;evidence.push('role terms matched')}
       else if(hits===1){score+=14;evidence.push('some role alignment')}
-      return {overall:Math.max(8,Math.min(100,score)), mode:'Basic match', profilePart:{score:Math.min(100,score)}, resumePart:{score:safeText(profile?.resume_path||profile?.resume_url||profile?.resume_file_name)?70:0}, reasons:evidence};
+      return {overall:Math.max(8,Math.min(100,score)), mode:'Basic match', profilePart:{score:Math.min(100,score)}, resumePart:{score:hasResumeEvidence(profile)?70:0}, reasons:evidence};
     }
 
     const FOLLOW_UP_OPTIONS={
@@ -4071,7 +4149,7 @@ opslead@company.com"></textarea></div>
     }
 
     async function getResumeUrl(profile, app){
-      const directUrl = safeText(profile?.resume_url || '');
+      const directUrl = safeText(profile?.resume_url || getIndeedResumeLink(profile) || '');
 
       // Indeed and other third-party URLs must not be resolved through Supabase Storage.
       if (isExternalResumeUrl(directUrl)) {
@@ -4882,7 +4960,7 @@ opslead@company.com"></textarea></div>
       try{
         const [applications,profiles,jobs,assessmentsByApplicationId,interviewsByApplicationId,candidateActivities]=await Promise.all([
           fetchApplicationsRows(),
-          fetchAll('applicant_profiles','id,full_name,email,indeed_email,external_candidate_id,original_source_email,phone,location,country,timezone,work_authorization,preferred_work_setup,salary_currency,salary_expectation,available_working_hours,headline,current_title,resume_url,resume_path,resume_file_name,raw_resume_text,parsed_resume_json,years_of_experience,experience_years,years_experience,total_experience,experience,skills,updated_at'),
+          fetchAll('applicant_profiles','id,company_id,full_name,email,indeed_email,external_candidate_id,original_source_email,source_email,phone,location,country,timezone,work_authorization,preferred_work_setup,salary_currency,salary_expectation,available_working_hours,headline,current_title,resume_url,resume_path,resume_file_name,has_resume,raw_resume_text,raw_email_metadata,parsed_resume_json,years_of_experience,experience_years,years_experience,total_experience,experience,skills,updated_at'),
           fetchAll('jobs','id,title,client_name,job_description,keywords,industry,screening_enabled,status,work_setup,location,slug,company_id'),
           fetchLatestRoleAssessments(),
           fetchLatestInterviewSessions(),
@@ -4915,7 +4993,7 @@ opslead@company.com"></textarea></div>
           }
           const score=basicScore(profile,app,job);
           const activities = getActivitiesForApplicationRow(app, profile, activityLookup);
-          return {id:app.id,app,profile,job,score,activities,assessment:state.assessmentsByApplicationId.get(safeText(app.id))||null,interview:state.interviewsByApplicationId.get(safeText(app.id))||null,assessmentInfo:null,displayName:safeText(profile.full_name||app.email||'Unnamed candidate'),status:safeText(app.client_feedback_status||app.status||'submitted'),recruiter:safeText(app.recruiter_email)||'Unassigned',source:safeText(app.application_source||'—'),appliedAt:app.created_at,clientName:safeText(job.client_name||'—'),jobTitle:safeText(job.title||app.job_title||'—'),followUp:getFollowUpInfo(app)};
+          return {id:app.id,app,profile,job,score,activities,assessment:state.assessmentsByApplicationId.get(safeText(app.id))||null,interview:state.interviewsByApplicationId.get(safeText(app.id))||null,assessmentInfo:null,displayName:getCandidateNameFromProfile(profile, app),status:safeText(app.client_feedback_status||app.status||'submitted'),recruiter:safeText(app.recruiter_email)||'Unassigned',source:safeText(app.application_source||'—'),appliedAt:app.created_at,clientName:safeText(job.client_name||'—'),jobTitle:safeText(job.title||app.job_title||'—'),followUp:getFollowUpInfo(app)};
         }).map(row => ({...row, assessmentInfo: getAssessmentInfo(row)}));
         state.allRows=dedupeDashboardApplicationRows(rawRows);
         state.messageInboxRows = buildMessageInboxRows(candidateActivities || [], state.allRows);
@@ -6681,7 +6759,7 @@ opslead@company.com"></textarea></div>
           row.jobTitle = selectedJobTitle || row.jobTitle;
           row.clientName = selectedClientName || row.clientName;
         }
-        row.displayName = safeText(row.profile?.full_name || row.app?.email || row.displayName);
+        row.displayName = getCandidateNameFromProfile(row.profile, row.app) || row.displayName;
 
         console.log('Candidate profile saved:', {applicationId: row.id, profileId, savedProfilePayload, savedApplicationPayload, roleWasChanged});
         showNotice(roleWasChanged ? 'Candidate info and role updated.' : 'Candidate info updated.', 'success');
@@ -6964,7 +7042,7 @@ opslead@company.com"></textarea></div>
         if(els.parseResumeBtn)els.parseResumeBtn.disabled=false;
         if(els.viewResumeBtn)els.viewResumeBtn.disabled=false;
       }else{
-        els.resumeMeta.textContent='No resume found. Check applicant_profiles.resume_path/resume_url and Supabase Storage folder.';
+        els.resumeMeta.textContent='No resume found. Check applicant_profiles.resume_url, resume_path, has_resume, and raw_email_metadata.indeed_resume_link.';
         if(els.viewResumeBtn)els.viewResumeBtn.disabled=true;
       }
       renderTable();
