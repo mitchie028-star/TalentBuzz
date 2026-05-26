@@ -346,7 +346,7 @@
       max-height:calc(100vh - 325px);
       background:#fff;
     }
-    table{width:100%;min-width:820px;border-collapse:separate;border-spacing:0}
+    table{width:100%;min-width:980px;border-collapse:separate;border-spacing:0}
     th,td{
       padding:13px 12px;
       border-bottom:1px solid #edf1f5;
@@ -2179,6 +2179,51 @@ tr.row-assessment-progress:hover td{
   }
 }
 
+
+    /* ===== Client endorsement response tracking ===== */
+    .client-response-cell{
+      display:grid;
+      gap:5px;
+      min-width:150px;
+    }
+    .client-response-meta{
+      color:#667085;
+      font-size:.7rem;
+      line-height:1.35;
+      font-weight:750;
+    }
+    .pill.client-pending{
+      background:var(--warn-bg);
+      color:var(--warn);
+      border-color:#fedf89;
+    }
+    .pill.client-continued{
+      background:var(--good-bg);
+      color:var(--good);
+      border-color:#abefc6;
+    }
+    .pill.client-declined{
+      background:var(--bad-bg);
+      color:var(--bad);
+      border-color:#fecdca;
+    }
+    .pill.client-availability{
+      background:var(--info-bg);
+      color:var(--info);
+      border-color:#b2ddff;
+    }
+    .client-feedback-box{
+      margin-top:8px;
+      padding:10px 12px;
+      border-radius:13px;
+      background:#fff;
+      border:1px dashed var(--line-strong);
+      color:#475467;
+      font-size:.78rem;
+      line-height:1.45;
+      white-space:pre-wrap;
+    }
+
 </style>
 </head>
 <body class="auth-pending">
@@ -2362,7 +2407,7 @@ tr.row-assessment-progress:hover td{
             <span class="bulk-selection-pill" id="bulkSelectionCount">0 selected</span>
             <button class="btn btn-xs btn-soft" id="selectVisibleRowsBtn" type="button">Select visible</button>
             <button class="btn btn-xs btn-soft" id="clearSelectedRowsBtn" type="button">Clear selected</button>
-            <button class="btn btn-xs btn-primary" id="bulkEndorseSelectedBtn" type="button">Bulk Endorse</button>
+            <button class="btn btn-xs btn-primary" id="bulkEndorseSelectedBtn" type="button">Bulk Send / Resend Endorsement</button>
           </div>
           <div class="table-wrap">
             <table>
@@ -2375,11 +2420,12 @@ tr.row-assessment-progress:hover td{
                   <th>Follow-up</th>
                   <th>Resume</th>
                   <th>Overall Assessment</th>
+                  <th>Client Response</th>
                   <th>Actions</th>
                 </tr>
               </thead>
               <tbody id="applicationsTable">
-                <tr><td colspan="8" class="small">Loading candidates...</td></tr>
+                <tr><td colspan="9" class="small">Loading candidates...</td></tr>
               </tbody>
             </table>
           </div>
@@ -2497,6 +2543,12 @@ opslead@company.com"></textarea></div>
                   <button class="btn btn-xs" id="clearInterviewFormBtn" type="button">Clear</button>
                 </div>
                 <div class="interview-summary" id="interviewSummary">No interview scheduled yet.</div>
+              </div>
+
+
+<div class="drawer-section" id="clientResponseDrawerSection">
+                <h3>Client Response</h3>
+                <div class="summary-box" id="clientResponseSummary">No client response yet.</div>
               </div>
 
 <div class="drawer-section">
@@ -2948,6 +3000,7 @@ opslead@company.com"></textarea></div>
       messageInboxRows: [],
       messageInboxLoading: false,
       bulkSelectedIds: new Set(),
+      endorsementsByApplicationId: new Map(),
     };
 
     function $(id){return document.getElementById(id)}
@@ -2973,6 +3026,7 @@ opslead@company.com"></textarea></div>
       headerLogoutBtn:$('headerLogoutBtn'), headerInboxBtn:$('headerInboxBtn'), sidebarInboxBtn:$('sidebarInboxBtn'), newApplicantsBadge:$('newApplicantsBadge'), liveStatusText:$('liveStatusText'), sidebarSourcingBtn:$('sidebarSourcingBtn'), sidebarBulkUploadBtn:$('sidebarBulkUploadBtn'), quickClearFiltersBtn:$('quickClearFiltersBtn'), messageInboxModal:$('messageInboxModal'), messageInboxList:$('messageInboxList'), messageInboxClose:$('messageInboxClose'), messageInboxRefreshBtn:$('messageInboxRefreshBtn'),
       bulkUploadModal:$('bulkUploadModal'), bulkUploadModalClose:$('bulkUploadModalClose'), bulkRoleSelect:$('bulkRoleSelect'), bulkResumeInput:$('bulkResumeInput'), bulkUploadBtn:$('bulkUploadBtn'), bulkUploadStatus:$('bulkUploadStatus'),
       assessmentEmailModal:$('assessmentEmailModal'), assessmentEmailModalClose:$('assessmentEmailModalClose'), assessmentModalSubtitle:$('assessmentModalSubtitle'), assessmentCandidateName:$('assessmentCandidateName'), assessmentCandidateEmail:$('assessmentCandidateEmail'), assessmentRoleName:$('assessmentRoleName'), assessmentCompanyName:$('assessmentCompanyName'), assessmentType:$('assessmentType'), assessmentDueDate:$('assessmentDueDate'), assessmentLink:$('assessmentLink'), assessmentCustomMessage:$('assessmentCustomMessage'), assessmentEmailPreview:$('assessmentEmailPreview'), sendAssessmentEmailBtn:$('sendAssessmentEmailBtn'), copyAssessmentEmailBtn:$('copyAssessmentEmailBtn'), assessmentEmailStatus:$('assessmentEmailStatus'), openAssessmentEmailBtn:$('openAssessmentEmailBtn'), drawerAssessmentBadge:$('drawerAssessmentBadge'), drawerAssessmentDetail:$('drawerAssessmentDetail'), drawerAssessmentActionBtn:$('drawerAssessmentActionBtn'),
+      clientResponseSummary:$('clientResponseSummary'),
       interviewDateTime:$('interviewDateTime'), interviewType:$('interviewType'), interviewTimezone:$('interviewTimezone'), interviewDurationMinutes:$('interviewDurationMinutes'), interviewInterviewer:$('interviewInterviewer'), interviewInterviewerEmails:$('interviewInterviewerEmails'), interviewLocation:$('interviewLocation'), interviewNotes:$('interviewNotes'), interviewEmailPreview:$('interviewEmailPreview'), scheduleInterviewBtn:$('scheduleInterviewBtn'), clearInterviewFormBtn:$('clearInterviewFormBtn'), interviewSummary:$('interviewSummary'),
       candidateReviewModal:$('candidateReviewModal'), candidateReviewFrame:$('candidateReviewFrame'), candidateReviewLoading:$('candidateReviewLoading'), candidateReviewModalTitle:$('candidateReviewModalTitle'), candidateReviewModalSubtitle:$('candidateReviewModalSubtitle'), candidateReviewModalClose:$('candidateReviewModalClose'), candidateReviewOpenNewTabBtn:$('candidateReviewOpenNewTabBtn'), bulkSelectionCount:$('bulkSelectionCount'), selectVisibleRowsBtn:$('selectVisibleRowsBtn'), clearSelectedRowsBtn:$('clearSelectedRowsBtn'), bulkEndorseSelectedBtn:$('bulkEndorseSelectedBtn'),
     };
@@ -4954,7 +5008,7 @@ opslead@company.com"></textarea></div>
       state.loading=true;
       if(!silent){
         hideNotice();
-        els.applicationsTable.innerHTML='<tr><td colspan="8" class="small">Loading candidates...</td></tr>';
+        els.applicationsTable.innerHTML='<tr><td colspan="9" class="small">Loading candidates...</td></tr>';
       }
       if(silent && els.liveStatusText)els.liveStatusText.textContent='Syncing…';
       try{
@@ -5020,7 +5074,7 @@ opslead@company.com"></textarea></div>
       }catch(error){
         console.error(error);
         if(!silent){
-          els.applicationsTable.innerHTML=`<tr><td colspan="8" class="small">Unable to load dashboard: ${escapeHtml(error.message||String(error))}</td></tr>`;
+          els.applicationsTable.innerHTML=`<tr><td colspan="9" class="small">Unable to load dashboard: ${escapeHtml(error.message||String(error))}</td></tr>`;
           showNotice(`Unable to load dashboard: ${error.message||error}`,'error');
         }else{
           updateLiveStatusLabel('Sync failed');
@@ -5166,7 +5220,8 @@ opslead@company.com"></textarea></div>
         if(scoreFilter&&scoreTier(row.score.overall)!==scoreFilter)return false;
         return true;
       });
-      renderKPIs();renderTable();updateDrawerNavMeta();updateFilterUi();
+      renderKPIs();await loadApplicationEndorsements();
+        renderTable();updateDrawerNavMeta();updateFilterUi();
       if(state.selectedId&&!state.filteredRows.some(row=>row.id===state.selectedId))closeDrawer();
     }
 
@@ -5327,6 +5382,174 @@ opslead@company.com"></textarea></div>
       if(app.ai_interview_completed_at || app.conversation_id || app.talent_conversation_id || app.latest_conversation_id)return 70;
       if(app.ai_interview_status === 'completed')return 70;
       return 0;
+    }
+
+
+    function getRowEndorsement(row){
+      const appId = safeText(row?.id || row?.app?.id || row?.application_id || '');
+      return appId ? state.endorsementsByApplicationId.get(appId) || null : null;
+    }
+
+    function normalizeClientDecision(value){
+      const text = safeText(value).toLowerCase();
+      if(['continue','continued','yes','accepted','proceed'].includes(text))return 'continue';
+      if(['declined','decline','no','rejected','not_continue'].includes(text))return 'declined';
+      return 'pending';
+    }
+
+    function formatClientReason(value){
+      return safeText(value)
+        .replace(/_/g,' ')
+        .replace(/\b\w/g, letter => letter.toUpperCase());
+    }
+
+    function getClientResponseInfo(row){
+      const endorsement = getRowEndorsement(row) || {};
+      const decision = normalizeClientDecision(
+        endorsement.client_decision ||
+        row?.app?.client_decision ||
+        row?.client_decision ||
+        ''
+      );
+
+      const availabilityStatus = safeText(
+        endorsement.availability_status ||
+        row?.app?.availability_status ||
+        row?.availability_status ||
+        ''
+      ).toLowerCase();
+
+      const declineReason = safeText(
+        endorsement.client_decline_reason ||
+        row?.app?.client_decline_reason ||
+        row?.client_decline_reason ||
+        ''
+      );
+
+      const feedback = safeText(
+        endorsement.client_feedback ||
+        row?.app?.client_feedback ||
+        row?.client_feedback ||
+        ''
+      );
+
+      const activityAt =
+        endorsement.client_decision_at ||
+        endorsement.availability_submitted_at ||
+        endorsement.last_viewed_at ||
+        endorsement.updated_at ||
+        row?.app?.client_decision_at ||
+        row?.app?.availability_submitted_at ||
+        '';
+
+      const availabilitySubmitted =
+        availabilityStatus === 'submitted' ||
+        !!endorsement.availability_submitted_at;
+
+      const isEndorsed =
+        safeText(row?.status || row?.app?.status || '').toLowerCase() === 'endorsed' ||
+        safeText(row?.app?.endorsement_status || '').toLowerCase() === 'endorsed' ||
+        !!endorsement.id;
+
+      if(decision === 'declined'){
+        return {
+          tone:'client-declined',
+          label:'Declined',
+          meta: declineReason ? formatClientReason(declineReason) : (feedback ? 'Feedback submitted' : 'Reason submitted'),
+          feedback,
+          activityAt
+        };
+      }
+
+      if(decision === 'continue' && availabilitySubmitted){
+        return {
+          tone:'client-availability',
+          label:'Availability Submitted',
+          meta:'Ready to schedule',
+          feedback,
+          activityAt
+        };
+      }
+
+      if(decision === 'continue'){
+        return {
+          tone:'client-continued',
+          label:'Continued',
+          meta:'Awaiting availability',
+          feedback,
+          activityAt
+        };
+      }
+
+      return {
+        tone:'client-pending',
+        label:isEndorsed ? 'Awaiting Response' : 'Not Sent',
+        meta:isEndorsed ? 'Client decision pending' : 'No endorsement sent',
+        feedback:'',
+        activityAt
+      };
+    }
+
+    function renderClientResponseCell(row){
+      const info = getClientResponseInfo(row);
+      return `
+        <div class="client-response-cell">
+          <span class="pill ${info.tone}" title="${escapeHtml([info.label, info.meta].filter(Boolean).join(' — '))}">
+            ${escapeHtml(info.label)}
+          </span>
+          <span class="client-response-meta">${escapeHtml(info.meta || '—')}</span>
+          ${info.activityAt ? `<span class="client-response-meta">${escapeHtml(formatDateTime(info.activityAt))}</span>` : ''}
+        </div>
+      `;
+    }
+
+    async function loadApplicationEndorsements(){
+      const applicationIds = state.allRows
+        .map(row => safeText(row?.id || row?.app?.id || row?.application_id || ''))
+        .filter(Boolean);
+
+      state.endorsementsByApplicationId = new Map();
+
+      if(!applicationIds.length)return;
+
+      try{
+        const { data, error } = await supabaseClient
+          .from('application_endorsements')
+          .select('*')
+          .in('application_id', applicationIds)
+          .is('share_revoked_at', null)
+          .order('created_at', { ascending:false });
+
+        if(error){
+          console.warn('Unable to load application endorsements:', error);
+          return;
+        }
+
+        (data || []).forEach(item => {
+          const appId = safeText(item.application_id);
+          if(appId && !state.endorsementsByApplicationId.has(appId)){
+            state.endorsementsByApplicationId.set(appId, item);
+          }
+        });
+      }catch(error){
+        console.warn('Unable to load application endorsements:', error);
+      }
+    }
+
+    function renderClientResponseDrawer(row){
+      if(!els.clientResponseSummary)return;
+      const info = getClientResponseInfo(row);
+      const endorsement = getRowEndorsement(row) || {};
+      const feedback = safeText(endorsement.client_feedback || '');
+      const declineReason = safeText(endorsement.client_decline_reason || '');
+      const lines = [
+        `Status: ${info.label}`,
+        info.meta ? `Details: ${info.meta}` : '',
+        info.activityAt ? `Last activity: ${formatDateTime(info.activityAt)}` : '',
+        declineReason ? `Reason: ${formatClientReason(declineReason)}` : '',
+        feedback ? `Feedback: ${feedback}` : ''
+      ].filter(Boolean);
+      els.clientResponseSummary.textContent = lines.length ? lines.join('\n') : 'No client response yet.';
     }
 
     function getDashboardEvaluationBreakdown(row){
@@ -5670,6 +5893,7 @@ opslead@company.com"></textarea></div>
         }
 
         const endorsement = await ensureApplicationEndorsement(row);
+        if(endorsement?.application_id){ state.endorsementsByApplicationId.set(String(endorsement.application_id), endorsement); }
         await sendEndorsementEmail(row, endorsement, recipients);
         await updateApplicationAsEndorsed(row, endorsement, recipients);
 
@@ -5726,7 +5950,7 @@ opslead@company.com"></textarea></div>
         : '';
       els.tableCount.textContent=`${state.filteredRows.length} candidate${state.filteredRows.length===1?'':'s'}${viewSuffix}`;
       if(!state.filteredRows.length){
-        els.applicationsTable.innerHTML='<tr><td colspan="8"><div class="empty-state"><strong>No candidates found</strong><span>Try All Candidates, search by name/email, clear filters, or use the Unassigned view.</span><button class="btn btn-xs btn-soft" type="button" data-action="clear-empty">Clear filters</button></div></td></tr>';
+        els.applicationsTable.innerHTML='<tr><td colspan="9"><div class="empty-state"><strong>No candidates found</strong><span>Try All Candidates, search by name/email, clear filters, or use the Unassigned view.</span><button class="btn btn-xs btn-soft" type="button" data-action="clear-empty">Clear filters</button></div></td></tr>';
         return;
       }
       els.applicationsTable.innerHTML=state.filteredRows.map(row=>{
@@ -5751,7 +5975,7 @@ opslead@company.com"></textarea></div>
                 <div class="row-more-menu">
                   <button class="btn btn-xs" data-action="open" type="button">Open Details</button>
                   <button class="btn btn-xs" data-action="assessment" type="button">Send Assessment</button>
-                  <button class="btn btn-xs" data-action="endorse" type="button">Send Endorsement</button>
+                  <button class="btn btn-xs" data-action="endorse" type="button">Send / Resend Endorsement</button>
                 </div>
               </details>
             </div>
@@ -7034,6 +7258,7 @@ opslead@company.com"></textarea></div>
         activities: mergedActivities
       });
       renderCandidateTimeline(row);
+      renderClientResponseDrawer(row);
       els.resumeMeta.textContent='Resolving resume...';if(els.parseResumeBtn)els.parseResumeBtn.disabled=true;if(els.uploadResumeBtn)els.uploadResumeBtn.disabled=false;state.selectedResumeUrl='';state.selectedResumePath='';
       const resume=await getResumeUrl(row.profile,row.app);state.selectedResumeUrl=resume.url;state.selectedResumePath=resume.path;
       if(resume.url){
