@@ -3712,15 +3712,39 @@ opslead@company.com"></textarea></div>
       return 'weak';
     }
     function isInterviewStatus(status){
-      return ['for interview','shortlisted','assessment'].includes(normalizeStatus(status));
+      if(!isActiveDashboardRow(status))return false;
+      return ['for interview','shortlisted','assessment','assessment_complete'].includes(normalizeStatus(status));
     }
 
     function isClosedStatus(status){
-      return ['rejected','failed paper screening','withdrawn','candidate withdrawn','not interested','no-show onboarding'].includes(normalizeStatus(status));
+      return [
+        'rejected',
+        'failed paper screening',
+        'withdrawn',
+        'candidate withdrawn',
+        'not interested',
+        'no-show onboarding',
+        'hired',
+        'onboarded'
+      ].includes(normalizeStatus(status));
     }
 
     function isHiredStatus(status){
-      return ['hired','onboarded','completed'].includes(normalizeStatus(status));
+      return ['hired','onboarded'].includes(normalizeStatus(status));
+    }
+
+    function isFinalPipelineStatus(status){
+      return isClosedStatus(status) || isHiredStatus(status);
+    }
+
+    function isActiveDashboardRow(rowOrStatus){
+      const status = typeof rowOrStatus === 'string'
+        ? rowOrStatus
+        : (rowOrStatus?.status || rowOrStatus?.app?.client_feedback_status || rowOrStatus?.app?.status || '');
+
+      // Important: completed assessment/conversation rows are recruiter-active.
+      // Hired/onboarded/rejected/withdrawn/failed screening are final and should not inflate active queues.
+      return !isFinalPipelineStatus(status);
     }
 
 
@@ -3814,11 +3838,13 @@ opslead@company.com"></textarea></div>
     }
 
     function isAwaitingAssessment(row){
+      if(!isActiveDashboardRow(row))return false;
       const key = getAssessmentInfo(row).key;
       return key === 'sent' || key === 'overdue';
     }
 
     function isAssessmentInProgress(row){
+      if(!isActiveDashboardRow(row))return false;
       const key = getAssessmentInfo(row).key;
       return key === 'in_progress' || key === 'conversation_pending';
     }
@@ -4139,6 +4165,7 @@ opslead@company.com"></textarea></div>
 
     function hasOpenFollowUp(rowOrApp){
       const app = rowOrApp?.app || rowOrApp || {};
+      if(!isActiveDashboardRow(rowOrApp))return false;
       const info = rowOrApp?.followUp || getFollowUpInfo(app);
       const raw = normalizeFollowUpStatus(app.follow_up_status);
 
@@ -5164,10 +5191,16 @@ opslead@company.com"></textarea></div>
     }
 
     function isNeedsReviewQueue(row){
-      return ['submitted','new',''].includes(normalizeStatus(row.status)) && !isReadyForReview(row);
+      return isActiveDashboardRow(row) && ['submitted','new',''].includes(normalizeStatus(row.status)) && !isReadyForReview(row);
     }
 
     function rowMatchesSavedView(row){
+      const isFinal = !isActiveDashboardRow(row);
+
+      // Closed/final candidates stay accessible only from Closed or direct search.
+      // This keeps Active, Awaiting Response, Follow-ups, and recruiter queues realistic.
+      if(state.savedView !== 'closed' && isFinal)return false;
+
       switch(state.savedView){
         case 'needs_review_queue':
           return isNeedsReviewQueue(row);
@@ -5186,14 +5219,14 @@ opslead@company.com"></textarea></div>
         case 'strong_matches':
           return scoreTier(row.score?.overall)==='strong';
         case 'closed':
-          return isClosedStatus(row.status) || isHiredStatus(row.status);
+          return isFinalPipelineStatus(row.status);
         case 'global_ready':
           return hasGlobalReadiness(row);
         case 'missing_resume':
           return !hasResumeEvidence(row.profile);
         case 'all':
         default:
-          return true;
+          return isActiveDashboardRow(row);
       }
     }
 
@@ -5277,17 +5310,17 @@ opslead@company.com"></textarea></div>
       const rows = state.allRows || [];
       const count = fn => rows.filter(fn).length;
 
-      if(els.viewCountAll)els.viewCountAll.textContent = rows.length;
-      if(els.viewCountReadyReview)els.viewCountReadyReview.textContent = count(r=>isReadyForReview(r));
+      if(els.viewCountAll)els.viewCountAll.textContent = count(r=>isActiveDashboardRow(r));
+      if(els.viewCountReadyReview)els.viewCountReadyReview.textContent = count(r=>isActiveDashboardRow(r) && isReadyForReview(r));
       if(els.viewCountAwaitingAssessment)els.viewCountAwaitingAssessment.textContent = count(r=>isAwaitingAssessment(r));
       if(els.viewCountAssessmentProgress)els.viewCountAssessmentProgress.textContent = count(r=>isAssessmentInProgress(r));
-      if(els.viewCountUnassigned)els.viewCountUnassigned.textContent = count(r=>isUnassignedRecruiter(r));
+      if(els.viewCountUnassigned)els.viewCountUnassigned.textContent = count(r=>isActiveDashboardRow(r) && isUnassignedRecruiter(r));
       if(els.viewCountFollowups)els.viewCountFollowups.textContent = count(r=>hasOpenFollowUp(r));
       if(els.viewCountInterview)els.viewCountInterview.textContent = count(r=>isInterviewStatus(r.status));
-      if(els.viewCountStrong)els.viewCountStrong.textContent = count(r=>scoreTier(r.score?.overall)==='strong');
-      if(els.viewCountClosed)els.viewCountClosed.textContent = count(r=>isClosedStatus(r.status) || isHiredStatus(r.status));
-      if(els.viewCountGlobalReady)els.viewCountGlobalReady.textContent = count(r=>hasGlobalReadiness(r));
-      if(els.viewCountMissingResume)els.viewCountMissingResume.textContent = count(r=>!hasResumeEvidence(r.profile));
+      if(els.viewCountStrong)els.viewCountStrong.textContent = count(r=>isActiveDashboardRow(r) && scoreTier(r.score?.overall)==='strong');
+      if(els.viewCountClosed)els.viewCountClosed.textContent = count(r=>isFinalPipelineStatus(r.status));
+      if(els.viewCountGlobalReady)els.viewCountGlobalReady.textContent = count(r=>isActiveDashboardRow(r) && hasGlobalReadiness(r));
+      if(els.viewCountMissingResume)els.viewCountMissingResume.textContent = count(r=>isActiveDashboardRow(r) && !hasResumeEvidence(r.profile));
     }
 
     function renderKPIs(){
@@ -5347,7 +5380,7 @@ opslead@company.com"></textarea></div>
       const allRows = state.allRows || [];
       setText(els.actionNeedsReview, allRows.filter(r => isNeedsReviewQueue(r)).length);
       setText(els.actionFollowUps, allRows.filter(r => hasOpenFollowUp(r)).length);
-      setText(els.actionReadyReview, allRows.filter(r => isReadyForReview(r)).length);
+      setText(els.actionReadyReview, allRows.filter(r => isActiveDashboardRow(r) && isReadyForReview(r)).length);
       setText(els.actionAwaitingAssessment, allRows.filter(r => isAwaitingAssessment(r)).length);
       updateMessageInboxBadge();
     }
