@@ -2179,6 +2179,13 @@ tr.row-assessment-progress:hover td{
   }
 }
 
+
+/* Lifecycle-safe assessment status */
+.assessment-badge.conversation_pending{background:var(--warn-bg);color:var(--warn);border-color:#fedf89}
+.assessment-badge.conversation_pending::before{background:var(--warn)}
+tr.row-conversation-pending td{background:linear-gradient(90deg,#fff8e6 0%,#ffffff 18%)}
+tr.row-conversation-pending:hover td{background:#f8fbff}
+
 </style>
 </head>
 <body class="auth-pending">
@@ -3701,6 +3708,106 @@ opslead@company.com"></textarea></div>
       return ['hired','onboarded','completed'].includes(normalizeStatus(status));
     }
 
+
+    function normalizeAssessmentStatus(value){
+      return safeText(value)
+        .toLowerCase()
+        .replace(/[\s-]+/g, '_')
+        .trim();
+    }
+
+    function numberFromAny(value){
+      const n = Number(value);
+      return Number.isFinite(n) ? n : 0;
+    }
+
+    function getAssessmentInfo(row){
+      const app = row?.app || {};
+      const assessment = row?.assessment || {};
+      const appStatus = normalizeStatus(row?.status || app.status || '');
+      const assessmentStatus = normalizeAssessmentStatus(assessment.status || app.assessment_invite_status || '');
+      const conversationStatus = normalizeAssessmentStatus(assessment.conversation_status || app.conversation_status || '');
+      const assessmentResponses = numberFromAny(assessment.assessment_response_count ?? assessment.response_count ?? assessment.responses_count);
+      const conversationResponses = numberFromAny(assessment.conversation_response_count ?? assessment.conversation_responses_count);
+      const dueAt = app.assessment_due_at || assessment.due_at || assessment.expires_at || null;
+      const startedAt = assessment.started_at || app.assessment_invite_sent_at || assessment.invited_at || null;
+      const completedAt = assessment.completed_at || app.ai_interview_completed_at || null;
+      const hasAssessmentRecord = Boolean(assessment.id || assessmentStatus || app.assessment_invite_status || appStatus === 'assessment' || appStatus === 'assessment_complete');
+      const isPastDue = dueAt && new Date(dueAt).getTime() < Date.now();
+
+      if(conversationStatus === 'completed' || conversationResponses >= 5 || appStatus === 'completed'){
+        return {
+          key:'completed',
+          label:'Ready for review',
+          status:'completed',
+          subtitle:`Assessment and conversation complete${conversationResponses ? ` • ${conversationResponses}/5 conversation responses` : ''}.`,
+          dueAt, startedAt, completedAt, assessmentResponses, conversationResponses
+        };
+      }
+
+      if(appStatus === 'assessment_complete' || assessmentStatus === 'completed' || assessmentResponses >= 5){
+        return {
+          key:'conversation_pending',
+          label:'Conversation pending',
+          status:'conversation_pending',
+          subtitle:`Assessment complete${assessmentResponses ? ` • ${assessmentResponses}/5 answered` : ''}. Talent conversation still pending.`,
+          dueAt, startedAt, completedAt, assessmentResponses, conversationResponses
+        };
+      }
+
+      if(assessmentResponses > 0 || assessmentStatus === 'in_progress'){
+        return {
+          key:'in_progress',
+          label:'In progress',
+          status:'in_progress',
+          subtitle:`${assessmentResponses}/5 assessment responses received.`,
+          dueAt, startedAt, completedAt, assessmentResponses, conversationResponses
+        };
+      }
+
+      if(hasAssessmentRecord){
+        if(isPastDue){
+          return {
+            key:'overdue',
+            label:'Overdue',
+            status:'overdue',
+            subtitle:`Assessment sent${dueAt ? ` • due ${formatDateTime(dueAt)}` : ''}. No responses yet.`,
+            dueAt, startedAt, completedAt, assessmentResponses, conversationResponses
+          };
+        }
+
+        return {
+          key:'sent',
+          label:'Assessment sent',
+          status:'sent',
+          subtitle:`Waiting for candidate response${dueAt ? ` • due ${formatDateTime(dueAt)}` : ''}.`,
+          dueAt, startedAt, completedAt, assessmentResponses, conversationResponses
+        };
+      }
+
+      return {
+        key:'not_sent',
+        label:'Not sent',
+        status:'not_sent',
+        subtitle:'No assessment sent yet.',
+        dueAt:null, startedAt:null, completedAt:null, assessmentResponses:0, conversationResponses:0
+      };
+    }
+
+    function isReadyForReview(row){
+      return getAssessmentInfo(row).key === 'completed';
+    }
+
+    function isAwaitingAssessment(row){
+      const key = getAssessmentInfo(row).key;
+      return key === 'sent' || key === 'overdue';
+    }
+
+    function isAssessmentInProgress(row){
+      const key = getAssessmentInfo(row).key;
+      return key === 'in_progress' || key === 'conversation_pending';
+    }
+
     function getRowPriority(row){
       if(isReadyForReview(row)){
         return {key:'attention',label:'Ready for review'};
@@ -4469,50 +4576,145 @@ opslead@company.com"></textarea></div>
 
     async function fetchLatestRoleAssessments(){
       try{
-        // Assessment completion is stored in role_assessments, not applications.
-        // Keep this select limited to columns that exist in the current schema so
-        // one missing optional field does not make the whole dashboard lose assessment state.
-        let query = supabaseClient
+        // Source of truth: role_assessments + response counts + talent_conversations.
+        // applications.status is only a saved workflow label and can be stale.
+        let assessmentQuery = supabaseClient
           .from('role_assessments')
           .select('id,application_id,applicant_profile_id,job_id,company_id,assessment_type,role_family,channel_type,status,overall_score,communication_score,technical_score,problem_solving_score,authenticity_score,evaluation_summary,started_at,completed_at,created_at,invited_at');
-        query = applyCompanyScope(query, 'role_assessments');
-        const {data,error}=await query
+        assessmentQuery = applyCompanyScope(assessmentQuery, 'role_assessments');
+        const {data: assessments, error: assessmentError}=await assessmentQuery
           .order('created_at',{ascending:false})
           .limit(CONFIG.PAGE_SIZE);
 
-        if(error)throw error;
+        if(assessmentError)throw assessmentError;
 
-        const map = new Map();
-        (data || []).forEach(item=>{
+        let responseQuery = supabaseClient
+          .from('role_assessment_responses')
+          .select('id,assessment_id,created_at');
+        responseQuery = applyCompanyScope(responseQuery, 'role_assessment_responses');
+        const {data: responses, error: responseError}=await responseQuery.limit(CONFIG.PAGE_SIZE * 5);
+        if(responseError)console.warn('role_assessment_responses count query failed:', responseError?.message || responseError);
+
+        const responseCountByAssessmentId = new Map();
+        (responses || []).forEach(response=>{
+          const assessmentId = safeText(response.assessment_id);
+          if(!assessmentId)return;
+          responseCountByAssessmentId.set(assessmentId, (responseCountByAssessmentId.get(assessmentId) || 0) + 1);
+        });
+
+        let conversationQuery = supabaseClient
+          .from('talent_conversations')
+          .select('id,application_id,status,started_at,completed_at,created_at,updated_at,company_id');
+        conversationQuery = applyCompanyScope(conversationQuery, 'talent_conversations');
+        const {data: conversations, error: conversationError}=await conversationQuery
+          .order('created_at',{ascending:false})
+          .limit(CONFIG.PAGE_SIZE);
+        if(conversationError)console.warn('talent_conversations query failed:', conversationError?.message || conversationError);
+
+        let conversationResponseQuery = supabaseClient
+          .from('talent_conversation_responses')
+          .select('id,conversation_id,created_at');
+        conversationResponseQuery = applyCompanyScope(conversationResponseQuery, 'talent_conversation_responses');
+        const {data: conversationResponses, error: conversationResponseError}=await conversationResponseQuery.limit(CONFIG.PAGE_SIZE * 5);
+        if(conversationResponseError)console.warn('talent_conversation_responses count query failed:', conversationResponseError?.message || conversationResponseError);
+
+        const responseCountByConversationId = new Map();
+        (conversationResponses || []).forEach(response=>{
+          const conversationId = safeText(response.conversation_id);
+          if(!conversationId)return;
+          responseCountByConversationId.set(conversationId, (responseCountByConversationId.get(conversationId) || 0) + 1);
+        });
+
+        const conversationByApplicationId = new Map();
+        (conversations || []).forEach(item=>{
           const appId = safeText(item.application_id);
           if(!appId)return;
+          const enriched = {
+            ...item,
+            conversation_response_count: responseCountByConversationId.get(safeText(item.id)) || 0
+          };
+          const existing = conversationByApplicationId.get(appId);
+          if(!existing){
+            conversationByApplicationId.set(appId, enriched);
+            return;
+          }
+
+          // Prefer completed conversation; otherwise newest.
+          const itemCompleted = normalizeAssessmentStatus(enriched.status) === 'completed' || Boolean(enriched.completed_at) || enriched.conversation_response_count >= 5;
+          const existingCompleted = normalizeAssessmentStatus(existing.status) === 'completed' || Boolean(existing.completed_at) || existing.conversation_response_count >= 5;
+          if(itemCompleted && !existingCompleted){
+            conversationByApplicationId.set(appId, enriched);
+            return;
+          }
+
+          const itemTime = new Date(enriched.completed_at || enriched.updated_at || enriched.started_at || enriched.created_at || 0).getTime();
+          const existingTime = new Date(existing.completed_at || existing.updated_at || existing.started_at || existing.created_at || 0).getTime();
+          if(itemCompleted === existingCompleted && itemTime > existingTime){
+            conversationByApplicationId.set(appId, enriched);
+          }
+        });
+
+        const map = new Map();
+        (assessments || []).forEach(item=>{
+          const appId = safeText(item.application_id);
+          if(!appId)return;
+          const conversation = conversationByApplicationId.get(appId) || null;
+          const enriched = {
+            ...item,
+            assessment_response_count: responseCountByAssessmentId.get(safeText(item.id)) || 0,
+            conversation_id: conversation?.id || null,
+            conversation_status: conversation?.status || null,
+            conversation_started_at: conversation?.started_at || null,
+            conversation_completed_at: conversation?.completed_at || null,
+            conversation_response_count: conversation?.conversation_response_count || 0
+          };
 
           const existing = map.get(appId);
           if(!existing){
-            map.set(appId,item);
+            map.set(appId,enriched);
             return;
           }
 
-          // Prefer completed assessment records; otherwise keep the newest by created_at.
-          const itemCompleted = normalizeAssessmentStatus(item.status) === 'completed' || Boolean(item.completed_at);
-          const existingCompleted = normalizeAssessmentStatus(existing.status) === 'completed' || Boolean(existing.completed_at);
+          // Prefer assessments that have completed or have more responses; otherwise newest.
+          const itemCompleted = normalizeAssessmentStatus(enriched.status) === 'completed' || Boolean(enriched.completed_at) || enriched.assessment_response_count >= 5;
+          const existingCompleted = normalizeAssessmentStatus(existing.status) === 'completed' || Boolean(existing.completed_at) || existing.assessment_response_count >= 5;
 
           if(itemCompleted && !existingCompleted){
-            map.set(appId,item);
+            map.set(appId,enriched);
             return;
           }
 
-          const itemTime = new Date(item.completed_at || item.started_at || item.created_at || 0).getTime();
-          const existingTime = new Date(existing.completed_at || existing.started_at || existing.created_at || 0).getTime();
-
-          if(itemCompleted === existingCompleted && itemTime > existingTime){
-            map.set(appId,item);
+          if(itemCompleted === existingCompleted && enriched.assessment_response_count !== existing.assessment_response_count){
+            if(enriched.assessment_response_count > existing.assessment_response_count)map.set(appId,enriched);
+            return;
           }
+
+          const itemTime = new Date(enriched.completed_at || enriched.started_at || enriched.created_at || 0).getTime();
+          const existingTime = new Date(existing.completed_at || existing.started_at || existing.created_at || 0).getTime();
+          if(itemCompleted === existingCompleted && itemTime > existingTime){
+            map.set(appId,enriched);
+          }
+        });
+
+        // Some applications can have a conversation row even if no assessment row is currently linked.
+        conversationByApplicationId.forEach((conversation, appId)=>{
+          if(map.has(appId))return;
+          map.set(appId, {
+            id: null,
+            application_id: appId,
+            status: null,
+            assessment_response_count: 0,
+            conversation_id: conversation.id,
+            conversation_status: conversation.status,
+            conversation_started_at: conversation.started_at,
+            conversation_completed_at: conversation.completed_at,
+            conversation_response_count: conversation.conversation_response_count || 0
+          });
         });
 
         return map;
       }catch(error){
-        console.warn('role_assessments query failed:', error?.message || error);
+        console.warn('role assessment/conversation query failed:', error?.message || error);
         return new Map();
       }
     }
@@ -5602,7 +5804,7 @@ opslead@company.com"></textarea></div>
         const tone=getStatusTone(row.status);const scoreTone=scoreTier(row.score.overall)==='strong'?'good':scoreTier(row.score.overall)==='moderate'?'warn':'bad';
         const priority=getRowPriority(row);
         const assessmentInfo = getAssessmentInfo(row);
-        const rowClasses=[row.id===state.selectedId?'active':'', priority.key==='urgent'?'row-urgent':'', priority.key==='attention'?'row-attention':'', priority.key==='quiet'?'row-quiet':'', isReadyForReview(row)?'row-ready-review':'', assessmentInfo.key==='overdue'?'row-assessment-overdue':'', assessmentInfo.key==='in_progress'?'row-assessment-progress':''].filter(Boolean).join(' ');
+        const rowClasses=[row.id===state.selectedId?'active':'', priority.key==='urgent'?'row-urgent':'', priority.key==='attention'?'row-attention':'', priority.key==='quiet'?'row-quiet':'', isReadyForReview(row)?'row-ready-review':'', assessmentInfo.key==='overdue'?'row-assessment-overdue':'', assessmentInfo.key==='in_progress'?'row-assessment-progress':'', assessmentInfo.key==='conversation_pending'?'row-conversation-pending':''].filter(Boolean).join(' ');
         return `<tr data-id="${escapeHtml(row.id)}" class="${rowClasses}">
           <td><div class="candidate-name">${priority.label?`<span class="priority-dot ${priority.key}" title="${escapeHtml(priority.label)}"></span>`:''}${escapeHtml(row.displayName)}</div><div class="small">${escapeHtml(row.profile?.email||row.app?.email||'—')}</div><div class="small">${escapeHtml([getLocation(row.profile), getCountry(row.profile)].filter(Boolean).join(', ') || '—')}</div>${getPreferredWorkSetup(row.profile)?`<div class="small">🌐 ${escapeHtml(getPreferredWorkSetup(row.profile))}</div>`:''}</td>
           <td><div class="candidate-name">${escapeHtml(row.jobTitle)}</div><div class="small">${escapeHtml(row.clientName||'')}</div></td>
@@ -6877,7 +7079,7 @@ opslead@company.com"></textarea></div>
         els.drawerAssessmentDetail.textContent = assessmentInfo.subtitle || 'No assessment activity yet.';
       }
       if(els.drawerAssessmentActionBtn){
-        els.drawerAssessmentActionBtn.textContent = assessmentInfo.key === 'completed' ? 'Open Candidate Review' : assessmentInfo.key === 'not_sent' ? 'Send Assessment' : 'View / Resend Assessment';
+        els.drawerAssessmentActionBtn.textContent = assessmentInfo.key === 'completed' ? 'Open Candidate Review' : assessmentInfo.key === 'conversation_pending' ? 'Open Candidate Review' : assessmentInfo.key === 'not_sent' ? 'Send Assessment' : 'View / Resend Assessment';
       }
 
       els.editStatus.value=row.status||row.app?.status||'submitted';
