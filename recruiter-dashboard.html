@@ -2954,7 +2954,7 @@ opslead@company.com"></textarea></div>
       </div>
     </div>
   </div> <script>
-    console.log('BuzzHire recruiter-dashboard-v2026-05-26-ingest-resume-name-fix loaded');
+    console.log('BuzzHire recruiter-dashboard-v2026-05-26-production-access-bulk-upload-fix loaded');
 
     const CONFIG = {
       SUPABASE_URL: window.TALENTBUZZ_SUPABASE_URL || localStorage.getItem('TALENTBUZZ_SUPABASE_URL') || '',
@@ -7648,8 +7648,12 @@ async function bulkUploadResumes(){
         const profilePayload = {
           full_name: getNameFromResumeFile(fileName),
           email: placeholderEmail,
+          company_id: currentCompanyId() || job.company_id || null,
+          source_platform: 'bulk_resume_upload',
+          source_email: recruiterEmail || null,
           resume_path: resumePath,
           resume_file_name: fileName,
+          has_resume: true,
           updated_at: new Date().toISOString()
         };
 
@@ -7726,6 +7730,14 @@ async function bulkUploadResumes(){
 
     setBulkUploadStatus(`Bulk upload finished. Uploaded ${uploaded}/${files.length}; parsed ${parsed}/${files.length}.\n\n${results.join('\n')}`, uploaded === files.length ? 'success' : 'error');
     showNotice(`Bulk upload finished. Uploaded ${uploaded}/${files.length}; parsed ${parsed}/${files.length}.`, uploaded === files.length ? 'success' : 'error');
+
+    try{
+      state.savedView = 'all';
+      saveUiPreference(PREF_KEYS.savedView, 'all');
+      clearFilters(false);
+    }catch(filterResetError){
+      console.warn('Unable to reset dashboard filters after bulk upload:', filterResetError);
+    }
 
     await loadDashboard();
   }catch(error){
@@ -8109,36 +8121,101 @@ async function bulkUploadResumes(){
       if(shouldApply)applyFilters();
     }
 
+    function withTimeout(promise, ms, label){
+      let timer;
+      const timeout = new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`${label || 'Request'} timed out. Please refresh and try again.`)), ms);
+      });
+      return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+    }
+
+    function hasRecruiterWorkspaceAccess(recruiter){
+      const role = normalizeStatus(recruiter?.role || 'recruiter');
+      return !!recruiter?.active && ['owner','admin','recruiter'].includes(role);
+    }
+
     async function requireRecruiterAccess(){
       setAuthMessage('Checking your BuzzHire session...');
-      const {data,error}=await supabaseClient.auth.getSession();if(error)throw error;
-      const session=data?.session||null;if(!session?.user){window.location.replace('login.html');return false}
+
+      const sessionResult = await withTimeout(
+        supabaseClient.auth.getSession(),
+        12000,
+        'BuzzHire login check'
+      );
+
+      if(sessionResult.error)throw sessionResult.error;
+
+      const session=sessionResult.data?.session||null;
+      if(!session?.user){
+        window.location.replace('login.html');
+        return false;
+      }
+
       state.currentUser=session.user;
       const email=normalizeEmail(session.user.email||'');
-      const {data:rows,error:recError}=await supabaseClient
-        .from('recruiters')
-        .select('id,email,full_name,active,company_id')
-        .eq('email',email)
-        .eq('active',true)
-        .limit(1);
-      if(recError)throw recError;
-      const recruiter=Array.isArray(rows)?rows[0]:rows;if(!recruiter){await supabaseClient.auth.signOut();window.location.replace('login.html');return false}
-      if(!recruiter.company_id){await supabaseClient.auth.signOut();setAuthMessage('Your recruiter account is not assigned to a company workspace.');return false}
+
+      setAuthMessage('Verifying recruiter permissions...');
+
+      const recruiterResult = await withTimeout(
+        supabaseClient
+          .from('recruiters')
+          .select('id,email,full_name,active,company_id,role')
+          .ilike('email', email)
+          .eq('active',true)
+          .limit(1),
+        12000,
+        'Recruiter permission check'
+      );
+
+      if(recruiterResult.error)throw recruiterResult.error;
+
+      const recruiter=Array.isArray(recruiterResult.data)?recruiterResult.data[0]:recruiterResult.data;
+
+      if(!recruiter){
+        setAuthMessage('Your login is valid, but this email is not listed as an active BuzzHire recruiter.');
+        return false;
+      }
+
+      if(!hasRecruiterWorkspaceAccess(recruiter)){
+        setAuthMessage('Your recruiter role is not allowed to access this workspace.');
+        return false;
+      }
+
+      if(!recruiter.company_id){
+        setAuthMessage('Your recruiter account is not assigned to a company workspace.');
+        return false;
+      }
+
       state.recruiterProfile=recruiter;
       state.companyId=recruiter.company_id;
+
       try{
-        const {data:companyRow,error:companyError}=await supabaseClient
-          .from('companies')
-          .select('id,company_name,slug,logo_url,primary_color,secondary_color,white_label_enabled')
-          .eq('id',state.companyId)
-          .maybeSingle();
+        const {data:companyRow,error:companyError}=await withTimeout(
+          supabaseClient
+            .from('companies')
+            .select('id,company_name,slug,logo_url,primary_color,secondary_color,white_label_enabled')
+            .eq('id',state.companyId)
+            .maybeSingle(),
+          8000,
+          'Company workspace lookup'
+        );
         if(companyError)console.warn('Company lookup failed:', companyError?.message || companyError);
         state.companyProfile=companyRow || null;
       }catch(companyLookupError){
         console.warn('Company lookup exception:', companyLookupError?.message || companyLookupError);
+        state.companyProfile=null;
       }
-      console.log('BuzzHire workspace resolved:', {email, company_id: state.companyId, company: state.companyProfile?.company_name || ''});
-      renderHeaderIdentity();setProtectedUiState(true);return true;
+
+      console.log('BuzzHire workspace resolved:', {
+        email,
+        role: recruiter.role || '',
+        company_id: state.companyId,
+        company: state.companyProfile?.company_name || ''
+      });
+
+      renderHeaderIdentity();
+      setProtectedUiState(true);
+      return true;
     }
     function renderHeaderIdentity(){
       const email=safeText(state.currentUser?.email||'');const name=safeText(state.recruiterProfile?.full_name||state.currentUser?.user_metadata?.full_name||email.split('@')[0]||'Recruiter');
