@@ -367,6 +367,24 @@
       font-weight: 700;
     }
 
+    .endorsement-reason-title {
+      display: block;
+      color: var(--ink-strong);
+      font-size: .78rem;
+      font-weight: 900;
+      letter-spacing: .07em;
+      text-transform: uppercase;
+      margin-bottom: 7px;
+    }
+
+    .endorsement-reason-text {
+      color: var(--blue-deep);
+      font-size: .88rem;
+      line-height: 1.7;
+      font-weight: 700;
+      white-space: pre-line;
+    }
+
     .metric {
       margin-bottom: 18px;
     }
@@ -1517,6 +1535,10 @@
           </div>
           <div class="card-body">
             <div id="summaryText" class="summary"></div>
+            <div id="endorsementReasonBox" class="reason" style="display:none;">
+              <span class="endorsement-reason-title">Recruiter Endorsement Reason</span>
+              <div id="endorsementReasonText" class="endorsement-reason-text"></div>
+            </div>
             <div id="clientShareNote" class="client-share-note" style="display:none;">This review is shared for client review and interview coordination. Internal recruiter notes and private workflow controls are hidden.</div>
             <div id="recommendationReason" class="reason"></div>
           </div>
@@ -1823,6 +1845,8 @@
       responseQuality: document.getElementById("responseQuality"),
       summaryText: document.getElementById("summaryText"),
       recommendationReason: document.getElementById("recommendationReason"),
+      endorsementReasonBox: document.getElementById("endorsementReasonBox"),
+      endorsementReasonText: document.getElementById("endorsementReasonText"),
       strengthsList: document.getElementById("strengthsList"),
       concernsList: document.getElementById("concernsList"),
       assessmentEvidenceList: document.getElementById("assessmentEvidenceList"),
@@ -3942,10 +3966,17 @@
       const appId = getResolvedApplicationId();
       if (!appId) return showWorkspaceNotice(els.endorsementNotice, "No application ID found for this candidate.", "error");
       const now = new Date().toISOString();
+      const endorsementReason = text(
+        els.decisionNotes?.value ||
+        currentFallback?.app?.endorsement_notes ||
+        currentFallback?.app?.recruiter_notes ||
+        ""
+      );
+
       const payloads = [
-        { status: "endorsed", client_feedback_status: "endorsed", endorsement_status: "endorsed", endorsement_sent_at: now, endorsed_by: currentFallback?.app?.recruiter_email || null, last_status_change_at: now, updated_at: now },
-        { status: "endorsed", client_feedback_status: "endorsed", last_status_change_at: now, updated_at: now },
-        { status: "endorsed", updated_at: now }
+        { status: "endorsed", client_feedback_status: "endorsed", endorsement_status: "endorsed", endorsement_sent_at: now, endorsed_by: currentFallback?.app?.recruiter_email || null, endorsement_notes: endorsementReason || null, last_status_change_at: now, updated_at: now },
+        { status: "endorsed", client_feedback_status: "endorsed", endorsement_notes: endorsementReason || null, last_status_change_at: now, updated_at: now },
+        { status: "endorsed", endorsement_notes: endorsementReason || null, updated_at: now }
       ];
       let lastError = null;
       for (const payload of payloads) {
@@ -4020,6 +4051,7 @@
           status: selectedStatus,
           client_feedback_status: selectedStatus,
           recruiter_notes: notes || null,
+          endorsement_notes: notes || null,
           stage_note_label: notes || null,
           last_status_change_at: now,
           updated_at: now,
@@ -4032,6 +4064,7 @@
         {
           status: selectedStatus,
           recruiter_notes: notes || null,
+          endorsement_notes: notes || null,
           stage_note_label: notes || null,
           last_status_change_at: now,
           updated_at: now,
@@ -4044,6 +4077,7 @@
         {
           status: selectedStatus,
           recruiter_notes: notes || null,
+          endorsement_notes: notes || null,
           stage_note_label: notes || null,
           last_status_change_at: now,
           updated_at: now
@@ -4051,6 +4085,7 @@
         {
           status: selectedStatus,
           recruiter_notes: notes || null,
+          endorsement_notes: notes || null,
           updated_at: now
         }
       ];
@@ -4365,6 +4400,31 @@
         els.summaryText,
         polishSummaryLanguage(preferredRecruiterSummary(conversation, fallback, responses))
       );
+
+      const endorsementReason = cleanDemoText(
+        isClientShareMode
+          ? (
+              fallback?.app?.endorsement_notes ||
+              sharedEndorsement?.candidate_summary ||
+              ""
+            )
+          : (
+              fallback?.app?.endorsement_notes ||
+              fallback?.app?.recruiter_notes ||
+              fallback?.app?.stage_note_label ||
+              ""
+            )
+      );
+
+      if (els.endorsementReasonBox && els.endorsementReasonText) {
+        if (endorsementReason) {
+          els.endorsementReasonText.textContent = endorsementReason;
+          els.endorsementReasonBox.style.display = "block";
+        } else {
+          els.endorsementReasonText.textContent = "";
+          els.endorsementReasonBox.style.display = "none";
+        }
+      }
 
       const cleanReason = cleanDemoText(cleanedRecommendation(conversation, insufficientEvidence));
       const preferredSummaryText = preferredRecruiterSummary(conversation, fallback, responses);
