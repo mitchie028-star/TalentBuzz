@@ -2902,7 +2902,7 @@ opslead@company.com"></textarea></div>
       </div>
     </div>
   </div> <script>
-    console.log('BuzzHire recruiter-dashboard-v2026-05-26-ingest-resume-name-fix loaded');
+    console.log('BuzzHire recruiter-dashboard-v2026-05-26-duplicate-safe loaded');
 
     const CONFIG = {
       SUPABASE_URL: window.TALENTBUZZ_SUPABASE_URL || localStorage.getItem('TALENTBUZZ_SUPABASE_URL') || '',
@@ -2919,6 +2919,14 @@ opslead@company.com"></textarea></div>
     const STATUS_OPTIONS = [
       'submitted','for interview','shortlisted','endorsed','assessment','offered jo','onboarded','hired','withdrawn','on hold','need more profiles','rejected','failed paper screening','SMS Sent','Not Interested'
     ];
+
+    const ARCHIVED_DUPLICATE_STATUSES = new Set([
+      'hidden_duplicate_ingest',
+      'archived_duplicate_ingest'
+    ]);
+
+    const INGEST_SOURCES = new Set(['indeed', 'gmail']);
+
 
     const state = {
       allRows: [],
@@ -3045,6 +3053,21 @@ opslead@company.com"></textarea></div>
     function safeText(value){return value == null ? '' : String(value).trim()}
     function escapeHtml(value){return safeText(value).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;')}
     function normalizeEmail(value){return safeText(value).toLowerCase()}
+    function isArchivedDuplicateStatus(value){
+      return ARCHIVED_DUPLICATE_STATUSES.has(safeText(value).toLowerCase());
+    }
+    function isArchivedDuplicateApplication(appOrRow){
+      const app = appOrRow?.app || appOrRow || {};
+      return isArchivedDuplicateStatus(app.status || app.client_feedback_status || appOrRow?.status);
+    }
+    function isIngestApplication(rowOrApp){
+      const app = rowOrApp?.app || rowOrApp || {};
+      const source = safeText(app.application_source || rowOrApp?.source).toLowerCase();
+      const profile = rowOrApp?.profile || {};
+      return INGEST_SOURCES.has(source) ||
+        INGEST_SOURCES.has(safeText(profile.source_platform).toLowerCase()) ||
+        Boolean(profile.indeed_email || profile.raw_email_metadata?.indeed_conversation_email);
+    }
     function isUnassignedRecruiter(rowOrValue){
       const row = typeof rowOrValue === 'object' ? rowOrValue : null;
       const value = typeof rowOrValue === 'string'
@@ -4619,8 +4642,34 @@ opslead@company.com"></textarea></div>
         .sort((a,b)=>new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
     }
 
+    function scoreCanonicalDashboardRow(row){
+      const app = row?.app || {};
+      const profile = row?.profile || {};
+      const status = normalizeStatus(app.client_feedback_status || app.status || row?.status);
+      const source = safeText(app.application_source || row?.source).toLowerCase();
+      const assessmentStatus = normalizeStatus(row?.assessmentInfo?.status || '');
+      const hasAssessmentEvidence = row?.assessment || ['completed','in_progress','sent','overdue'].includes(assessmentStatus);
+      const hasResume = Boolean(profile.resume_url || profile.resume_path || profile.has_resume || profile.raw_email_metadata?.indeed_resume_link);
+      const hasGoodName = Boolean(safeText(row?.displayName || profile.full_name)) &&
+        !/^unknown applicant|unnamed candidate$/i.test(safeText(row?.displayName || profile.full_name));
+
+      let score = 0;
+      if(!['new','submitted',''].includes(status))score += 120;
+      if(['assessment','shortlisted','endorsed','for interview','sms sent','hired','onboarded'].includes(status))score += 60;
+      if(hasAssessmentEvidence)score += 90;
+      if(!isGeneralApplicantPoolRow(row))score += 50;
+      if(hasResume)score += 25;
+      if(hasGoodName)score += 20;
+      if(!INGEST_SOURCES.has(source))score += 35;
+
+      const createdAt = new Date(row?.appliedAt || app.created_at || 0).getTime();
+      if(Number.isFinite(createdAt))score += Math.min(createdAt / 1000000000000, 2);
+      return score;
+    }
+
     function dedupeDashboardApplicationRows(rows){
-      const mergedRows = mergeDashboardActivities(rows || []);
+      const activeRows = (rows || []).filter(row => !isArchivedDuplicateApplication(row));
+      const mergedRows = mergeDashboardActivities(activeRows);
       const groups = new Map();
 
       mergedRows.forEach(row => {
@@ -4636,6 +4685,36 @@ opslead@company.com"></textarea></div>
           return;
         }
 
+        const pooledActivities = normalizeActivityRecords(group.flatMap(row => row.activities || []));
+        const hasIngestDuplicate = group.some(row => isIngestApplication(row));
+
+        if(hasIngestDuplicate){
+          const chosen = group
+            .slice()
+            .sort((a,b)=>scoreCanonicalDashboardRow(b) - scoreCanonicalDashboardRow(a))[0];
+
+          chosen.activities = pooledActivities;
+          chosen.duplicateApplications = group
+            .filter(row => row.id !== chosen.id)
+            .map(row => ({
+              applicationId: row.id,
+              status: row.status,
+              role: row.jobTitle,
+              source: row.source,
+              createdAt: row.appliedAt
+            }));
+
+          console.info('Dashboard collapsed duplicate Gmail/Indeed application rows:', {
+            keptApplicationId: chosen.id,
+            candidate: chosen.displayName,
+            keptRole: chosen.jobTitle,
+            hidden: chosen.duplicateApplications
+          });
+
+          output.push(chosen);
+          return;
+        }
+
         const hasSpecificRole = group.some(row => !isGeneralApplicantPoolRow(row));
         if(!hasSpecificRole){
           output.push(...group);
@@ -4644,11 +4723,7 @@ opslead@company.com"></textarea></div>
 
         const specificRows = group.filter(row => !isGeneralApplicantPoolRow(row));
         const generalRows = group.filter(row => isGeneralApplicantPoolRow(row));
-
-        const pooledActivities = normalizeActivityRecords(group.flatMap(row => row.activities || []));
-        specificRows.forEach(row => {
-          row.activities = pooledActivities;
-        });
+        specificRows.forEach(row => { row.activities = pooledActivities; });
 
         if(generalRows.length){
           console.info('Dashboard hiding duplicate General Applicant Pool application rows:', generalRows.map(row => ({
@@ -4663,214 +4738,6 @@ opslead@company.com"></textarea></div>
       });
 
       return output.sort((a,b)=>new Date(b.appliedAt || 0).getTime() - new Date(a.appliedAt || 0).getTime());
-    }
-
-
-    async function fetchActivitiesForRowDirect(row){
-      const identityKey = getDashboardIdentityKey(row);
-      const siblingRows = (state.allRows || []).filter(item => getDashboardIdentityKey(item) === identityKey);
-      const profileIds = uniq([
-        row?.profile?.id,
-        row?.app?.applicant_profile_id,
-        ...siblingRows.map(item => item?.profile?.id),
-        ...siblingRows.map(item => item?.app?.applicant_profile_id)
-      ].map(safeText));
-      const applicationIds = uniq([
-        row?.app?.id,
-        row?.id,
-        ...siblingRows.map(item => item?.app?.id),
-        ...siblingRows.map(item => item?.id)
-      ].map(safeText));
-
-      const collected = [];
-      const seen = new Set();
-      const addMany = items => (items || []).forEach(activity => {
-        const key = safeText(activity?.id) || `${safeText(activity?.source_message_id)}:${safeText(activity?.activity_type)}:${safeText(activity?.created_at)}:${safeText(activity?.body).slice(0,80)}`;
-        if(!key || seen.has(key))return;
-        seen.add(key);
-        collected.push(activity);
-      });
-
-      const selectColumns = 'id,applicant_profile_id,application_id,activity_type,title,body,source,source_message_id,created_at';
-
-      try{
-        if(profileIds.length){
-          const {data,error}=await supabaseClient
-            .from('candidate_activities')
-            .select(selectColumns)
-            .in('applicant_profile_id', profileIds)
-            .order('created_at',{ascending:false})
-            .limit(200);
-          if(error)throw error;
-          addMany(data);
-        }
-
-        if(applicationIds.length){
-          const {data,error}=await supabaseClient
-            .from('candidate_activities')
-            .select(selectColumns)
-            .in('application_id', applicationIds)
-            .order('created_at',{ascending:false})
-            .limit(200);
-          if(error)throw error;
-          addMany(data);
-        }
-      }catch(error){
-        console.warn('candidate_activities direct row query failed:', error?.message || error, {
-          identityKey,
-          profileIds,
-          applicationIds
-        });
-        const errorMessage = safeText(error?.message).toLowerCase();
-        if(errorMessage.includes('permission') || errorMessage.includes('policy') || errorMessage.includes('row-level security') || errorMessage.includes('rls')){
-          showNotice('Activity messages are saved, but the dashboard cannot read candidate_activities yet. Add a SELECT policy for authenticated recruiters.', 'error');
-        }else{
-          showNotice(`Activity lookup failed: ${error?.message || error}`, 'error');
-        }
-      }
-
-      return normalizeActivityRecords(collected);
-    }
-
-
-    function normalizeAssessmentStatus(value){
-      const status = safeText(value).toLowerCase().replace(/\s+/g,'_').replace(/-/g,'_');
-      if(['complete','completed','submitted','done'].includes(status))return 'completed';
-      if(['in_progress','started','active'].includes(status))return 'in_progress';
-      if(['invited','sent','pending','pending_candidate'].includes(status))return 'sent';
-      if(['overdue','past_due'].includes(status))return 'overdue';
-      if(['not_sent','none',''].includes(status))return 'not_sent';
-      return status || 'not_sent';
-    }
-
-    function getAssessmentInfo(row){
-      const app = row?.app || row || {};
-      const assessment = row?.assessment || state.assessmentsByApplicationId?.get?.(safeText(app.id)) || null;
-      const inviteStatus = normalizeAssessmentStatus(app.assessment_invite_status || '');
-      const assessmentStatus = normalizeAssessmentStatus(assessment?.status || '');
-      const dueAt = app.assessment_due_at || null;
-      const dueDate = parseFollowUpDate(dueAt);
-      const now = new Date();
-
-      let key = 'not_sent';
-
-      if(assessmentStatus === 'completed' || assessment?.completed_at){
-        key = 'completed';
-      }else if(assessmentStatus === 'in_progress' || assessment?.started_at){
-        key = 'in_progress';
-      }else if(assessmentStatus === 'sent' || inviteStatus === 'sent' || app.assessment_invite_sent_at || assessment?.invited_at || assessment?.id){
-        key = 'sent';
-      }
-
-      if(key === 'sent' && dueDate && dueDate < now){
-        key = 'overdue';
-      }
-
-      const labels = {
-        not_sent: 'Not Sent',
-        sent: 'Sent',
-        in_progress: 'In Progress',
-        completed: 'Completed',
-        overdue: 'Overdue'
-      };
-
-      const subtitles = {
-        not_sent: 'Not sent yet',
-        sent: dueAt ? `Due ${formatDateTime(dueAt)}` : 'Waiting for candidate response',
-        in_progress: 'Candidate started',
-        completed: 'Ready for review',
-        overdue: dueAt ? `Overdue since ${formatDateTime(dueAt)}` : 'Past due'
-      };
-
-      return {
-        key,
-        label: labels[key] || formatStatusLabel(key),
-        subtitle: subtitles[key] || '',
-        assessment,
-        dueAt,
-        completedAt: assessment?.completed_at || null,
-        startedAt: assessment?.started_at || null
-      };
-    }
-
-    function hasAssessmentCompleted(row){
-      return getAssessmentInfo(row).key === 'completed';
-    }
-
-    function hasRecruiterReviewedCompletedAssessment(row){
-      const status = normalizeStatus(row?.status || row?.app?.status || '');
-
-      // These statuses mean a recruiter already reviewed or moved the candidate
-      // after assessment completion, so they should no longer sit in Ready Review.
-      const reviewedOrFinalStatuses = new Set([
-        'shortlisted',
-        'for interview',
-        'endorsed',
-        'rejected',
-        'failed paper screening',
-        'offered jo',
-        'onboarded',
-        'hired',
-        'withdrawn',
-        'candidate withdrawn',
-        'not interested',
-        'no-show onboarding',
-        'on hold',
-        'need more profiles',
-        'sms sent'
-      ]);
-
-      return reviewedOrFinalStatuses.has(status);
-    }
-
-    function isReadyForReview(row){
-      return hasAssessmentCompleted(row) && !hasRecruiterReviewedCompletedAssessment(row);
-    }
-
-    // Backward-compatible alias for older event handlers; Ready Review should use
-    // isReadyForReview so completed-but-already-reviewed candidates do not count.
-    function hasCompletedAssessment(row){
-      return isReadyForReview(row);
-    }
-
-    function isAwaitingAssessment(row){
-      const key = getAssessmentInfo(row).key;
-      return key === 'sent' || key === 'overdue';
-    }
-
-    function isAssessmentInProgress(row){
-      return getAssessmentInfo(row).key === 'in_progress';
-    }
-
-    function assessmentTone(key){
-      if(key === 'completed')return 'good';
-      if(key === 'in_progress')return 'warn';
-      if(key === 'overdue')return 'bad';
-      if(key === 'sent')return 'info';
-      return 'missing';
-    }
-
-    function withDefaultFollowUpFields(rows){
-      return (rows || []).map(row => ({
-        ...row,
-        follow_up_required: row.follow_up_required ?? false,
-        follow_up_status: row.follow_up_status ?? '',
-        follow_up_date: row.follow_up_date ?? null,
-        follow_up_due_at: row.follow_up_due_at ?? null,
-        follow_up_note: row.follow_up_note ?? '',
-        last_followed_up_at: row.last_followed_up_at ?? null
-      }));
-    }
-
-    function uniqueById(rows){
-      const seen = new Set();
-      return (rows || []).filter(row => {
-        const id = safeText(row?.id);
-        if(!id)return false;
-        if(seen.has(id))return false;
-        seen.add(id);
-        return true;
-      });
     }
 
     async function fetchApplicationsDirect(select, includeCompanyFallback = true){
@@ -4974,6 +4841,7 @@ opslead@company.com"></textarea></div>
         const activityLookup = buildCandidateActivityLookup(candidateActivities || []);
         const companyId = currentCompanyId();
         const companyScopedApplications = uniqueById(applications || []).filter(app => {
+          if(isArchivedDuplicateApplication(app))return false;
           const appCompanyId = safeText(app.company_id);
           if(!companyId)return true;
           if(appCompanyId === companyId)return true;
@@ -5037,9 +4905,10 @@ opslead@company.com"></textarea></div>
       if([...select.options].some(o=>o.value===current))select.value=current;
     }
     function populateFilters(){
-      populateSelect(els.statusFilter,[...STATUS_OPTIONS,...state.allRows.map(r=>r.status)],'All statuses');
-      populateSelect(els.editStatus,[...STATUS_OPTIONS,...state.allRows.map(r=>r.status)],'Select actual status');
-      populateSelect(els.modalEditStatus,[...STATUS_OPTIONS,...state.allRows.map(r=>r.status)],'Select actual status');
+      const visibleStatuses = [...STATUS_OPTIONS,...state.allRows.map(r=>r.status)].filter(status => !isArchivedDuplicateStatus(status));
+      populateSelect(els.statusFilter,visibleStatuses,'All statuses');
+      populateSelect(els.editStatus,visibleStatuses,'Select actual status');
+      populateSelect(els.modalEditStatus,visibleStatuses,'Select actual status');
       populateSelect(els.recruiterFilter,state.allRows.map(r=>r.recruiter || 'Unassigned'),'All recruiters');
       populateSelect(els.jobFilter,state.allRows.map(r=>r.jobTitle).filter(x=>x!=='—'),'All jobs');
       populateSelect(els.clientFilter,state.allRows.map(r=>r.clientName).filter(x=>x!=='—'),'All clients');
