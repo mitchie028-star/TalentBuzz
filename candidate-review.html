@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <title>BuzzHire | Candidate Review</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="description" content="Structured recruiter review for BuzzHire candidates." />
+  <meta name="description" content="BuzzHire hiring intelligence review for candidate evidence, recruiter decisions, endorsements, resume review, and interview planning." />
   <meta name="robots" content="noindex,nofollow" />
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -943,24 +943,6 @@
       gap: 8px;
     }
 
-
-    .resume-link-row a {
-      color: var(--blue-deep);
-      font-weight: 900;
-      text-decoration: none;
-    }
-
-    .resume-link-row a:hover {
-      text-decoration: underline;
-    }
-
-    .decision-actions .btn-endorse-inline {
-      background: linear-gradient(135deg, var(--green), var(--green-deep));
-      border-color: var(--green);
-      color: #fff;
-      box-shadow: 0 12px 28px rgba(22,163,74,.16);
-    }
-
     .btn:disabled {
       opacity: .62;
       cursor: not-allowed;
@@ -1714,7 +1696,6 @@
           <p>Update the candidate status and add recruiter notes directly from this review.</p>
 
           <div id="decisionNotice" class="decision-notice"></div>
-          <div id="endorsementNotice" class="workspace-notice"></div>
 
           <div class="decision-field">
             <label for="decisionStatus">Candidate Status</label>
@@ -1737,10 +1718,11 @@
           </div>
 
           <div class="decision-actions">
-            <button class="btn btn-endorse-inline" id="quickEndorseCandidateBtn" type="button">Endorse Candidate</button>
-            <button class="btn btn-primary" id="saveDecisionBtn" type="button">Save Decision & Return</button>
+            <button class="btn btn-primary" id="endorseCandidateBtn" type="button">Endorse Candidate</button>
+            <button class="btn" id="saveDecisionBtn" type="button">Save Decision & Return</button>
             <a href="recruiter-dashboard.html" class="btn">Back to Dashboard</a>
           </div>
+          <div id="endorsementNotice" class="workspace-notice"></div>
         </section>
 
           <section class="review-workspace-card" id="candidateDetailsCard">
@@ -1752,7 +1734,13 @@
               <div class="review-kv"><span>Phone</span><strong id="workspaceCandidatePhone">—</strong></div>
               <div class="review-kv"><span>Location</span><strong id="workspaceCandidateLocation">—</strong></div>
               <div class="review-kv"><span>Role</span><strong id="workspaceCandidateRole">—</strong></div>
-              <div class="review-kv resume-link-row"><span>Resume</span><strong id="workspaceResumeLink">Checking resume…</strong></div>
+              <div class="review-kv">
+                <span>Resume</span>
+                <strong>
+                  <a href="#" class="btn" id="workspaceCandidateResume" target="_blank" rel="noopener" style="min-height:34px;padding:0 10px;display:none;">View submitted resume</a>
+                  <span id="workspaceCandidateResumeMissing">No resume submitted</span>
+                </strong>
+              </div>
             </div>
           </section>
 
@@ -1886,14 +1874,14 @@
       workspaceCandidatePhone: document.getElementById("workspaceCandidatePhone"),
       workspaceCandidateLocation: document.getElementById("workspaceCandidateLocation"),
       workspaceCandidateRole: document.getElementById("workspaceCandidateRole"),
-      workspaceResumeLink: document.getElementById("workspaceResumeLink"),
+      workspaceCandidateResume: document.getElementById("workspaceCandidateResume"),
+      workspaceCandidateResumeMissing: document.getElementById("workspaceCandidateResumeMissing"),
       workspaceFollowUpStatus: document.getElementById("workspaceFollowUpStatus"),
       workspaceFollowUpDate: document.getElementById("workspaceFollowUpDate"),
       workspaceFollowUpNote: document.getElementById("workspaceFollowUpNote"),
       saveWorkspaceFollowUpBtn: document.getElementById("saveWorkspaceFollowUpBtn"),
       workspaceFollowUpNotice: document.getElementById("workspaceFollowUpNotice"),
       endorseCandidateBtn: document.getElementById("endorseCandidateBtn"),
-      quickEndorseCandidateBtn: document.getElementById("quickEndorseCandidateBtn"),
       endorsementNotice: document.getElementById("endorsementNotice"),
       workspaceInterviewDateTime: document.getElementById("workspaceInterviewDateTime"),
       workspaceInterviewStage: document.getElementById("workspaceInterviewStage"),
@@ -1943,167 +1931,6 @@
         .split(/\n|,|;/)
         .map(item => item.trim())
         .filter(Boolean);
-    }
-
-
-    function uniq(values) {
-      return Array.from(new Set((values || []).filter(Boolean)));
-    }
-
-    function isExternalResumeUrl(url) {
-      const value = text(url);
-      return /^https?:\/\//i.test(value) && !/\/storage\/v1\/object\/(public|sign)\/resumes\//i.test(value);
-    }
-
-    function isDirectResumeUrl(url) {
-      const value = text(url);
-      return /^https?:\/\//i.test(value) || value.startsWith("blob:") || value.startsWith("data:");
-    }
-
-    function cleanResumePath(path) {
-      let value = text(path);
-      if (!value) return "";
-      try { value = decodeURIComponent(value); } catch (_) {}
-      if (isExternalResumeUrl(value)) return value;
-      return value
-        .split("?")[0]
-        .split("#")[0]
-        .replace(/^https?:\/\/[^/]+\//i, "")
-        .replace(/^storage\/v1\/object\/(public|sign)\/resumes\//i, "")
-        .replace(/^storage\/v1\/object\/(public|sign)\/[^/]+\//i, "")
-        .replace(/^object\/(public|sign)\/resumes\//i, "")
-        .replace(/^object\/(public|sign)\/[^/]+\//i, "")
-        .replace(/^resumes\//i, "")
-        .replace(/^\/+/, "");
-    }
-
-    function normalizeEmailFolder(email) {
-      return text(email)
-        .toLowerCase()
-        .replace(/@/g, "_")
-        .replace(/[^a-z0-9._-]/g, "_")
-        .replace(/_+/g, "_")
-        .replace(/^_+|_+$/g, "");
-    }
-
-    function getFileNameFromValue(value) {
-      const clean = cleanResumePath(value);
-      if (!clean || isExternalResumeUrl(clean)) return clean ? "resume" : "";
-      const parts = clean.split("/").filter(Boolean);
-      return parts.length ? parts[parts.length - 1] : "";
-    }
-
-    function buildResumePathCandidates(profile = {}, app = {}) {
-      const emailCandidates = uniq([profile.email, app.email, app.applicant_email, app.candidate_email].map(text));
-      const storageSourceValues = [
-        profile.resume_path,
-        profile.resume_file_name,
-        !isDirectResumeUrl(profile.resume_url) ? profile.resume_url : ""
-      ];
-      const rawPathCandidates = uniq(storageSourceValues.map(cleanResumePath).filter(path => path && !isExternalResumeUrl(path)));
-      const fileNameCandidates = uniq([
-        profile.resume_file_name,
-        getFileNameFromValue(profile.resume_path),
-        !isDirectResumeUrl(profile.resume_url) ? getFileNameFromValue(profile.resume_url) : ""
-      ].map(text));
-
-      const candidates = [];
-      rawPathCandidates.forEach(raw => {
-        if (!raw || isExternalResumeUrl(raw)) return;
-        candidates.push(raw);
-        if (!raw.includes("/")) {
-          emailCandidates.forEach(email => {
-            const folder = normalizeEmailFolder(email);
-            if (folder) {
-              candidates.push(`manual/${folder}/${raw}`);
-              candidates.push(`sourced-candidates/${folder}/${raw}`);
-            }
-          });
-        }
-      });
-
-      fileNameCandidates.forEach(fileName => {
-        emailCandidates.forEach(email => {
-          const folder = normalizeEmailFolder(email);
-          if (folder && fileName) {
-            candidates.push(`manual/${folder}/${fileName}`);
-            candidates.push(`sourced-candidates/${folder}/${fileName}`);
-          }
-        });
-      });
-
-      emailCandidates.forEach(email => {
-        const folder = normalizeEmailFolder(email);
-        if (folder) {
-          candidates.push(`manual/${folder}`);
-          candidates.push(`sourced-candidates/${folder}`);
-        }
-      });
-
-      return uniq(candidates.map(cleanResumePath).filter(path => path && !isExternalResumeUrl(path)));
-    }
-
-    function isResumeFilePath(path) {
-      const value = text(path);
-      if (isExternalResumeUrl(value)) return false;
-      return /\.(pdf|doc|docx|rtf)$/i.test(cleanResumePath(value));
-    }
-
-    async function createResumeSignedUrl(path) {
-      const cleanPath = cleanResumePath(path);
-      if (!cleanPath || isExternalResumeUrl(cleanPath)) return "";
-      try {
-        const { data, error } = await supabaseClient.storage.from("resumes").createSignedUrl(cleanPath, 3600);
-        if (!error && data?.signedUrl) return data.signedUrl;
-      } catch (error) {
-        console.warn("Resume signed URL failed:", error);
-      }
-      return "";
-    }
-
-    async function resolveResumeUrl(profile = {}, app = {}) {
-      const directUrl = text(profile.resume_url || profile?.raw_email_metadata?.indeed_resume_link || profile?.raw_email_metadata?.resume_url || profile?.raw_email_metadata?.resume_link || "");
-      if (isExternalResumeUrl(directUrl)) return directUrl;
-      if (isDirectResumeUrl(directUrl)) {
-        const signed = await createResumeSignedUrl(directUrl);
-        if (signed) return signed;
-      }
-
-      const candidates = buildResumePathCandidates(profile, app);
-      for (const candidatePath of candidates) {
-        const cleanPath = cleanResumePath(candidatePath);
-        if (!cleanPath) continue;
-        if (isResumeFilePath(cleanPath)) {
-          const signed = await createResumeSignedUrl(cleanPath);
-          if (signed) return signed;
-          continue;
-        }
-        try {
-          const { data, error } = await supabaseClient.storage.from("resumes").list(cleanPath, {
-            limit: 50,
-            sortBy: { column: "created_at", order: "desc" }
-          });
-          if (error) continue;
-          const resumeFile = (data || []).find(file => /\.(pdf|doc|docx|rtf)$/i.test(file.name || ""));
-          if (!resumeFile) continue;
-          const signed = await createResumeSignedUrl(`${cleanPath}/${resumeFile.name}`);
-          if (signed) return signed;
-        } catch (_) {}
-      }
-      return "";
-    }
-
-    async function populateResumeLink(fallback) {
-      if (!els.workspaceResumeLink) return;
-      const app = fallback?.app || {};
-      const profile = fallback?.profile || fallback?.applicant_profile || {};
-      els.workspaceResumeLink.textContent = "Checking resume…";
-      const resumeUrl = await resolveResumeUrl(profile, app);
-      if (resumeUrl) {
-        els.workspaceResumeLink.innerHTML = `<a href="${escapeHtml(resumeUrl)}" target="_blank" rel="noopener">View submitted resume</a>`;
-      } else {
-        els.workspaceResumeLink.textContent = "No resume found";
-      }
     }
 
 
@@ -4104,7 +3931,43 @@
       return date.toISOString().slice(0, 10);
     }
 
-    async function populateRecruiterWorkspace(fallback) {
+    function getSubmittedResumeUrl(app = {}, profile = {}) {
+      const directUrl = text(
+        app.resume_url ||
+        app.resume_file_url ||
+        app.resume_public_url ||
+        app.resume_link ||
+        app.cv_url ||
+        app.cv_file_url ||
+        app.file_url ||
+        app.attachment_url ||
+        app.uploaded_resume_url ||
+        app.resume ||
+        profile.resume_url ||
+        profile.resume_file_url ||
+        profile.resume_public_url ||
+        profile.resume_link ||
+        profile.cv_url ||
+        profile.cv_file_url ||
+        ""
+      );
+
+      if (!directUrl) return "";
+
+      if (/^https?:\/\//i.test(directUrl)) return directUrl;
+
+      try {
+        const cleanPath = directUrl.replace(/^\/+/, "");
+        const bucket = text(app.resume_bucket || profile.resume_bucket || "resumes");
+        const publicResult = supabaseClient.storage.from(bucket).getPublicUrl(cleanPath);
+        return publicResult?.data?.publicUrl || directUrl;
+      } catch (error) {
+        console.warn("Unable to create resume public URL:", error);
+        return directUrl;
+      }
+    }
+
+    function populateRecruiterWorkspace(fallback) {
       const app = fallback?.app || {};
       const profile = fallback?.profile || fallback?.applicant_profile || {};
       const job = fallback?.job || {};
@@ -4114,11 +3977,24 @@
       if (els.workspaceCandidatePhone) els.workspaceCandidatePhone.textContent = text(profile.phone || app.phone || "—");
       if (els.workspaceCandidateLocation) els.workspaceCandidateLocation.textContent = text(profile.location || profile.city || profile.current_location || "—");
       if (els.workspaceCandidateRole) els.workspaceCandidateRole.textContent = text(job.title || app.job_title || "—");
+
+      const resumeUrl = getSubmittedResumeUrl(app, profile);
+      if (els.workspaceCandidateResume && els.workspaceCandidateResumeMissing) {
+        if (resumeUrl) {
+          els.workspaceCandidateResume.href = resumeUrl;
+          els.workspaceCandidateResume.style.display = "inline-flex";
+          els.workspaceCandidateResumeMissing.style.display = "none";
+        } else {
+          els.workspaceCandidateResume.removeAttribute("href");
+          els.workspaceCandidateResume.style.display = "none";
+          els.workspaceCandidateResumeMissing.style.display = "inline";
+        }
+      }
+
       const followStatus = text(app.follow_up_status || (app.follow_up_required ? "needs_follow_up" : "none"));
       if (els.workspaceFollowUpStatus) els.workspaceFollowUpStatus.value = ["none", "needs_follow_up", "due_today", "followed_up"].includes(followStatus) ? followStatus : "none";
       if (els.workspaceFollowUpDate) els.workspaceFollowUpDate.value = toDateInput(app.follow_up_due_at || app.follow_up_date);
       if (els.workspaceFollowUpNote) els.workspaceFollowUpNote.value = text(app.follow_up_note || "");
-      await populateResumeLink(fallback);
     }
 
     async function saveWorkspaceFollowUp() {
@@ -4321,17 +4197,17 @@
       if (els.saveDecisionBtn) {
         els.saveDecisionBtn.addEventListener("click", updateApplicationDecision);
       }
-      if (els.quickEndorseCandidateBtn) {
-        els.quickEndorseCandidateBtn.addEventListener("click", endorseCandidateFromReview);
-      }
+
       if (els.endorseCandidateBtn) {
         els.endorseCandidateBtn.addEventListener("click", endorseCandidateFromReview);
       }
+
       if (els.saveWorkspaceFollowUpBtn) {
         els.saveWorkspaceFollowUpBtn.addEventListener("click", saveWorkspaceFollowUp);
       }
+
       if (els.scheduleWorkspaceInterviewBtn) {
-        els.scheduleWorkspaceInterviewBtn.addEventListener("click", scheduleWorkspaceInterview);
+        els.scheduleWorkspaceInterviewBtn.addEventListener("click", saveWorkspaceInterviewPlan);
       }
     }
 
