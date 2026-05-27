@@ -2916,7 +2916,7 @@ opslead@company.com"></textarea></div>
       <div class="modal-head">
         <div>
           <strong>Email Candidate</strong>
-          <div class="small" id="candidateEmailModalSubtitle">Compose a candidate email from the dashboard. Direct sending can be wired to an Edge Function later.</div>
+          <div class="small" id="candidateEmailModalSubtitle">Compose and send a candidate email directly from the dashboard.</div>
         </div>
         <button class="btn btn-xs" id="candidateEmailModalClose" type="button">Close</button>
       </div>
@@ -2946,7 +2946,7 @@ opslead@company.com"></textarea></div>
               <textarea id="candidateEmailBody" class="candidate-email-body" placeholder="Write your message..."></textarea>
             </div>
           </div>
-          <div class="candidate-email-preview-note">For now, this composer can copy the email or open your email app. Later we can connect this to a Supabase Edge Function for direct dashboard sending and logging.</div>
+          <div class="candidate-email-preview-note">This sends through the dashboard email function and logs the message on the candidate activity timeline.</div>
           <div class="candidate-email-status hidden" id="candidateEmailStatus">No email prepared yet.</div>
         </section>
       </div>
@@ -2954,7 +2954,7 @@ opslead@company.com"></textarea></div>
         <span class="small">SMS can use the same candidate communication pattern later.</span>
         <div class="actions">
           <button class="btn btn-soft" id="copyCandidateEmailBtn" type="button">Copy Email</button>
-          <button class="btn btn-primary" id="openCandidateEmailAppBtn" type="button">Open Email App</button>
+          <button class="btn btn-primary" id="openCandidateEmailAppBtn" type="button">Send Email</button>
         </div>
       </div>
     </div>
@@ -3231,6 +3231,7 @@ opslead@company.com"></textarea></div>
       ASSESSMENT_INVITE_FUNCTION: 'send-assessment-invite',
       INTERVIEW_INVITE_FUNCTION: 'send-interview-invite',
       ENDORSEMENT_INVITE_FUNCTION: 'send-client-endorsement',
+      CANDIDATE_EMAIL_FUNCTION: 'send-candidate-email',
       DASHBOARD_AUTO_REFRESH_MS: 900000,
       DASHBOARD_AUTO_REFRESH_WHEN_HIDDEN_MS: 1500000,
     };
@@ -9341,15 +9342,102 @@ async function bulkUploadResumes(){
       }
     }
 
-    function openCandidateEmailApp(){
+    async function openCandidateEmailApp(){
       const draft = getCandidateEmailDraft();
+      const row = getSelectedCandidateRow();
+
       if(!draft.to || !draft.subject || !draft.body){
-        showCandidateEmailStatus('Please complete the recipient, subject, and message before opening your email app.', 'error');
+        showCandidateEmailStatus('Please complete the recipient, subject, and message before sending.', 'error');
         return;
       }
-      const mailto = `mailto:${encodeURIComponent(draft.to)}?subject=${encodeURIComponent(draft.subject)}&body=${encodeURIComponent(draft.body)}`;
-      window.location.href = mailto;
-      showCandidateEmailStatus('Opening your email app. Direct dashboard sending can be connected next with a Supabase Edge Function.', 'success');
+
+      if(!row?.id){
+        showCandidateEmailStatus('Please select a candidate before sending.', 'error');
+        return;
+      }
+
+      const button = els.openCandidateEmailAppBtn;
+      const originalText = button?.textContent || 'Send Email';
+
+      try{
+        if(button){
+          button.disabled = true;
+          button.textContent = 'Sending...';
+        }
+
+        showCandidateEmailStatus('Sending email from dashboard...', 'info');
+
+        const payload = {
+          application_id: row.id,
+          applicant_profile_id: row?.app?.applicant_profile_id || row?.profile?.id || null,
+          company_id: row?.app?.company_id || currentCompanyId() || null,
+          job_id: row?.app?.job_id || row?.job?.id || null,
+          to: draft.to,
+          subject: draft.subject,
+          body: draft.body,
+          message: draft.body,
+          template: safeText(els.candidateEmailTemplate?.value || 'custom'),
+          candidate_name: row?.displayName || row?.profile?.full_name || '',
+          candidate_email: draft.to,
+          role_title: row?.jobTitle || row?.app?.job_title || '',
+          recruiter_email: state.currentUser?.email || state.recruiterProfile?.email || '',
+          recruiter_name: state.recruiterProfile?.full_name || state.currentUser?.email || 'BuzzHire Team'
+        };
+
+        const functionNames = [
+          CONFIG.CANDIDATE_EMAIL_FUNCTION,
+          'send-candidate-message',
+          'send-email'
+        ].filter(Boolean);
+
+        let sent = false;
+        let lastError = null;
+
+        for(const functionName of functionNames){
+          try{
+            const { data, error } = await supabaseClient.functions.invoke(functionName, { body: payload });
+            if(error)throw error;
+            if(data && data.success === false)throw new Error(data.error || data.message || `${functionName} returned success=false`);
+            sent = true;
+            break;
+          }catch(error){
+            lastError = error;
+            console.warn(`${functionName} failed:`, error?.message || error);
+          }
+        }
+
+        if(!sent){
+          throw lastError || new Error('No dashboard email function accepted the request.');
+        }
+
+        await insertCandidateActivitySafe({
+          application_id: row.id,
+          applicant_profile_id: row?.app?.applicant_profile_id || row?.profile?.id || null,
+          activity_type: 'email_sent',
+          title: `Email sent: ${draft.subject}`,
+          body: `To: ${draft.to}\n\n${draft.body}`,
+          source: 'recruiter_dashboard'
+        });
+
+        showCandidateEmailStatus(`Email sent to ${draft.to}.`, 'success');
+
+        try{
+          await loadDashboard({silent:true});
+          if(state.selectedId === row.id){
+            await openDrawer(row.id);
+          }
+        }catch(refreshError){
+          console.warn('Email sent but dashboard refresh failed:', refreshError);
+        }
+      }catch(error){
+        console.error('Candidate email send failed:', error);
+        showCandidateEmailStatus(`Email was not sent: ${getReadableError ? getReadableError(error) : (error?.message || error)}. If this is the first time using direct send, deploy the Supabase Edge Function named send-candidate-email.`, 'error');
+      }finally{
+        if(button){
+          button.disabled = false;
+          button.textContent = originalText === 'Open Email App' ? 'Send Email' : originalText;
+        }
+      }
     }
 
     function bindEvents(){
