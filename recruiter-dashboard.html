@@ -3269,6 +3269,7 @@ opslead@company.com"></textarea></div>
       lastKnownRowCount: 0,
       messageInboxRows: [],
       messageInboxLoading: false,
+      communicationsByApplicationId: new Map(),
       bulkSelectedIds: new Set(),
       endorsementsByApplicationId: new Map(),
       activeCandidateIds: new Set(),
@@ -3730,28 +3731,35 @@ opslead@company.com"></textarea></div>
         null;
     }
 
-    function buildMessageInboxRows(activities = [], rows = state.allRows){
-      return (activities || [])
-        .filter(isCandidateMessageActivity)
-        .map(activity => {
-          const row = findRowForMessageActivity(activity, rows);
-          const body = getActivityBodyForTimeline(activity) || stripHtmlForTimeline(activity?.body || '');
+    function buildMessageInboxRows(messages = [], rows = state.allRows){
+      return (messages || [])
+        .filter(message => safeText(message.sender_type).toLowerCase() === 'applicant' || safeText(message.direction).toLowerCase() === 'inbound' || message.unread_candidate_reply === true)
+        .map(message => {
+          const applicationId = safeText(message.application_id);
+          const profileId = safeText(message.applicant_profile_id);
+          const email = normalizeEmail(message.applicant_email || '');
+          const row = (rows || []).find(item => safeText(item?.app?.id || item?.id) === applicationId) ||
+            (rows || []).find(item => safeText(item?.profile?.id || item?.app?.applicant_profile_id) === profileId) ||
+            (rows || []).find(item => normalizeEmail(item?.profile?.email || item?.app?.email || '') === email) ||
+            null;
+          const body = stripHtmlForTimeline(message?.message || '');
           const preview = body.length > 900 ? `${body.slice(0, 900)}…` : body;
 
           return {
-            id: safeText(activity.id || `${activity.source_message_id}:${activity.created_at}`),
-            activity,
+            id: safeText(message.id || `${email}:${message.created_at}`),
+            message,
             rowId: row?.id || '',
-            applicantProfileId: safeText(activity.applicant_profile_id || row?.profile?.id || ''),
-            applicationId: safeText(activity.application_id || row?.app?.id || ''),
-            candidateName: safeText(row?.displayName || row?.profile?.full_name || 'Unknown candidate'),
-            candidateEmail: safeText(row?.profile?.email || row?.app?.email || ''),
-            role: safeText(row?.jobTitle || row?.app?.job_title || ''),
+            applicantProfileId: safeText(profileId || row?.profile?.id || ''),
+            applicationId: safeText(applicationId || row?.app?.id || ''),
+            candidateName: safeText(row?.displayName || message.candidate_name || row?.profile?.full_name || email || 'Unknown candidate'),
+            candidateEmail: safeText(email || row?.profile?.email || row?.app?.email || ''),
+            role: safeText(row?.jobTitle || message.job_title || row?.app?.job_title || ''),
             client: safeText(row?.clientName || row?.job?.client_name || ''),
-            source: safeText(activity.source || 'gmail'),
-            title: formatActivityTitle(activity),
+            source: 'email',
+            title: message.unread_candidate_reply ? 'Unread candidate reply' : 'Candidate reply',
             body: preview || 'No message body captured.',
-            createdAt: activity.created_at,
+            createdAt: message.created_at,
+            isRead: message.is_read === true,
             matched: Boolean(row?.id)
           };
         })
@@ -3772,7 +3780,7 @@ opslead@company.com"></textarea></div>
 
       const messages = state.messageInboxRows || [];
       if(!messages.length){
-        els.messageInboxList.innerHTML = '<div class="message-inbox-empty">No candidate replies yet. Click Sync Replies after your email ingestion function is deployed, or wait for Gmail/Indeed ingestion to save inbound replies as candidate activity.</div>';
+        els.messageInboxList.innerHTML = '<div class="message-inbox-empty">No candidate replies yet. Replies saved in applicant_messages will appear here after Gmail/Indeed ingestion runs.</div>';
         return;
       }
 
@@ -3801,24 +3809,7 @@ opslead@company.com"></textarea></div>
     }
 
     async function queryCandidateInboxActivities(){
-      const inboundTypes = [
-        'candidate_message',
-        'candidate_email_received',
-        'candidate_email_reply',
-        'email_received',
-        'email_reply',
-        'indeed_reply'
-      ];
-
-      const {data, error} = await supabaseClient
-        .from('candidate_activities')
-        .select('id,applicant_profile_id,application_id,activity_type,title,body,source,source_message_id,created_at')
-        .in('activity_type', inboundTypes)
-        .order('created_at', {ascending:false})
-        .limit(100);
-
-      if(error)throw error;
-      return data || [];
+      return await fetchCandidateCommunications();
     }
 
     async function syncCandidateEmailInbox({silent=false} = {}){
@@ -3866,7 +3857,7 @@ opslead@company.com"></textarea></div>
         }
 
         if(!synced && !silent){
-          showNotice(`Email sync is not connected yet. Deploy an Edge Function named ${CONFIG.CANDIDATE_EMAIL_SYNC_FUNCTION}; the Inbox will still show replies already saved in candidate_activities.`, 'info');
+          showNotice(`Email sync is not connected yet. Deploy an Edge Function named ${CONFIG.CANDIDATE_EMAIL_SYNC_FUNCTION}; the Inbox will still show replies already saved in applicant_messages.`, 'info');
         }
 
         return synced;
@@ -3968,6 +3959,30 @@ opslead@company.com"></textarea></div>
     }
 
 
+
+    function normalizeCommunicationTimelineMessages(messages){
+      const seen = new Set();
+      return (messages || [])
+        .filter(Boolean)
+        .map(message => {
+          const key = safeText(message.id) || `${safeText(message.sender_type)}:${safeText(message.created_at)}:${safeText(message.message)}`;
+          if(!key || seen.has(key))return null;
+          seen.add(key);
+          const sender = safeText(message.sender_type).toLowerCase();
+          const direction = safeText(message.direction).toLowerCase();
+          const inbound = sender === 'applicant' || direction === 'inbound';
+          const body = stripHtmlForTimeline(message.message || '');
+          const preview = body.length > 500 ? `${body.slice(0, 500)}…` : body;
+          return {
+            title: inbound ? 'Candidate reply received' : 'Email sent to candidate',
+            time: message.created_at,
+            text: escapeHtml(preview || 'No message body captured.'),
+            tone: inbound ? 'info' : 'good'
+          };
+        })
+        .filter(Boolean);
+    }
+
     function renderCandidateTimeline(row){
       if(!els.candidateTimeline)return;
       if(!row){
@@ -3986,6 +4001,9 @@ opslead@company.com"></textarea></div>
 
       const candidateActivityItems = normalizeTimelineActivities(row.activities || []);
       items.push(...candidateActivityItems);
+
+      const communicationItems = normalizeCommunicationTimelineMessages(row.communications || []);
+      items.push(...communicationItems);
 
       if(hasResumeEvidence(row.profile)){
         items.push({
@@ -5026,6 +5044,25 @@ opslead@company.com"></textarea></div>
       }
     }
 
+
+    async function insertApplicantMessageSafe(payload){
+      try{
+        const basePayload = {
+          applicant_email: safeText(payload.applicant_email || payload.candidate_email || ''),
+          applicant_profile_id: payload.applicant_profile_id || null,
+          application_id: payload.application_id || null,
+          sender_type: safeText(payload.sender_type || 'recruiter'),
+          message: safeText(payload.message || payload.body || ''),
+          is_read: payload.sender_type === 'applicant' ? false : true,
+          created_at: payload.created_at || new Date().toISOString()
+        };
+        return await insertAdaptive('applicant_messages', basePayload, ['sender_type','message']);
+      }catch(error){
+        console.warn('Unable to insert applicant message:', error?.message || error, payload);
+        return null;
+      }
+    }
+
     async function fetchLatestRoleAssessments(){
       try{
         // Assessment completion is stored in role_assessments, not applications.
@@ -5093,6 +5130,71 @@ opslead@company.com"></textarea></div>
         }
         return [];
       }
+    }
+
+
+
+    async function fetchCandidateCommunications(){
+      try{
+        const {data,error}=await supabaseClient
+          .from('vw_candidate_communications')
+          .select('id,application_id,applicant_profile_id,applicant_email,sender_type,message,created_at,is_read,workflow_stage,status,job_title,candidate_name,direction,unread_candidate_reply')
+          .order('created_at',{ascending:false})
+          .limit(CONFIG.PAGE_SIZE);
+
+        if(error)throw error;
+        return data || [];
+      }catch(error){
+        console.warn('vw_candidate_communications query failed:', error?.message || error);
+        if(safeText(error?.message).toLowerCase().includes('does not exist')){
+          showNotice('Candidate email inbox view is missing. Create public.vw_candidate_communications first.', 'error');
+        }
+        return [];
+      }
+    }
+
+    function buildCandidateCommunicationLookup(messages){
+      const byApplicationId = new Map();
+      const byProfileId = new Map();
+      const byEmail = new Map();
+
+      (messages || []).forEach(message=>{
+        const applicationId = safeText(message.application_id);
+        const profileId = safeText(message.applicant_profile_id);
+        const email = normalizeEmail(message.applicant_email || '');
+
+        if(applicationId){
+          if(!byApplicationId.has(applicationId))byApplicationId.set(applicationId, []);
+          byApplicationId.get(applicationId).push(message);
+        }
+        if(profileId){
+          if(!byProfileId.has(profileId))byProfileId.set(profileId, []);
+          byProfileId.get(profileId).push(message);
+        }
+        if(email){
+          if(!byEmail.has(email))byEmail.set(email, []);
+          byEmail.get(email).push(message);
+        }
+      });
+
+      return {byApplicationId, byProfileId, byEmail};
+    }
+
+    function getCommunicationsForApplicationRow(app, profile, lookup){
+      const seen = new Set();
+      const messages = [];
+      const addMessage = message => {
+        const key = safeText(message?.id) || `${safeText(message?.sender_type)}:${safeText(message?.applicant_email)}:${safeText(message?.created_at)}:${safeText(message?.message)}`;
+        if(!key || seen.has(key))return;
+        seen.add(key);
+        messages.push(message);
+      };
+
+      (lookup?.byApplicationId?.get(safeText(app?.id)) || []).forEach(addMessage);
+      (lookup?.byProfileId?.get(safeText(app?.applicant_profile_id || profile?.id)) || []).forEach(addMessage);
+      (lookup?.byEmail?.get(normalizeEmail(app?.email || profile?.email || '')) || []).forEach(addMessage);
+
+      return messages.sort((a,b)=>new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
     }
 
     function buildCandidateActivityLookup(activities){
@@ -5648,13 +5750,14 @@ opslead@company.com"></textarea></div>
       }
       if(silent && els.liveStatusText)els.liveStatusText.textContent='Syncing…';
       try{
-        const [applications,profiles,jobs,assessmentsByApplicationId,interviewsByApplicationId,candidateActivities,dashboardWorkflowRows,dashboardActiveRows]=await Promise.all([
+        const [applications,profiles,jobs,assessmentsByApplicationId,interviewsByApplicationId,candidateActivities,candidateCommunications,dashboardWorkflowRows,dashboardActiveRows]=await Promise.all([
           fetchApplicationsRows(),
           fetchAll('applicant_profiles','id,company_id,full_name,email,indeed_email,external_candidate_id,original_source_email,source_email,phone,location,country,timezone,work_authorization,preferred_work_setup,salary_currency,salary_expectation,available_working_hours,headline,current_title,resume_url,resume_path,resume_file_name,has_resume,raw_resume_text,raw_email_metadata,parsed_resume_json,years_of_experience,experience_years,years_experience,total_experience,experience,skills,updated_at'),
           fetchAll('jobs','id,title,client_name,job_description,keywords,industry,screening_enabled,status,work_setup,location,slug,company_id'),
           fetchLatestRoleAssessments(),
           fetchLatestInterviewSessions(),
           fetchCandidateActivities(),
+          fetchCandidateCommunications(),
           fetchDashboardWorkflowRows(),
           fetchDashboardActiveRows()
         ]);
@@ -5668,6 +5771,8 @@ opslead@company.com"></textarea></div>
         const activeDashboardIds = new Set((dashboardActiveRows || []).map(item => safeText(item.id)).filter(Boolean));
         state.activeCandidateIds = activeDashboardIds;
         const activityLookup = buildCandidateActivityLookup(candidateActivities || []);
+        const communicationLookup = buildCandidateCommunicationLookup(candidateCommunications || []);
+        state.communicationsByApplicationId = communicationLookup.byApplicationId || new Map();
         const companyId = currentCompanyId();
         const companyScopedApplications = uniqueById(applications || []).filter(app => {
           const appCompanyId = safeText(app.company_id);
@@ -5716,18 +5821,19 @@ opslead@company.com"></textarea></div>
           };
           const score=basicScore(profile,app,job);
           const activities = getActivitiesForApplicationRow(app, profile, activityLookup);
+          const communications = getCommunicationsForApplicationRow(app, profile, communicationLookup);
           const nextRecruiterAction = safeText(app.next_recruiter_action || deriveNextRecruiterAction(app, workflow));
           const priorityLevel = safeText(app.priority_level || derivePriorityLevel(app, workflow));
           const slaRisk = safeText(app.sla_risk || deriveSLARisk(app, workflow));
           const primaryCta = safeText(app.primary_cta || derivePrimaryCTA(app, workflow));
-          return {id:app.id,app,workflow,profile,job,score,activities,assessment:state.assessmentsByApplicationId.get(safeText(app.id))||null,interview:state.interviewsByApplicationId.get(safeText(app.id))||null,assessmentInfo:null,displayName:getCandidateNameFromProfile(profile, app) || safeText(workflow.candidate_name),status:safeText(app.client_feedback_status||app.status||workflow.legacy_status||'submitted'),workflowStage:safeText(app.workflow_stage||workflow.workflow_stage||''),nextRecruiterAction,priorityLevel,slaRisk,primaryCta,recruiter:safeText(app.recruiter_email)||'Unassigned',source:safeText(app.application_source||workflow.application_source||'—'),appliedAt:app.created_at||workflow.created_at,clientName:safeText(job.client_name||'—'),jobTitle:safeText(job.title||app.job_title||workflow.job_title||'—'),followUp:getFollowUpInfo(app)};
+          return {id:app.id,app,workflow,profile,job,score,activities,communications,assessment:state.assessmentsByApplicationId.get(safeText(app.id))||null,interview:state.interviewsByApplicationId.get(safeText(app.id))||null,assessmentInfo:null,displayName:getCandidateNameFromProfile(profile, app) || safeText(workflow.candidate_name),status:safeText(app.client_feedback_status||app.status||workflow.legacy_status||'submitted'),workflowStage:safeText(app.workflow_stage||workflow.workflow_stage||''),nextRecruiterAction,priorityLevel,slaRisk,primaryCta,recruiter:safeText(app.recruiter_email)||'Unassigned',source:safeText(app.application_source||workflow.application_source||'—'),appliedAt:app.created_at||workflow.created_at,clientName:safeText(job.client_name||'—'),jobTitle:safeText(job.title||app.job_title||workflow.job_title||'—'),followUp:getFollowUpInfo(app)};
         }).map(row => ({...row, assessmentInfo: getAssessmentInfo(row)}));
         state.allRows=cleanDashboardRows(dedupeDashboardApplicationRows(rawRows));
         state.activeRows = activeDashboardIds.size
           ? state.allRows.filter(row => activeDashboardIds.has(safeText(row.id)))
           : state.allRows.filter(row => isActiveDashboardRow(row));
         await loadApplicationEndorsements();
-        state.messageInboxRows = buildMessageInboxRows(candidateActivities || [], state.allRows);
+        state.messageInboxRows = buildMessageInboxRows(candidateCommunications || [], state.allRows);
         updateMessageInboxBadge();
         const previousRowCount = Number(state.lastKnownRowCount || 0);
         state.lastKnownRowCount = state.allRows.length;
@@ -9530,7 +9636,15 @@ async function bulkUploadResumes(){
           source_message_id: safeText(sendResponse?.message_id || sendResponse?.id || sendResponse?.email_id || '')
         });
 
-        showCandidateEmailStatus(`Email sent to ${draft.to} and logged on the activity timeline. Candidate replies will appear in Inbox after sync.`, 'success');
+        await insertApplicantMessageSafe({
+          application_id: row.id,
+          applicant_profile_id: row?.app?.applicant_profile_id || row?.profile?.id || null,
+          applicant_email: draft.to,
+          sender_type: 'recruiter',
+          message: draft.body
+        });
+
+        showCandidateEmailStatus(`Email sent to ${draft.to}, added to the communication thread, and logged on the activity timeline.`, 'success');
 
         try{
           await refreshMessageInbox({sync:false});
