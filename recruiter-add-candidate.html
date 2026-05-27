@@ -1019,7 +1019,7 @@
 
   <script>
     document.addEventListener("DOMContentLoaded", () => {
-      console.log("TalentBuzz recruiter-add-candidate global-dropdown-full v2026-05-20 loaded");
+      console.log("TalentBuzz recruiter-add-candidate multi-client-assignment-rls-safe v2026-05-27 loaded");
       const SUPABASE_URL = "https://dilalntcxmvdcmwxjcct.supabase.co";
       const SUPABASE_ANON_KEY = "sb_publishable_HrLVIUwnaRo54yijtrbWBQ_1aeb4ezs";
       const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
@@ -1074,6 +1074,7 @@
       };
 
       const state = {
+        currentUserId: "",
         currentUserEmail: "",
         currentApplication: null,
         currentProfile: null,
@@ -1149,7 +1150,8 @@
         return {
           uuid: selected?.value || "",
           title: selected?.dataset?.title || "",
-          slug: selected?.dataset?.slug || ""
+          slug: selected?.dataset?.slug || "",
+          clientId: selected?.dataset?.clientId || ""
         };
       }
 
@@ -1201,6 +1203,7 @@
         }
 
         const email = String(session.user.email || "").toLowerCase();
+        state.currentUserId = session.user.id || "";
         state.currentUserEmail = email;
 
         if (!ALLOWED_RECRUITER_EMAILS.includes(email)) {
@@ -1240,6 +1243,7 @@
                 data-title="${safeHtml(job.title)}"
                 data-slug="${safeHtml(safeSlug)}"
                 data-client="${safeHtml(job.client_name || "")}"
+                data-client-id="${safeHtml(job.client_id || "")}"
                 data-location="${safeHtml(job.location || "")}"
               >
                 ${safeHtml(label)}
@@ -1281,7 +1285,7 @@
 
         const { data, error } = await supabaseClient
           .from("jobs")
-          .select("id, title, client_name, location, slug")
+          .select("id, title, client_name, location, slug, client_id")
           .order("title", { ascending: true });
 
         if (error) {
@@ -1366,6 +1370,16 @@
         }
 
         try { return JSON.stringify(error, null, 2); } catch { return String(error); }
+      }
+
+
+      function isRlsError(error) {
+        const message = getReadableError(error).toLowerCase();
+        return message.includes("row-level security") || message.includes("rls") || message.includes("permission denied");
+      }
+
+      function rlsHelpMessage(tableName) {
+        return `Unable to save to ${tableName} because Supabase row-level security blocked this write. Make sure the logged-in recruiter is allowed to insert/update this client, and that client_id / created_by policies are configured for multi-client use.`;
       }
 
       async function uploadResume(file, emailOrFallback = "unknown") {
@@ -1720,6 +1734,7 @@
           const selectedJobUuid = selectedJob.uuid;
           const selectedJobTitle = selectedJob.title;
           const selectedJobSlug = selectedJob.slug || makeSlug(selectedJobTitle);
+          const selectedJobClientId = selectedJob.clientId || state.currentApplication?.client_id || state.currentProfile?.client_id || null;
 
           if (!full_name) throw new Error("Please enter the full name.");
           if (!email) throw new Error("Please enter the email address.");
@@ -1745,6 +1760,7 @@
           }
 
           const profilePayload = {
+            client_id: selectedJobClientId,
             full_name,
             email,
             phone,
@@ -1763,7 +1779,8 @@
             resume_path,
             resume_file_name,
             raw_resume_text: state.parsedResume.raw_resume_text,
-            parsed_resume_json: state.parsedResume.parsed_resume_json
+            parsed_resume_json: state.parsedResume.parsed_resume_json,
+            updated_by: state.currentUserId || null
           };
 
           let savedProfile;
@@ -1779,11 +1796,16 @@
             if (error) throw error;
             savedProfile = updatedProfile;
           } else {
-            const { data: foundProfile } = await supabaseClient
+            let foundProfileQuery = supabaseClient
               .from("applicant_profiles")
               .select("*")
-              .eq("email", email)
-              .maybeSingle();
+              .eq("email", email);
+
+            if (selectedJobClientId) {
+              foundProfileQuery = foundProfileQuery.eq("client_id", selectedJobClientId);
+            }
+
+            const { data: foundProfile } = await foundProfileQuery.maybeSingle();
 
             if (foundProfile) {
               const { data: updatedProfile, error } = await supabaseClient
@@ -1798,7 +1820,10 @@
             } else {
               const { data: insertedProfile, error } = await supabaseClient
                 .from("applicant_profiles")
-                .insert([profilePayload])
+                .insert([{
+                  ...profilePayload,
+                  created_by: state.currentUserId || null
+                }])
                 .select()
                 .single();
 
@@ -1810,6 +1835,7 @@
           state.currentProfile = savedProfile;
 
           const applicationPayload = {
+            client_id: selectedJobClientId,
             applicant_profile_id: savedProfile.id,
             email,
             job_title: selectedJobTitle,
@@ -1843,12 +1869,17 @@
               shouldSendConfirmationEmail = true;
             }
           } else {
-            const { data: existingApplication, error: existingAppError } = await supabaseClient
+            let existingApplicationQuery = supabaseClient
               .from("applications")
               .select("*")
               .eq("applicant_profile_id", savedProfile.id)
-              .eq("job_id", selectedJobUuid)
-              .maybeSingle();
+              .eq("job_id", selectedJobUuid);
+
+            if (selectedJobClientId) {
+              existingApplicationQuery = existingApplicationQuery.eq("client_id", selectedJobClientId);
+            }
+
+            const { data: existingApplication, error: existingAppError } = await existingApplicationQuery.maybeSingle();
 
             if (existingAppError) throw existingAppError;
 
@@ -1926,7 +1957,12 @@
             }, 900);
           }
         } catch (error) {
-          showNotice(error.message || "Error saving candidate.", "error");
+          console.error("Candidate save failed:", error);
+          if (isRlsError(error)) {
+            showNotice(rlsHelpMessage("candidate records"), "error");
+          } else {
+            showNotice(error.message || "Error saving candidate.", "error");
+          }
         } finally {
           setBusyState();
         }
