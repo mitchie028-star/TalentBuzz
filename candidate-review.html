@@ -1927,7 +1927,7 @@
   </main>
 
   <script>
-    console.log("BuzzHire candidate-review-tabs v2026-05-27 restored-insights-multiuser loaded");
+    console.log("BuzzHire candidate-review-tabs v2026-05-27 restored-insights-credible-scores loaded");
 
     window.addEventListener("error", function(event) {
       const box = document.getElementById("errorState");
@@ -3867,10 +3867,35 @@
       return cleanDemoText(raw);
     }
 
-    function calibratedScore(value, responses) {
-      const numeric = Number(value || 0);
+    function normalizeSignalScore(rawScore, type = "default") {
+      const numeric = Number(rawScore || 0);
       if (!Number.isFinite(numeric) || numeric <= 0) return 0;
+
+      // Some legacy response-level evaluations are saved on a 1-5 scale.
       const base = numeric <= 5 ? score(numeric * 20) : score(numeric);
+
+      // Avoid recruiter-facing "perfect score syndrome". Full transcript coverage
+      // and strong answers should read as strong, not artificially flawless.
+      if (base >= 98) {
+        if (type === "communication") return 92;
+        if (type === "role") return 88;
+        if (type === "evidence") return 90;
+        return 90;
+      }
+
+      if (base >= 95) {
+        if (type === "communication") return 92;
+        if (type === "role") return 88;
+        if (type === "evidence") return 90;
+        return 90;
+      }
+
+      return Math.min(base, 94);
+    }
+
+    function calibratedScore(value, responses, type = "default") {
+      const base = normalizeSignalScore(value, type);
+      if (!base) return 0;
 
       const pendingAudio = responses.filter(row => text(row.audio_url) && !hasUsableTranscript(row)).length;
       const usable = responses.filter(hasUsableTranscript).length;
@@ -3884,12 +3909,16 @@
       return row?.ai_evaluation?.transcription || {};
     }
 
-    function averageResponseScore(responses, fields) {
+    function averageResponseScore(responses, fields, type = "default") {
       const values = [];
       responses.forEach(row => {
         const transcription = getTranscriptionPayload(row);
         for (const field of fields) {
-          const value = calibratedScore(row?.[field] || transcription?.[field] || row?.ai_evaluation?.[field], responses);
+          const value = calibratedScore(
+            row?.[field] || transcription?.[field] || row?.ai_evaluation?.[field],
+            responses,
+            type
+          );
           if (value > 0) {
             values.push(value);
             break;
@@ -3897,19 +3926,30 @@
         }
       });
       if (!values.length) return 0;
-      return score(values.reduce((sum, value) => sum + value, 0) / values.length);
+      return normalizeSignalScore(
+        values.reduce((sum, value) => sum + value, 0) / values.length,
+        type
+      );
     }
 
     function getConversationCommunicationScore(conversation, responses) {
-      return calibratedScore(conversation.communication_score, responses) || averageResponseScore(responses, ["communication_score"]);
+      return calibratedScore(conversation.communication_score, responses, "communication") ||
+        averageResponseScore(responses, ["communication_score"], "communication");
     }
 
     function getConversationAlignmentScore(conversation, responses) {
-      return calibratedScore(conversation.role_alignment_score, responses) || averageResponseScore(responses, ["role_alignment_score"]);
+      return calibratedScore(conversation.role_alignment_score, responses, "role") ||
+        averageResponseScore(responses, ["role_alignment_score"], "role");
     }
 
     function getConversationEvidenceScore(conversation, responses) {
-      return calibratedScore(conversation.confidence_score, responses) || averageResponseScore(responses, ["confidence_score"]) || score(responses.filter(hasUsableTranscript).length / Math.max(1, responses.length) * 100);
+      const transcriptCoverage = responses.length
+        ? (responses.filter(hasUsableTranscript).length / Math.max(1, responses.length)) * 100
+        : 0;
+
+      return calibratedScore(conversation.confidence_score, responses, "evidence") ||
+        averageResponseScore(responses, ["confidence_score"], "evidence") ||
+        normalizeSignalScore(transcriptCoverage, "evidence");
     }
 
     function demoConfidenceLabel(label) {
