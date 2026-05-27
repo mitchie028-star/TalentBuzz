@@ -1612,7 +1612,7 @@
           <div class="card-body">
             <div id="summaryText" class="summary"></div>
             <div id="endorsementReasonBox" class="reason" style="display:none;">
-              <span class="endorsement-reason-title">Hiring Intelligence Notes</span>
+              <span class="endorsement-reason-title">Personalized Recruiter Feedback</span>
               <div id="endorsementReasonText" class="endorsement-reason-text"></div>
             </div>
             <div id="clientShareNote" class="client-share-note" style="display:none;">This review is shared for client review and interview coordination. Internal recruiter notes and private workflow controls are hidden.</div>
@@ -1842,7 +1842,7 @@
 
           <section class="review-workspace-card side-signal-card">
             <h3>Evaluation Signals</h3>
-            <p>Hiring intelligence signals for recruiter validation.</p>
+            <p>Evaluation signals for recruiter validation.</p>
             <div class="metric">
               <div class="metric-top"><span class="metric-label">Communication</span><strong class="metric-value" id="sideCommunicationReadiness">—</strong></div>
               <div class="bar"><div class="bar-fill" id="sideCommunicationBar"></div></div>
@@ -1930,7 +1930,7 @@
   </main>
 
   <script>
-    console.log("BuzzHire candidate-review-tabs v2026-05-27 restored-insights-multiuser loaded");
+    console.log("BuzzHire candidate-review-tabs v2026-05-27 evidence-mapped-no-hiring-notes loaded");
 
     window.addEventListener("error", function(event) {
       const box = document.getElementById("errorState");
@@ -3103,13 +3103,14 @@
             ? "Audio available for recruiter review"
             : rawResponseLanguage;
 
-        const transcriptOriginal = text(row.transcript_original);
+        const transcription = getTranscriptionPayload(row);
+        const transcriptOriginal = text(row.transcript_original || transcription.transcript_original);
 
         const transcriptEnglish =
-          text(row.transcript_english || row.transcript);
+          text(row.transcript_english || row.transcript || transcription.transcript_english);
 
         const proficiency =
-          cleanDemoText(row.language_proficiency);
+          cleanDemoText(row.language_proficiency || transcription.language_proficiency);
 
         const audioUrl = text(row.audio_url);
 
@@ -3308,10 +3309,13 @@
 
 
     function hasUsableTranscript(row) {
+      const transcription = getTranscriptionPayload(row);
       const transcript =
         text(row.transcript_original) ||
         text(row.transcript_english) ||
-        text(row.transcript);
+        text(row.transcript) ||
+        text(transcription.transcript_original) ||
+        text(transcription.transcript_english);
 
       if (!transcript) return false;
 
@@ -3320,24 +3324,23 @@
     }
 
     function hasEvaluation(row) {
+      const transcription = getTranscriptionPayload(row);
       return !!(
         row.ai_evaluation ||
-        Number(row.communication_score || 0) > 0 ||
-        Number(row.role_alignment_score || 0) > 0 ||
-        Number(row.authenticity_score || 0) > 0 ||
-        Number(row.confidence_score || 0) > 0
+        normalizeHiringScore(row.communication_score || transcription.communication_score) > 0 ||
+        normalizeHiringScore(row.role_alignment_score || transcription.role_alignment_score) > 0 ||
+        normalizeHiringScore(row.authenticity_score || transcription.authenticity_score) > 0 ||
+        normalizeHiringScore(row.confidence_score || transcription.confidence_score) > 0
       );
     }
 
     function completionPercent(responses) {
       if (!responses.length) return 0;
 
-      const completed = responses.filter(row =>
-        row.audio_url ||
-        row.transcript ||
-        row.transcript_original ||
-        row.transcript_english
-      ).length;
+      const completed = responses.filter(row => {
+        const transcription = getTranscriptionPayload(row);
+        return row.audio_url || row.transcript || row.transcript_original || row.transcript_english || transcription.transcript_original || transcription.transcript_english;
+      }).length;
 
       return score((completed / responses.length) * 100);
     }
@@ -4292,7 +4295,7 @@
         els.decisionStatus.value = "submitted";
       }
 
-      els.decisionNotes.value = text(app.recruiter_notes || app.stage_note_label || "");
+      els.decisionNotes.value = preferredDecisionNotes(conversation, fallback, []);
       populateRecruiterWorkspace(fallback);
     }
 
@@ -4547,19 +4550,138 @@
     }
 
 
+
+    function getTranscriptionPayload(row) {
+      return row?.ai_evaluation?.transcription || {};
+    }
+
+    function normalizeHiringScore(value) {
+      const numeric = Number(value || 0);
+      if (!Number.isFinite(numeric) || numeric <= 0) return 0;
+      // Some response evaluators return 1-5 ratings. Normalize those to 0-100 for display.
+      if (numeric <= 5) return score(numeric * 20);
+      return score(numeric);
+    }
+
+    function averageResponseScore(responses, fields) {
+      const values = [];
+      responses.forEach(row => {
+        const transcription = getTranscriptionPayload(row);
+        for (const field of fields) {
+          const value = normalizeHiringScore(row?.[field] || transcription?.[field] || row?.ai_evaluation?.[field]);
+          if (value > 0) {
+            values.push(value);
+            break;
+          }
+        }
+      });
+      if (!values.length) return 0;
+      return score(values.reduce((sum, value) => sum + value, 0) / values.length);
+    }
+
+    function getConversationCommunicationScore(conversation, responses) {
+      return normalizeHiringScore(conversation.communication_score) ||
+        averageResponseScore(responses, ["communication_score"]);
+    }
+
+    function getConversationAlignmentScore(conversation, responses) {
+      return normalizeHiringScore(conversation.role_alignment_score) ||
+        averageResponseScore(responses, ["role_alignment_score"]);
+    }
+
+    function getConversationConfidenceScore(conversation, responses) {
+      return normalizeHiringScore(conversation.confidence_score) ||
+        averageResponseScore(responses, ["confidence_score"]);
+    }
+
+    function deriveStrengthsFromEvidence(conversation, responses, assessmentEvidence) {
+      const direct = cleanDemoItems([
+        ...(normalizeArray(conversation.recruiter_strengths || [])),
+        ...(normalizeArray(conversation.strengths || []))
+      ], 8);
+
+      if (direct.length) return direct;
+
+      const fromConversation = responses.flatMap(row => {
+        const transcription = getTranscriptionPayload(row);
+        return [
+          ...(normalizeArray(transcription.role_relevant_evidence || [])),
+          ...(normalizeArray(transcription.response_quality_observations || [])),
+          ...(normalizeArray(row.ai_evaluation?.role_relevant_evidence || [])),
+          ...(normalizeArray(row.ai_evaluation?.strengths || []))
+        ];
+      });
+
+      const fromAssessment = assessmentEvidence.flatMap((item, index) => {
+        const quality = getAssessmentResponseScore(item);
+        const question = text(item?.question?.question_text || item?.question?.prompt || "").toLowerCase();
+        const evidence = [];
+        if (quality >= 80 && /hipaa|phi|authorization|unauthorized/i.test(question)) {
+          evidence.push("Correctly identified the need for authorization verification before releasing protected billing information.");
+        } else if (quality >= 80 && /modifier|payer|email|provider relations/i.test(question)) {
+          evidence.push("Demonstrated clear written payer communication when requesting modifier clarification and next steps.");
+        } else if (quality >= 80 && /icd|diagnosis|coding|physician/i.test(question)) {
+          evidence.push("Showed appropriate coding clarification judgment by recognizing when documentation needs to be more specific.");
+        } else if (quality >= 80) {
+          evidence.push(`Assessment question ${index + 1} showed usable role judgment based on the submitted answer.`);
+        }
+        return evidence;
+      });
+
+      return cleanDemoItems([...fromConversation, ...fromAssessment], 6);
+    }
+
+    function deriveFocusAreasFromEvidence(conversation, responses) {
+      const direct = cleanDemoItems([
+        ...(normalizeArray(conversation.recruiter_followups || [])),
+        ...(normalizeArray(conversation.concerns || [])),
+        ...(recommendedFollowUpItems(conversation))
+      ], 8);
+
+      const fromConversation = responses.flatMap(row => {
+        const transcription = getTranscriptionPayload(row);
+        return [
+          ...(normalizeArray(transcription.recruiter_follow_up || [])),
+          ...(normalizeArray(row.ai_evaluation?.recommended_follow_up || [])),
+          ...(normalizeArray(row.ai_evaluation?.concerns || []))
+        ];
+      });
+
+      return cleanDemoItems([...direct, ...fromConversation], 7);
+    }
+
+    function deriveLanguageObservations(conversation, responses) {
+      const items = [
+        ...(normalizeArray(conversation.language_observations || [])),
+        ...responses.flatMap(row => {
+          const transcription = getTranscriptionPayload(row);
+          return [
+            ...(normalizeArray(row.language_observations || [])),
+            ...(normalizeArray(transcription.communication_observations_english || []))
+          ];
+        })
+      ];
+
+      return cleanLanguageObservations(items);
+    }
+
+    function preferredDecisionNotes(conversation, fallback, responses) {
+      const direct = text(conversation.recommendation_reason) ||
+        text(conversation.recruiter_summary) ||
+        text(conversation.summary);
+      if (direct) return cleanDemoText(direct);
+      return polishSummaryLanguage(preferredRecruiterSummary(conversation, fallback, responses));
+    }
+
     function renderConversation(conversation, responses, assessmentEvidence = [], fallback = null) {
       populateDecisionForm(conversation, fallback);
 
       const completion = completionPercent(responses);
-      const communication = calibratedScore(conversation.communication_score, responses);
-      const alignment = calibratedScore(conversation.role_alignment_score, responses);
-      const evidence = calibratedScore(
-        (
-          Number(conversation.authenticity_score || 0) +
-          Number(conversation.confidence_score || 0)
-        ) / 2,
-        responses
-      );
+      const communication = getConversationCommunicationScore(conversation, responses);
+      const alignment = getConversationAlignmentScore(conversation, responses);
+      const evidence = normalizeHiringScore(conversation.confidence_score) ||
+        getConversationConfidenceScore(conversation, responses) ||
+        score(responses.filter(hasUsableTranscript).length / Math.max(1, responses.length) * 100);
       const talentConversationScore = score((communication + alignment + evidence) / 3) || completion;
       const assessmentSummary = buildAssessmentQualitySummary(assessmentEvidence);
       const profileFit = profileFitScore(conversation, fallback);
@@ -4582,10 +4704,7 @@
 
       const languageProficiency = cleanedLanguageProficiency(conversation, responses);
 
-      const languageObservations =
-        normalizeArray(conversation.language_observations).length
-          ? normalizeArray(conversation.language_observations)
-          : responses.flatMap(row => normalizeArray(row.language_observations)).slice(0, 8);
+      const languageObservations = deriveLanguageObservations(conversation, responses);
 
 
       if (els.compactSummaryStatus) {
@@ -4684,38 +4803,19 @@
         polishSummaryLanguage(preferredRecruiterSummary(conversation, fallback, responses))
       );
 
-      const endorsementReason = cleanEndorsementText(
-        isClientShareMode
-          ? (
-              fallback?.app?.endorsement_notes ||
-              sharedEndorsement?.candidate_summary ||
-              ""
-            )
-          : (
-              fallback?.app?.endorsement_notes ||
-              fallback?.app?.recruiter_notes ||
-              fallback?.app?.stage_note_label ||
-              ""
-            )
-      );
-
+      // Deprecated: do not render legacy recruiter_notes / Hiring Intelligence Notes here.
       if (els.endorsementReasonBox && els.endorsementReasonText) {
-        if (endorsementReason) {
-          els.endorsementReasonText.textContent = endorsementReason;
-          els.endorsementReasonBox.style.display = "block";
-        } else {
-          els.endorsementReasonText.textContent = "";
-          els.endorsementReasonBox.style.display = "none";
-        }
+        els.endorsementReasonText.textContent = "";
+        els.endorsementReasonBox.style.display = "none";
       }
 
-      const cleanReason = cleanDemoText(cleanedRecommendation(conversation, insufficientEvidence));
+      const cleanReason = cleanDemoText(text(conversation.evidence_quality_summary));
       const preferredSummaryText = preferredRecruiterSummary(conversation, fallback, responses);
 
       els.recommendationReason.textContent =
-        normalizedCompare(cleanReason, preferredSummaryText)
-          ? ""
-          : cleanReason;
+        cleanReason && !normalizedCompare(cleanReason, preferredSummaryText)
+          ? cleanReason
+          : "";
 
       if (/some responses were captured|conversation responses are available|conversation responses were captured|audio response was captured/i.test(els.recommendationReason.textContent || "")) {
         els.recommendationReason.textContent = "";
@@ -4765,17 +4865,13 @@
 
       renderList(
         els.strengthsList,
-        cleanDemoItems(conversation.recruiter_strengths || conversation.strengths || [], 6),
+        deriveStrengthsFromEvidence(conversation, responses, assessmentEvidence),
         "No candidate strengths have been recorded yet."
       );
 
       renderList(
         els.concernsList,
-        cleanDemoItems([
-          ...(normalizeArray(conversation.recruiter_followups || [])),
-          ...(normalizeArray(conversation.concerns || [])),
-          ...(recommendedFollowUpItems(conversation))
-        ], 7),
+        deriveFocusAreasFromEvidence(conversation, responses),
         "No follow-up areas have been recorded yet."
       );
 
