@@ -2208,7 +2208,8 @@ tr.row-assessment-progress:hover td{
     .pill.priority-critical{background:var(--bad-bg);color:var(--bad);border-color:#fecdca;}
     .pill.priority-high{background:var(--warn-bg);color:var(--warn);border-color:#fedf89;}
     .pill.priority-medium{background:var(--info-bg);color:var(--info);border-color:#b2ddff;}
-    .pill.priority-low{background:#f9fafb;color:#475467;border-color:var(--line);}
+    .pill.priority-low{background:var(--good-bg);color:var(--good);border-color:#abefc6;}
+    .pill.priority-migration{background:#f8fafc;color:#475467;border-color:#cfd6e0;}
     .pill.priority-none{background:#f9fafb;color:#98a2b3;border-color:var(--line);}
     .primary-cta-btn{
       min-width:112px;
@@ -2217,9 +2218,11 @@ tr.row-assessment-progress:hover td{
     tr.row-critical td{background:linear-gradient(90deg,#fff4f2 0%,#ffffff 18%);}
     tr.row-high td{background:linear-gradient(90deg,#fffbeb 0%,#ffffff 18%);}
     tr.row-medium td{background:linear-gradient(90deg,#eef6ff 0%,#ffffff 18%);}
+    tr.row-migration td{background:linear-gradient(90deg,#f8fafc 0%,#ffffff 18%);}
     tr.row-critical:hover td,
     tr.row-high:hover td,
-    tr.row-medium:hover td{background:#f8fbff;}
+    tr.row-medium:hover td,
+    tr.row-migration:hover td{background:#f8fbff;}
 
 
     /* ===== Client endorsement response tracking ===== */
@@ -2344,7 +2347,7 @@ tr.row-assessment-progress:hover td{
                 <span class="count-pill" id="actionNeedsReview">0</span>
               </button>
               <button class="action-card" type="button" data-quick-filter="follow_up">
-                <span><strong>Critical follow-ups</strong><span>Overdue or due follow-ups needing recruiter attention.</span></span>
+                <span><strong>Critical follow-ups</strong><span>True assessment/client follow-ups needing urgent recruiter action.</span></span>
                 <span class="count-pill" id="actionFollowUps">0</span>
               </button>
               <button class="action-card" type="button" data-quick-filter="ready_for_review">
@@ -2992,7 +2995,7 @@ opslead@company.com"></textarea></div>
       </div>
     </div>
   </div> <script>
-    console.log('BuzzHire recruiter-dashboard-v2026-05-27-hide-closed-followup-dates loaded');
+    console.log('BuzzHire recruiter-dashboard-v2026-05-27-sla-labels loaded');
 
     const CONFIG = {
       SUPABASE_URL: window.TALENTBUZZ_SUPABASE_URL || localStorage.getItem('TALENTBUZZ_SUPABASE_URL') || '',
@@ -3801,12 +3804,17 @@ opslead@company.com"></textarea></div>
 
     function deriveSLARisk(app = {}, workflow = {}){
       const stage = safeText(app.workflow_stage || workflow.workflow_stage || '').toLowerCase();
+      const createdAt = app.created_at || workflow.created_at || null;
       const nextFollowUpAt = app.next_follow_up_at || app.follow_up_due_at || app.follow_up_date || null;
       const overdueFollowUp = !!nextFollowUpAt && new Date(nextFollowUpAt).getTime() < Date.now();
+      const isLegacyImport = !!createdAt && new Date(createdAt).getTime() < Date.now() - (45 * 24 * 60 * 60 * 1000);
       const hasEndorsement = !!(workflow.client_decision || workflow.availability_status || app.client_decision || app.availability_status);
       const pendingClient = stage === 'endorsed' && hasEndorsement && safeText(workflow.client_decision || app.client_decision || 'pending').toLowerCase() === 'pending';
       if(['closed','hired'].includes(stage))return 'none';
-      if(overdueFollowUp)return 'critical';
+      if(isLegacyImport)return 'migration';
+      if(overdueFollowUp && stage === 'assessment')return 'critical';
+      if(overdueFollowUp && pendingClient)return 'critical';
+      if(overdueFollowUp && ['new','screening','interview'].includes(stage))return 'high';
       if(stage === 'review' || pendingClient || stage === 'interview')return 'high';
       if(['assessment','new','screening'].includes(stage))return 'medium';
       return 'low';
@@ -3843,6 +3851,7 @@ opslead@company.com"></textarea></div>
       const text = normalizeOperationalValue(value);
       if(text === 'critical')return 'priority-critical';
       if(text === 'high')return 'priority-high';
+      if(text === 'migration')return 'priority-migration';
       if(text === 'medium')return 'priority-medium';
       if(text === 'low')return 'priority-low';
       return 'priority-none';
@@ -3850,12 +3859,15 @@ opslead@company.com"></textarea></div>
 
     function formatSlaRiskLabel(value){
       const text = normalizeOperationalValue(value || 'low');
-      if(text === 'none')return 'No SLA Risk';
-      if(text === 'critical')return 'Critical Risk';
-      if(text === 'high')return 'High Risk';
-      if(text === 'medium')return 'Medium Risk';
-      if(text === 'low')return 'Low Risk';
-      return `${titleCaseAction(text)} Risk`;
+      const labels = {
+        critical: 'Critical',
+        high: 'Needs Attention',
+        migration: 'Migration Review',
+        medium: 'Normal',
+        low: 'Low',
+        none: 'None'
+      };
+      return labels[text] || titleCaseAction(text || 'low');
     }
 
     function isClosedOrHiredWorkflowRow(row = {}){
@@ -3904,8 +3916,9 @@ opslead@company.com"></textarea></div>
       const slaRisk = normalizeOperationalValue(row?.slaRisk || row?.app?.sla_risk || row?.workflow?.sla_risk || '');
       const nextAction = safeText(row?.nextRecruiterAction || row?.app?.next_recruiter_action || row?.workflow?.next_recruiter_action || '');
       if(slaRisk === 'critical')return {key:'urgent',label:nextAction || 'Critical'};
-      if(slaRisk === 'high')return {key:'urgent',label:nextAction || 'High priority'};
-      if(slaRisk === 'medium')return {key:'attention',label:nextAction || 'Needs action'};
+      if(slaRisk === 'high')return {key:'attention',label:nextAction || 'Needs attention'};
+      if(slaRisk === 'migration')return {key:'quiet',label:'Migration review'};
+      if(slaRisk === 'medium')return {key:'attention',label:nextAction || 'Normal priority'};
 
       if(isReadyForReview(row)){
         return {key:'attention',label:'Ready for review'};
@@ -6312,6 +6325,7 @@ opslead@company.com"></textarea></div>
           row.id===state.selectedId?'active':'',
           slaRisk==='critical'?'row-critical':'',
           slaRisk==='high'?'row-high':'',
+          slaRisk==='migration'?'row-migration':'',
           slaRisk==='medium'?'row-medium':'',
           priority.key==='urgent'?'row-urgent':'',
           priority.key==='attention'?'row-attention':'',
@@ -7590,7 +7604,7 @@ opslead@company.com"></textarea></div>
       const row=state.filteredRows.find(item=>item.id===rowId)||state.allRows.find(item=>item.id===rowId);
       if(!row)return;
       state.selectedId=row.id;els.workspace.classList.add('drawer-open');updateDrawerNavMeta();
-      els.drawerName.textContent=row.displayName;els.drawerMeta.textContent=`${row.primaryCta || row.nextRecruiterAction || 'Open Candidate'} • ${titleCaseAction(row.slaRisk || 'low')} risk • ${row.jobTitle} • ${row.clientName} • ${row.recruiter}`;
+      els.drawerName.textContent=row.displayName;els.drawerMeta.textContent=`${row.primaryCta || row.nextRecruiterAction || 'Open Candidate'} • ${formatSlaRiskLabel(row.slaRisk || 'low')} • ${row.jobTitle} • ${row.clientName} • ${row.recruiter}`;
       els.overallScore.textContent=`${row.score.overall}%`;els.scoringSource.textContent=row.score.mode;els.profileScore.textContent=`${row.score.profilePart.score}%`;els.resumeScore.textContent=`${row.score.resumePart.score}%`;els.overallReason.textContent=row.score.reasons.join(' • ')||'More information may be needed';
       els.snapEmail.textContent=row.profile?.email||row.app?.email||'—';els.snapPhone.textContent=row.profile?.phone||'—';els.snapLocation.textContent=getLocation(row.profile)||'—';els.snapCountry.textContent=getCountry(row.profile)||'—';els.snapTimezone.textContent=getTimezone(row.profile)||'—';els.snapWorkSetup.textContent=getPreferredWorkSetup(row.profile)||'—';els.snapWorkAuthorization.textContent=getWorkAuthorization(row.profile)||'—';els.snapSalary.textContent=getSalaryText(row.profile)||'—';els.snapAvailableHours.textContent=getAvailableWorkingHours(row.profile)||'—';els.snapExperience.textContent=formatExperience(row.profile);if(els.snapEducation)els.snapEducation.textContent=getEducation(row.profile)||'—';els.snapJob.textContent=row.jobTitle;
 
