@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <title>BuzzHire | Candidate Review</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="description" content="BuzzHire hiring intelligence review for candidate evidence, recruiter decisions, endorsements, resume review, and interview planning." />
+  <meta name="description" content="Structured recruiter review for BuzzHire candidates." />
   <meta name="robots" content="noindex,nofollow" />
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -1406,6 +1406,94 @@
       font-weight: 800;
       margin-top: 16px;
     }
+
+
+    /* BuzzHire Hiring Intelligence workflow additions */
+    .resume-action-box {
+      display: grid;
+      gap: 8px;
+    }
+
+    .resume-action-box .btn {
+      width: 100%;
+    }
+
+    .muted-note {
+      color: var(--muted-light);
+      font-size: .8rem;
+      line-height: 1.45;
+      font-weight: 700;
+    }
+
+    .client-decision-panel {
+      display: none;
+      border: 1px solid var(--blue-line);
+      border-radius: 22px;
+      background:
+        radial-gradient(circle at top right, rgba(37, 99, 235, .10), transparent 34%),
+        linear-gradient(135deg, #ffffff, #f8fbff);
+      padding: 16px;
+      box-shadow: var(--shadow-soft);
+      gap: 12px;
+      margin-bottom: 18px;
+    }
+
+    body.client-share-mode .client-decision-panel {
+      display: grid;
+    }
+
+    .client-decision-panel h3 {
+      margin: 0;
+      color: var(--ink-strong);
+      font-size: .98rem;
+      letter-spacing: -.025em;
+      font-weight: 900;
+    }
+
+    .client-decision-panel p {
+      margin: 0;
+      color: var(--muted);
+      font-size: .82rem;
+      line-height: 1.55;
+      font-weight: 600;
+    }
+
+    .client-decision-actions {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+
+    .client-decline-reason {
+      display: none;
+      gap: 8px;
+    }
+
+    .client-decline-reason.show {
+      display: grid;
+    }
+
+    .client-decline-reason textarea {
+      width: 100%;
+      min-height: 96px;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: #fff;
+      color: var(--ink);
+      font: inherit;
+      font-size: .86rem;
+      padding: 11px 12px;
+      outline: none;
+      resize: vertical;
+      line-height: 1.6;
+    }
+
+    @media (max-width: 680px) {
+      .client-decision-actions {
+        grid-template-columns: 1fr;
+      }
+    }
+
 </style>
 </head>
 
@@ -1425,7 +1513,8 @@
         <button class="btn recruiter-only" id="nextApplicantBtn" type="button">Next Applicant →</button>
         <a href="recruiter-dashboard.html" class="btn recruiter-only">Back to Dashboard</a>
         <div class="client-share-actions">
-          <a href="#" class="btn btn-primary" id="clientAvailabilityLink">Provide Availability</a>
+          <a href="#" class="btn btn-primary" id="clientAvailabilityLink">Proceed / Provide Availability</a>
+          <button class="btn" id="clientDeclineTopBtn" type="button">Reject Candidate</button>
         </div>
       </div>
     </div>
@@ -1476,6 +1565,19 @@
       <div class="tabs-shell">
         <div class="tabs-main">
           <div class="tab-panel active" id="tab-summary">
+            <section class="client-decision-panel" id="clientDecisionPanel">
+              <h3>Interviewer Decision</h3>
+              <p>Review the candidate evidence, resume, assessment responses, and recordings. Then choose whether to proceed or reject.</p>
+              <div id="clientDecisionNotice" class="workspace-notice"></div>
+              <div class="client-decision-actions">
+                <button class="btn btn-primary" id="clientProceedBtn" type="button">Proceed to Availability</button>
+                <button class="btn" id="clientDeclineBtn" type="button">Reject Candidate</button>
+              </div>
+              <div class="client-decline-reason" id="clientDeclineReasonBox">
+                <textarea id="clientDeclineReason" placeholder="Please add the rejection reason. This helps recruiters improve screening quality and hiring analytics."></textarea>
+                <button class="btn btn-primary" id="submitClientDeclineBtn" type="button">Submit Rejection Reason</button>
+              </div>
+            </section>
             <section class="card">
           <div class="card-head">
             <strong>Review Snapshot</strong>
@@ -1718,11 +1820,12 @@
           </div>
 
           <div class="decision-actions">
+            <a href="#" class="btn" id="decisionResumeBtn" target="_blank" rel="noopener" style="display:none;">View Resume</a>
             <button class="btn btn-primary" id="endorseCandidateBtn" type="button">Endorse Candidate</button>
-            <button class="btn" id="saveDecisionBtn" type="button">Save Decision & Return</button>
+            <div id="endorsementNotice" class="workspace-notice"></div>
+            <button class="btn btn-primary" id="saveDecisionBtn" type="button">Save Decision & Return</button>
             <a href="recruiter-dashboard.html" class="btn">Back to Dashboard</a>
           </div>
-          <div id="endorsementNotice" class="workspace-notice"></div>
         </section>
 
           <section class="review-workspace-card" id="candidateDetailsCard">
@@ -1734,13 +1837,7 @@
               <div class="review-kv"><span>Phone</span><strong id="workspaceCandidatePhone">—</strong></div>
               <div class="review-kv"><span>Location</span><strong id="workspaceCandidateLocation">—</strong></div>
               <div class="review-kv"><span>Role</span><strong id="workspaceCandidateRole">—</strong></div>
-              <div class="review-kv">
-                <span>Resume</span>
-                <strong>
-                  <a href="#" class="btn" id="workspaceCandidateResume" target="_blank" rel="noopener" style="min-height:34px;padding:0 10px;display:none;">View submitted resume</a>
-                  <span id="workspaceCandidateResumeMissing">No resume submitted</span>
-                </strong>
-              </div>
+              <div class="review-kv"><span>Resume</span><strong id="workspaceCandidateResume">—</strong></div>
             </div>
           </section>
 
@@ -1874,8 +1971,6 @@
       workspaceCandidatePhone: document.getElementById("workspaceCandidatePhone"),
       workspaceCandidateLocation: document.getElementById("workspaceCandidateLocation"),
       workspaceCandidateRole: document.getElementById("workspaceCandidateRole"),
-      workspaceCandidateResume: document.getElementById("workspaceCandidateResume"),
-      workspaceCandidateResumeMissing: document.getElementById("workspaceCandidateResumeMissing"),
       workspaceFollowUpStatus: document.getElementById("workspaceFollowUpStatus"),
       workspaceFollowUpDate: document.getElementById("workspaceFollowUpDate"),
       workspaceFollowUpNote: document.getElementById("workspaceFollowUpNote"),
@@ -1883,6 +1978,15 @@
       workspaceFollowUpNotice: document.getElementById("workspaceFollowUpNotice"),
       endorseCandidateBtn: document.getElementById("endorseCandidateBtn"),
       endorsementNotice: document.getElementById("endorsementNotice"),
+      decisionResumeBtn: document.getElementById("decisionResumeBtn"),
+      workspaceCandidateResume: document.getElementById("workspaceCandidateResume"),
+      clientProceedBtn: document.getElementById("clientProceedBtn"),
+      clientDeclineBtn: document.getElementById("clientDeclineBtn"),
+      clientDeclineTopBtn: document.getElementById("clientDeclineTopBtn"),
+      clientDeclineReasonBox: document.getElementById("clientDeclineReasonBox"),
+      clientDeclineReason: document.getElementById("clientDeclineReason"),
+      submitClientDeclineBtn: document.getElementById("submitClientDeclineBtn"),
+      clientDecisionNotice: document.getElementById("clientDecisionNotice"),
       workspaceInterviewDateTime: document.getElementById("workspaceInterviewDateTime"),
       workspaceInterviewStage: document.getElementById("workspaceInterviewStage"),
       workspaceInterviewerEmails: document.getElementById("workspaceInterviewerEmails"),
@@ -1959,6 +2063,7 @@
 
       if (els.clientAvailabilityLink && shareToken) {
         els.clientAvailabilityLink.href = `availability-request.html?token=${encodeURIComponent(shareToken)}`;
+        els.clientAvailabilityLink.textContent = "Proceed / Provide Availability";
       }
     }
 
@@ -3931,40 +4036,218 @@
       return date.toISOString().slice(0, 10);
     }
 
-    function getSubmittedResumeUrl(app = {}, profile = {}) {
-      const directUrl = text(
-        app.resume_url ||
-        app.resume_file_url ||
-        app.resume_public_url ||
-        app.resume_link ||
-        app.cv_url ||
-        app.cv_file_url ||
-        app.file_url ||
-        app.attachment_url ||
-        app.uploaded_resume_url ||
-        app.resume ||
-        profile.resume_url ||
-        profile.resume_file_url ||
-        profile.resume_public_url ||
-        profile.resume_link ||
-        profile.cv_url ||
-        profile.cv_file_url ||
+
+    function normalizeEmail(value) {
+      return text(value).toLowerCase();
+    }
+
+    function parseRecipientEmails(value) {
+      const seen = new Set();
+      return text(value)
+        .split(/[\s,;]+/g)
+        .map(normalizeEmail)
+        .filter(Boolean)
+        .filter(email => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
+        .filter(email => {
+          if (seen.has(email)) return false;
+          seen.add(email);
+          return true;
+        });
+    }
+
+    function generateShareToken() {
+      const bytes = new Uint8Array(32);
+      window.crypto.getRandomValues(bytes);
+      return Array.from(bytes).map(byte => byte.toString(16).padStart(2, "0")).join("");
+    }
+
+    function getAppBaseUrl() {
+      return window.location.origin + window.location.pathname.replace(/[^/]*$/, "");
+    }
+
+    function getPublicReviewLinks(token) {
+      const baseUrl = getAppBaseUrl();
+      return {
+        reviewLink: `${baseUrl}candidate-review.html?token=${encodeURIComponent(token)}`,
+        availabilityLink: `${baseUrl}availability-request.html?token=${encodeURIComponent(token)}`,
+        feedbackLink: `${baseUrl}interview-feedback.html?token=${encodeURIComponent(token)}`
+      };
+    }
+
+    function isDirectUrl(value) {
+      return /^https?:\/\//i.test(text(value));
+    }
+
+    function getNestedValue(source, path) {
+      try {
+        return path.split(".").reduce((acc, key) => acc && acc[key], source);
+      } catch (_) {
+        return "";
+      }
+    }
+
+    function getResumeUrl(fallback) {
+      const app = fallback?.app || {};
+      const profile = fallback?.profile || fallback?.applicant_profile || {};
+      const metadata = profile.raw_email_metadata || app.raw_email_metadata || {};
+
+      const candidates = [
+        app.resume_url,
+        app.resume_link,
+        app.resume_file_url,
+        app.candidate_resume_url,
+        profile.resume_url,
+        profile.resume_link,
+        getNestedValue(metadata, "indeed_resume_link"),
+        getNestedValue(metadata, "resume_url"),
+        getNestedValue(metadata, "resume_link")
+      ].map(text).filter(Boolean);
+
+      const direct = candidates.find(isDirectUrl);
+      if (direct) return direct;
+
+      const storagePath = text(
+        app.resume_path ||
+        app.resume_file_name ||
+        profile.resume_path ||
+        profile.resume_file_name ||
+        candidates.find(value => !isDirectUrl(value)) ||
         ""
       );
 
-      if (!directUrl) return "";
+      if (!storagePath) return "";
 
-      if (/^https?:\/\//i.test(directUrl)) return directUrl;
-
-      try {
-        const cleanPath = directUrl.replace(/^\/+/, "");
-        const bucket = text(app.resume_bucket || profile.resume_bucket || "resumes");
-        const publicResult = supabaseClient.storage.from(bucket).getPublicUrl(cleanPath);
-        return publicResult?.data?.publicUrl || directUrl;
-      } catch (error) {
-        console.warn("Unable to create resume public URL:", error);
-        return directUrl;
+      const buckets = ["resumes", "candidate-resumes", "applicant-resumes", "documents"];
+      for (const bucket of buckets) {
+        try {
+          const { data } = supabaseClient.storage.from(bucket).getPublicUrl(storagePath);
+          if (data?.publicUrl) return data.publicUrl;
+        } catch (_) {}
       }
+
+      return storagePath;
+    }
+
+    function getDefaultEndorsementRecipients(fallback) {
+      const app = fallback?.app || {};
+      const job = fallback?.job || {};
+      return [
+        job.client_contact_email,
+        job.hiring_manager_email,
+        job.interview_contact_email,
+        job.client_email,
+        app.client_contact_email,
+        app.hiring_manager_email,
+        app.interview_contact_email
+      ].map(normalizeEmail).filter(Boolean);
+    }
+
+    async function loadJobForFallback(fallback) {
+      if (fallback?.job || !fallback?.app) return fallback;
+      const jobId = text(fallback.app.job_id_uuid || fallback.app.job_id || "");
+      if (!jobId) return fallback;
+      const { data, error } = await supabaseClient.from("jobs").select("*").eq("id", jobId).maybeSingle();
+      if (!error && data) fallback.job = data;
+      return fallback;
+    }
+
+    async function ensureApplicationEndorsementForReview(fallback, recipients) {
+      const app = fallback?.app || {};
+      const job = fallback?.job || {};
+      const appId = getResolvedApplicationId();
+      if (!appId) throw new Error("Missing application ID.");
+
+      const now = new Date().toISOString();
+      const expiresAt = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString();
+
+      const existingResult = await supabaseClient
+        .from("application_endorsements")
+        .select("*")
+        .eq("application_id", appId)
+        .is("share_revoked_at", null)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (existingResult.error && existingResult.error.code !== "PGRST116") {
+        console.warn("Endorsement lookup failed:", existingResult.error);
+      }
+
+      const existing = existingResult.data || null;
+      const shareTokenValue = existing?.share_token || generateShareToken();
+      const basePayload = {
+        application_id: appId,
+        company_id: app.company_id || job.company_id || null,
+        client_id: job.client_id || app.client_id || null,
+        job_id: app.job_id || app.job_id_uuid || job.id || null,
+        share_token: shareTokenValue,
+        share_expires_at: existing?.share_expires_at || expiresAt,
+        availability_status: existing?.availability_status || "not_requested",
+        availability_requested_at: existing?.availability_requested_at || now,
+        sent_at: now,
+        sent_to: recipients.join(", "),
+        sent_by: app.recruiter_email || null,
+        updated_at: now
+      };
+
+      if (existing?.id) {
+        const { data, error } = await supabaseClient
+          .from("application_endorsements")
+          .update(basePayload)
+          .eq("id", existing.id)
+          .select("*")
+          .single();
+        if (error) throw error;
+        return data;
+      }
+
+      const attempts = [
+        { ...basePayload, created_at: now },
+        {
+          application_id: basePayload.application_id,
+          share_token: basePayload.share_token,
+          share_expires_at: basePayload.share_expires_at,
+          availability_status: basePayload.availability_status,
+          availability_requested_at: basePayload.availability_requested_at
+        }
+      ];
+
+      let lastError = null;
+      for (const attempt of attempts) {
+        const { data, error } = await supabaseClient
+          .from("application_endorsements")
+          .insert(attempt)
+          .select("*")
+          .single();
+        if (!error) return data;
+        lastError = error;
+      }
+      throw lastError || new Error("Unable to create endorsement share token.");
+    }
+
+    function buildEndorsementEmailBody(fallback, links) {
+      const app = fallback?.app || {};
+      const profile = fallback?.profile || {};
+      const job = fallback?.job || {};
+      const candidateName = text(profile.full_name || app.candidate_name || app.full_name || app.email || "Candidate");
+      const role = text(job.title || app.job_title || "the role");
+      const clientName = text(job.client_name || job.company_name || app.client_name || "Hiring Team");
+      return [
+        `Hi ${clientName} team,`,
+        "",
+        `A candidate has been endorsed for your review for the ${role} position.`,
+        "",
+        `Candidate: ${candidateName}`,
+        `Role: ${role}`,
+        "",
+        `View candidate review: ${links.reviewLink}`,
+        `Provide interview availability: ${links.availabilityLink}`,
+        "",
+        "The candidate review includes the resume link, assessment answers, conversation evidence, and recordings when available.",
+        "",
+        "Thank you,",
+        "BuzzHire Recruiting Team"
+      ].join("\n");
     }
 
     function populateRecruiterWorkspace(fallback) {
@@ -3977,20 +4260,21 @@
       if (els.workspaceCandidatePhone) els.workspaceCandidatePhone.textContent = text(profile.phone || app.phone || "—");
       if (els.workspaceCandidateLocation) els.workspaceCandidateLocation.textContent = text(profile.location || profile.city || profile.current_location || "—");
       if (els.workspaceCandidateRole) els.workspaceCandidateRole.textContent = text(job.title || app.job_title || "—");
-
-      const resumeUrl = getSubmittedResumeUrl(app, profile);
-      if (els.workspaceCandidateResume && els.workspaceCandidateResumeMissing) {
+      const resumeUrl = getResumeUrl(fallback);
+      if (els.workspaceCandidateResume) {
+        els.workspaceCandidateResume.innerHTML = resumeUrl
+          ? `<div class="resume-action-box"><a href="${escapeHtml(resumeUrl)}" target="_blank" rel="noopener" class="btn">View Resume</a></div>`
+          : `<span class="muted-note">No resume submitted</span>`;
+      }
+      if (els.decisionResumeBtn) {
         if (resumeUrl) {
-          els.workspaceCandidateResume.href = resumeUrl;
-          els.workspaceCandidateResume.style.display = "inline-flex";
-          els.workspaceCandidateResumeMissing.style.display = "none";
+          els.decisionResumeBtn.href = resumeUrl;
+          els.decisionResumeBtn.style.display = "inline-flex";
         } else {
-          els.workspaceCandidateResume.removeAttribute("href");
-          els.workspaceCandidateResume.style.display = "none";
-          els.workspaceCandidateResumeMissing.style.display = "inline";
+          els.decisionResumeBtn.removeAttribute("href");
+          els.decisionResumeBtn.style.display = "none";
         }
       }
-
       const followStatus = text(app.follow_up_status || (app.follow_up_required ? "needs_follow_up" : "none"));
       if (els.workspaceFollowUpStatus) els.workspaceFollowUpStatus.value = ["none", "needs_follow_up", "due_today", "followed_up"].includes(followStatus) ? followStatus : "none";
       if (els.workspaceFollowUpDate) els.workspaceFollowUpDate.value = toDateInput(app.follow_up_due_at || app.follow_up_date);
@@ -4019,30 +4303,142 @@
     async function endorseCandidateFromReview() {
       const appId = getResolvedApplicationId();
       if (!appId) return showWorkspaceNotice(els.endorsementNotice, "No application ID found for this candidate.", "error");
-      const now = new Date().toISOString();
-      const endorsementReason = text(
-        els.decisionNotes?.value ||
-        currentFallback?.app?.endorsement_notes ||
-        currentFallback?.app?.recruiter_notes ||
-        ""
-      );
 
-      const payloads = [
-        { status: "endorsed", client_feedback_status: "endorsed", endorsement_status: "endorsed", endorsement_sent_at: now, endorsed_by: currentFallback?.app?.recruiter_email || null, endorsement_notes: endorsementReason || null, last_status_change_at: now, updated_at: now },
-        { status: "endorsed", client_feedback_status: "endorsed", endorsement_notes: endorsementReason || null, last_status_change_at: now, updated_at: now },
-        { status: "endorsed", endorsement_notes: endorsementReason || null, updated_at: now }
-      ];
-      let lastError = null;
-      for (const payload of payloads) {
-        const { error } = await supabaseClient.from("applications").update(payload).eq("id", appId);
-        if (!error) {
-          showWorkspaceNotice(els.endorsementNotice, "Candidate endorsed.", "success");
-          if (els.decisionStatus) els.decisionStatus.value = "endorsed";
+      try {
+        if (els.endorseCandidateBtn) {
+          els.endorseCandidateBtn.disabled = true;
+          els.endorseCandidateBtn.textContent = "Sending endorsement...";
+        }
+
+        if (currentFallback) {
+          await loadJobForFallback(currentFallback);
+        }
+
+        const defaults = getDefaultEndorsementRecipients(currentFallback);
+        const entered = window.prompt(
+          "Send endorsement to interviewer / hiring manager email(s). You can enter multiple emails separated by commas. They do not need to register.",
+          defaults.join(", ")
+        );
+
+        if (entered === null) {
+          showWorkspaceNotice(els.endorsementNotice, "Endorsement cancelled.", "info");
           return;
         }
-        lastError = error;
+
+        const recipients = parseRecipientEmails(entered);
+        if (!recipients.length) {
+          showWorkspaceNotice(els.endorsementNotice, "Add at least one valid interviewer or hiring manager email.", "error");
+          return;
+        }
+
+        showWorkspaceNotice(els.endorsementNotice, "Creating secure candidate review and availability links...", "info");
+
+        const app = currentFallback?.app || {};
+        const profile = currentFallback?.profile || {};
+        const job = currentFallback?.job || {};
+        const endorsement = await ensureApplicationEndorsementForReview(currentFallback, recipients);
+        const links = getPublicReviewLinks(endorsement.share_token);
+        const resumeUrl = getResumeUrl(currentFallback);
+        const candidateName = text(profile.full_name || app.candidate_name || app.full_name || app.email || currentConversation?.candidate_name || "Candidate");
+        const roleTitle = text(job.title || app.job_title || currentConversation?.role_title || "Role");
+        const clientName = text(job.client_name || job.company_name || app.client_name || "Hiring Team");
+        const notes = text(els.decisionNotes?.value || app.endorsement_notes || app.recruiter_notes || app.screening_review_summary || "");
+
+        const dashboardStylePayload = {
+          application_id: appId,
+          endorsement_id: endorsement.id,
+          company_id: endorsement.company_id || app.company_id || job.company_id || null,
+          client_id: endorsement.client_id || job.client_id || app.client_id || null,
+          job_id: endorsement.job_id || app.job_id || app.job_id_uuid || job.id || null,
+          share_token: endorsement.share_token,
+          recipients,
+          subject: `Candidate for review: ${candidateName} — ${roleTitle}`,
+          body: buildEndorsementEmailBody(currentFallback, links),
+          review_link: links.reviewLink,
+          availability_link: links.availabilityLink,
+          candidate_name: candidateName,
+          candidate_email: text(profile.email || app.email || currentConversation?.candidate_email || ""),
+          role_title: roleTitle,
+          client_name: clientName,
+          recruiter_email: text(app.recruiter_email || "")
+        };
+
+        let emailSent = false;
+        let emailError = null;
+
+        const firstAttempt = await supabaseClient.functions.invoke("send-client-endorsement", {
+          body: dashboardStylePayload
+        });
+
+        if (!firstAttempt.error && !(firstAttempt.data && firstAttempt.data.success === false)) {
+          emailSent = true;
+        } else {
+          emailError = firstAttempt.error || firstAttempt.data?.error;
+          console.warn("send-client-endorsement failed, trying send-endorsement-email:", emailError);
+
+          const secondAttempt = await supabaseClient.functions.invoke("send-endorsement-email", {
+            body: {
+              to: recipients,
+              subject: dashboardStylePayload.subject,
+              body: dashboardStylePayload.body,
+              message_body: dashboardStylePayload.body,
+              application_id: appId,
+              applicant_profile_id: app.applicant_profile_id || profile.id || null,
+              job_id: dashboardStylePayload.job_id,
+              candidate_name: candidateName,
+              candidate_email: dashboardStylePayload.candidate_email,
+              candidate_phone: text(profile.phone || app.phone || ""),
+              candidate_location: text(profile.location || profile.city || app.location || ""),
+              current_title: text(profile.current_title || profile.headline || ""),
+              years_of_experience: text(profile.years_of_experience || profile.experience_years || ""),
+              skills: Array.isArray(profile.skills) ? profile.skills.join(", ") : text(profile.skills || ""),
+              job_title: roleTitle,
+              client_name: clientName,
+              recruiter_email: dashboardStylePayload.recruiter_email,
+              resume_url: resumeUrl,
+              recruiter_notes: notes,
+              candidate_review_url: links.reviewLink
+            }
+          });
+
+          if (!secondAttempt.error && !(secondAttempt.data && secondAttempt.data.success === false)) {
+            emailSent = true;
+          } else {
+            emailError = secondAttempt.error || secondAttempt.data?.error || emailError;
+          }
+        }
+
+        if (!emailSent) {
+          throw new Error(emailError?.message || emailError || "Endorsement email failed.");
+        }
+
+        const now = new Date().toISOString();
+        const updatePayloads = [
+          { status: "endorsed", client_feedback_status: "endorsed", endorsement_status: "endorsed", endorsement_sent_at: now, endorsement_sent_to: recipients.join(", "), endorsed_by: app.recruiter_email || null, endorsement_notes: notes || null, last_status_change_at: now, updated_at: now },
+          { status: "endorsed", client_feedback_status: "endorsed", endorsement_status: "endorsed", endorsement_sent_at: now, endorsement_sent_to: recipients.join(", "), endorsement_notes: notes || null, last_status_change_at: now, updated_at: now },
+          { status: "endorsed", endorsement_notes: notes || null, updated_at: now }
+        ];
+
+        let lastError = null;
+        for (const payload of updatePayloads) {
+          const { error } = await supabaseClient.from("applications").update(payload).eq("id", appId);
+          if (!error) {
+            showWorkspaceNotice(els.endorsementNotice, `Candidate endorsed. Email sent to ${recipients.join(", ")}.`, "success");
+            if (els.decisionStatus) els.decisionStatus.value = "endorsed";
+            return;
+          }
+          lastError = error;
+        }
+        throw lastError || new Error("Email sent, but application status could not be updated.");
+      } catch (error) {
+        console.error("Unable to endorse candidate:", error);
+        showWorkspaceNotice(els.endorsementNotice, `Unable to send endorsement: ${error.message || error}`, "error");
+      } finally {
+        if (els.endorseCandidateBtn) {
+          els.endorseCandidateBtn.disabled = false;
+          els.endorseCandidateBtn.textContent = "Endorse Candidate";
+        }
       }
-      showWorkspaceNotice(els.endorsementNotice, `Unable to endorse: ${lastError?.message || lastError}`, "error");
     }
 
     async function saveWorkspaceInterviewPlan() {
@@ -4197,17 +4593,87 @@
       if (els.saveDecisionBtn) {
         els.saveDecisionBtn.addEventListener("click", updateApplicationDecision);
       }
+    }
 
+    function showClientDecisionNotice(message, type = "success") {
+      showWorkspaceNotice(els.clientDecisionNotice, message, type);
+    }
+
+    async function saveClientDecision(decision) {
+      if (!isClientShareMode || !sharedEndorsement?.endorsement_id) {
+        showClientDecisionNotice("This client decision link is invalid or expired.", "error");
+        return;
+      }
+
+      const now = new Date().toISOString();
+      const reason = text(els.clientDeclineReason?.value || "");
+
+      if (decision === "declined" && !reason) {
+        showClientDecisionNotice("Please add a rejection reason before submitting.", "error");
+        return;
+      }
+
+      const payload = decision === "declined"
+        ? {
+            client_decision: "declined",
+            client_decline_reason: reason,
+            client_feedback: reason,
+            client_decision_at: now,
+            updated_at: now
+          }
+        : {
+            client_decision: "continued",
+            client_decision_at: now,
+            updated_at: now
+          };
+
+      const { error } = await supabaseClient
+        .from("application_endorsements")
+        .update(payload)
+        .eq("id", sharedEndorsement.endorsement_id);
+
+      if (error) {
+        showClientDecisionNotice(`Unable to save decision: ${error.message || error}`, "error");
+        return;
+      }
+
+      if (decision === "declined") {
+        showClientDecisionNotice("Decision saved. The recruiter will see the rejection reason.", "success");
+        return;
+      }
+
+      showClientDecisionNotice("Decision saved. Opening availability selection...", "success");
+      if (shareToken) {
+        setTimeout(() => {
+          window.location.href = `availability-request.html?token=${encodeURIComponent(shareToken)}`;
+        }, 600);
+      }
+    }
+
+    function bindWorkspaceActions() {
       if (els.endorseCandidateBtn) {
         els.endorseCandidateBtn.addEventListener("click", endorseCandidateFromReview);
       }
-
       if (els.saveWorkspaceFollowUpBtn) {
         els.saveWorkspaceFollowUpBtn.addEventListener("click", saveWorkspaceFollowUp);
       }
-
       if (els.scheduleWorkspaceInterviewBtn) {
         els.scheduleWorkspaceInterviewBtn.addEventListener("click", saveWorkspaceInterviewPlan);
+      }
+      if (els.clientProceedBtn) {
+        els.clientProceedBtn.addEventListener("click", () => saveClientDecision("continued"));
+      }
+      if (els.clientDeclineBtn) {
+        els.clientDeclineBtn.addEventListener("click", () => els.clientDeclineReasonBox?.classList.add("show"));
+      }
+      if (els.clientDeclineTopBtn) {
+        els.clientDeclineTopBtn.addEventListener("click", () => {
+          els.clientDeclineReasonBox?.classList.add("show");
+          document.getElementById("clientDecisionPanel")?.scrollIntoView({ behavior: "smooth", block: "center" });
+        });
+      }
+      if (els.submitClientDeclineBtn) {
+        els.submitClientDeclineBtn.addEventListener("click", () => saveClientDecision("declined"));
       }
     }
 
@@ -4650,6 +5116,10 @@
         }
 
         currentFallback = fallback;
+        if (currentFallback) {
+          currentFallback = await loadJobForFallback(currentFallback);
+          fallback = currentFallback;
+        }
         currentApplicationId = currentApplicationId || conversation?.application_id || fallback?.app?.id || applicationId || "";
 
         const responses = conversation?._isFallback
@@ -4682,6 +5152,7 @@
     }
 
     bindDecisionActions();
+    bindWorkspaceActions();
     bindReviewFeedbackActions();
     bindReviewTabs();
     init();
