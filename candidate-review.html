@@ -943,6 +943,24 @@
       gap: 8px;
     }
 
+
+    .resume-link-row a {
+      color: var(--blue-deep);
+      font-weight: 900;
+      text-decoration: none;
+    }
+
+    .resume-link-row a:hover {
+      text-decoration: underline;
+    }
+
+    .decision-actions .btn-endorse-inline {
+      background: linear-gradient(135deg, var(--green), var(--green-deep));
+      border-color: var(--green);
+      color: #fff;
+      box-shadow: 0 12px 28px rgba(22,163,74,.16);
+    }
+
     .btn:disabled {
       opacity: .62;
       cursor: not-allowed;
@@ -1696,6 +1714,7 @@
           <p>Update the candidate status and add recruiter notes directly from this review.</p>
 
           <div id="decisionNotice" class="decision-notice"></div>
+          <div id="endorsementNotice" class="workspace-notice"></div>
 
           <div class="decision-field">
             <label for="decisionStatus">Candidate Status</label>
@@ -1718,6 +1737,7 @@
           </div>
 
           <div class="decision-actions">
+            <button class="btn btn-endorse-inline" id="quickEndorseCandidateBtn" type="button">Endorse Candidate</button>
             <button class="btn btn-primary" id="saveDecisionBtn" type="button">Save Decision & Return</button>
             <a href="recruiter-dashboard.html" class="btn">Back to Dashboard</a>
           </div>
@@ -1732,6 +1752,7 @@
               <div class="review-kv"><span>Phone</span><strong id="workspaceCandidatePhone">—</strong></div>
               <div class="review-kv"><span>Location</span><strong id="workspaceCandidateLocation">—</strong></div>
               <div class="review-kv"><span>Role</span><strong id="workspaceCandidateRole">—</strong></div>
+              <div class="review-kv resume-link-row"><span>Resume</span><strong id="workspaceResumeLink">Checking resume…</strong></div>
             </div>
           </section>
 
@@ -1757,13 +1778,6 @@
             </div>
             <div class="review-actions"><button class="btn" id="saveWorkspaceFollowUpBtn" type="button">Save Follow-up</button></div>
             <div id="workspaceFollowUpNotice" class="workspace-notice"></div>
-          </section>
-
-          <section class="review-workspace-card">
-            <h3>Endorsement</h3>
-            <p>Move the candidate to endorsed status from this review.</p>
-            <div class="review-actions"><button class="btn btn-primary" id="endorseCandidateBtn" type="button">Endorse Candidate</button></div>
-            <div id="endorsementNotice" class="workspace-notice"></div>
           </section>
 
           <section class="review-workspace-card">
@@ -1872,12 +1886,14 @@
       workspaceCandidatePhone: document.getElementById("workspaceCandidatePhone"),
       workspaceCandidateLocation: document.getElementById("workspaceCandidateLocation"),
       workspaceCandidateRole: document.getElementById("workspaceCandidateRole"),
+      workspaceResumeLink: document.getElementById("workspaceResumeLink"),
       workspaceFollowUpStatus: document.getElementById("workspaceFollowUpStatus"),
       workspaceFollowUpDate: document.getElementById("workspaceFollowUpDate"),
       workspaceFollowUpNote: document.getElementById("workspaceFollowUpNote"),
       saveWorkspaceFollowUpBtn: document.getElementById("saveWorkspaceFollowUpBtn"),
       workspaceFollowUpNotice: document.getElementById("workspaceFollowUpNotice"),
       endorseCandidateBtn: document.getElementById("endorseCandidateBtn"),
+      quickEndorseCandidateBtn: document.getElementById("quickEndorseCandidateBtn"),
       endorsementNotice: document.getElementById("endorsementNotice"),
       workspaceInterviewDateTime: document.getElementById("workspaceInterviewDateTime"),
       workspaceInterviewStage: document.getElementById("workspaceInterviewStage"),
@@ -1927,6 +1943,167 @@
         .split(/\n|,|;/)
         .map(item => item.trim())
         .filter(Boolean);
+    }
+
+
+    function uniq(values) {
+      return Array.from(new Set((values || []).filter(Boolean)));
+    }
+
+    function isExternalResumeUrl(url) {
+      const value = text(url);
+      return /^https?:\/\//i.test(value) && !/\/storage\/v1\/object\/(public|sign)\/resumes\//i.test(value);
+    }
+
+    function isDirectResumeUrl(url) {
+      const value = text(url);
+      return /^https?:\/\//i.test(value) || value.startsWith("blob:") || value.startsWith("data:");
+    }
+
+    function cleanResumePath(path) {
+      let value = text(path);
+      if (!value) return "";
+      try { value = decodeURIComponent(value); } catch (_) {}
+      if (isExternalResumeUrl(value)) return value;
+      return value
+        .split("?")[0]
+        .split("#")[0]
+        .replace(/^https?:\/\/[^/]+\//i, "")
+        .replace(/^storage\/v1\/object\/(public|sign)\/resumes\//i, "")
+        .replace(/^storage\/v1\/object\/(public|sign)\/[^/]+\//i, "")
+        .replace(/^object\/(public|sign)\/resumes\//i, "")
+        .replace(/^object\/(public|sign)\/[^/]+\//i, "")
+        .replace(/^resumes\//i, "")
+        .replace(/^\/+/, "");
+    }
+
+    function normalizeEmailFolder(email) {
+      return text(email)
+        .toLowerCase()
+        .replace(/@/g, "_")
+        .replace(/[^a-z0-9._-]/g, "_")
+        .replace(/_+/g, "_")
+        .replace(/^_+|_+$/g, "");
+    }
+
+    function getFileNameFromValue(value) {
+      const clean = cleanResumePath(value);
+      if (!clean || isExternalResumeUrl(clean)) return clean ? "resume" : "";
+      const parts = clean.split("/").filter(Boolean);
+      return parts.length ? parts[parts.length - 1] : "";
+    }
+
+    function buildResumePathCandidates(profile = {}, app = {}) {
+      const emailCandidates = uniq([profile.email, app.email, app.applicant_email, app.candidate_email].map(text));
+      const storageSourceValues = [
+        profile.resume_path,
+        profile.resume_file_name,
+        !isDirectResumeUrl(profile.resume_url) ? profile.resume_url : ""
+      ];
+      const rawPathCandidates = uniq(storageSourceValues.map(cleanResumePath).filter(path => path && !isExternalResumeUrl(path)));
+      const fileNameCandidates = uniq([
+        profile.resume_file_name,
+        getFileNameFromValue(profile.resume_path),
+        !isDirectResumeUrl(profile.resume_url) ? getFileNameFromValue(profile.resume_url) : ""
+      ].map(text));
+
+      const candidates = [];
+      rawPathCandidates.forEach(raw => {
+        if (!raw || isExternalResumeUrl(raw)) return;
+        candidates.push(raw);
+        if (!raw.includes("/")) {
+          emailCandidates.forEach(email => {
+            const folder = normalizeEmailFolder(email);
+            if (folder) {
+              candidates.push(`manual/${folder}/${raw}`);
+              candidates.push(`sourced-candidates/${folder}/${raw}`);
+            }
+          });
+        }
+      });
+
+      fileNameCandidates.forEach(fileName => {
+        emailCandidates.forEach(email => {
+          const folder = normalizeEmailFolder(email);
+          if (folder && fileName) {
+            candidates.push(`manual/${folder}/${fileName}`);
+            candidates.push(`sourced-candidates/${folder}/${fileName}`);
+          }
+        });
+      });
+
+      emailCandidates.forEach(email => {
+        const folder = normalizeEmailFolder(email);
+        if (folder) {
+          candidates.push(`manual/${folder}`);
+          candidates.push(`sourced-candidates/${folder}`);
+        }
+      });
+
+      return uniq(candidates.map(cleanResumePath).filter(path => path && !isExternalResumeUrl(path)));
+    }
+
+    function isResumeFilePath(path) {
+      const value = text(path);
+      if (isExternalResumeUrl(value)) return false;
+      return /\.(pdf|doc|docx|rtf)$/i.test(cleanResumePath(value));
+    }
+
+    async function createResumeSignedUrl(path) {
+      const cleanPath = cleanResumePath(path);
+      if (!cleanPath || isExternalResumeUrl(cleanPath)) return "";
+      try {
+        const { data, error } = await supabaseClient.storage.from("resumes").createSignedUrl(cleanPath, 3600);
+        if (!error && data?.signedUrl) return data.signedUrl;
+      } catch (error) {
+        console.warn("Resume signed URL failed:", error);
+      }
+      return "";
+    }
+
+    async function resolveResumeUrl(profile = {}, app = {}) {
+      const directUrl = text(profile.resume_url || profile?.raw_email_metadata?.indeed_resume_link || profile?.raw_email_metadata?.resume_url || profile?.raw_email_metadata?.resume_link || "");
+      if (isExternalResumeUrl(directUrl)) return directUrl;
+      if (isDirectResumeUrl(directUrl)) {
+        const signed = await createResumeSignedUrl(directUrl);
+        if (signed) return signed;
+      }
+
+      const candidates = buildResumePathCandidates(profile, app);
+      for (const candidatePath of candidates) {
+        const cleanPath = cleanResumePath(candidatePath);
+        if (!cleanPath) continue;
+        if (isResumeFilePath(cleanPath)) {
+          const signed = await createResumeSignedUrl(cleanPath);
+          if (signed) return signed;
+          continue;
+        }
+        try {
+          const { data, error } = await supabaseClient.storage.from("resumes").list(cleanPath, {
+            limit: 50,
+            sortBy: { column: "created_at", order: "desc" }
+          });
+          if (error) continue;
+          const resumeFile = (data || []).find(file => /\.(pdf|doc|docx|rtf)$/i.test(file.name || ""));
+          if (!resumeFile) continue;
+          const signed = await createResumeSignedUrl(`${cleanPath}/${resumeFile.name}`);
+          if (signed) return signed;
+        } catch (_) {}
+      }
+      return "";
+    }
+
+    async function populateResumeLink(fallback) {
+      if (!els.workspaceResumeLink) return;
+      const app = fallback?.app || {};
+      const profile = fallback?.profile || fallback?.applicant_profile || {};
+      els.workspaceResumeLink.textContent = "Checking resume…";
+      const resumeUrl = await resolveResumeUrl(profile, app);
+      if (resumeUrl) {
+        els.workspaceResumeLink.innerHTML = `<a href="${escapeHtml(resumeUrl)}" target="_blank" rel="noopener">View submitted resume</a>`;
+      } else {
+        els.workspaceResumeLink.textContent = "No resume found";
+      }
     }
 
 
@@ -3927,7 +4104,7 @@
       return date.toISOString().slice(0, 10);
     }
 
-    function populateRecruiterWorkspace(fallback) {
+    async function populateRecruiterWorkspace(fallback) {
       const app = fallback?.app || {};
       const profile = fallback?.profile || fallback?.applicant_profile || {};
       const job = fallback?.job || {};
@@ -3941,6 +4118,7 @@
       if (els.workspaceFollowUpStatus) els.workspaceFollowUpStatus.value = ["none", "needs_follow_up", "due_today", "followed_up"].includes(followStatus) ? followStatus : "none";
       if (els.workspaceFollowUpDate) els.workspaceFollowUpDate.value = toDateInput(app.follow_up_due_at || app.follow_up_date);
       if (els.workspaceFollowUpNote) els.workspaceFollowUpNote.value = text(app.follow_up_note || "");
+      await populateResumeLink(fallback);
     }
 
     async function saveWorkspaceFollowUp() {
@@ -4142,6 +4320,18 @@
     function bindDecisionActions() {
       if (els.saveDecisionBtn) {
         els.saveDecisionBtn.addEventListener("click", updateApplicationDecision);
+      }
+      if (els.quickEndorseCandidateBtn) {
+        els.quickEndorseCandidateBtn.addEventListener("click", endorseCandidateFromReview);
+      }
+      if (els.endorseCandidateBtn) {
+        els.endorseCandidateBtn.addEventListener("click", endorseCandidateFromReview);
+      }
+      if (els.saveWorkspaceFollowUpBtn) {
+        els.saveWorkspaceFollowUpBtn.addEventListener("click", saveWorkspaceFollowUp);
+      }
+      if (els.scheduleWorkspaceInterviewBtn) {
+        els.scheduleWorkspaceInterviewBtn.addEventListener("click", scheduleWorkspaceInterview);
       }
     }
 
@@ -4377,7 +4567,7 @@
       }
 
       els.overallFitReason.textContent = cleanDemoText(
-        `Evaluation breakdown: Profile Fit ${profileFit}%, Assessment Response Quality ${assessmentSummary.average}%, and Talent Conversation ${talentConversationScore}%. ${cleanedRecommendation(conversation, insufficientEvidence)}`
+        cleanedRecommendation(conversation, insufficientEvidence)
       );
 
       els.overallScoreValue.textContent =
