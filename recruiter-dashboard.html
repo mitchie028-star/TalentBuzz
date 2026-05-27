@@ -2992,7 +2992,7 @@ opslead@company.com"></textarea></div>
       </div>
     </div>
   </div> <script>
-    console.log('BuzzHire recruiter-dashboard-v2026-05-27-clean-view-source loaded');
+    console.log('BuzzHire recruiter-dashboard-v2026-05-27-active-kpi loaded');
 
     const CONFIG = {
       SUPABASE_URL: window.TALENTBUZZ_SUPABASE_URL || localStorage.getItem('TALENTBUZZ_SUPABASE_URL') || '',
@@ -3039,6 +3039,8 @@ opslead@company.com"></textarea></div>
       messageInboxLoading: false,
       bulkSelectedIds: new Set(),
       endorsementsByApplicationId: new Map(),
+      activeCandidateIds: new Set(),
+      activeRows: [],
     };
 
     function $(id){return document.getElementById(id)}
@@ -4480,8 +4482,9 @@ opslead@company.com"></textarea></div>
       'role_assessment_questions',
       'role_assessment_responses',
       'vw_dashboard_candidates',
-      'vw_dashboard_candidates_clean'
-    ]);
+      'vw_dashboard_candidates_clean',
+      'vw_dashboard_active_candidates'
+    ];
 
     function currentCompanyId(){
       return safeText(state.companyId || state.recruiterProfile?.company_id || '');
@@ -5178,6 +5181,27 @@ opslead@company.com"></textarea></div>
       return data || [];
     }
 
+
+    async function fetchDashboardActiveRows(){
+      const companyId = currentCompanyId();
+      let query = supabaseClient
+        .from('vw_dashboard_active_candidates')
+        .select('id,company_id')
+        .order('created_at', { ascending:false })
+        .limit(CONFIG.PAGE_SIZE);
+
+      if(companyId){
+        query = query.eq('company_id', companyId);
+      }
+
+      const { data, error } = await query;
+      if(error){
+        console.warn('vw_dashboard_active_candidates query failed; dashboard will calculate active workload locally:', error?.message || error);
+        return [];
+      }
+      return data || [];
+    }
+
     async function fetchApplicationsDirect(select, includeCompanyFallback = true){
       const companyId = currentCompanyId();
       let query = supabaseClient
@@ -5263,14 +5287,15 @@ opslead@company.com"></textarea></div>
       }
       if(silent && els.liveStatusText)els.liveStatusText.textContent='Syncing…';
       try{
-        const [applications,profiles,jobs,assessmentsByApplicationId,interviewsByApplicationId,candidateActivities,dashboardWorkflowRows]=await Promise.all([
+        const [applications,profiles,jobs,assessmentsByApplicationId,interviewsByApplicationId,candidateActivities,dashboardWorkflowRows,dashboardActiveRows]=await Promise.all([
           fetchApplicationsRows(),
           fetchAll('applicant_profiles','id,company_id,full_name,email,indeed_email,external_candidate_id,original_source_email,source_email,phone,location,country,timezone,work_authorization,preferred_work_setup,salary_currency,salary_expectation,available_working_hours,headline,current_title,resume_url,resume_path,resume_file_name,has_resume,raw_resume_text,raw_email_metadata,parsed_resume_json,years_of_experience,experience_years,years_experience,total_experience,experience,skills,updated_at'),
           fetchAll('jobs','id,title,client_name,job_description,keywords,industry,screening_enabled,status,work_setup,location,slug,company_id'),
           fetchLatestRoleAssessments(),
           fetchLatestInterviewSessions(),
           fetchCandidateActivities(),
-          fetchDashboardWorkflowRows()
+          fetchDashboardWorkflowRows(),
+          fetchDashboardActiveRows()
         ]);
         state.assessmentsByApplicationId = assessmentsByApplicationId || new Map();
         state.interviewsByApplicationId = interviewsByApplicationId || new Map();
@@ -5279,6 +5304,8 @@ opslead@company.com"></textarea></div>
         const jobsById=new Map(jobs.map(item=>[item.id,item]));
         const dashboardWorkflowById = new Map((dashboardWorkflowRows || []).map(item => [safeText(item.id), item]));
         const cleanDashboardIds = new Set((dashboardWorkflowRows || []).map(item => safeText(item.id)).filter(Boolean));
+        const activeDashboardIds = new Set((dashboardActiveRows || []).map(item => safeText(item.id)).filter(Boolean));
+        state.activeCandidateIds = activeDashboardIds;
         const activityLookup = buildCandidateActivityLookup(candidateActivities || []);
         const companyId = currentCompanyId();
         const companyScopedApplications = uniqueById(applications || []).filter(app => {
@@ -5335,6 +5362,9 @@ opslead@company.com"></textarea></div>
           return {id:app.id,app,workflow,profile,job,score,activities,assessment:state.assessmentsByApplicationId.get(safeText(app.id))||null,interview:state.interviewsByApplicationId.get(safeText(app.id))||null,assessmentInfo:null,displayName:getCandidateNameFromProfile(profile, app) || safeText(workflow.candidate_name),status:safeText(app.client_feedback_status||app.status||workflow.legacy_status||'submitted'),workflowStage:safeText(app.workflow_stage||workflow.workflow_stage||''),nextRecruiterAction,priorityLevel,slaRisk,primaryCta,recruiter:safeText(app.recruiter_email)||'Unassigned',source:safeText(app.application_source||workflow.application_source||'—'),appliedAt:app.created_at||workflow.created_at,clientName:safeText(job.client_name||'—'),jobTitle:safeText(job.title||app.job_title||workflow.job_title||'—'),followUp:getFollowUpInfo(app)};
         }).map(row => ({...row, assessmentInfo: getAssessmentInfo(row)}));
         state.allRows=cleanDashboardRows(dedupeDashboardApplicationRows(rawRows));
+        state.activeRows = activeDashboardIds.size
+          ? state.allRows.filter(row => activeDashboardIds.has(safeText(row.id)))
+          : state.allRows.filter(row => isActiveDashboardRow(row));
         await loadApplicationEndorsements();
         state.messageInboxRows = buildMessageInboxRows(candidateActivities || [], state.allRows);
         updateMessageInboxBadge();
@@ -5547,6 +5577,17 @@ opslead@company.com"></textarea></div>
       if(els.viewCountMissingResume)els.viewCountMissingResume.textContent = count(r=>!hasResumeEvidence(r.profile));
     }
 
+    function isActiveDashboardRow(row){
+      const name = safeText(row?.displayName || row?.workflow?.candidate_name || row?.profile?.full_name || '').toLowerCase();
+      const stage = safeText(row?.workflowStage || row?.app?.workflow_stage || row?.workflow?.workflow_stage || '').toLowerCase();
+      if(!row)return false;
+      if(name.includes('test'))return false;
+      if(stage === 'closed' || stage === 'hired')return false;
+      if(typeof row?.app?.active_pipeline === 'boolean')return row.app.active_pipeline;
+      if(typeof row?.workflow?.active_pipeline === 'boolean')return row.workflow.active_pipeline;
+      return !isClosedStatus(row.status) && !isHiredStatus(row.status);
+    }
+
     function renderKPIs(){
       // Saved-view counters stay global so recruiters can jump between queues.
       updateSavedViewCounts();
@@ -5569,7 +5610,8 @@ opslead@company.com"></textarea></div>
         ? Math.round(fitScores.reduce((sum, value) => sum + value, 0) / fitScores.length)
         : 0;
 
-      const activeCount = rows.length;
+      const visibleActiveRows = rows.filter(r => state.activeCandidateIds?.size ? state.activeCandidateIds.has(safeText(r.id)) : isActiveDashboardRow(r));
+      const activeCount = visibleActiveRows.length;
       const strongFitCount = count(r => scoreTier(r.score?.overall) === 'strong');
       const needsReviewCount = count(r => scoreTier(r.score?.overall) === 'weak');
       const unassignedCount = count(r => isUnassignedRecruiter(r));
@@ -5603,10 +5645,13 @@ opslead@company.com"></textarea></div>
 
       // Priority cards are global jump queues; clicking each card updates the pipeline table to the same queue.
       const allRows = state.allRows || [];
-      setText(els.actionNeedsReview, allRows.filter(r => isNeedsReviewQueue(r)).length);
-      setText(els.actionFollowUps, allRows.filter(r => hasOpenFollowUp(r)).length);
-      setText(els.actionReadyReview, allRows.filter(r => isReadyForReview(r)).length);
-      setText(els.actionAwaitingAssessment, allRows.filter(r => isAwaitingAssessment(r)).length);
+      const activeRows = (state.activeRows && state.activeRows.length)
+        ? state.activeRows
+        : allRows.filter(r => state.activeCandidateIds?.size ? state.activeCandidateIds.has(safeText(r.id)) : isActiveDashboardRow(r));
+      setText(els.actionNeedsReview, activeRows.filter(r => isNeedsReviewQueue(r)).length);
+      setText(els.actionFollowUps, activeRows.filter(r => hasOpenFollowUp(r)).length);
+      setText(els.actionReadyReview, activeRows.filter(r => isReadyForReview(r)).length);
+      setText(els.actionAwaitingAssessment, activeRows.filter(r => isAwaitingAssessment(r)).length);
       updateMessageInboxBadge();
     }
 
