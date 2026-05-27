@@ -2360,6 +2360,79 @@ tr.row-assessment-progress:hover td{
       .today-queue-grid{grid-template-columns:1fr;}
     }
 
+
+    /* ===== Candidate email composer ===== */
+    .candidate-email-modal-card{
+      width:min(780px,96vw);
+      max-height:92vh;
+      display:flex;
+      flex-direction:column;
+    }
+    .candidate-email-modal-card .modal-body{
+      flex:1 1 auto;
+      min-height:0!important;
+      overflow:auto;
+      padding:16px;
+    }
+    .candidate-email-panel{
+      padding:16px;
+      border:1px solid var(--accent-line);
+      border-radius:18px;
+      background:linear-gradient(180deg,#ffffff 0%,#f8fbff 100%);
+    }
+    .candidate-email-grid{
+      display:grid;
+      grid-template-columns:repeat(2,minmax(0,1fr));
+      gap:12px;
+    }
+    .candidate-email-grid .field.full{grid-column:1/-1}
+    .candidate-email-body{
+      min-height:220px!important;
+      line-height:1.6;
+      background:#fff!important;
+    }
+    .candidate-email-preview-note{
+      margin-top:10px;
+      padding:10px 12px;
+      border-radius:12px;
+      background:var(--surface-soft);
+      border:1px dashed var(--line-strong);
+      color:var(--muted);
+      font-size:.8rem;
+      line-height:1.45;
+    }
+    .candidate-email-status{
+      margin-top:10px;
+      padding:10px 12px;
+      border-radius:12px;
+      background:var(--surface-soft);
+      border:1px dashed var(--line-strong);
+      color:var(--muted);
+      font-size:.82rem;
+      line-height:1.45;
+      white-space:pre-wrap;
+    }
+    .candidate-email-footer{
+      flex:0 0 auto;
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:10px;
+      padding:14px 18px;
+      border-top:1px solid var(--line);
+      background:#fff;
+      box-shadow:0 -8px 20px rgba(16,24,40,.05);
+    }
+    .clean-action-grid{
+      grid-template-columns:1fr 1fr!important;
+    }
+    @media(max-width:760px){
+      .candidate-email-grid{grid-template-columns:1fr}
+      .candidate-email-footer{align-items:stretch;flex-direction:column}
+      .candidate-email-footer .actions{display:grid;width:100%}
+      .candidate-email-footer .btn{width:100%}
+    }
+
 </style>
 </head>
 <body class="auth-pending">
@@ -2720,6 +2793,7 @@ opslead@company.com"></textarea></div>
                 <p class="small" id="resumeMeta">No resume selected.</p>
                 <div class="clean-action-grid">
                   <button class="btn btn-primary btn-xs candidate-review-link" id="openCandidateReviewBtn" type="button" data-hard-review-route="1">Review Candidate</button>
+                  <button class="btn btn-xs" id="openCandidateEmailBtn" type="button">Email Candidate</button>
                   <button class="btn btn-xs" id="viewResumeBtn" type="button">View Resume</button>
                   <button class="btn btn-xs" id="openCandidateWorkspaceBtn" type="button">Edit Details</button>
                 </div>
@@ -2833,6 +2907,55 @@ opslead@company.com"></textarea></div>
           </div>
           <div class="bulk-upload-status hidden" id="bulkUploadStatus">No bulk upload started.</div>
         </section>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal" id="candidateEmailModal">
+    <div class="modal-card candidate-email-modal-card">
+      <div class="modal-head">
+        <div>
+          <strong>Email Candidate</strong>
+          <div class="small" id="candidateEmailModalSubtitle">Compose a candidate email from the dashboard. Direct sending can be wired to an Edge Function later.</div>
+        </div>
+        <button class="btn btn-xs" id="candidateEmailModalClose" type="button">Close</button>
+      </div>
+      <div class="modal-body">
+        <section class="candidate-email-panel" aria-label="Candidate email composer">
+          <div class="candidate-email-grid">
+            <div class="field">
+              <label for="candidateEmailTo">To</label>
+              <input id="candidateEmailTo" type="email" placeholder="candidate@email.com" />
+            </div>
+            <div class="field">
+              <label for="candidateEmailTemplate">Template</label>
+              <select id="candidateEmailTemplate">
+                <option value="follow_up">Follow-up</option>
+                <option value="assessment_reminder">Assessment reminder</option>
+                <option value="interview_confirmation">Interview confirmation</option>
+                <option value="missing_resume">Missing resume request</option>
+                <option value="custom">Custom message</option>
+              </select>
+            </div>
+            <div class="field full">
+              <label for="candidateEmailSubject">Subject</label>
+              <input id="candidateEmailSubject" type="text" placeholder="Email subject" />
+            </div>
+            <div class="field full">
+              <label for="candidateEmailBody">Message</label>
+              <textarea id="candidateEmailBody" class="candidate-email-body" placeholder="Write your message..."></textarea>
+            </div>
+          </div>
+          <div class="candidate-email-preview-note">For now, this composer can copy the email or open your email app. Later we can connect this to a Supabase Edge Function for direct dashboard sending and logging.</div>
+          <div class="candidate-email-status hidden" id="candidateEmailStatus">No email prepared yet.</div>
+        </section>
+      </div>
+      <div class="candidate-email-footer">
+        <span class="small">SMS can use the same candidate communication pattern later.</span>
+        <div class="actions">
+          <button class="btn btn-soft" id="copyCandidateEmailBtn" type="button">Copy Email</button>
+          <button class="btn btn-primary" id="openCandidateEmailAppBtn" type="button">Open Email App</button>
+        </div>
       </div>
     </div>
   </div>
@@ -3164,7 +3287,7 @@ opslead@company.com"></textarea></div>
       overallScore:$('overallScore'), scoringSource:$('scoringSource'), profileScore:$('profileScore'), resumeScore:$('resumeScore'), overallReason:$('overallReason'),
       snapEmail:$('snapEmail'), snapPhone:$('snapPhone'), snapLocation:$('snapLocation'), snapCountry:$('snapCountry'), snapTimezone:$('snapTimezone'), snapWorkSetup:$('snapWorkSetup'), snapWorkAuthorization:$('snapWorkAuthorization'), snapSalary:$('snapSalary'), snapAvailableHours:$('snapAvailableHours'), snapExperience:$('snapExperience'), snapEducation:$('snapEducation'), snapJob:$('snapJob'),
       editCandidateName:$('editCandidateName'), editCandidateEmail:$('editCandidateEmail'), editCandidatePhone:$('editCandidatePhone'), editCandidateLocation:$('editCandidateLocation'), editCandidateCountry:$('editCandidateCountry'), editCandidateTimezone:$('editCandidateTimezone'), editCandidateWorkSetup:$('editCandidateWorkSetup'), editCandidateAuthorization:$('editCandidateAuthorization'), editCandidateSalaryCurrency:$('editCandidateSalaryCurrency'), editCandidateSalary:$('editCandidateSalary'), editCandidateExperience:$('editCandidateExperience'), editCandidateEducation:$('editCandidateEducation'), editCandidateRole:$('editCandidateRole'), editCandidateAvailableHours:$('editCandidateAvailableHours'), saveCandidateInfoBtn:$('saveCandidateInfoBtn'),
-      resumeMeta:$('resumeMeta'), profileSummary:$('profileSummary'), viewResumeBtn:$('viewResumeBtn'), downloadResumeBtn:$('downloadResumeBtn'), importClipboardResumeBtn:$('importClipboardResumeBtn'), parseResumeBtn:$('parseResumeBtn'), openCandidateWorkspaceBtn:$('openCandidateWorkspaceBtn'), openCandidateReviewBtn:$('openCandidateReviewBtn'), resumeUploadInput:$('resumeUploadInput'), uploadResumeBtn:$('uploadResumeBtn'), editFollowUpStatus:$('editFollowUpStatus'), editFollowUpDate:$('editFollowUpDate'), editFollowUpNote:$('editFollowUpNote'), markNeedsFollowUpBtn:$('markNeedsFollowUpBtn'), markFollowedUpBtn:$('markFollowedUpBtn'), editNotes:$('editNotes'), editStatus:$('editStatus'), saveBtn:$('saveBtn'),
+      resumeMeta:$('resumeMeta'), profileSummary:$('profileSummary'), viewResumeBtn:$('viewResumeBtn'), downloadResumeBtn:$('downloadResumeBtn'), importClipboardResumeBtn:$('importClipboardResumeBtn'), parseResumeBtn:$('parseResumeBtn'), openCandidateWorkspaceBtn:$('openCandidateWorkspaceBtn'), openCandidateReviewBtn:$('openCandidateReviewBtn'), openCandidateEmailBtn:$('openCandidateEmailBtn'), candidateEmailModal:$('candidateEmailModal'), candidateEmailModalClose:$('candidateEmailModalClose'), candidateEmailModalSubtitle:$('candidateEmailModalSubtitle'), candidateEmailTo:$('candidateEmailTo'), candidateEmailTemplate:$('candidateEmailTemplate'), candidateEmailSubject:$('candidateEmailSubject'), candidateEmailBody:$('candidateEmailBody'), candidateEmailStatus:$('candidateEmailStatus'), copyCandidateEmailBtn:$('copyCandidateEmailBtn'), openCandidateEmailAppBtn:$('openCandidateEmailAppBtn'), resumeUploadInput:$('resumeUploadInput'), uploadResumeBtn:$('uploadResumeBtn'), editFollowUpStatus:$('editFollowUpStatus'), editFollowUpDate:$('editFollowUpDate'), editFollowUpNote:$('editFollowUpNote'), markNeedsFollowUpBtn:$('markNeedsFollowUpBtn'), markFollowedUpBtn:$('markFollowedUpBtn'), editNotes:$('editNotes'), editStatus:$('editStatus'), saveBtn:$('saveBtn'),
       candidateModal:$('candidateModal'), candidateModalClose:$('candidateModalClose'), candidateModalTitle:$('candidateModalTitle'), candidateModalSubtitle:$('candidateModalSubtitle'), modalCandidateName:$('modalCandidateName'), modalCandidateMeta:$('modalCandidateMeta'), modalProfileSummary:$('modalProfileSummary'),
       modalEditCandidateName:$('modalEditCandidateName'), modalEditCandidateEmail:$('modalEditCandidateEmail'), modalEditCandidatePhone:$('modalEditCandidatePhone'), modalEditCandidateLocation:$('modalEditCandidateLocation'), modalEditCandidateCountry:$('modalEditCandidateCountry'), modalEditCandidateTimezone:$('modalEditCandidateTimezone'), modalEditCandidateWorkSetup:$('modalEditCandidateWorkSetup'), modalEditCandidateAuthorization:$('modalEditCandidateAuthorization'), modalEditCandidateSalaryCurrency:$('modalEditCandidateSalaryCurrency'), modalEditCandidateSalary:$('modalEditCandidateSalary'), modalEditCandidateExperience:$('modalEditCandidateExperience'), modalEditCandidateEducation:$('modalEditCandidateEducation'), modalEditCandidateRole:$('modalEditCandidateRole'), modalEditCandidateAvailableHours:$('modalEditCandidateAvailableHours'), modalSaveCandidateInfoBtn:$('modalSaveCandidateInfoBtn'), modalSnapEmail:$('modalSnapEmail'), modalSnapPhone:$('modalSnapPhone'), modalSnapLocation:$('modalSnapLocation'), modalSnapCountry:$('modalSnapCountry'), modalSnapTimezone:$('modalSnapTimezone'), modalSnapWorkSetup:$('modalSnapWorkSetup'), modalSnapWorkAuthorization:$('modalSnapWorkAuthorization'), modalSnapSalary:$('modalSnapSalary'), modalSnapAvailableHours:$('modalSnapAvailableHours'), modalSnapExperience:$('modalSnapExperience'), modalSnapEducation:$('modalSnapEducation'), modalSnapJob:$('modalSnapJob'), modalEditFollowUpStatus:$('modalEditFollowUpStatus'), modalEditFollowUpDate:$('modalEditFollowUpDate'), modalEditFollowUpNote:$('modalEditFollowUpNote'), modalEditNotes:$('modalEditNotes'), modalEditStatus:$('modalEditStatus'), modalSaveBtn:$('modalSaveBtn'), modalMatchScore:$('modalMatchScore'), modalScoringSource:$('modalScoringSource'), modalProfileScore:$('modalProfileScore'), modalResumeScore:$('modalResumeScore'), modalMatchReason:$('modalMatchReason'), modalResumeMeta:$('modalResumeMeta'), modalViewResumeBtn:$('modalViewResumeBtn'), modalDownloadResumeBtn:$('modalDownloadResumeBtn'), modalImportClipboardResumeBtn:$('modalImportClipboardResumeBtn'), modalParseResumeBtn:$('modalParseResumeBtn'), modalResumeUploadInput:$('modalResumeUploadInput'), modalUploadResumeBtn:$('modalUploadResumeBtn'),
       resumeModal:$('resumeModal'), resumeModalTitle:$('resumeModalTitle'), resumeModalSubtitle:$('resumeModalSubtitle'), resumeFrame:$('resumeFrame'), resumeModalClose:$('resumeModalClose'), resumeModalDownloadBtn:$('resumeModalDownloadBtn'),
@@ -9106,6 +9229,129 @@ async function bulkUploadResumes(){
       });
     }
 
+
+    function getSelectedCandidateRow(){
+      return state.allRows.find(item => item.id === state.selectedId) ||
+        state.filteredRows.find(item => item.id === state.selectedId) || null;
+    }
+
+    function getCandidateFirstName(row){
+      const name = safeText(row?.displayName || row?.profile?.full_name || row?.app?.email || 'Candidate');
+      const first = name.split(/\s+/).filter(Boolean)[0];
+      return first || 'there';
+    }
+
+    function buildCandidateEmailTemplate(row, templateKey){
+      const firstName = getCandidateFirstName(row);
+      const role = safeText(row?.jobTitle || row?.app?.job_title || 'the role');
+      const company = safeText(row?.clientName || row?.job?.client_name || 'our client');
+      const recruiterName = safeText(state.recruiterProfile?.full_name || state.currentUser?.email || 'BuzzHire Team');
+
+      const templates = {
+        follow_up: {
+          subject: `Following up on your ${role} application`,
+          body: `Hi ${firstName},\n\nI hope you're doing well. I wanted to follow up on your application for the ${role} role.\n\nPlease let me know if you're still interested and available to continue with the next step.\n\nBest,\n${recruiterName}`
+        },
+        assessment_reminder: {
+          subject: `Reminder: ${role} assessment`,
+          body: `Hi ${firstName},\n\nJust a quick reminder to complete your assessment for the ${role} role when you have a chance.\n\nOnce completed, our recruiting team will review your responses and follow up with next steps.\n\nBest,\n${recruiterName}`
+        },
+        interview_confirmation: {
+          subject: `Interview confirmation for ${role}`, 
+          body: `Hi ${firstName},\n\nI'm confirming your interview for the ${role} role with ${company}.\n\nPlease reply to this email if you have any questions or need to update your availability.\n\nBest,\n${recruiterName}`
+        },
+        missing_resume: {
+          subject: `Resume needed for your ${role} application`,
+          body: `Hi ${firstName},\n\nThanks for your interest in the ${role} role. Could you please send over your latest resume so we can complete your candidate profile and continue the review?\n\nBest,\n${recruiterName}`
+        },
+        custom: {
+          subject: `Update regarding your ${role} application`,
+          body: `Hi ${firstName},\n\n\n\nBest,\n${recruiterName}`
+        }
+      };
+
+      return templates[templateKey] || templates.follow_up;
+    }
+
+    function populateCandidateEmailComposer(row, templateKey){
+      if(!row)return;
+      const email = safeText(row?.profile?.email || row?.app?.email || '');
+      const template = buildCandidateEmailTemplate(row, templateKey || els.candidateEmailTemplate?.value || 'follow_up');
+
+      if(els.candidateEmailTo) els.candidateEmailTo.value = email;
+      if(els.candidateEmailSubject) els.candidateEmailSubject.value = template.subject;
+      if(els.candidateEmailBody) els.candidateEmailBody.value = template.body;
+      if(els.candidateEmailModalSubtitle){
+        els.candidateEmailModalSubtitle.textContent = `${row.displayName || 'Candidate'}${row.jobTitle ? ` • ${row.jobTitle}` : ''}`;
+      }
+      if(els.candidateEmailStatus){
+        els.candidateEmailStatus.classList.add('hidden');
+        els.candidateEmailStatus.textContent = 'No email prepared yet.';
+      }
+    }
+
+    function openCandidateEmailModal(rowId){
+      const row = rowId
+        ? (state.allRows.find(item => item.id === rowId) || state.filteredRows.find(item => item.id === rowId))
+        : getSelectedCandidateRow();
+
+      if(!row){
+        showNotice('Open or select a candidate first.', 'error');
+        return;
+      }
+
+      state.selectedId = row.id;
+      populateCandidateEmailComposer(row, els.candidateEmailTemplate?.value || 'follow_up');
+      els.candidateEmailModal?.classList.add('show');
+    }
+
+    function closeCandidateEmailModal(){
+      els.candidateEmailModal?.classList.remove('show');
+    }
+
+    function getCandidateEmailDraft(){
+      return {
+        to: safeText(els.candidateEmailTo?.value || ''),
+        subject: safeText(els.candidateEmailSubject?.value || ''),
+        body: safeText(els.candidateEmailBody?.value || '')
+      };
+    }
+
+    function showCandidateEmailStatus(message, type='info'){
+      if(!els.candidateEmailStatus)return;
+      els.candidateEmailStatus.classList.remove('hidden');
+      els.candidateEmailStatus.textContent = message;
+      els.candidateEmailStatus.style.borderColor = type === 'error' ? '#fecdca' : type === 'success' ? '#abefc6' : 'var(--line-strong)';
+      els.candidateEmailStatus.style.color = type === 'error' ? 'var(--bad)' : type === 'success' ? 'var(--good)' : 'var(--muted)';
+      els.candidateEmailStatus.style.background = type === 'error' ? 'var(--bad-bg)' : type === 'success' ? 'var(--good-bg)' : 'var(--surface-soft)';
+    }
+
+    async function copyCandidateEmailDraft(){
+      const draft = getCandidateEmailDraft();
+      if(!draft.to || !draft.subject || !draft.body){
+        showCandidateEmailStatus('Please complete the recipient, subject, and message before copying.', 'error');
+        return;
+      }
+      const textToCopy = `To: ${draft.to}\nSubject: ${draft.subject}\n\n${draft.body}`;
+      try{
+        await navigator.clipboard.writeText(textToCopy);
+        showCandidateEmailStatus('Email copied. You can paste it into Gmail or your email client.', 'success');
+      }catch(error){
+        showCandidateEmailStatus('Copy failed. Please select and copy the message manually.', 'error');
+      }
+    }
+
+    function openCandidateEmailApp(){
+      const draft = getCandidateEmailDraft();
+      if(!draft.to || !draft.subject || !draft.body){
+        showCandidateEmailStatus('Please complete the recipient, subject, and message before opening your email app.', 'error');
+        return;
+      }
+      const mailto = `mailto:${encodeURIComponent(draft.to)}?subject=${encodeURIComponent(draft.subject)}&body=${encodeURIComponent(draft.body)}`;
+      window.location.href = mailto;
+      showCandidateEmailStatus('Opening your email app. Direct dashboard sending can be connected next with a Supabase Edge Function.', 'success');
+    }
+
     function bindEvents(){
       [els.searchInput,els.candidateNameFilter,els.statusFilter,els.recruiterFilter,els.followUpFilter,els.jobFilter,els.clientFilter,els.countryFilter,els.workSetupFilter,els.scoreFilter].forEach(el=>{el?.addEventListener('input',applyFilters);el?.addEventListener('change',applyFilters)});
       document.querySelectorAll('[data-quick-filter]').forEach(btn=>btn.addEventListener('click',()=>{
@@ -9169,7 +9415,15 @@ async function bulkUploadResumes(){
       event.stopPropagation();
       const row = state.allRows.find(item => item.id === state.selectedId) || state.filteredRows.find(item => item.id === state.selectedId);
       routeToCandidateReview(row);
-    }); els.openAssessmentEmailBtn?.addEventListener('click',()=>openAssessmentEmailModal(state.selectedId));
+    }); els.openCandidateEmailBtn?.addEventListener('click',()=>openCandidateEmailModal(state.selectedId)); els.openAssessmentEmailBtn?.addEventListener('click',()=>openAssessmentEmailModal(state.selectedId));
+      els.candidateEmailModalClose?.addEventListener('click', closeCandidateEmailModal);
+      els.candidateEmailModal?.addEventListener('click', event => { if(event.target === els.candidateEmailModal) closeCandidateEmailModal(); });
+      els.candidateEmailTemplate?.addEventListener('change', () => {
+        const row = getSelectedCandidateRow();
+        if(row) populateCandidateEmailComposer(row, els.candidateEmailTemplate.value || 'follow_up');
+      });
+      els.copyCandidateEmailBtn?.addEventListener('click', copyCandidateEmailDraft);
+      els.openCandidateEmailAppBtn?.addEventListener('click', openCandidateEmailApp);
       els.drawerAssessmentActionBtn?.addEventListener('click', event => {
         event.preventDefault();
         event.stopPropagation();
