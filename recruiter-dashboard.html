@@ -4884,6 +4884,54 @@ opslead@company.com"></textarea></div>
     }
 
 
+
+    function isDashboardNoiseRow(row){
+      const name = safeText(row?.displayName || row?.profile?.full_name || row?.workflow?.candidate_name || '').toLowerCase();
+      const email = safeText(row?.profile?.email || row?.app?.email || '').toLowerCase();
+      if(!name)return true;
+      if(name === 'a job you')return true;
+      if(name === 'n/a' || name === 'null' || name === 'undefined')return true;
+      if(email === 'n/a' || email === 'noemail@email.com')return true;
+      return false;
+    }
+
+    function getDashboardCandidateJobKey(row){
+      const profileId = safeText(row?.profile?.id || row?.app?.applicant_profile_id);
+      const email = normalizeEmail(row?.profile?.email || row?.app?.email || row?.profile?.indeed_email || '');
+      const name = safeText(row?.displayName || row?.profile?.full_name || row?.workflow?.candidate_name || '').toLowerCase().replace(/\s+/g,' ');
+      const jobId = safeText(row?.app?.job_id || row?.job?.id || '');
+      const jobTitle = safeText(row?.jobTitle || row?.app?.job_title || row?.job?.title || '').toLowerCase().replace(/\s+/g,' ');
+      const candidateKey = profileId || email || name || safeText(row?.id);
+      return `${candidateKey}::${jobId || jobTitle}`;
+    }
+
+    function getDashboardRowFreshness(row){
+      return new Date(
+        row?.app?.updated_at ||
+        row?.app?.last_contacted_at ||
+        row?.app?.next_follow_up_at ||
+        row?.app?.created_at ||
+        row?.appliedAt ||
+        0
+      ).getTime() || 0;
+    }
+
+    function cleanDashboardRows(rows){
+      const byCandidateJob = new Map();
+      (rows || [])
+        .filter(row => !isDashboardNoiseRow(row))
+        .forEach(row => {
+          const key = getDashboardCandidateJobKey(row);
+          const existing = byCandidateJob.get(key);
+          if(!existing || getDashboardRowFreshness(row) > getDashboardRowFreshness(existing)){
+            byCandidateJob.set(key, row);
+          }
+        });
+
+      return Array.from(byCandidateJob.values())
+        .sort((a,b)=>new Date(b.appliedAt || 0).getTime() - new Date(a.appliedAt || 0).getTime());
+    }
+
     async function fetchActivitiesForRowDirect(row){
       const identityKey = getDashboardIdentityKey(row);
       const siblingRows = (state.allRows || []).filter(item => getDashboardIdentityKey(item) === identityKey);
@@ -5230,6 +5278,7 @@ opslead@company.com"></textarea></div>
         const profilesById=new Map(profiles.map(item=>[item.id,item]));
         const jobsById=new Map(jobs.map(item=>[item.id,item]));
         const dashboardWorkflowById = new Map((dashboardWorkflowRows || []).map(item => [safeText(item.id), item]));
+        const cleanDashboardIds = new Set((dashboardWorkflowRows || []).map(item => safeText(item.id)).filter(Boolean));
         const activityLookup = buildCandidateActivityLookup(candidateActivities || []);
         const companyId = currentCompanyId();
         const companyScopedApplications = uniqueById(applications || []).filter(app => {
@@ -5244,7 +5293,11 @@ opslead@company.com"></textarea></div>
           return !appCompanyId && safeText(job?.company_id) === companyId;
         });
 
-        const rawRows=companyScopedApplications.map(app=>{
+        const dashboardSourceApplications = cleanDashboardIds.size
+          ? companyScopedApplications.filter(app => cleanDashboardIds.has(safeText(app.id)))
+          : companyScopedApplications;
+
+        const rawRows=dashboardSourceApplications.map(app=>{
           const profile=profilesById.get(app.applicant_profile_id)||profiles.find(p=>normalizeEmail(p.email)===normalizeEmail(app.email))||{};
           const job=jobsById.get(app.job_id)||jobs.find(j=>safeText(j.title)===safeText(app.job_title))||{};
           if(!safeText(app.company_id) && safeText(job.company_id)){
@@ -5281,7 +5334,7 @@ opslead@company.com"></textarea></div>
           const primaryCta = safeText(app.primary_cta || derivePrimaryCTA(app, workflow));
           return {id:app.id,app,workflow,profile,job,score,activities,assessment:state.assessmentsByApplicationId.get(safeText(app.id))||null,interview:state.interviewsByApplicationId.get(safeText(app.id))||null,assessmentInfo:null,displayName:getCandidateNameFromProfile(profile, app) || safeText(workflow.candidate_name),status:safeText(app.client_feedback_status||app.status||workflow.legacy_status||'submitted'),workflowStage:safeText(app.workflow_stage||workflow.workflow_stage||''),nextRecruiterAction,priorityLevel,slaRisk,primaryCta,recruiter:safeText(app.recruiter_email)||'Unassigned',source:safeText(app.application_source||workflow.application_source||'—'),appliedAt:app.created_at||workflow.created_at,clientName:safeText(job.client_name||'—'),jobTitle:safeText(job.title||app.job_title||workflow.job_title||'—'),followUp:getFollowUpInfo(app)};
         }).map(row => ({...row, assessmentInfo: getAssessmentInfo(row)}));
-        state.allRows=dedupeDashboardApplicationRows(rawRows);
+        state.allRows=cleanDashboardRows(dedupeDashboardApplicationRows(rawRows));
         await loadApplicationEndorsements();
         state.messageInboxRows = buildMessageInboxRows(candidateActivities || [], state.allRows);
         updateMessageInboxBadge();
