@@ -5264,7 +5264,36 @@ function normalizeCommunicationTimelineMessages(messages){
     }
 
     function currentRecruiterId(){
-      return safeText(state.currentRecruiterUser?.id || state.recruiterProfile?.id || '');
+      return safeText(state.currentRecruiterUser?.id || state.recruiterProfile?.id || state.currentUser?.id || '');
+    }
+
+    function currentRecruiterIdentity(){
+      const ids = new Set();
+      const emails = new Set();
+      const names = new Set();
+
+      [state.currentRecruiterUser?.id, state.currentRecruiterUser?.auth_user_id, state.recruiterProfile?.id, state.recruiterProfile?.auth_user_id, state.currentUser?.id].forEach(value => {
+        const text = safeText(value);
+        if(text)ids.add(text);
+      });
+
+      [state.currentRecruiterUser?.email, state.recruiterProfile?.email, state.currentUser?.email].forEach(value => {
+        const email = normalizeEmail(value);
+        if(email)emails.add(email);
+      });
+
+      [state.currentRecruiterUser?.full_name, state.currentRecruiterUser?.name, state.recruiterProfile?.full_name, state.recruiterProfile?.name, state.currentUser?.user_metadata?.full_name, state.currentUser?.user_metadata?.name].forEach(value => {
+        const text = safeText(value).toLowerCase();
+        if(text)names.add(text);
+      });
+
+      const currentEmail = [...emails][0] || '';
+      if(currentEmail){
+        const localName = currentEmail.split('@')[0].replace(/[._-]+/g,' ').trim().toLowerCase();
+        if(localName)names.add(localName);
+      }
+
+      return {ids, emails, names};
     }
 
     function currentTeamId(){
@@ -5308,14 +5337,35 @@ function normalizeCommunicationTimelineMessages(messages){
       return safeText(row?.app?.assigned_recruiter_id || row?.assignedRecruiterId || '');
     }
 
+    function rowAssignedRecruiterEmail(row){
+      return normalizeEmail(row?.app?.assigned_recruiter_email || row?.app?.recruiter_email || row?.assignedRecruiterEmail || row?.recruiter_email || '');
+    }
+
+    function rowAssignedRecruiterName(row){
+      return safeText(row?.app?.assigned_recruiter_name || row?.app?.recruiter_name || row?.assignedRecruiterName || row?.recruiter || '').toLowerCase();
+    }
+
     function rowAssignedTeamId(row){
       return safeText(row?.app?.assigned_team_id || row?.assignedTeamId || '');
     }
 
     function isMyCandidate(row){
-      const id = currentRecruiterId();
-      if(!id)return false;
-      return rowAssignedRecruiterId(row) === id;
+      const identity = currentRecruiterIdentity();
+      const assignedId = rowAssignedRecruiterId(row);
+      const assignedEmail = rowAssignedRecruiterEmail(row);
+      const assignedName = rowAssignedRecruiterName(row);
+      const recruiterUser = getRecruiterUserById(assignedId) || getRecruiterUserByEmail(assignedEmail);
+
+      if(assignedId && identity.ids.has(assignedId))return true;
+      if(assignedEmail && identity.emails.has(assignedEmail))return true;
+      if(recruiterUser?.email && identity.emails.has(normalizeEmail(recruiterUser.email)))return true;
+      if(recruiterUser?.id && identity.ids.has(safeText(recruiterUser.id)))return true;
+
+      const recruiterName = safeText(recruiterUser?.full_name || recruiterUser?.name || '').toLowerCase();
+      if(recruiterName && identity.names.has(recruiterName))return true;
+      if(assignedName && identity.names.has(assignedName))return true;
+
+      return false;
     }
 
     function isTeamCandidate(row){
@@ -7035,7 +7085,7 @@ function currentCompanyId(){
           const priorityLevel = safeText(app.priority_level || derivePriorityLevel(app, workflow));
           const slaRisk = safeText(app.sla_risk || deriveSLARisk(app, workflow));
           const primaryCta = safeText(app.primary_cta || derivePrimaryCTA(app, workflow));
-          return {id:app.id,app,workflow,profile,job,score,activities,communications,assessment:state.assessmentsByApplicationId.get(safeText(app.id))||null,interview:state.interviewsByApplicationId.get(safeText(app.id))||null,assessmentInfo:null,displayName:getCandidateNameFromProfile(profile, app) || safeText(workflow.candidate_name),status:safeText(app.status||app.client_feedback_status||workflow.legacy_status||'submitted'),workflowStage:safeText(app.workflow_stage||workflow.workflow_stage||''),nextRecruiterAction,priorityLevel,slaRisk,primaryCta,assignedRecruiterId:safeText(app.assigned_recruiter_id),assignedTeamId:safeText(app.assigned_team_id),recruiter:getRecruiterDisplayName(app.assigned_recruiter_id, app.recruiter_email),team:getTeamDisplayName(app.assigned_team_id),source:safeText(app.application_source||workflow.application_source||'—'),appliedAt:app.created_at||workflow.created_at,clientName:safeText(job.client_name||'—'),jobTitle:safeText(job.title||app.job_title||workflow.job_title||'—'),followUp:getFollowUpInfo(app)};
+          return {id:app.id,app,workflow,profile,job,score,activities,communications,assessment:state.assessmentsByApplicationId.get(safeText(app.id))||null,interview:state.interviewsByApplicationId.get(safeText(app.id))||null,assessmentInfo:null,displayName:getCandidateNameFromProfile(profile, app) || safeText(workflow.candidate_name),status:safeText(app.status||app.client_feedback_status||workflow.legacy_status||'submitted'),workflowStage:safeText(app.workflow_stage||workflow.workflow_stage||''),nextRecruiterAction,priorityLevel,slaRisk,primaryCta,assignedRecruiterId:safeText(app.assigned_recruiter_id),assignedRecruiterEmail:normalizeEmail(app.assigned_recruiter_email || app.recruiter_email || ''),assignedRecruiterName:safeText(app.assigned_recruiter_name || app.recruiter_name || ''),assignedTeamId:safeText(app.assigned_team_id),recruiter:getRecruiterDisplayName(app.assigned_recruiter_id, app.assigned_recruiter_email || app.recruiter_email),team:getTeamDisplayName(app.assigned_team_id),source:safeText(app.application_source||workflow.application_source||'—'),appliedAt:app.created_at||workflow.created_at,clientName:safeText(job.client_name||'—'),jobTitle:safeText(job.title||app.job_title||workflow.job_title||'—'),followUp:getFollowUpInfo(app)};
         }).map(row => ({...row, assessmentInfo: getAssessmentInfo(row)}));
         state.allRows=cleanDashboardRows(dedupeDashboardApplicationRows(rawRows));
         augmentRecruiterDirectoryFromRows(state.allRows);
@@ -7083,11 +7133,47 @@ function currentCompanyId(){
       select.innerHTML=`<option value="">${placeholder}</option>`+uniq(values.map(safeText).filter(Boolean)).sort((a,b)=>a.localeCompare(b)).map(v=>`<option value="${escapeHtml(v)}">${escapeHtml(v)}</option>`).join('');
       if([...select.options].some(o=>o.value===current))select.value=current;
     }
+
+
+    function populateRecruiterFilter(){
+      const select = els.recruiterFilter;
+      if(!select)return;
+      const options = new Map();
+      const add = (value, label) => {
+        const v = safeText(value);
+        if(!v)return;
+        options.set(v, safeText(label || value));
+      };
+
+      (state.recruiterUsers || []).forEach(user => {
+        const label = safeText(user.full_name || user.email || user.id);
+        if(user.id)add(user.id, label);
+        if(user.email)add(normalizeEmail(user.email), label);
+      });
+
+      (state.allRows || []).forEach(row => {
+        const label = safeText(row.recruiter || rowAssignedRecruiterEmail(row) || 'Unassigned');
+        add(rowAssignedRecruiterId(row), label);
+        add(rowAssignedRecruiterEmail(row), label);
+        add(rowAssignedRecruiterName(row), label);
+        if(label && label !== 'Unassigned')add(label.toLowerCase(), label);
+      });
+
+      const current = select.value;
+      const optionHtml = Array.from(options.entries())
+        .filter(([value]) => value)
+        .sort((a,b)=>a[1].localeCompare(b[1]))
+        .map(([value,label]) => `<option value="${escapeHtml(value)}">${escapeHtml(label)}</option>`)
+        .join('');
+
+      select.innerHTML = `<option value="">All recruiters</option><option value="unassigned">Unassigned</option>${optionHtml}`;
+      if([...select.options].some(option => option.value === current))select.value = current;
+    }
     function populateFilters(){
       populateSelect(els.statusFilter,[...STATUS_OPTIONS,...state.allRows.map(r=>r.status)],'All statuses');
       populateSelect(els.editStatus,[...STATUS_OPTIONS,...state.allRows.map(r=>r.status)],'Select actual status');
       populateSelect(els.modalEditStatus,[...STATUS_OPTIONS,...state.allRows.map(r=>r.status)],'Select actual status');
-      populateSelect(els.recruiterFilter,[...(state.recruiterUsers||[]).map(u=>u.full_name || u.email),...state.allRows.map(r=>r.recruiter || 'Unassigned')],'All recruiters');
+      populateRecruiterFilter();
       populateSelect(els.teamFilter,[...(state.recruiterTeams||[]).map(t=>t.name),...state.allRows.map(r=>r.team || 'No team')],'All teams');
       populateSelect(els.jobFilter,state.allRows.map(r=>r.jobTitle).filter(x=>x!=='—'),'All jobs');
       populateSelect(els.clientFilter,state.allRows.map(r=>r.clientName).filter(x=>x!=='—'),'All clients');
@@ -7263,7 +7349,13 @@ function currentCompanyId(){
         if(recruiter){
           if(recruiter === 'unassigned'){
             if(!isUnassignedRecruiter(row))return false;
-          }else if(row.recruiter.toLowerCase()!==recruiter)return false;
+          }else{
+            const assignedId = rowAssignedRecruiterId(row).toLowerCase();
+            const assignedEmail = rowAssignedRecruiterEmail(row).toLowerCase();
+            const assignedName = rowAssignedRecruiterName(row).toLowerCase();
+            const displayName = safeText(row.recruiter).toLowerCase();
+            if(![assignedId, assignedEmail, assignedName, displayName].includes(recruiter))return false;
+          }
         }
         if(team && safeText(row.team).toLowerCase() !== team)return false;
         if(followUp){ if(followUp==='all_open'){ if(!hasOpenFollowUp(row))return false; } else if(followUp==='none'){ if(hasOpenFollowUp(row) || row.followUp?.key !== 'none')return false; } else if(row.followUp?.key!==followUp)return false; }
