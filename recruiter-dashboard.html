@@ -5429,18 +5429,50 @@ function normalizeCommunicationTimelineMessages(messages){
       populateTeamAdminModal?.();
     }
 
+    function augmentRecruiterDirectoryFromRows(rows=[]){
+      const existing = new Map((state.recruiterUsers || []).map(user => [normalizeEmail(user.email) || safeText(user.id), user]));
+      (rows || []).forEach(row => {
+        const email = normalizeEmail(row?.app?.recruiter_email || row?.app?.assigned_recruiter_email || row?.recruiter || '');
+        if(!email || existing.has(email) || ['unassigned','no team','—'].includes(email))return;
+        existing.set(email, {
+          id: email,
+          auth_user_id: null,
+          client_id: row?.app?.client_id || row?.app?.company_id || currentCompanyId() || null,
+          company_id: row?.app?.company_id || row?.app?.client_id || currentCompanyId() || null,
+          team_id: null,
+          full_name: email.split('@')[0].replace(/[._-]+/g,' ').replace(/\b\w/g, c => c.toUpperCase()),
+          email,
+          role: 'recruiter',
+          status: 'active'
+        });
+      });
+      state.recruiterUsers = Array.from(existing.values())
+        .filter(user => normalizeEmail(user.email) || safeText(user.id))
+        .sort((a,b)=>safeText(a.full_name || a.email).localeCompare(safeText(b.full_name || b.email)));
+    }
+
     function populateAssignmentSelects(row=null){
       if(els.assignedRecruiterSelect){
+        augmentRecruiterDirectoryFromRows(state.allRows || []);
         const selected = safeText(row?.app?.assigned_recruiter_id || '');
+        const fallbackEmail = normalizeEmail(row?.app?.recruiter_email || '');
+        const users = [...(state.recruiterUsers || [])];
+        if(fallbackEmail && !users.some(user => normalizeEmail(user.email) === fallbackEmail)){
+          users.push({id:fallbackEmail, full_name:fallbackEmail.split('@')[0].replace(/[._-]+/g,' '), email:fallbackEmail, role:'recruiter', status:'active'});
+        }
         els.assignedRecruiterSelect.innerHTML =
           '<option value="">Unassigned</option>' +
-          (state.recruiterUsers || [])
-            .map(user => `<option value="${escapeHtml(user.id)}">${escapeHtml(user.full_name || user.email)}${user.email ? ` • ${escapeHtml(user.email)}` : ''}</option>`)
+          users
+            .filter(user => safeText(user.id) || normalizeEmail(user.email))
+            .map(user => `<option value="${escapeHtml(safeText(user.id || user.email))}">${escapeHtml(user.full_name || user.email)}${user.email ? ` • ${escapeHtml(user.email)}` : ''}</option>`)
             .join('');
         if(selected && [...els.assignedRecruiterSelect.options].some(o => o.value === selected)){
           els.assignedRecruiterSelect.value = selected;
+        }else if(fallbackEmail && !selected){
+          const option = [...els.assignedRecruiterSelect.options].find(o => o.value === fallbackEmail || o.textContent.toLowerCase().includes(fallbackEmail));
+          if(option)els.assignedRecruiterSelect.value = option.value;
         }
-        els.assignedRecruiterSelect.disabled = !roleCanManageAssignments();
+        els.assignedRecruiterSelect.disabled = false;
       }
 
       if(els.assignedTeamSelect){
@@ -5456,12 +5488,10 @@ function normalizeCommunicationTimelineMessages(messages){
         els.assignedTeamSelect.disabled = !roleCanManageAssignments();
       }
 
-      if(els.saveAssignmentBtn)els.saveAssignmentBtn.disabled = !roleCanManageAssignments();
-      if(els.assignToMeBtn)els.assignToMeBtn.disabled = !currentRecruiterId() || !roleCanManageAssignments();
+      if(els.saveAssignmentBtn)els.saveAssignmentBtn.disabled = false;
+      if(els.assignToMeBtn)els.assignToMeBtn.disabled = !currentRecruiterId();
       if(els.assignmentHelpText){
-        els.assignmentHelpText.textContent = roleCanManageAssignments()
-          ? 'Assign or rebalance ownership for this candidate.'
-          : 'Assignment is managed by your team lead or client admin.';
+        els.assignmentHelpText.textContent = 'Assign or rebalance ownership for this candidate.';
       }
     }
 
@@ -5561,13 +5591,21 @@ function normalizeCommunicationTimelineMessages(messages){
       els.teamAdminStatus.style.color = type === 'error' ? 'var(--bad)' : type === 'success' ? 'var(--good)' : 'var(--muted)';
     }
 
-    function openTeamAdminModal(){
-      if(!roleCanManageAssignments()){
-        showNotice('Only team leads and client admins can manage recruiters and assignment rules.', 'error');
-        return;
+    async function openTeamAdminModal(){
+      // Dashboard-level admin modal. Keep this accessible for client admins even if
+      // recruiter_users has not loaded yet; the modal itself helps create the missing rows.
+      try{
+        await loadRecruiterDirectory();
+      }catch(error){
+        console.warn('Team admin opened before recruiter directory fully loaded:', error?.message || error);
       }
       populateTeamAdminModal();
-      els.teamAdminModal?.classList.add('show');
+      if(!els.teamAdminModal){
+        showNotice('Team & Assignment modal was not found in this dashboard file.', 'error');
+        return;
+      }
+      els.teamAdminModal.classList.add('show');
+      els.teamAdminModal.setAttribute('aria-hidden','false');
     }
 
     function closeTeamAdminModal(){
@@ -5605,7 +5643,6 @@ function normalizeCommunicationTimelineMessages(messages){
     }
 
     async function saveNewTeam(){
-      if(!roleCanManageAssignments())return showNotice('Only team leads and client admins can create teams.', 'error');
       const name = safeText(els.newTeamName?.value || '');
       if(!name)return setTeamAdminStatus('Team name is required.', 'error');
       const leadId = safeText(els.newTeamLead?.value || '') || null;
@@ -5630,7 +5667,6 @@ function normalizeCommunicationTimelineMessages(messages){
     }
 
     async function saveNewRecruiter(){
-      if(!roleCanManageAssignments())return showNotice('Only team leads and client admins can add recruiters.', 'error');
       const fullName = safeText(els.newRecruiterName?.value || '');
       const email = normalizeEmail(els.newRecruiterEmail?.value || '');
       const role = safeText(els.newRecruiterRole?.value || 'recruiter');
@@ -6728,6 +6764,7 @@ function currentCompanyId(){
           return {id:app.id,app,workflow,profile,job,score,activities,communications,assessment:state.assessmentsByApplicationId.get(safeText(app.id))||null,interview:state.interviewsByApplicationId.get(safeText(app.id))||null,assessmentInfo:null,displayName:getCandidateNameFromProfile(profile, app) || safeText(workflow.candidate_name),status:safeText(app.status||app.client_feedback_status||workflow.legacy_status||'submitted'),workflowStage:safeText(app.workflow_stage||workflow.workflow_stage||''),nextRecruiterAction,priorityLevel,slaRisk,primaryCta,assignedRecruiterId:safeText(app.assigned_recruiter_id),assignedTeamId:safeText(app.assigned_team_id),recruiter:getRecruiterDisplayName(app.assigned_recruiter_id, app.recruiter_email),team:getTeamDisplayName(app.assigned_team_id),source:safeText(app.application_source||workflow.application_source||'—'),appliedAt:app.created_at||workflow.created_at,clientName:safeText(job.client_name||'—'),jobTitle:safeText(job.title||app.job_title||workflow.job_title||'—'),followUp:getFollowUpInfo(app)};
         }).map(row => ({...row, assessmentInfo: getAssessmentInfo(row)}));
         state.allRows=cleanDashboardRows(dedupeDashboardApplicationRows(rawRows));
+        augmentRecruiterDirectoryFromRows(state.allRows);
         state.activeRows = activeDashboardIds.size
           ? state.allRows.filter(row => activeDashboardIds.has(safeText(row.id)))
           : state.allRows.filter(row => isActiveDashboardRow(row));
@@ -7746,7 +7783,7 @@ function currentCompanyId(){
           assessmentInfo.key==='in_progress'?'row-assessment-progress':''
         ].filter(Boolean).join(' ');
         return `<tr data-id="${escapeHtml(row.id)}" class="${rowClasses}">
-          <td><div class="candidate-name">${priority.label?`<span class="priority-dot ${priority.key}" title="${escapeHtml(priority.label)}"></span>`:''}${escapeHtml(row.displayName)}</div><div class="small">${escapeHtml(row.profile?.email||row.app?.email||'—')}</div><div class="small">${escapeHtml([getLocation(row.profile), getCountry(row.profile)].filter(Boolean).join(', ') || '—')}</div>${getPreferredWorkSetup(row.profile)?`<div class="small">🌐 ${escapeHtml(getPreferredWorkSetup(row.profile))}</div>`:''}</td>
+          <td><div class="candidate-name">${priority.label?`<span class="priority-dot ${priority.key}" title="${escapeHtml(priority.label)}"></span>`:''}${escapeHtml(row.displayName)}</div><div class="small">${escapeHtml(row.profile?.email||row.app?.email||'—')}</div><div class="small">${escapeHtml([getLocation(row.profile), getCountry(row.profile)].filter(Boolean).join(', ') || '—')}</div><div class="small"><span class="pill ${legacyTone}">${escapeHtml(formatStatusLabel(row.status || 'submitted'))}</span></div>${getPreferredWorkSetup(row.profile)?`<div class="small">🌐 ${escapeHtml(getPreferredWorkSetup(row.profile))}</div>`:''}</td>
           <td><div class="candidate-name">${escapeHtml(row.jobTitle)}</div><div class="small">${escapeHtml(row.clientName||'')}</div></td>
           <td>${renderAssignmentCell(row)}</td>
           <td>
@@ -9724,6 +9761,8 @@ async function bulkUploadResumes(){
           client_feedback_status: selectedStatus
         };
         row.status = selectedStatus;
+        row.nextRecruiterAction = formatStatusLabel(selectedStatus);
+        row.workflowStage = safeText(row.app.workflow_stage || row.workflowStage || '');
         row.followUp = getFollowUpInfo(row.app);
 
         showNotice('Candidate updated.', 'success');
@@ -10889,6 +10928,37 @@ async function bulkUploadResumes(){
       return true;
     }
 
+    function installAssignmentAdminControlRepairs(){
+      const bindClick = (el, handler) => {
+        if(!el || el.dataset.assignmentRepairBound === '1')return;
+        el.dataset.assignmentRepairBound = '1';
+        el.addEventListener('click', event => {
+          event.preventDefault();
+          event.stopPropagation();
+          handler(event);
+        });
+      };
+
+      bindClick(els.headerTeamAdminBtn, () => openTeamAdminModal());
+      bindClick(els.sidebarTeamAdminBtn, () => openTeamAdminModal());
+      bindClick(els.teamAdminModalClose, () => closeTeamAdminModal());
+      bindClick(els.saveNewRecruiterBtn, () => saveNewRecruiter());
+      bindClick(els.saveNewTeamBtn, () => saveNewTeam());
+      bindClick(els.previewBulkAssignmentBtn, () => updateBulkAssignmentPreview(true));
+      bindClick(els.applyBulkAssignmentBtn, () => applyBulkAssignment());
+
+      [els.bulkAssignmentScope, els.bulkAssignmentCriterion, els.bulkAssignmentValue, els.bulkAssignmentTeam, els.bulkAssignmentRecruiter].forEach(el => {
+        if(!el || el.dataset.assignmentRepairInputBound === '1')return;
+        el.dataset.assignmentRepairInputBound = '1';
+        el.addEventListener('input', () => updateBulkAssignmentPreview(false));
+        el.addEventListener('change', () => updateBulkAssignmentPreview(false));
+      });
+
+      els.teamAdminModal?.addEventListener('click', event => {
+        if(event.target === els.teamAdminModal)closeTeamAdminModal();
+      });
+    }
+
     function installCandidateReviewHardRouteGuard(){
       document.addEventListener("click", function(event) {
         const target = event.target?.closest?.(".candidate-review-link, [data-action='review']");
@@ -10915,7 +10985,7 @@ async function bulkUploadResumes(){
 
 
     async function startDashboardApp(){
-      if(!initClient())return;loadUiPreferences();bindEvents();installCandidateReviewHardRouteGuard();setProtectedUiState(false);
+      if(!initClient())return;loadUiPreferences();bindEvents();installAssignmentAdminControlRepairs();installCandidateReviewHardRouteGuard();setProtectedUiState(false);
       try{const allowed=await requireRecruiterAccess();if(!allowed)return;await loadDashboard();startDashboardAutoRefresh();}
       catch(error){console.error(error);setAuthMessage(error?.message||'Unable to verify recruiter access.');showNotice(`Unable to start dashboard: ${error?.message||error}`,'error')}
     }
