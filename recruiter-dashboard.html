@@ -2559,6 +2559,45 @@ tr.row-assessment-progress:hover td{
       font-weight:750;
     }
 
+
+
+/* ===== Client Workflow + Unified Inbox upgrade ===== */
+.client-workflow-mini-grid{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:10px;
+}
+.client-workflow-mini-grid .field.full{grid-column:1/-1;}
+.client-workflow-mini-grid textarea{min-height:86px!important;}
+.client-response-cell .pill.client-submitted{background:var(--info-bg);color:var(--info);border-color:#b2ddff;}
+.client-response-cell .pill.client-viewed{background:#f8fafc;color:#475467;border-color:#cfd6e0;}
+.client-response-cell .pill.client-interested{background:var(--good-bg);color:var(--good);border-color:#abefc6;}
+.client-response-cell .pill.client-interview{background:var(--info-bg);color:var(--info);border-color:#b2ddff;}
+.client-response-cell .pill.client-hold{background:var(--warn-bg);color:var(--warn);border-color:#fedf89;}
+.client-response-cell .pill.client-offer{background:var(--good-bg);color:var(--good);border-color:#abefc6;}
+.message-inbox-controls{
+  display:flex;
+  gap:8px;
+  flex-wrap:wrap;
+  align-items:center;
+}
+.message-inbox-controls select{
+  min-height:34px;
+  border:1px solid var(--line);
+  border-radius:11px;
+  background:#fff;
+  color:#344054;
+  padding:6px 10px;
+  font-size:.78rem;
+  font-weight:800;
+}
+.communication-message .pill{justify-self:start;}
+@media(max-width:760px){
+  .client-workflow-mini-grid{grid-template-columns:1fr;}
+  .message-inbox-controls{width:100%;}
+  .message-inbox-controls select{width:100%;}
+}
+
 /* ===== Team & Assignment Management modal ===== */
 .team-admin-modal-card{width:min(980px,96vw);max-height:92vh;display:flex;flex-direction:column;}
 .team-admin-modal-card .modal-body{flex:1 1 auto;min-height:0!important;overflow:auto;padding:16px;background:#fbfcfe;}
@@ -2795,7 +2834,7 @@ tr.row-assessment-progress:hover td{
                   <th>Follow-up</th>
                   <th>Resume</th>
                   <th>Overall Assessment</th>
-                  <th>Client Response</th>
+                  <th>Client Workflow</th>
                   <th>Actions</th>
                 </tr>
               </thead>
@@ -2943,8 +2982,38 @@ opslead@company.com"></textarea></div>
 
 
 <div class="drawer-section" id="clientResponseDrawerSection">
-                <h3>Client Response</h3>
-                <div class="summary-box" id="clientResponseSummary">No client response yet.</div>
+                <h3>Client Workflow</h3>
+                <div class="client-workflow-mini-grid">
+                  <div class="field">
+                    <label for="clientWorkflowStatusSelect">Client Status</label>
+                    <select id="clientWorkflowStatusSelect">
+                      <option value="">No client status</option>
+                      <option value="submitted">Submitted</option>
+                      <option value="viewed">Viewed</option>
+                      <option value="interested">Interested</option>
+                      <option value="interview_requested">Interview Requested</option>
+                      <option value="hold">Hold</option>
+                      <option value="rejected">Rejected</option>
+                      <option value="offer_requested">Offer Requested</option>
+                      <option value="offer_extended">Offer Extended</option>
+                      <option value="hired">Hired</option>
+                    </select>
+                  </div>
+                  <div class="field">
+                    <label for="clientWaitingSinceInput">Waiting Since</label>
+                    <input id="clientWaitingSinceInput" type="date" />
+                  </div>
+                  <div class="field full">
+                    <label for="clientFeedbackInput">Client Feedback</label>
+                    <textarea id="clientFeedbackInput" placeholder="Add client feedback, decision context, objections, or next steps..."></textarea>
+                  </div>
+                </div>
+                <div class="actions" style="margin-top:10px;">
+                  <button class="btn btn-primary btn-xs" id="saveClientWorkflowBtn" type="button">Save Client Workflow</button>
+                  <button class="btn btn-xs" id="markClientViewedBtn" type="button">Mark Viewed</button>
+                  <button class="btn btn-xs" id="markClientFollowUpBtn" type="button">Needs Follow-up</button>
+                </div>
+                <div class="summary-box" id="clientResponseSummary">No client workflow yet.</div>
               </div>
 
 <div class="drawer-section">
@@ -3124,6 +3193,19 @@ opslead@company.com"></textarea></div>
       <div class="modal-body" style="min-height:auto;padding:16px;overflow:auto;">
         <div class="message-inbox-toolbar">
           <div class="message-inbox-summary" id="messageInboxSummary">Candidate SMS/email replies and recruiter-sent messages saved in communication_messages appear here.</div>
+          <div class="message-inbox-controls">
+            <select id="messageInboxDirectionFilter" aria-label="Message direction filter">
+              <option value="all">All messages</option>
+              <option value="inbound">Candidate replies</option>
+              <option value="outbound">Recruiter sent</option>
+              <option value="unread">Unread replies</option>
+            </select>
+            <select id="messageInboxChannelFilter" aria-label="Message channel filter">
+              <option value="all">Email + SMS</option>
+              <option value="email">Email only</option>
+              <option value="sms">SMS only</option>
+            </select>
+          </div>
           <div class="message-inbox-summary">Click a message to open the candidate thread.</div>
         </div>
         <div class="message-inbox-list" id="messageInboxList">
@@ -3520,6 +3602,8 @@ opslead@company.com"></textarea></div>
       lastKnownRowCount: 0,
       messageInboxRows: [],
       messageInboxLoading: false,
+      messageInboxDirectionFilter: 'all',
+      messageInboxChannelFilter: 'all',
       communicationsByApplicationId: new Map(),
       bulkSelectedIds: new Set(),
       endorsementsByApplicationId: new Map(),
@@ -3552,10 +3636,10 @@ opslead@company.com"></textarea></div>
       modalEditCandidateName:$('modalEditCandidateName'), modalEditCandidateEmail:$('modalEditCandidateEmail'), modalEditCandidatePhone:$('modalEditCandidatePhone'), modalEditCandidateLocation:$('modalEditCandidateLocation'), modalEditCandidateCountry:$('modalEditCandidateCountry'), modalEditCandidateTimezone:$('modalEditCandidateTimezone'), modalEditCandidateWorkSetup:$('modalEditCandidateWorkSetup'), modalEditCandidateAuthorization:$('modalEditCandidateAuthorization'), modalEditCandidateSalaryCurrency:$('modalEditCandidateSalaryCurrency'), modalEditCandidateSalary:$('modalEditCandidateSalary'), modalEditCandidateExperience:$('modalEditCandidateExperience'), modalEditCandidateEducation:$('modalEditCandidateEducation'), modalEditCandidateRole:$('modalEditCandidateRole'), modalEditCandidateAvailableHours:$('modalEditCandidateAvailableHours'), modalSaveCandidateInfoBtn:$('modalSaveCandidateInfoBtn'), modalSnapEmail:$('modalSnapEmail'), modalSnapPhone:$('modalSnapPhone'), modalSnapLocation:$('modalSnapLocation'), modalSnapCountry:$('modalSnapCountry'), modalSnapTimezone:$('modalSnapTimezone'), modalSnapWorkSetup:$('modalSnapWorkSetup'), modalSnapWorkAuthorization:$('modalSnapWorkAuthorization'), modalSnapSalary:$('modalSnapSalary'), modalSnapAvailableHours:$('modalSnapAvailableHours'), modalSnapExperience:$('modalSnapExperience'), modalSnapEducation:$('modalSnapEducation'), modalSnapJob:$('modalSnapJob'), modalEditFollowUpStatus:$('modalEditFollowUpStatus'), modalEditFollowUpDate:$('modalEditFollowUpDate'), modalEditFollowUpNote:$('modalEditFollowUpNote'), modalEditNotes:$('modalEditNotes'), modalEditStatus:$('modalEditStatus'), modalSaveBtn:$('modalSaveBtn'), modalMatchScore:$('modalMatchScore'), modalScoringSource:$('modalScoringSource'), modalProfileScore:$('modalProfileScore'), modalResumeScore:$('modalResumeScore'), modalMatchReason:$('modalMatchReason'), modalResumeMeta:$('modalResumeMeta'), modalViewResumeBtn:$('modalViewResumeBtn'), modalDownloadResumeBtn:$('modalDownloadResumeBtn'), modalImportClipboardResumeBtn:$('modalImportClipboardResumeBtn'), modalParseResumeBtn:$('modalParseResumeBtn'), modalResumeUploadInput:$('modalResumeUploadInput'), modalUploadResumeBtn:$('modalUploadResumeBtn'),
       resumeModal:$('resumeModal'), resumeModalTitle:$('resumeModalTitle'), resumeModalSubtitle:$('resumeModalSubtitle'), resumeFrame:$('resumeFrame'), resumeModalClose:$('resumeModalClose'), resumeModalDownloadBtn:$('resumeModalDownloadBtn'),
       resumeParserModal:$('resumeParserModal'), resumeParserClose:$('resumeParserClose'), resumeParserSubtitle:$('resumeParserSubtitle'), resumeParserRawText:$('resumeParserRawText'), resumeParserPasteBtn:$('resumeParserPasteBtn'), resumeParserParseBtn:$('resumeParserParseBtn'), resumeParserClearBtn:$('resumeParserClearBtn'), resumeParserStatus:$('resumeParserStatus'), resumeParserName:$('resumeParserName'), resumeParserEmail:$('resumeParserEmail'), resumeParserPhone:$('resumeParserPhone'), resumeParserLocation:$('resumeParserLocation'), resumeParserExperience:$('resumeParserExperience'), resumeParserEducation:$('resumeParserEducation'), resumeParserRole:$('resumeParserRole'), resumeParserSkills:$('resumeParserSkills'), resumeParserSummary:$('resumeParserSummary'), resumeParserCancelBtn:$('resumeParserCancelBtn'), resumeParserSaveBtn:$('resumeParserSaveBtn'),
-      headerLogoutBtn:$('headerLogoutBtn'), headerInboxBtn:$('headerInboxBtn'), sidebarInboxBtn:$('sidebarInboxBtn'), newApplicantsBadge:$('newApplicantsBadge'), liveStatusText:$('liveStatusText'), sidebarSourcingBtn:$('sidebarSourcingBtn'), sidebarBulkUploadBtn:$('sidebarBulkUploadBtn'), sidebarTeamAdminBtn:$('sidebarTeamAdminBtn'), headerTeamAdminBtn:$('headerTeamAdminBtn'), teamAdminModal:$('teamAdminModal'), teamAdminModalClose:$('teamAdminModalClose'), newRecruiterName:$('newRecruiterName'), newRecruiterEmail:$('newRecruiterEmail'), newRecruiterRole:$('newRecruiterRole'), newRecruiterTeam:$('newRecruiterTeam'), saveNewRecruiterBtn:$('saveNewRecruiterBtn'), recruiterAdminList:$('recruiterAdminList'), newTeamName:$('newTeamName'), newTeamLead:$('newTeamLead'), saveNewTeamBtn:$('saveNewTeamBtn'), teamAdminList:$('teamAdminList'), bulkAssignmentScope:$('bulkAssignmentScope'), bulkAssignmentCriterion:$('bulkAssignmentCriterion'), bulkAssignmentValue:$('bulkAssignmentValue'), bulkAssignmentTeam:$('bulkAssignmentTeam'), bulkAssignmentRecruiter:$('bulkAssignmentRecruiter'), bulkAssignmentNote:$('bulkAssignmentNote'), previewBulkAssignmentBtn:$('previewBulkAssignmentBtn'), applyBulkAssignmentBtn:$('applyBulkAssignmentBtn'), bulkAssignmentPreview:$('bulkAssignmentPreview'), bulkAssignmentValueOptions:$('bulkAssignmentValueOptions'), teamAdminStatus:$('teamAdminStatus'), quickClearFiltersBtn:$('quickClearFiltersBtn'), messageInboxModal:$('messageInboxModal'), messageInboxList:$('messageInboxList'), messageInboxClose:$('messageInboxClose'), messageInboxRefreshBtn:$('messageInboxRefreshBtn'), messageInboxSyncBtn:$('messageInboxSyncBtn'),
+      headerLogoutBtn:$('headerLogoutBtn'), headerInboxBtn:$('headerInboxBtn'), sidebarInboxBtn:$('sidebarInboxBtn'), newApplicantsBadge:$('newApplicantsBadge'), liveStatusText:$('liveStatusText'), sidebarSourcingBtn:$('sidebarSourcingBtn'), sidebarBulkUploadBtn:$('sidebarBulkUploadBtn'), sidebarTeamAdminBtn:$('sidebarTeamAdminBtn'), headerTeamAdminBtn:$('headerTeamAdminBtn'), teamAdminModal:$('teamAdminModal'), teamAdminModalClose:$('teamAdminModalClose'), newRecruiterName:$('newRecruiterName'), newRecruiterEmail:$('newRecruiterEmail'), newRecruiterRole:$('newRecruiterRole'), newRecruiterTeam:$('newRecruiterTeam'), saveNewRecruiterBtn:$('saveNewRecruiterBtn'), recruiterAdminList:$('recruiterAdminList'), newTeamName:$('newTeamName'), newTeamLead:$('newTeamLead'), saveNewTeamBtn:$('saveNewTeamBtn'), teamAdminList:$('teamAdminList'), bulkAssignmentScope:$('bulkAssignmentScope'), bulkAssignmentCriterion:$('bulkAssignmentCriterion'), bulkAssignmentValue:$('bulkAssignmentValue'), bulkAssignmentTeam:$('bulkAssignmentTeam'), bulkAssignmentRecruiter:$('bulkAssignmentRecruiter'), bulkAssignmentNote:$('bulkAssignmentNote'), previewBulkAssignmentBtn:$('previewBulkAssignmentBtn'), applyBulkAssignmentBtn:$('applyBulkAssignmentBtn'), bulkAssignmentPreview:$('bulkAssignmentPreview'), bulkAssignmentValueOptions:$('bulkAssignmentValueOptions'), teamAdminStatus:$('teamAdminStatus'), quickClearFiltersBtn:$('quickClearFiltersBtn'), messageInboxModal:$('messageInboxModal'), messageInboxList:$('messageInboxList'), messageInboxClose:$('messageInboxClose'), messageInboxRefreshBtn:$('messageInboxRefreshBtn'), messageInboxSyncBtn:$('messageInboxSyncBtn'), messageInboxDirectionFilter:$('messageInboxDirectionFilter'), messageInboxChannelFilter:$('messageInboxChannelFilter'),
       bulkUploadModal:$('bulkUploadModal'), bulkUploadModalClose:$('bulkUploadModalClose'), bulkRoleSelect:$('bulkRoleSelect'), bulkResumeInput:$('bulkResumeInput'), bulkUploadBtn:$('bulkUploadBtn'), bulkUploadStatus:$('bulkUploadStatus'),
       assessmentEmailModal:$('assessmentEmailModal'), assessmentEmailModalClose:$('assessmentEmailModalClose'), assessmentModalSubtitle:$('assessmentModalSubtitle'), assessmentCandidateName:$('assessmentCandidateName'), assessmentCandidateEmail:$('assessmentCandidateEmail'), assessmentRoleName:$('assessmentRoleName'), assessmentCompanyName:$('assessmentCompanyName'), assessmentType:$('assessmentType'), assessmentDueDate:$('assessmentDueDate'), assessmentLink:$('assessmentLink'), assessmentCustomMessage:$('assessmentCustomMessage'), assessmentEmailPreview:$('assessmentEmailPreview'), sendAssessmentEmailBtn:$('sendAssessmentEmailBtn'), copyAssessmentEmailBtn:$('copyAssessmentEmailBtn'), assessmentEmailStatus:$('assessmentEmailStatus'), openAssessmentEmailBtn:$('openAssessmentEmailBtn'), drawerAssessmentBadge:$('drawerAssessmentBadge'), drawerAssessmentDetail:$('drawerAssessmentDetail'), drawerAssessmentActionBtn:$('drawerAssessmentActionBtn'),
-      clientResponseSummary:$('clientResponseSummary'),
+      clientResponseSummary:$('clientResponseSummary'), clientWorkflowStatusSelect:$('clientWorkflowStatusSelect'), clientWaitingSinceInput:$('clientWaitingSinceInput'), clientFeedbackInput:$('clientFeedbackInput'), saveClientWorkflowBtn:$('saveClientWorkflowBtn'), markClientViewedBtn:$('markClientViewedBtn'), markClientFollowUpBtn:$('markClientFollowUpBtn'),
       interviewDateTime:$('interviewDateTime'), interviewType:$('interviewType'), interviewTimezone:$('interviewTimezone'), interviewDurationMinutes:$('interviewDurationMinutes'), interviewInterviewer:$('interviewInterviewer'), interviewInterviewerEmails:$('interviewInterviewerEmails'), interviewLocation:$('interviewLocation'), interviewNotes:$('interviewNotes'), interviewEmailPreview:$('interviewEmailPreview'), scheduleInterviewBtn:$('scheduleInterviewBtn'), clearInterviewFormBtn:$('clearInterviewFormBtn'), interviewSummary:$('interviewSummary'),
       candidateReviewModal:$('candidateReviewModal'), candidateReviewFrame:$('candidateReviewFrame'), candidateReviewLoading:$('candidateReviewLoading'), candidateReviewModalTitle:$('candidateReviewModalTitle'), candidateReviewModalSubtitle:$('candidateReviewModalSubtitle'), candidateReviewModalClose:$('candidateReviewModalClose'), candidateReviewOpenNewTabBtn:$('candidateReviewOpenNewTabBtn'), bulkSelectionCount:$('bulkSelectionCount'), selectVisibleRowsBtn:$('selectVisibleRowsBtn'), clearSelectedRowsBtn:$('clearSelectedRowsBtn'), bulkEndorseSelectedBtn:$('bulkEndorseSelectedBtn'),
       focusCriticalCount:$('focusCriticalCount'), focusAttentionCount:$('focusAttentionCount'), focusReadyReviewCount:$('focusReadyReviewCount'), focusAwaitingCandidateCount:$('focusAwaitingCandidateCount'), focusAwaitingClientCount:$('focusAwaitingClientCount'), focusInterviewActiveCount:$('focusInterviewActiveCount'), focusMigrationCount:$('focusMigrationCount'),
@@ -4057,16 +4141,32 @@ opslead@company.com"></textarea></div>
 
       if(els.messageInboxSummary){
         const matchedCount = messages.filter(message => message.matched).length;
-        els.messageInboxSummary.textContent = `${totalCount} recent communication item${totalCount === 1 ? '' : 's'} • ${unreadCount} unread candidate repl${unreadCount === 1 ? 'y' : 'ies'} • ${matchedCount} matched to visible candidates`;
+        const smsCount = messages.filter(message => safeText(message.channel).toLowerCase() === 'sms').length;
+        const emailCount = messages.filter(message => safeText(message.channel || 'email').toLowerCase() !== 'sms').length;
+        const filteredCount = getFilteredMessageInboxRows ? getFilteredMessageInboxRows().length : totalCount;
+        els.messageInboxSummary.textContent = `${filteredCount} shown • ${totalCount} total • ${unreadCount} unread candidate repl${unreadCount === 1 ? 'y' : 'ies'} • ${emailCount} email • ${smsCount} SMS • ${matchedCount} matched`;
       }
+    }
+
+    function getFilteredMessageInboxRows(){
+      const directionFilter = safeText(state.messageInboxDirectionFilter || els.messageInboxDirectionFilter?.value || 'all').toLowerCase();
+      const channelFilter = safeText(state.messageInboxChannelFilter || els.messageInboxChannelFilter?.value || 'all').toLowerCase();
+      return (state.messageInboxRows || []).filter(message => {
+        const channel = safeText(message.channel || 'email').toLowerCase() || 'email';
+        if(channelFilter !== 'all' && channel !== channelFilter)return false;
+        if(directionFilter === 'inbound')return !!message.isInbound;
+        if(directionFilter === 'outbound')return !!message.isOutbound;
+        if(directionFilter === 'unread')return !!message.unreadCandidateReply;
+        return true;
+      });
     }
 
     function renderMessageInboxList(){
       if(!els.messageInboxList)return;
 
-      const messages = state.messageInboxRows || [];
+      const messages = getFilteredMessageInboxRows();
       if(!messages.length){
-        els.messageInboxList.innerHTML = '<div class="message-inbox-empty">No communication activity yet. Candidate SMS/email replies and recruiter-sent messages saved in communication_messages will appear here.</div>';
+        els.messageInboxList.innerHTML = '<div class="message-inbox-empty">No communication activity matches the current inbox filters. Candidate SMS/email replies and recruiter-sent messages saved in communication_messages will appear here.</div>';
         return;
       }
 
@@ -6395,7 +6495,7 @@ function currentCompanyId(){
       try{
         const {data,error}=await supabaseClient
           .from('vw_candidate_communications_unified')
-          .select('id,application_id,applicant_profile_id,applicant_email,sender_type,message,created_at,is_read,workflow_stage,status,job_title,candidate_name,direction,unread_candidate_reply,channel')
+          .select('*')
           .order('created_at',{ascending:false})
           .limit(CONFIG.PAGE_SIZE);
 
@@ -7621,7 +7721,7 @@ function currentCompanyId(){
     }
 
     function renderClientResponseCell(row){
-      const info = getClientResponseInfo(row);
+      const info = getClientWorkflowInfo ? getClientWorkflowInfo(row) : getClientResponseInfo(row);
       return `
         <div class="client-response-cell">
           <span class="pill ${info.tone}" title="${escapeHtml([info.label, info.meta].filter(Boolean).join(' — '))}">
@@ -7629,6 +7729,7 @@ function currentCompanyId(){
           </span>
           <span class="client-response-meta">${escapeHtml(info.meta || '—')}</span>
           ${info.activityAt ? `<span class="client-response-meta">${escapeHtml(formatDateTime(info.activityAt))}</span>` : ''}
+          ${info.feedback ? `<span class="client-response-meta">Feedback saved</span>` : ''}
         </div>
       `;
     }
@@ -7680,6 +7781,203 @@ function currentCompanyId(){
         feedback ? `Feedback: ${feedback}` : ''
       ].filter(Boolean);
       els.clientResponseSummary.textContent = lines.length ? lines.join('\n') : 'No client response yet.';
+    }
+
+
+
+    function normalizeClientWorkflowStatus(value){
+      const key = safeText(value).toLowerCase().replace(/\s+/g,'_');
+      if(['submitted','viewed','interested','interview_requested','hold','rejected','offer_requested','offer_extended','hired'].includes(key))return key;
+      if(['continue','continued','accepted','proceed'].includes(key))return 'interested';
+      if(['declined','decline'].includes(key))return 'rejected';
+      return '';
+    }
+
+    function getClientWorkflowInfo(row){
+      const endorsement = getRowEndorsement(row) || {};
+      const explicit = normalizeClientWorkflowStatus(
+        row?.app?.client_workflow_status ||
+        row?.app?.client_status ||
+        row?.app?.client_feedback_status ||
+        row?.workflow?.client_state ||
+        endorsement.client_status ||
+        endorsement.client_workflow_status ||
+        ''
+      );
+
+      let key = explicit;
+      const legacy = getClientResponseInfo(row);
+      if(!key){
+        if(legacy.label === 'Availability Submitted')key = 'interview_requested';
+        else if(legacy.label === 'Continued')key = 'interested';
+        else if(legacy.label === 'Declined')key = 'rejected';
+        else if(legacy.label === 'Awaiting Response')key = 'submitted';
+      }
+
+      const feedback = safeText(
+        endorsement.client_feedback ||
+        row?.app?.client_feedback ||
+        row?.app?.client_feedback_notes ||
+        row?.app?.client_notes ||
+        ''
+      );
+
+      const waitingSince = toDateInputValue(
+        row?.app?.client_waiting_since ||
+        row?.app?.waiting_since ||
+        row?.app?.endorsement_sent_at ||
+        endorsement.created_at ||
+        endorsement.updated_at ||
+        row?.app?.updated_at ||
+        ''
+      );
+
+      const labels = {
+        submitted:'Submitted', viewed:'Viewed', interested:'Interested', interview_requested:'Interview Requested', hold:'Hold', rejected:'Rejected', offer_requested:'Offer Requested', offer_extended:'Offer Extended', hired:'Hired'
+      };
+      const tones = {
+        submitted:'client-submitted', viewed:'client-viewed', interested:'client-interested', interview_requested:'client-interview', hold:'client-hold', rejected:'client-declined', offer_requested:'client-offer', offer_extended:'client-offer', hired:'client-continued'
+      };
+      return {
+        key,
+        label: labels[key] || legacy.label || 'Not Sent',
+        tone: tones[key] || legacy.tone || 'client-pending',
+        feedback,
+        waitingSince,
+        activityAt: row?.app?.last_client_activity_at || endorsement.client_decision_at || endorsement.last_viewed_at || endorsement.updated_at || legacy.activityAt || '',
+        meta: key ? (waitingSince ? `Waiting since ${formatDate(waitingSince)}` : 'Client workflow tracked') : legacy.meta
+      };
+    }
+
+    function fillClientWorkflowControls(row){
+      if(!row)return;
+      const info = getClientWorkflowInfo(row);
+      if(els.clientWorkflowStatusSelect)els.clientWorkflowStatusSelect.value = info.key || '';
+      if(els.clientWaitingSinceInput)els.clientWaitingSinceInput.value = info.waitingSince || '';
+      if(els.clientFeedbackInput)els.clientFeedbackInput.value = info.feedback || '';
+    }
+
+    async function updateClientWorkflowWithFallback(row, payload){
+      const appId = safeText(row?.id || row?.app?.id || '');
+      if(!appId)throw new Error('Missing application ID.');
+      const now = new Date().toISOString();
+      const status = normalizeClientWorkflowStatus(payload.status);
+      const feedback = safeText(payload.feedback || '');
+      const waitingSince = payload.waitingSince || null;
+
+      const applicationAttempts = [
+        {
+          client_workflow_status: status || null,
+          client_status: status || null,
+          client_feedback_status: status || null,
+          client_feedback: feedback || null,
+          client_waiting_since: waitingSince,
+          last_client_activity_at: now,
+          updated_at: now
+        },
+        {
+          client_feedback_status: status || row?.app?.client_feedback_status || 'submitted',
+          client_feedback: feedback || null,
+          updated_at: now
+        },
+        {
+          client_feedback_status: status || row?.app?.client_feedback_status || 'submitted',
+          updated_at: now
+        }
+      ];
+
+      let saved = false;
+      let lastError = null;
+      for(const attempt of applicationAttempts){
+        const cleanPayload = Object.fromEntries(Object.entries(attempt).filter(([,value]) => value !== undefined));
+        const { error } = await supabaseClient.from('applications').update(cleanPayload).eq('id', appId);
+        if(!error){ saved = true; break; }
+        lastError = error;
+        console.warn('Client workflow application update attempt failed:', error?.message || error, cleanPayload);
+      }
+
+      try{
+        let endorsement = getRowEndorsement(row);
+        if(!endorsement?.id){
+          endorsement = await ensureApplicationEndorsement(row);
+        }
+        if(endorsement?.id){
+          const decision = status === 'rejected' ? 'declined' : (['interested','interview_requested','offer_requested','offer_extended','hired'].includes(status) ? 'continue' : (endorsement.client_decision || null));
+          const endorsementAttempts = [
+            {
+              client_status: status || null,
+              client_workflow_status: status || null,
+              client_decision: decision,
+              client_feedback: feedback || null,
+              client_decline_reason: status === 'rejected' ? (feedback || endorsement.client_decline_reason || 'not_a_fit') : endorsement.client_decline_reason || null,
+              client_decision_at: now,
+              availability_status: status === 'interview_requested' ? 'requested' : endorsement.availability_status || null,
+              updated_at: now
+            },
+            {
+              client_decision: decision,
+              client_feedback: feedback || null,
+              client_decision_at: now,
+              updated_at: now
+            },
+            {
+              client_feedback: feedback || null,
+              updated_at: now
+            }
+          ];
+          for(const attempt of endorsementAttempts){
+            const cleanPayload = Object.fromEntries(Object.entries(attempt).filter(([,value]) => value !== undefined));
+            const { data, error } = await supabaseClient.from('application_endorsements').update(cleanPayload).eq('id', endorsement.id).select('*').maybeSingle();
+            if(!error){
+              if(data)state.endorsementsByApplicationId.set(appId, data);
+              saved = true;
+              break;
+            }
+            lastError = error;
+            console.warn('Client workflow endorsement update attempt failed:', error?.message || error, cleanPayload);
+          }
+        }
+      }catch(error){
+        lastError = error;
+        console.warn('Client workflow endorsement save failed:', error?.message || error);
+      }
+
+      if(!saved)throw lastError || new Error('Unable to save client workflow.');
+      row.app = {
+        ...row.app,
+        client_workflow_status: status,
+        client_status: status,
+        client_feedback_status: status || row?.app?.client_feedback_status,
+        client_feedback: feedback,
+        client_waiting_since: waitingSince,
+        last_client_activity_at: now,
+        updated_at: now
+      };
+      return true;
+    }
+
+    async function saveClientWorkflow(statusOverride=''){
+      const row = state.allRows.find(item => item.id === state.selectedId) || state.filteredRows.find(item => item.id === state.selectedId);
+      if(!row){ showNotice('Open a candidate first.', 'error'); return false; }
+      const status = normalizeClientWorkflowStatus(statusOverride || els.clientWorkflowStatusSelect?.value || '');
+      const waitingSince = els.clientWaitingSinceInput?.value || toDateInputValue(new Date().toISOString());
+      const feedback = safeText(els.clientFeedbackInput?.value || '');
+      if(!status){ showNotice('Choose a client status first.', 'error'); return false; }
+      try{
+        if(els.saveClientWorkflowBtn){ els.saveClientWorkflowBtn.disabled = true; els.saveClientWorkflowBtn.textContent = 'Saving...'; }
+        await updateClientWorkflowWithFallback(row, {status, waitingSince, feedback});
+        fillClientWorkflowControls(row);
+        renderClientResponseDrawer(row);
+        renderTable();
+        showNotice('Client workflow saved.', 'success');
+        return true;
+      }catch(error){
+        console.error('Unable to save client workflow:', error);
+        showNotice(`Unable to save client workflow: ${getReadableError(error)}`, 'error');
+        return false;
+      }finally{
+        if(els.saveClientWorkflowBtn){ els.saveClientWorkflowBtn.disabled = false; els.saveClientWorkflowBtn.textContent = 'Save Client Workflow'; }
+      }
     }
 
     function getDashboardEvaluationBreakdown(row){
@@ -11025,6 +11323,8 @@ async function bulkUploadResumes(){
       });
       els.messageInboxRefreshBtn?.addEventListener('click',()=>refreshMessageInbox({sync:false}));
       els.messageInboxSyncBtn?.addEventListener('click',()=>refreshMessageInbox({sync:true}));
+      els.messageInboxDirectionFilter?.addEventListener('change',()=>{state.messageInboxDirectionFilter = els.messageInboxDirectionFilter.value || 'all'; updateMessageInboxBadge(); renderMessageInboxList();});
+      els.messageInboxChannelFilter?.addEventListener('change',()=>{state.messageInboxChannelFilter = els.messageInboxChannelFilter.value || 'all'; updateMessageInboxBadge(); renderMessageInboxList();});
       els.messageInboxModal?.addEventListener('click',event=>{if(event.target===els.messageInboxModal)closeMessageInbox();});
       els.messageInboxList?.addEventListener('click',event=>{const item=event.target.closest('.message-inbox-item[data-message-id]'); if(item)openCandidateFromInboxMessage(item.dataset.messageId || '');});
       els.clearFiltersBtn.addEventListener('click',clearFilters);els.quickClearFiltersBtn?.addEventListener('click',clearFilters);els.bulkUploadBtn?.addEventListener('click',bulkUploadResumes);els.sidebarBulkUploadBtn?.addEventListener('click',openBulkUploadModal);els.bulkUploadModalClose?.addEventListener('click',closeBulkUploadModal);
@@ -11118,6 +11418,9 @@ async function bulkUploadResumes(){
       els.saveBtn?.addEventListener('click',saveSelectedRow);
       els.saveAssignmentBtn?.addEventListener('click',()=>saveCandidateAssignment(false));
       els.assignToMeBtn?.addEventListener('click',()=>saveCandidateAssignment(true));
+      els.saveClientWorkflowBtn?.addEventListener('click',()=>saveClientWorkflow());
+      els.markClientViewedBtn?.addEventListener('click',()=>{ if(els.clientWorkflowStatusSelect)els.clientWorkflowStatusSelect.value='viewed'; saveClientWorkflow('viewed'); });
+      els.markClientFollowUpBtn?.addEventListener('click',()=>{ if(els.clientWorkflowStatusSelect)els.clientWorkflowStatusSelect.value='submitted'; if(els.clientWaitingSinceInput && !els.clientWaitingSinceInput.value)els.clientWaitingSinceInput.value=toDateInputValue(new Date().toISOString()); saveClientWorkflow('submitted'); });
       [els.interviewDateTime, els.interviewType, els.interviewTimezone, els.interviewDurationMinutes, els.interviewInterviewer, els.interviewInterviewerEmails, els.interviewLocation, els.interviewNotes].forEach(el=>{el?.addEventListener('input',renderInterviewEmailPreview);el?.addEventListener('change',renderInterviewEmailPreview);});
       document.getElementById('interviewerEmailChips')?.addEventListener('click',event=>{
         const btn = event.target.closest('[data-remove-interviewer-email]');
@@ -11278,5 +11581,13 @@ async function bulkUploadResumes(){
     }
     void startDashboardApp();
   </script>
+
+<!--
+Client Workflow + Unified Inbox notes:
+- The dashboard reads communications from vw_candidate_communications_unified using select('*') so email/SMS and inbound/outbound fields can be displayed when available.
+- Client Workflow saves optimistically to applications and application_endorsements with fallback payloads so it can work before every optional client workflow column exists.
+Recommended future columns on applications: client_workflow_status, client_status, client_feedback, client_waiting_since, last_client_activity_at.
+-->
+
 </body>
 </html>
