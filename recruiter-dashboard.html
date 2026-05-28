@@ -6513,13 +6513,29 @@ function currentCompanyId(){
       .order('sent_at',{ascending:false})
       .limit(200);
 
+    console.log('communications query result', { data, error });
+
     if(error)throw error;
-    return data || [];
+
+    return (data || []).map(message => ({
+      ...message,
+      message: message.message || message.message_body || '',
+      applicant_email: message.applicant_email || message.candidate_email || '',
+      applicant_phone: message.applicant_phone || message.candidate_phone || '',
+      sender_type:
+        message.sender_type ||
+        (message.direction === 'inbound' ? 'candidate' : 'recruiter'),
+      created_at: message.created_at || message.sent_at,
+    }));
   }catch(error){
     console.warn('vw_candidate_communications_unified query failed:', error?.message || error);
+
     if(safeText(error?.message).toLowerCase().includes('does not exist')){
       showNotice('Candidate communication inbox view is missing. Create public.vw_candidate_communications_unified first.', 'error');
+    }else{
+      showNotice(`Unable to load candidate communications: ${error?.message || error}`, 'error');
     }
+
     return [];
   }
 }
