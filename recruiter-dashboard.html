@@ -3070,7 +3070,7 @@ opslead@company.com"></textarea></div>
             <p>Assign candidates in batches instead of assigning one by one from the candidate drawer.</p>
             <div class="team-admin-form two-col">
               <div class="field"><label for="bulkAssignmentScope">Scope</label><select id="bulkAssignmentScope"><option value="unassigned">Only unassigned candidates</option><option value="visible">Current visible queue</option><option value="all">All loaded candidates</option></select></div>
-              <div class="field"><label for="bulkAssignmentCriterion">Group candidates by</label><select id="bulkAssignmentCriterion"><option value="department">Department</option><option value="role">Open Role</option><option value="client">Client</option><option value="team_lead">Team Lead</option></select></div>
+              <div class="field"><label for="bulkAssignmentCriterion">Group candidates by</label><select id="bulkAssignmentCriterion"><option value="department">Department</option><option value="role">Open Role</option><option value="client">Client</option><option value="team">Team</option><option value="team_lead">Team Lead</option></select></div>
               <div class="field"><label for="bulkAssignmentValue">Value</label><select id="bulkAssignmentValue"><option value="">Select a value</option></select><datalist id="bulkAssignmentValueOptions"></datalist></div>
               <div class="field"><label for="bulkAssignmentTeam">Assign to team</label><select id="bulkAssignmentTeam"><option value="">No team change</option></select></div>
               <div class="field"><label for="bulkAssignmentRecruiter">Assign to recruiter</label><select id="bulkAssignmentRecruiter"><option value="">No specific recruiter</option></select></div>
@@ -5901,6 +5901,7 @@ function normalizeCommunicationTimelineMessages(messages){
       if(criterion === 'client')return safeText(row.clientName || job.client_name || app.client_name || '');
       if(criterion === 'role' || criterion === 'role_type' || criterion === 'job')return safeText(row.jobTitle || job.title || app.job_title || '');
       if(criterion === 'department')return departmentValue;
+      if(criterion === 'team')return safeText(team?.name || row.team || '');
       if(criterion === 'team_lead')return safeText(recruiter?.full_name || recruiter?.email || row.recruiter || '');
       return safeText(row.jobTitle || job.title || app.job_title || '');
     }
@@ -5913,32 +5914,48 @@ function normalizeCommunicationTimelineMessages(messages){
     }
 
     function getBulkAssignmentOptionValues(criterion){
+      const key = safeText(criterion || 'department');
       const rows = getBulkAssignmentRowsForScope();
       const values = [];
-      rows.forEach(row => {
-        const value = rowBulkField(row, criterion);
-        if(value)values.push(value);
-      });
+      const push = value => {
+        const text = safeText(value);
+        if(text)values.push(text);
+      };
 
-      if(criterion === 'department'){
-        (state.recruiterTeams || []).forEach(team => values.push(team.name));
+      // Values from currently loaded rows keep the dropdown relevant to the selected scope.
+      rows.forEach(row => push(rowBulkField(row, key)));
+
+      // Global source lists make the Value dropdown useful even before a queue filter is selected.
+      if(key === 'department'){
+        (state.recruiterTeams || []).forEach(team => push(team.name));
         (state.jobs || []).forEach(job => {
-          values.push(job.department, job.role_department, job.role_family, job.industry);
+          push(job.department);
+          push(job.role_department);
+          push(job.role_family);
+          push(job.industry);
         });
       }
 
-      if(criterion === 'role'){
-        (state.jobs || []).forEach(job => values.push(job.title));
+      if(key === 'role' || key === 'role_type' || key === 'job'){
+        (state.jobs || [])
+          .filter(job => !['closed','inactive','archived','on_hold','on hold'].includes(normalizeStatus(job.status || job.state || 'open')))
+          .forEach(job => push(job.title));
       }
 
-      if(criterion === 'client'){
-        (state.jobs || []).forEach(job => values.push(job.client_name));
+      if(key === 'client'){
+        (state.jobs || []).forEach(job => push(job.client_name));
+        (state.allRows || []).forEach(row => push(row.clientName || row.job?.client_name || row.app?.client_name));
       }
 
-      if(criterion === 'team_lead'){
+      if(key === 'team'){
+        (state.recruiterTeams || []).forEach(team => push(team.name));
+        (state.allRows || []).forEach(row => push(row.team));
+      }
+
+      if(key === 'team_lead'){
         (state.recruiterUsers || [])
           .filter(user => ['team_lead','client_admin'].includes(normalizeRole(user.role)))
-          .forEach(user => values.push(user.full_name || user.email));
+          .forEach(user => push(user.full_name || user.email));
       }
 
       return uniq(values.map(safeText).filter(Boolean)).sort((a,b)=>a.localeCompare(b));
@@ -5952,7 +5969,10 @@ function normalizeCommunicationTimelineMessages(messages){
       const labelMap = {
         department: 'Select department',
         role: 'Select open role',
+        role_type: 'Select open role',
+        job: 'Select open role',
         client: 'Select client',
+        team: 'Select team',
         team_lead: 'Select team lead'
       };
       els.bulkAssignmentValue.innerHTML = `<option value="">${escapeHtml(labelMap[criterion] || 'Select value')}</option>` +
@@ -11136,7 +11156,16 @@ async function bulkUploadResumes(){
       bindClick(els.previewBulkAssignmentBtn, () => updateBulkAssignmentPreview(true));
       bindClick(els.applyBulkAssignmentBtn, () => applyBulkAssignment());
 
-      [els.bulkAssignmentScope, els.bulkAssignmentCriterion, els.bulkAssignmentValue, els.bulkAssignmentTeam, els.bulkAssignmentRecruiter].forEach(el => {
+      [els.bulkAssignmentScope, els.bulkAssignmentCriterion].forEach(el => {
+        if(!el || el.dataset.assignmentRepairValueBound === '1')return;
+        el.dataset.assignmentRepairValueBound = '1';
+        el.addEventListener('change', () => {
+          populateBulkAssignmentValueOptions();
+          updateBulkAssignmentPreview(false);
+        });
+      });
+
+      [els.bulkAssignmentValue, els.bulkAssignmentTeam, els.bulkAssignmentRecruiter].forEach(el => {
         if(!el || el.dataset.assignmentRepairInputBound === '1')return;
         el.dataset.assignmentRepairInputBound = '1';
         el.addEventListener('input', () => updateBulkAssignmentPreview(false));
