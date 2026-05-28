@@ -5564,68 +5564,177 @@ function normalizeCommunicationTimelineMessages(messages){
         return false;
       }
 
-      if(!roleCanManageAssignments()){
-        showNotice('Only team leads and client admins can assign candidates.', 'error');
-        return false;
-      }
+      const previousRecruiterIdRaw = safeText(row.app?.assigned_recruiter_id || '');
+      const previousTeamIdRaw = safeText(row.app?.assigned_team_id || '');
+      const previousRecruiterId = isUuid(previousRecruiterIdRaw) ? previousRecruiterIdRaw : null;
+      const previousTeamId = isUuid(previousTeamIdRaw) ? previousTeamIdRaw : null;
 
-      const previousRecruiterId = safeText(row.app?.assigned_recruiter_id || '') || null;
-      const previousTeamId = safeText(row.app?.assigned_team_id || '') || null;
-
-      let newRecruiterId = assignToCurrentUser ? currentRecruiterId() : safeText(els.assignedRecruiterSelect?.value || '');
-      let newTeamId = assignToCurrentUser ? (currentTeamId() || previousTeamId || '') : safeText(els.assignedTeamSelect?.value || '');
-
-      const recruiterParts = getRecruiterAssignmentParts(newRecruiterId);
-      const recruiter = recruiterParts.user;
-      const newRecruiterUuid = recruiterParts.id;
-      const newRecruiterEmail = recruiterParts.email;
-      if(recruiter?.team_id && !newTeamId)newTeamId = recruiter.team_id;
-
-      const now = new Date().toISOString();
+      let selectedRecruiterValue = assignToCurrentUser ? currentRecruiterId() : safeText(els.assignedRecruiterSelect?.value || '');
+      let selectedTeamValue = assignToCurrentUser ? (currentTeamId() || previousTeamIdRaw || '') : safeText(els.assignedTeamSelect?.value || '');
       const note = safeText(els.assignmentNote?.value || '');
+      const now = new Date().toISOString();
 
-      const payload = {
-        assigned_recruiter_id: newRecruiterUuid || null,
-        assigned_team_id: newTeamId || null,
-        assigned_at: now,
-        assigned_by: isUuid(currentRecruiterId()) ? currentRecruiterId() : null,
-        recruiter_email: newRecruiterEmail || recruiter?.email || row.app?.recruiter_email || null,
-        updated_at: now
+      const stripSchemaErrorColumn = (payload, error) => {
+        const message = safeText(error?.message || error?.details || error?.hint || error);
+        const patterns = [
+          /Could not find the '([^']+)' column/i,
+          /column "([^"]+)" (?:of relation .* )?does not exist/i,
+          /schema cache.*'([^']+)'/i
+        ];
+        for(const pattern of patterns){
+          const match = message.match(pattern);
+          if(match?.[1] && Object.prototype.hasOwnProperty.call(payload, match[1])){
+            const next = {...payload};
+            delete next[match[1]];
+            return next;
+          }
+        }
+        return null;
+      };
+
+      const updateApplicationAdaptive = async (applicationId, payload) => {
+        let cleanPayload = Object.fromEntries(
+          Object.entries(payload).filter(([,value]) => value !== undefined)
+        );
+        let lastError = null;
+
+        for(let attempt = 0; attempt < 10; attempt += 1){
+          const {error} = await supabaseClient
+            .from('applications')
+            .update(cleanPayload)
+            .eq('id', applicationId);
+
+          if(!error)return cleanPayload;
+          lastError = error;
+          console.warn('applications assignment update failed:', error?.message || error, cleanPayload);
+
+          const message = safeText(error?.message || error?.details || error?.hint || error).toLowerCase();
+          if(message.includes('invalid input syntax for type uuid')){
+            const next = {...cleanPayload};
+            ['assigned_recruiter_id','assigned_team_id','assigned_by'].forEach(key => {
+              if(next[key] && !isUuid(next[key]))delete next[key];
+            });
+            if(Object.keys(next).length !== Object.keys(cleanPayload).length){
+              cleanPayload = next;
+              continue;
+            }
+          }
+
+          const reduced = stripSchemaErrorColumn(cleanPayload, error);
+          if(!reduced || Object.keys(reduced).length === Object.keys(cleanPayload).length)break;
+          cleanPayload = reduced;
+        }
+
+        // Last fallback: keep ownership visible through recruiter_email even if assignment UUID columns are unavailable.
+        const safePayload = Object.fromEntries(
+          Object.entries(cleanPayload).filter(([key]) => ['recruiter_email','updated_at'].includes(key))
+        );
+        if(Object.keys(safePayload).length){
+          const {error} = await supabaseClient
+            .from('applications')
+            .update(safePayload)
+            .eq('id', applicationId);
+          if(!error)return safePayload;
+          lastError = error;
+        }
+
+        throw lastError || new Error('Unable to update application assignment.');
+      };
+
+      const ensureRecruiterUserForAssignment = async (value) => {
+        const parts = getRecruiterAssignmentParts(value);
+        if(parts.id || !parts.email)return parts;
+
+        const email = normalizeEmail(parts.email);
+        const existing = getRecruiterUserByEmail(email);
+        if(existing && isUuid(existing.id))return getRecruiterAssignmentParts(existing.id);
+
+        const displayName = safeText(existing?.full_name) || email.split('@')[0].replace(/[._-]+/g,' ').replace(/\b\w/g, c => c.toUpperCase());
+        const candidatePayload = {
+          company_id: currentCompanyId() || null,
+          client_id: currentCompanyId() || null,
+          team_id: isUuid(selectedTeamValue) ? selectedTeamValue : null,
+          full_name: displayName,
+          email,
+          role: safeText(existing?.role || 'recruiter'),
+          status: 'active'
+        };
+
+        try{
+          const {data,error} = await supabaseClient
+            .from('recruiter_users')
+            .upsert(candidatePayload, {onConflict:'email'})
+            .select('*')
+            .single();
+          if(error)throw error;
+          const normalized = normalizeUserRow(data);
+          state.recruiterUsers = mergeUniqueUsers(state.recruiterUsers || [], [normalized]);
+          return {id:isUuid(normalized.id) ? normalized.id : null, email:normalizeEmail(normalized.email), user:normalized};
+        }catch(error){
+          console.warn('Unable to upsert recruiter user; falling back to recruiter_email only:', error?.message || error);
+          return {id:null, email, user:existing || {id:email, email, full_name:displayName, role:'recruiter', status:'active'}};
+        }
       };
 
       try{
         if(els.saveAssignmentBtn)els.saveAssignmentBtn.disabled = true;
         if(els.assignToMeBtn)els.assignToMeBtn.disabled = true;
 
-        const {error:updateError} = await supabaseClient
-          .from('applications')
-          .update(payload)
-          .eq('id', row.id);
+        const recruiterParts = await ensureRecruiterUserForAssignment(selectedRecruiterValue);
+        const recruiter = recruiterParts.user;
+        const newRecruiterUuid = isUuid(recruiterParts.id) ? recruiterParts.id : null;
+        const newRecruiterEmail = normalizeEmail(recruiterParts.email || recruiter?.email || selectedRecruiterValue || row.app?.recruiter_email || '') || null;
+        if(recruiter?.team_id && !selectedTeamValue)selectedTeamValue = recruiter.team_id;
+        const newTeamId = isUuid(selectedTeamValue) ? selectedTeamValue : null;
 
-        if(updateError)throw updateError;
+        const payload = {
+          assigned_recruiter_id: newRecruiterUuid,
+          assigned_team_id: newTeamId,
+          assigned_at: now,
+          assigned_by: isUuid(currentRecruiterId()) ? currentRecruiterId() : null,
+          recruiter_email: newRecruiterEmail || null,
+          updated_at: now
+        };
+
+        const savedPayload = await updateApplicationAdaptive(row.id, payload);
 
         const historyPayload = {
           application_id: row.id,
-          client_id: row.app?.client_id || row.app?.company_id || currentCompanyId() || null,
+          client_id: isUuid(row.app?.client_id) ? row.app.client_id : (isUuid(row.app?.company_id) ? row.app.company_id : (isUuid(currentCompanyId()) ? currentCompanyId() : null)),
           previous_recruiter_id: previousRecruiterId,
-          new_recruiter_id: newRecruiterUuid || null,
+          new_recruiter_id: newRecruiterUuid,
           previous_team_id: previousTeamId,
-          new_team_id: newTeamId || null,
+          new_team_id: newTeamId,
           assigned_by: isUuid(currentRecruiterId()) ? currentRecruiterId() : null,
           note: note || null
         };
 
-        const {error:historyError} = await supabaseClient
-          .from('application_assignment_history')
-          .insert([historyPayload]);
-
-        if(historyError){
+        try{
+          const {error:historyError} = await supabaseClient
+            .from('application_assignment_history')
+            .insert([historyPayload]);
+          if(historyError)console.warn('Assignment history insert failed:', historyError?.message || historyError);
+        }catch(historyError){
           console.warn('Assignment history insert failed:', historyError?.message || historyError);
         }
 
+        row.app = {
+          ...(row.app || {}),
+          ...savedPayload,
+          assigned_recruiter_id: Object.prototype.hasOwnProperty.call(savedPayload, 'assigned_recruiter_id') ? savedPayload.assigned_recruiter_id : newRecruiterUuid,
+          assigned_team_id: Object.prototype.hasOwnProperty.call(savedPayload, 'assigned_team_id') ? savedPayload.assigned_team_id : newTeamId,
+          recruiter_email: Object.prototype.hasOwnProperty.call(savedPayload, 'recruiter_email') ? savedPayload.recruiter_email : newRecruiterEmail,
+          assigned_at: now
+        };
+        row.assignedRecruiterId = row.app.assigned_recruiter_id || '';
+        row.assignedTeamId = row.app.assigned_team_id || '';
+        row.recruiter = getRecruiterDisplayName(row.assignedRecruiterId, row.app.recruiter_email);
+        row.team = getTeamDisplayName(row.assignedTeamId);
+
         showNotice('Candidate assignment saved.', 'success');
         if(els.assignmentNote)els.assignmentNote.value = '';
-        await loadDashboard();
+        applyFilters();
+        await loadDashboard({silent:true});
         await openDrawer(row.id);
         return true;
       }catch(error){
@@ -5633,7 +5742,10 @@ function normalizeCommunicationTimelineMessages(messages){
         showNotice(`Unable to save assignment: ${getReadableError(error)}`, 'error');
         return false;
       }finally{
-        populateAssignmentSelects(state.allRows.find(item => item.id === row.id) || row);
+        const refreshed = state.allRows.find(item => item.id === row.id) || row;
+        populateAssignmentSelects(refreshed);
+        if(els.saveAssignmentBtn)els.saveAssignmentBtn.disabled = false;
+        if(els.assignToMeBtn)els.assignToMeBtn.disabled = !currentRecruiterId();
       }
     }
 
@@ -8746,195 +8858,143 @@ function currentCompanyId(){
         return null;
       };
 
-      const updateAdaptive = async (table, id, payload, requiredKeys = ['updated_at']) => {
+      const updateAdaptive = async (table, id, payload, safeKeys = []) => {
+        if(!id)return {saved:null, error:null};
         let cleanPayload = Object.fromEntries(
           Object.entries(payload).filter(([,value]) => value !== undefined)
         );
         let lastError = null;
 
-        // Retry by removing only columns that the current Supabase schema reports as missing.
-        // This lets newer environments save all profile fields, while older schemas still save core edits.
         for(let attempt = 0; attempt < 12; attempt += 1){
           const { error } = await supabaseClient.from(table).update(cleanPayload).eq('id', id);
-          if(!error)return cleanPayload;
+          if(!error)return {saved:cleanPayload, error:null};
           lastError = error;
           console.warn(`${table} adaptive update failed:`, error?.message || error, cleanPayload);
-
           const reduced = stripSchemaErrorColumn(cleanPayload, error);
           if(!reduced || Object.keys(reduced).length === Object.keys(cleanPayload).length)break;
           cleanPayload = reduced;
         }
 
-        // Last-resort safe update so the UI does not report total failure when optional columns differ.
-        const safePayload = Object.fromEntries(
-          Object.entries(cleanPayload).filter(([key]) => requiredKeys.includes(key))
-        );
-        if(Object.keys(safePayload).length){
-          const { error } = await supabaseClient.from(table).update(safePayload).eq('id', id);
-          if(!error)return safePayload;
-          lastError = error;
+        if(safeKeys.length){
+          const safePayload = Object.fromEntries(
+            Object.entries(cleanPayload).filter(([key]) => safeKeys.includes(key))
+          );
+          if(Object.keys(safePayload).length){
+            const { error } = await supabaseClient.from(table).update(safePayload).eq('id', id);
+            if(!error)return {saved:safePayload, error:null};
+            lastError = error;
+          }
         }
-        throw lastError || new Error(`Unable to update ${table}.`);
+
+        return {saved:null, error:lastError || new Error(`Unable to update ${table}.`)};
       };
 
-      const updateApplicationCandidateAndRole = async (applicationId, profileId) => {
+      const findProfileId = async () => {
+        if(row.profile?.id)return row.profile.id;
+        try{
+          const byEmail = await supabaseClient
+            .from('applicant_profiles')
+            .select('id')
+            .eq('email', values.email)
+            .maybeSingle();
+          if(!byEmail.error && byEmail.data?.id)return byEmail.data.id;
+          if(byEmail.error && byEmail.error.code !== 'PGRST116')console.warn('Profile lookup failed:', byEmail.error?.message || byEmail.error);
+        }catch(error){
+          console.warn('Profile lookup failed:', error?.message || error);
+        }
+        return null;
+      };
+
+      const createProfileIfNeeded = async () => {
+        const existingId = await findProfileId();
+        if(existingId)return existingId;
+        try{
+          const insertPayload = Object.fromEntries(
+            Object.entries(profilePayload).filter(([,value]) => value !== undefined)
+          );
+          const inserted = await supabaseClient
+            .from('applicant_profiles')
+            .insert(insertPayload)
+            .select('id')
+            .single();
+          if(inserted.error)throw inserted.error;
+          return inserted.data?.id || null;
+        }catch(error){
+          console.warn('Unable to create profile; saving application-level fields only:', error?.message || error);
+          return null;
+        }
+      };
+
+      const buildApplicationAttempts = (profileId) => {
         const basePayload = {
           email: values.email,
-          company_id: row.app?.company_id || currentCompanyId() || null,
           updated_at: now
         };
-        if(profileId && !row.app?.applicant_profile_id){
-          basePayload.applicant_profile_id = profileId;
-        }
-
-        const rolePayload = selectedJobId ? {
-          job_id: selectedJobId,
-          job_title: selectedJobTitle || row.app?.job_title || row.jobTitle || null,
-          updated_at: now
-        } : {};
+        if(profileId && !row.app?.applicant_profile_id)basePayload.applicant_profile_id = profileId;
+        if(row.app?.company_id || currentCompanyId())basePayload.company_id = row.app?.company_id || currentCompanyId();
 
         const attempts = [];
-
         if(selectedJobId){
-          attempts.push({...basePayload, ...rolePayload});
-          attempts.push({
-            email: values.email,
-            job_id: selectedJobId,
-            job_title: selectedJobTitle || null,
-            updated_at: now
-          });
-          attempts.push({
-            job_id: selectedJobId,
-            job_title: selectedJobTitle || null,
-            updated_at: now
-          });
-          attempts.push({
-            job_id: selectedJobId,
-            updated_at: now
-          });
-          // Some older dashboards used only a denormalized role title. Keep this as a fallback,
-          // but never let it replace the preferred job_id update when job_id exists.
-          attempts.push({
-            job_title: selectedJobTitle || null,
-            updated_at: now
-          });
-        }else{
-          attempts.push(basePayload);
+          attempts.push({...basePayload, job_id:selectedJobId, job_title:selectedJobTitle || row.app?.job_title || row.jobTitle || null});
+          attempts.push({email:values.email, job_id:selectedJobId, job_title:selectedJobTitle || null, updated_at:now});
+          attempts.push({job_id:selectedJobId, job_title:selectedJobTitle || null, updated_at:now});
+          attempts.push({job_id:selectedJobId, updated_at:now});
+          attempts.push({job_title:selectedJobTitle || null, updated_at:now});
         }
-
         attempts.push(basePayload);
+        attempts.push({email:values.email, updated_at:now});
+        return attempts;
+      };
 
+      const updateApplicationAdaptive = async (applicationId, profileId) => {
         let lastError = null;
-        let savedPayload = null;
-
-        for(const originalAttempt of attempts){
-          let attempt = Object.fromEntries(
-            Object.entries(originalAttempt).filter(([,value]) => value !== undefined)
-          );
-
-          for(let retry = 0; retry < 8; retry += 1){
-            const { error } = await supabaseClient
-              .from('applications')
-              .update(attempt)
-              .eq('id', applicationId);
-
-            if(!error){
-              savedPayload = attempt;
-              break;
-            }
-
+        for(const originalAttempt of buildApplicationAttempts(profileId)){
+          let attempt = Object.fromEntries(Object.entries(originalAttempt).filter(([,value]) => value !== undefined));
+          for(let retry = 0; retry < 10; retry += 1){
+            const {error} = await supabaseClient.from('applications').update(attempt).eq('id', applicationId);
+            if(!error)return {saved:attempt, error:null};
             lastError = error;
-            console.warn('applications role/profile update failed:', error?.message || error, attempt);
+            console.warn('applications candidate update failed:', error?.message || error, attempt);
             const reduced = stripSchemaErrorColumn(attempt, error);
             if(!reduced || Object.keys(reduced).length === Object.keys(attempt).length)break;
             attempt = reduced;
           }
-
-          if(savedPayload)break;
         }
-
-        if(!savedPayload){
-          throw lastError || new Error('Unable to update application role.');
-        }
-
-        // If recruiter selected a new role, the save must persist either job_id or job_title.
-        // Otherwise the UI would appear saved but revert after refresh.
-        if(selectedJobId && !Object.prototype.hasOwnProperty.call(savedPayload, 'job_id') && !Object.prototype.hasOwnProperty.call(savedPayload, 'job_title')){
-          throw new Error('Role was not saved because neither job_id nor job_title exists on applications.');
-        }
-
-        // Best-effort read-back verification. If the role still does not match, warn loudly.
-        if(selectedJobId){
-          try{
-            const verify = await supabaseClient
-              .from('applications')
-              .select('id,job_id,job_title')
-              .eq('id', applicationId)
-              .maybeSingle();
-
-            if(!verify.error && verify.data){
-              const savedJobId = safeText(verify.data.job_id || '');
-              const savedJobTitle = safeText(verify.data.job_title || '');
-              const idMatches = savedJobId && String(savedJobId) === String(selectedJobId);
-              const titleMatches = selectedJobTitle && savedJobTitle === selectedJobTitle;
-
-              if(!idMatches && !titleMatches){
-                console.warn('Role save verification mismatch:', {selectedJobId, selectedJobTitle, saved: verify.data});
-                throw new Error('Role update did not verify after saving. Please check applications.job_id/job_title permissions or schema.');
-              }
-            }else if(verify.error){
-              console.warn('Role save verification skipped:', verify.error?.message || verify.error);
-            }
-          }catch(error){
-            // Do not hide a real verification mismatch; surface it to the recruiter.
-            if(String(error?.message || '').includes('did not verify'))throw error;
-            console.warn('Role save verification unavailable:', error?.message || error);
-          }
-        }
-
-        return savedPayload;
-      };
-
-      const findOrCreateProfileId = async () => {
-        if(row.profile?.id)return row.profile.id;
-
-        const byEmail = await supabaseClient
-          .from('applicant_profiles')
-          .select('id')
-          .eq('email', values.email)
-          .maybeSingle();
-
-        if(byEmail.error && byEmail.error.code !== 'PGRST116')throw byEmail.error;
-        if(byEmail.data?.id)return byEmail.data.id;
-
-        const insertPayload = Object.fromEntries(
-          Object.entries(profilePayload).filter(([,value]) => value !== undefined)
-        );
-        const inserted = await supabaseClient
-          .from('applicant_profiles')
-          .insert(insertPayload)
-          .select('id')
-          .single();
-        if(inserted.error)throw inserted.error;
-        return inserted.data?.id;
+        return {saved:null, error:lastError || new Error('Unable to update application.')};
       };
 
       try{
         [els.saveCandidateInfoBtn, els.modalSaveCandidateInfoBtn].forEach(btn=>{ if(btn){btn.disabled=true; btn.textContent='Saving...';} });
 
-        const profileId = await findOrCreateProfileId();
-        const savedProfilePayload = await updateAdaptive('applicant_profiles', profileId, profilePayload, ['full_name','email','phone','location','updated_at']);
-        const savedApplicationPayload = await updateApplicationCandidateAndRole(row.id, profileId);
+        const profileId = await createProfileIfNeeded();
+        let profileResult = {saved:null, error:null};
+        if(profileId){
+          profileResult = await updateAdaptive('applicant_profiles', profileId, profilePayload, ['full_name','email','phone','location','updated_at']);
+        }
+        const applicationResult = await updateApplicationAdaptive(row.id, profileId);
 
-        // Optimistic local update so the drawer/table changes immediately while loadDashboard refreshes.
+        if(profileResult.error && applicationResult.error){
+          throw profileResult.error || applicationResult.error;
+        }
+
+        if(profileResult.error){
+          console.warn('Candidate profile partial save warning:', profileResult.error?.message || profileResult.error);
+        }
+        if(applicationResult.error){
+          console.warn('Application partial save warning:', applicationResult.error?.message || applicationResult.error);
+        }
+
         row.profile = {
           ...(row.profile || {}),
-          id: profileId,
-          ...savedProfilePayload
+          ...(profileId ? {id: profileId} : {}),
+          ...profilePayload,
+          ...(profileResult.saved || {})
         };
         row.app = {
           ...(row.app || {}),
-          ...savedApplicationPayload
+          ...(applicationResult.saved || {}),
+          email: values.email,
+          updated_at: now
         };
         if(selectedJobId){
           row.app.job_id = selectedJobId;
@@ -8945,9 +9005,9 @@ function currentCompanyId(){
         }
         row.displayName = getCandidateNameFromProfile(row.profile, row.app) || row.displayName;
 
-        console.log('Candidate profile saved:', {applicationId: row.id, profileId, savedProfilePayload, savedApplicationPayload, roleWasChanged});
         showNotice(roleWasChanged ? 'Candidate info and role updated.' : 'Candidate info updated.', 'success');
-        await loadDashboard();
+        applyFilters();
+        await loadDashboard({silent:true});
         await openDrawer(row.id);
         if(isCandidateModalOpen()){
           const refreshed = state.allRows.find(item => item.id === row.id);
@@ -8960,6 +9020,7 @@ function currentCompanyId(){
         [els.saveCandidateInfoBtn, els.modalSaveCandidateInfoBtn].forEach(btn=>{ if(btn){btn.disabled=false; btn.textContent='Save Candidate Info';} });
       }
     }
+
 
 
     const INTERVIEW_STAGE_TEMPLATES = {
