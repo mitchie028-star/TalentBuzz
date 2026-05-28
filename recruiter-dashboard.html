@@ -3026,6 +3026,7 @@ opslead@company.com"></textarea></div>
 
 
 
+  <div class="modal" id="teamAdminModal">
     <div class="modal-card team-admin-modal-card">
       <div class="modal-head">
         <div>
@@ -5290,42 +5291,126 @@ function normalizeCommunicationTimelineMessages(messages){
 
     async function loadRecruiterDirectory(){
       const companyId = currentCompanyId();
-      const filterByCompany = (query) => companyId ? query.or(`client_id.eq.${companyId},client_id.is.null`) : query;
+      const currentEmail = normalizeEmail(state.currentUser?.email || state.recruiterProfile?.email || '');
+      const normalizeUserRow = user => ({
+        id: safeText(user.id || user.auth_user_id || user.email),
+        auth_user_id: user.auth_user_id || null,
+        client_id: user.client_id || user.company_id || null,
+        company_id: user.company_id || user.client_id || null,
+        team_id: user.team_id || null,
+        full_name: safeText(user.full_name || user.name || user.email || 'Recruiter'),
+        email: normalizeEmail(user.email || ''),
+        role: normalizeRole(user.role || user.user_role || 'recruiter'),
+        status: safeText(user.status || 'active')
+      });
+      const mergeUniqueUsers = (...groups) => {
+        const byKey = new Map();
+        groups.flat().filter(Boolean).forEach(raw => {
+          const user = normalizeUserRow(raw);
+          const key = user.email || user.id;
+          if(!key)return;
+          const existing = byKey.get(key) || {};
+          byKey.set(key, {...existing, ...user, id: existing.id || user.id});
+        });
+        return Array.from(byKey.values()).filter(user => !safeText(user.status) || normalizeStatus(user.status) === 'active');
+      };
+      const mergeUniqueTeams = (...groups) => {
+        const byKey = new Map();
+        groups.flat().filter(Boolean).forEach(team => {
+          const id = safeText(team.id || team.name);
+          if(!id)return;
+          byKey.set(id, {
+            id,
+            client_id: team.client_id || team.company_id || null,
+            company_id: team.company_id || team.client_id || null,
+            name: safeText(team.name || team.team_name || 'Team'),
+            team_lead_user_id: team.team_lead_user_id || team.lead_user_id || null,
+            status: safeText(team.status || 'active')
+          });
+        });
+        return Array.from(byKey.values()).filter(team => !safeText(team.status) || normalizeStatus(team.status) === 'active');
+      };
 
+      let teams = [];
       try{
-        let teamQuery = supabaseClient
+        let scopedTeamQuery = supabaseClient
           .from('recruiter_teams')
           .select('id,client_id,name,team_lead_user_id,status')
           .order('name', {ascending:true});
-        teamQuery = filterByCompany(teamQuery);
-        const {data:teams,error:teamError} = await teamQuery;
-        if(teamError)throw teamError;
-        state.recruiterTeams = (teams || []).filter(team => !safeText(team.status) || normalizeStatus(team.status) === 'active');
+        if(companyId)scopedTeamQuery = scopedTeamQuery.or(`client_id.eq.${companyId},client_id.is.null`);
+        const {data,error} = await scopedTeamQuery;
+        if(error)throw error;
+        teams = data || [];
+
+        // If the scoped query returns nothing, try an unscoped read so admins can recover from null/mismatched client_id rows.
+        if(!teams.length){
+          const {data:allTeams,error:allTeamError} = await supabaseClient
+            .from('recruiter_teams')
+            .select('id,client_id,name,team_lead_user_id,status')
+            .order('name', {ascending:true});
+          if(!allTeamError)teams = allTeams || [];
+        }
       }catch(error){
         console.warn('Unable to load recruiter_teams. Assignment team dropdown will be limited:', error?.message || error);
-        state.recruiterTeams = [];
+        teams = [];
       }
+      state.recruiterTeams = mergeUniqueTeams(teams);
 
+      let recruiterUsers = [];
       try{
-        let userQuery = supabaseClient
+        let scopedUserQuery = supabaseClient
           .from('recruiter_users')
           .select('id,auth_user_id,client_id,team_id,full_name,email,role,status')
           .order('full_name', {ascending:true});
-        userQuery = filterByCompany(userQuery);
-        const {data:users,error:userError} = await userQuery;
-        if(userError)throw userError;
-        state.recruiterUsers = (users || []).filter(user => !safeText(user.status) || normalizeStatus(user.status) === 'active');
+        if(companyId)scopedUserQuery = scopedUserQuery.or(`client_id.eq.${companyId},client_id.is.null`);
+        const {data,error} = await scopedUserQuery;
+        if(error)throw error;
+        recruiterUsers = data || [];
 
-        const currentEmail = normalizeEmail(state.currentUser?.email || state.recruiterProfile?.email || '');
-        state.currentRecruiterUser = state.recruiterUsers.find(user => normalizeEmail(user.email) === currentEmail) || null;
+        // Recovery path: if client_id mismatch or null filtering hides rows, read all recruiter_users.
+        if(!recruiterUsers.length){
+          const {data:allUsers,error:allUserError} = await supabaseClient
+            .from('recruiter_users')
+            .select('id,auth_user_id,client_id,team_id,full_name,email,role,status')
+            .order('full_name', {ascending:true});
+          if(!allUserError)recruiterUsers = allUsers || [];
+        }
       }catch(error){
         console.warn('Unable to load recruiter_users. Falling back to legacy recruiters table:', error?.message || error);
-        state.recruiterUsers = [];
-        state.currentRecruiterUser = null;
+        recruiterUsers = [];
       }
 
+      // Fallback to the legacy recruiters table so the assignment dropdown is not empty while recruiter_users is being built.
+      let legacyRecruiters = [];
+      try{
+        let legacyQuery = supabaseClient
+          .from('recruiters')
+          .select('id,email,full_name,name,role,status,company_id,client_id,team_id')
+          .order('email', {ascending:true});
+        if(companyId)legacyQuery = legacyQuery.or(`company_id.eq.${companyId},client_id.eq.${companyId},company_id.is.null,client_id.is.null`);
+        const {data,error} = await legacyQuery;
+        if(!error)legacyRecruiters = data || [];
+      }catch(error){
+        console.warn('Legacy recruiters fallback failed:', error?.message || error);
+      }
+
+      const syntheticCurrentUser = currentEmail ? [{
+        id: state.recruiterProfile?.id || state.currentUser?.id || currentEmail,
+        auth_user_id: state.currentUser?.id || null,
+        client_id: state.recruiterProfile?.client_id || state.recruiterProfile?.company_id || currentCompanyId() || null,
+        company_id: state.recruiterProfile?.company_id || state.recruiterProfile?.client_id || currentCompanyId() || null,
+        team_id: state.recruiterProfile?.team_id || null,
+        full_name: state.recruiterProfile?.full_name || state.currentUser?.user_metadata?.full_name || state.currentUser?.email || currentEmail,
+        email: currentEmail,
+        role: state.recruiterProfile?.role || 'client_admin',
+        status: 'active'
+      }] : [];
+
+      state.recruiterUsers = mergeUniqueUsers(recruiterUsers, legacyRecruiters, syntheticCurrentUser);
+      state.currentRecruiterUser = state.recruiterUsers.find(user => normalizeEmail(user.email) === currentEmail) || null;
+
       if(!state.currentRecruiterUser && state.recruiterProfile?.id){
-        state.currentRecruiterUser = {
+        state.currentRecruiterUser = normalizeUserRow({
           id: state.recruiterProfile.id,
           email: state.recruiterProfile.email,
           full_name: state.recruiterProfile.full_name,
@@ -5333,12 +5418,15 @@ function normalizeCommunicationTimelineMessages(messages){
           team_id: state.recruiterProfile.team_id || null,
           client_id: state.recruiterProfile.client_id || state.recruiterProfile.company_id || null,
           company_id: state.recruiterProfile.company_id || null
-        };
+        });
+        state.recruiterUsers = mergeUniqueUsers(state.recruiterUsers, [state.currentRecruiterUser]);
       }
 
       state.roleView = currentRole();
       state.canManageAssignments = roleCanManageAssignments();
       renderRoleContext();
+      populateAssignmentSelects(getSelectedCandidateRow?.() || null);
+      populateTeamAdminModal?.();
     }
 
     function populateAssignmentSelects(row=null){
@@ -5548,14 +5636,38 @@ function normalizeCommunicationTimelineMessages(messages){
       const role = safeText(els.newRecruiterRole?.value || 'recruiter');
       const teamId = safeText(els.newRecruiterTeam?.value || '') || null;
       if(!fullName || !email)return setTeamAdminStatus('Recruiter name and email are required.', 'error');
-      const payload = {client_id: currentCompanyId() || null, team_id: teamId, full_name: fullName, email, role, status:'active'};
+
+      const payload = {
+        client_id: currentCompanyId() || null,
+        team_id: teamId,
+        full_name: fullName,
+        email,
+        role,
+        status:'active'
+      };
+
       try{
+        let saved = false;
         const existing = getRecruiterUserByEmail(email);
-        const query = existing
-          ? supabaseClient.from('recruiter_users').update(payload).eq('id', existing.id)
-          : supabaseClient.from('recruiter_users').insert([payload]);
-        const {error} = await query;
-        if(error)throw error;
+
+        if(existing?.id){
+          const {error} = await supabaseClient.from('recruiter_users').update(payload).eq('id', existing.id);
+          if(error)throw error;
+          saved = true;
+        }
+
+        if(!saved){
+          const {error} = await supabaseClient.from('recruiter_users').upsert([payload], {onConflict:'email'});
+          if(error){
+            // Some projects do not have a unique index on email. Try insert, then update-by-email if duplicate or policy allows update only.
+            const {error:insertError} = await supabaseClient.from('recruiter_users').insert([payload]);
+            if(insertError){
+              const {error:updateError} = await supabaseClient.from('recruiter_users').update(payload).eq('email', email);
+              if(updateError)throw insertError;
+            }
+          }
+        }
+
         ['newRecruiterName','newRecruiterEmail'].forEach(id => { if(els[id])els[id].value = ''; });
         await loadRecruiterDirectory();
         populateAssignmentSelects(getSelectedCandidateRow());
@@ -6613,7 +6725,7 @@ function currentCompanyId(){
           const priorityLevel = safeText(app.priority_level || derivePriorityLevel(app, workflow));
           const slaRisk = safeText(app.sla_risk || deriveSLARisk(app, workflow));
           const primaryCta = safeText(app.primary_cta || derivePrimaryCTA(app, workflow));
-          return {id:app.id,app,workflow,profile,job,score,activities,communications,assessment:state.assessmentsByApplicationId.get(safeText(app.id))||null,interview:state.interviewsByApplicationId.get(safeText(app.id))||null,assessmentInfo:null,displayName:getCandidateNameFromProfile(profile, app) || safeText(workflow.candidate_name),status:safeText(app.client_feedback_status||app.status||workflow.legacy_status||'submitted'),workflowStage:safeText(app.workflow_stage||workflow.workflow_stage||''),nextRecruiterAction,priorityLevel,slaRisk,primaryCta,assignedRecruiterId:safeText(app.assigned_recruiter_id),assignedTeamId:safeText(app.assigned_team_id),recruiter:getRecruiterDisplayName(app.assigned_recruiter_id, app.recruiter_email),team:getTeamDisplayName(app.assigned_team_id),source:safeText(app.application_source||workflow.application_source||'—'),appliedAt:app.created_at||workflow.created_at,clientName:safeText(job.client_name||'—'),jobTitle:safeText(job.title||app.job_title||workflow.job_title||'—'),followUp:getFollowUpInfo(app)};
+          return {id:app.id,app,workflow,profile,job,score,activities,communications,assessment:state.assessmentsByApplicationId.get(safeText(app.id))||null,interview:state.interviewsByApplicationId.get(safeText(app.id))||null,assessmentInfo:null,displayName:getCandidateNameFromProfile(profile, app) || safeText(workflow.candidate_name),status:safeText(app.status||app.client_feedback_status||workflow.legacy_status||'submitted'),workflowStage:safeText(app.workflow_stage||workflow.workflow_stage||''),nextRecruiterAction,priorityLevel,slaRisk,primaryCta,assignedRecruiterId:safeText(app.assigned_recruiter_id),assignedTeamId:safeText(app.assigned_team_id),recruiter:getRecruiterDisplayName(app.assigned_recruiter_id, app.recruiter_email),team:getTeamDisplayName(app.assigned_team_id),source:safeText(app.application_source||workflow.application_source||'—'),appliedAt:app.created_at||workflow.created_at,clientName:safeText(job.client_name||'—'),jobTitle:safeText(job.title||app.job_title||workflow.job_title||'—'),followUp:getFollowUpInfo(app)};
         }).map(row => ({...row, assessmentInfo: getAssessmentInfo(row)}));
         state.allRows=cleanDashboardRows(dedupeDashboardApplicationRows(rawRows));
         state.activeRows = activeDashboardIds.size
@@ -9506,12 +9618,18 @@ async function bulkUploadResumes(){
     }
 
     async function updateApplicationWithFallback(applicationId, payload){
+      const now = payload.updated_at || new Date().toISOString();
       const attempts = [
-        payload,
+        {
+          ...payload,
+          client_feedback_status: payload.status,
+          updated_at: now
+        },
         {
           status: payload.status,
+          client_feedback_status: payload.status,
           recruiter_notes: payload.recruiter_notes,
-          updated_at: payload.updated_at,
+          updated_at: now,
           follow_up_required: payload.follow_up_required,
           follow_up_status: payload.follow_up_status,
           follow_up_date: payload.follow_up_date,
@@ -9523,25 +9641,42 @@ async function bulkUploadResumes(){
         },
         {
           status: payload.status,
+          client_feedback_status: payload.status,
           recruiter_notes: payload.recruiter_notes,
           stage_note_label: payload.recruiter_notes,
-          updated_at: payload.updated_at
+          updated_at: now
+        },
+        {
+          status: payload.status,
+          updated_at: now
+        },
+        {
+          status: payload.status
         }
       ];
 
       let lastError = null;
+      let savedPayload = null;
 
       for(const attempt of attempts){
         const cleanPayload = Object.fromEntries(
           Object.entries(attempt).filter(([,value]) => value !== undefined)
         );
 
-        const { error } = await supabaseClient
+        const { data, error } = await supabaseClient
           .from('applications')
           .update(cleanPayload)
-          .eq('id', applicationId);
+          .eq('id', applicationId)
+          .select('id,status,client_feedback_status,recruiter_notes,stage_note_label,updated_at')
+          .maybeSingle();
 
-        if(!error)return cleanPayload;
+        if(!error){
+          savedPayload = cleanPayload;
+          if(data && safeText(data.status) !== safeText(payload.status)){
+            console.warn('Status update returned a different value than requested:', data);
+          }
+          return savedPayload;
+        }
 
         lastError = error;
         console.warn('Candidate update attempt failed:', error?.message || error, cleanPayload);
@@ -9549,7 +9684,6 @@ async function bulkUploadResumes(){
 
       throw lastError || new Error('Unable to update application.');
     }
-
 
     async function saveSelectedRow(){
       const row = state.allRows.find(item => item.id === state.selectedId);
@@ -9586,7 +9720,8 @@ async function bulkUploadResumes(){
         // Optimistic local update so the drawer/table changes immediately.
         row.app = {
           ...row.app,
-          ...payload
+          ...payload,
+          client_feedback_status: selectedStatus
         };
         row.status = selectedStatus;
         row.followUp = getFollowUpInfo(row.app);
