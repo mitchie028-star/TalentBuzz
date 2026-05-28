@@ -6502,68 +6502,98 @@ function currentCompanyId(){
     }
 
 
-    async function fetchCandidateCommunications(){
-      try{
-        const {data,error}=await supabaseClient
-          .from('vw_candidate_communications_unified')
-          .select('*')
-          .order('created_at',{ascending:false})
-          .limit(CONFIG.PAGE_SIZE);
+   async function fetchCandidateCommunications(){
+  try{
+    const {data,error}=await supabaseClient
+      .from('vw_candidate_communications_unified')
+      .select('*')
+      .order('sent_at',{ascending:false})
+      .limit(200);
 
-        if(error)throw error;
-        return data || [];
-      }catch(error){
-        console.warn('vw_candidate_communications_unified query failed:', error?.message || error);
-        if(safeText(error?.message).toLowerCase().includes('does not exist')){
-          showNotice('Candidate communication inbox view is missing. Create public.vw_candidate_communications_unified first.', 'error');
-        }
-        return [];
-      }
+    if(error)throw error;
+    return data || [];
+  }catch(error){
+    console.warn('vw_candidate_communications_unified query failed:', error?.message || error);
+    if(safeText(error?.message).toLowerCase().includes('does not exist')){
+      showNotice('Candidate communication inbox view is missing. Create public.vw_candidate_communications_unified first.', 'error');
+    }
+    return [];
+  }
+}
+
+function buildCandidateCommunicationLookup(messages){
+  const byApplicationId = new Map();
+  const byProfileId = new Map();
+  const byEmail = new Map();
+  const byPhone = new Map();
+
+  (messages || []).forEach(message=>{
+    const applicationId = safeText(message.application_id);
+    const profileId = safeText(message.applicant_profile_id);
+
+    const email = normalizeEmail(
+      message.candidate_email ||
+      message.applicant_email ||
+      message.from_address ||
+      message.to_address ||
+      ''
+    );
+
+    const phone = normalizePhone(
+      message.candidate_phone ||
+      message.from_address ||
+      message.to_address ||
+      ''
+    );
+
+    if(applicationId){
+      if(!byApplicationId.has(applicationId))byApplicationId.set(applicationId, []);
+      byApplicationId.get(applicationId).push(message);
     }
 
-    function buildCandidateCommunicationLookup(messages){
-      const byApplicationId = new Map();
-      const byProfileId = new Map();
-      const byEmail = new Map();
-
-      (messages || []).forEach(message=>{
-        const applicationId = safeText(message.application_id);
-        const profileId = safeText(message.applicant_profile_id);
-        const email = normalizeEmail(message.applicant_email || '');
-
-        if(applicationId){
-          if(!byApplicationId.has(applicationId))byApplicationId.set(applicationId, []);
-          byApplicationId.get(applicationId).push(message);
-        }
-        if(profileId){
-          if(!byProfileId.has(profileId))byProfileId.set(profileId, []);
-          byProfileId.get(profileId).push(message);
-        }
-        if(email){
-          if(!byEmail.has(email))byEmail.set(email, []);
-          byEmail.get(email).push(message);
-        }
-      });
-
-      return {byApplicationId, byProfileId, byEmail};
+    if(profileId){
+      if(!byProfileId.has(profileId))byProfileId.set(profileId, []);
+      byProfileId.get(profileId).push(message);
     }
 
-    function getCommunicationsForApplicationRow(app, profile, lookup){
-      const seen = new Set();
-      const messages = [];
-      const addMessage = message => {
-        const key = safeText(message?.id) || `${safeText(message?.sender_type)}:${safeText(message?.applicant_email)}:${safeText(message?.created_at)}:${safeText(message?.message)}`;
-        if(!key || seen.has(key))return;
-        seen.add(key);
-        messages.push(message);
-      };
-
-      (lookup?.byApplicationId?.get(safeText(app?.id)) || []).forEach(addMessage);
-      (lookup?.byProfileId?.get(safeText(app?.applicant_profile_id || profile?.id)) || []).forEach(addMessage);
-      (lookup?.byEmail?.get(normalizeEmail(app?.email || profile?.email || '')) || []).forEach(addMessage);
-
-      return messages.sort((a,b)=>new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
+    if(email){
+      if(!byEmail.has(email))byEmail.set(email, []);
+      byEmail.get(email).push(message);
     }
+
+    if(phone){
+      if(!byPhone.has(phone))byPhone.set(phone, []);
+      byPhone.get(phone).push(message);
+    }
+  });
+
+  return {byApplicationId, byProfileId, byEmail, byPhone};
+}
+
+function getCommunicationsForApplicationRow(app, profile, lookup){
+  const seen = new Set();
+  const messages = [];
+
+  const addMessage = message => {
+    const key =
+      safeText(message?.id) ||
+      `${safeText(message?.source_table)}:${safeText(message?.source_message_id)}:${safeText(message?.sent_at || message?.created_at)}:${safeText(message?.message_body)}`;
+
+    if(!key || seen.has(key))return;
+    seen.add(key);
+    messages.push(message);
+  };
+
+  (lookup?.byApplicationId?.get(safeText(app?.id)) || []).forEach(addMessage);
+  (lookup?.byProfileId?.get(safeText(app?.applicant_profile_id || profile?.id)) || []).forEach(addMessage);
+  (lookup?.byEmail?.get(normalizeEmail(app?.email || profile?.email || '')) || []).forEach(addMessage);
+  (lookup?.byPhone?.get(normalizePhone(profile?.phone || app?.phone || '')) || []).forEach(addMessage);
+
+  return messages.sort(
+    (a,b)=>new Date(b.sent_at || b.created_at || 0).getTime() -
+           new Date(a.sent_at || a.created_at || 0).getTime()
+  );
+}
 
     function buildCandidateActivityLookup(activities){
       const byProfileId = new Map();
