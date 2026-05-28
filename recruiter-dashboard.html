@@ -3005,9 +3005,9 @@ opslead@company.com"></textarea></div>
               </div>
 
 <div class="drawer-section">
-                <h3>Email Thread</h3>
+                <h3>Candidate Thread</h3>
                 <div class="communication-thread" id="candidateCommunicationThread">
-                  <div class="communication-thread-empty">Open a candidate to see sent emails and candidate replies.</div>
+                  <div class="communication-thread-empty">Open a candidate to see sent emails, SMS, and candidate replies.</div>
                 </div>
               </div>
 
@@ -3112,8 +3112,8 @@ opslead@company.com"></textarea></div>
     <div class="modal-card message-inbox-modal-card">
       <div class="modal-head">
         <div>
-          <strong>Candidate Email Inbox</strong>
-          <div class="small">Candidate replies and recruiter-sent emails appear here and are also tracked on the candidate thread.</div>
+          <strong>Candidate Communication Inbox</strong>
+          <div class="small">Candidate SMS/email replies and recruiter-sent messages appear here and are also tracked on the candidate thread.</div>
         </div>
         <div class="actions">
           <button class="btn btn-xs btn-primary" id="messageInboxSyncBtn" type="button">Sync Replies</button>
@@ -3123,7 +3123,7 @@ opslead@company.com"></textarea></div>
       </div>
       <div class="modal-body" style="min-height:auto;padding:16px;overflow:auto;">
         <div class="message-inbox-toolbar">
-          <div class="message-inbox-summary" id="messageInboxSummary">Candidate replies and recruiter-sent emails saved in applicant_messages appear here.</div>
+          <div class="message-inbox-summary" id="messageInboxSummary">Candidate SMS/email replies and recruiter-sent messages saved in communication_messages appear here.</div>
           <div class="message-inbox-summary">Click a message to open the candidate thread.</div>
         </div>
         <div class="message-inbox-list" id="messageInboxList">
@@ -3168,7 +3168,7 @@ opslead@company.com"></textarea></div>
       <div class="modal-head">
         <div>
           <strong>Email Candidate</strong>
-          <div class="small" id="candidateEmailModalSubtitle">Compose and send a candidate email directly from the dashboard.</div>
+          <div class="small" id="candidateEmailModalSubtitle">Compose and send a candidate email through the TalentBuzz communication gateway.</div>
         </div>
         <button class="btn btn-xs" id="candidateEmailModalClose" type="button">Close</button>
       </div>
@@ -3198,12 +3198,12 @@ opslead@company.com"></textarea></div>
               <textarea id="candidateEmailBody" class="candidate-email-body" placeholder="Write your message..."></textarea>
             </div>
           </div>
-          <div class="candidate-email-preview-note">This sends through the dashboard email function, logs the outbound email on the candidate activity timeline, and replies will appear in Inbox after email sync.</div>
+          <div class="candidate-email-preview-note">This sends through the TalentBuzz communication gateway, logs the outbound email on the candidate activity timeline, and replies will appear in Inbox after email/SMS sync.</div>
           <div class="candidate-email-status hidden" id="candidateEmailStatus">No email prepared yet.</div>
         </section>
       </div>
       <div class="candidate-email-footer">
-        <span class="small">SMS can use the same candidate communication pattern later.</span>
+        <span class="small">SMS now uses the same candidate communication gateway and unified thread pattern.</span>
         <div class="actions">
           <button class="btn btn-soft" id="copyCandidateEmailBtn" type="button">Copy Email</button>
           <button class="btn btn-primary" id="openCandidateEmailAppBtn" type="button">Send Email + Log</button>
@@ -3473,7 +3473,7 @@ opslead@company.com"></textarea></div>
       </div>
     </div>
   </div> <script>
-    console.log('BuzzHire recruiter-dashboard-v2026-05-27-two-way-email-thread loaded');
+    console.log('BuzzHire recruiter-dashboard-v2026-05-28-unified-email-sms-thread loaded');
 
     const CONFIG = {
       SUPABASE_URL: window.TALENTBUZZ_SUPABASE_URL || localStorage.getItem('TALENTBUZZ_SUPABASE_URL') || '',
@@ -3483,7 +3483,7 @@ opslead@company.com"></textarea></div>
       ASSESSMENT_INVITE_FUNCTION: 'send-assessment-invite',
       INTERVIEW_INVITE_FUNCTION: 'send-interview-invite',
       ENDORSEMENT_INVITE_FUNCTION: 'send-client-endorsement',
-      CANDIDATE_EMAIL_FUNCTION: 'send-candidate-email',
+      CANDIDATE_EMAIL_FUNCTION: 'send-communication',
       CANDIDATE_EMAIL_SYNC_FUNCTION: 'sync-candidate-email-inbox',
       DASHBOARD_AUTO_REFRESH_MS: 900000,
       DASHBOARD_AUTO_REFRESH_WHEN_HIDDEN_MS: 1500000,
@@ -4009,20 +4009,25 @@ opslead@company.com"></textarea></div>
             null;
           const body = stripHtmlForTimeline(message?.message || '');
           const preview = body.length > 1200 ? `${body.slice(0, 1200)}…` : body;
-          const source = safeText(message.source || message.message_type || (isOutbound ? 'dashboard' : 'email'));
+          const channel = safeText(message.channel || 'email').toLowerCase() || 'email';
+          const source = safeText(message.source || message.message_type || channel || (isOutbound ? 'dashboard' : 'email'));
+          const displayAddress = channel === 'sms'
+            ? safeText(message.from_address || message.to_address || row?.profile?.phone || row?.app?.phone || '')
+            : safeText(email || row?.profile?.email || row?.app?.email || '');
 
           return {
-            id: safeText(message.id || `${email}:${message.created_at}:${sender}`),
+            id: safeText(message.id || `${email || displayAddress}:${message.created_at}:${sender}:${channel}`),
             message,
             rowId: row?.id || '',
             applicantProfileId: safeText(profileId || row?.profile?.id || ''),
             applicationId: safeText(applicationId || row?.app?.id || ''),
-            candidateName: safeText(row?.displayName || message.candidate_name || row?.profile?.full_name || email || 'Unknown candidate'),
-            candidateEmail: safeText(email || row?.profile?.email || row?.app?.email || ''),
+            candidateName: safeText(row?.displayName || message.candidate_name || row?.profile?.full_name || email || displayAddress || 'Unknown candidate'),
+            candidateEmail: displayAddress,
             role: safeText(row?.jobTitle || message.job_title || row?.app?.job_title || ''),
             client: safeText(row?.clientName || row?.job?.client_name || ''),
             source,
-            title: isOutbound ? 'Recruiter email sent' : (message.unread_candidate_reply ? 'Unread candidate reply' : 'Candidate reply'),
+            channel,
+            title: isOutbound ? `Recruiter ${channel === 'sms' ? 'SMS' : 'email'} sent` : (message.unread_candidate_reply ? `Unread candidate ${channel === 'sms' ? 'SMS' : 'reply'}` : `Candidate ${channel === 'sms' ? 'SMS' : 'reply'}`),
             body: preview || 'No message body captured.',
             createdAt: message.created_at,
             isRead: message.is_read === true,
@@ -4047,12 +4052,12 @@ opslead@company.com"></textarea></div>
 
       if(els.newApplicantsBadge){
         els.newApplicantsBadge.textContent = badgeValue > 99 ? '99+' : String(badgeValue);
-        els.newApplicantsBadge.title = `${unreadCount} unread candidate repl${unreadCount === 1 ? 'y' : 'ies'} • ${inboundCount} candidate repl${inboundCount === 1 ? 'y' : 'ies'} • ${outboundCount} recruiter email${outboundCount === 1 ? '' : 's'}`;
+        els.newApplicantsBadge.title = `${unreadCount} unread candidate repl${unreadCount === 1 ? 'y' : 'ies'} • ${inboundCount} candidate repl${inboundCount === 1 ? 'y' : 'ies'} • ${outboundCount} recruiter message${outboundCount === 1 ? '' : 's'}`;
       }
 
       if(els.messageInboxSummary){
         const matchedCount = messages.filter(message => message.matched).length;
-        els.messageInboxSummary.textContent = `${totalCount} recent email item${totalCount === 1 ? '' : 's'} • ${unreadCount} unread candidate repl${unreadCount === 1 ? 'y' : 'ies'} • ${matchedCount} matched to visible candidates`;
+        els.messageInboxSummary.textContent = `${totalCount} recent communication item${totalCount === 1 ? '' : 's'} • ${unreadCount} unread candidate repl${unreadCount === 1 ? 'y' : 'ies'} • ${matchedCount} matched to visible candidates`;
       }
     }
 
@@ -4061,15 +4066,20 @@ opslead@company.com"></textarea></div>
 
       const messages = state.messageInboxRows || [];
       if(!messages.length){
-        els.messageInboxList.innerHTML = '<div class="message-inbox-empty">No email thread activity yet. Candidate replies and recruiter-sent emails saved in applicant_messages will appear here.</div>';
+        els.messageInboxList.innerHTML = '<div class="message-inbox-empty">No communication activity yet. Candidate SMS/email replies and recruiter-sent messages saved in communication_messages will appear here.</div>';
         return;
       }
 
       els.messageInboxList.innerHTML = messages.map(message => {
         const sourceText = safeText(message.source).toLowerCase();
-        const sourceLabel = sourceText.includes('indeed') ? 'Indeed' : (sourceText.includes('gmail') ? 'Gmail' : (message.isOutbound ? 'Dashboard' : 'Email'));
+        const channelText = safeText(message.channel || '').toLowerCase();
+        const sourceLabel = channelText === 'sms'
+          ? 'SMS'
+          : (sourceText.includes('indeed') ? 'Indeed' : (sourceText.includes('gmail') ? 'Gmail' : (message.isOutbound ? 'Dashboard Email' : 'Email')));
         const roleText = [message.role, message.client].filter(Boolean).join(' • ');
-        const directionLabel = message.isOutbound ? 'Recruiter sent' : (message.unreadCandidateReply ? 'Unread candidate reply' : 'Candidate reply');
+        const directionLabel = message.isOutbound
+          ? `Recruiter ${channelText === 'sms' ? 'SMS' : 'sent'}`
+          : (message.unreadCandidateReply ? `Unread candidate ${channelText === 'sms' ? 'SMS' : 'reply'}` : `Candidate ${channelText === 'sms' ? 'SMS' : 'reply'}`);
         return `
           <button class="message-inbox-item ${message.matched ? '' : 'unmatched'}" type="button" data-message-id="${escapeHtml(message.id)}">
             <div class="message-inbox-top">
@@ -4109,7 +4119,7 @@ opslead@company.com"></textarea></div>
         }
 
         if(!silent && els.messageInboxList){
-          els.messageInboxList.innerHTML = '<div class="message-inbox-empty">Syncing candidate email replies…</div>';
+          els.messageInboxList.innerHTML = '<div class="message-inbox-empty">Syncing candidate communications…</div>';
         }
 
         const payload = {
@@ -4131,7 +4141,7 @@ opslead@company.com"></textarea></div>
           try{
             const {data, error} = await supabaseClient.functions.invoke(functionName, {body: payload});
             if(error)throw error;
-            if(data && data.success === false)throw new Error(data.error || data.message || `${functionName} returned success=false`);
+            if(data && (data.success === false || data.ok === false))throw new Error(data.error || data.message || `${functionName} returned success=false`);
             synced = true;
             break;
           }catch(error){
@@ -4141,14 +4151,14 @@ opslead@company.com"></textarea></div>
         }
 
         if(!synced && !silent){
-          showNotice(`Inbox refreshed from applicant_messages. Optional live sync function ${CONFIG.CANDIDATE_EMAIL_SYNC_FUNCTION} is not reachable yet, so only already-ingested replies are shown.`, 'info');
+          showNotice(`Inbox refreshed from unified communications. Optional live sync function ${CONFIG.CANDIDATE_EMAIL_SYNC_FUNCTION} is not reachable yet, so only already-ingested email/SMS replies are shown.`, 'info');
         }
 
         return synced;
       }catch(error){
         console.warn('Candidate email sync failed:', error?.message || error);
         if(!silent){
-          showNotice(`Email sync failed: ${error?.message || error}`, 'error');
+          showNotice(`Communication sync failed: ${error?.message || error}`, 'error');
         }
         return false;
       }finally{
@@ -4163,7 +4173,7 @@ opslead@company.com"></textarea></div>
       if(!supabaseClient)return;
       state.messageInboxLoading = true;
       if(els.messageInboxList){
-        els.messageInboxList.innerHTML = '<div class="message-inbox-empty">Loading email thread activity…</div>';
+        els.messageInboxList.innerHTML = '<div class="message-inbox-empty">Loading communication activity…</div>';
       }
 
       try{
@@ -4249,7 +4259,7 @@ opslead@company.com"></textarea></div>
       if(!els.candidateCommunicationThread)return;
 
       if(!row){
-        els.candidateCommunicationThread.innerHTML = '<div class="communication-thread-empty">Open a candidate to see sent emails and candidate replies.</div>';
+        els.candidateCommunicationThread.innerHTML = '<div class="communication-thread-empty">Open a candidate to see sent emails, SMS, and candidate replies.</div>';
         return;
       }
 
@@ -4259,7 +4269,7 @@ opslead@company.com"></textarea></div>
         .slice(0, 12);
 
       if(!messages.length){
-        els.candidateCommunicationThread.innerHTML = '<div class="communication-thread-empty">No email thread yet. Sent emails will be logged here, and candidate replies will appear after Gmail/Indeed ingestion saves them to applicant_messages.</div>';
+        els.candidateCommunicationThread.innerHTML = '<div class="communication-thread-empty">No communication thread yet. Sent emails/SMS and candidate replies will appear here after they are saved to communication_messages.</div>';
         return;
       }
 
@@ -4269,13 +4279,19 @@ opslead@company.com"></textarea></div>
         const inbound = sender === 'applicant' || direction === 'inbound';
         const body = stripHtmlForTimeline(message.message || '');
         const preview = body.length > 900 ? `${body.slice(0, 900)}…` : body;
-        const email = safeText(message.applicant_email || row.profile?.email || row.app?.email || '');
+        const channel = safeText(message.channel || 'email').toLowerCase() || 'email';
+        const contact = channel === 'sms'
+          ? safeText(message.from_address || message.to_address || row.profile?.phone || row.app?.phone || '')
+          : safeText(message.applicant_email || row.profile?.email || row.app?.email || '');
+        const title = inbound
+          ? `Candidate ${channel === 'sms' ? 'SMS' : 'reply'}`
+          : `Recruiter ${channel === 'sms' ? 'SMS' : 'email'} sent`;
         return `
           <div class="communication-message ${inbound ? 'inbound' : 'outbound'}">
             <div class="communication-message-top">
               <div>
-                <div class="communication-message-title">${inbound ? 'Candidate reply' : 'Recruiter email sent'}</div>
-                <div class="communication-message-meta">${escapeHtml(email || 'No email captured')}</div>
+                <div class="communication-message-title">${escapeHtml(title)}</div>
+                <div class="communication-message-meta">${escapeHtml(contact || `No ${channel === 'sms' ? 'phone' : 'email'} captured`)}</div>
               </div>
               <div class="communication-message-time">${escapeHtml(formatTimelineTime(message.created_at))}</div>
             </div>
@@ -6329,17 +6345,17 @@ function currentCompanyId(){
     async function fetchCandidateCommunications(){
       try{
         const {data,error}=await supabaseClient
-          .from('vw_candidate_communications')
-          .select('id,application_id,applicant_profile_id,applicant_email,sender_type,message,created_at,is_read,workflow_stage,status,job_title,candidate_name,direction,unread_candidate_reply')
+          .from('vw_candidate_communications_unified')
+          .select('id,application_id,applicant_profile_id,applicant_email,sender_type,message,created_at,is_read,workflow_stage,status,job_title,candidate_name,direction,unread_candidate_reply,channel')
           .order('created_at',{ascending:false})
           .limit(CONFIG.PAGE_SIZE);
 
         if(error)throw error;
         return data || [];
       }catch(error){
-        console.warn('vw_candidate_communications query failed:', error?.message || error);
+        console.warn('vw_candidate_communications_unified query failed:', error?.message || error);
         if(safeText(error?.message).toLowerCase().includes('does not exist')){
-          showNotice('Candidate email inbox view is missing. Create public.vw_candidate_communications first.', 'error');
+          showNotice('Candidate communication inbox view is missing. Create public.vw_candidate_communications_unified first.', 'error');
         }
         return [];
       }
@@ -10827,12 +10843,15 @@ async function bulkUploadResumes(){
         const payload = {
           application_id: row.id,
           applicant_profile_id: row?.app?.applicant_profile_id || row?.profile?.id || null,
+          client_id: row?.app?.company_id || currentCompanyId() || null,
           company_id: row?.app?.company_id || currentCompanyId() || null,
+          channel: 'email',
           job_id: row?.app?.job_id || row?.job?.id || null,
           to: draft.to,
           subject: draft.subject,
           body: draft.body,
           message: draft.body,
+          message_body: draft.body,
           template: safeText(els.candidateEmailTemplate?.value || 'custom'),
           candidate_name: row?.displayName || row?.profile?.full_name || '',
           candidate_email: draft.to,
@@ -10843,6 +10862,7 @@ async function bulkUploadResumes(){
 
         const functionNames = [
           CONFIG.CANDIDATE_EMAIL_FUNCTION,
+          'send-candidate-email',
           'send-candidate-message',
           'send-email'
         ].filter(Boolean);
@@ -10855,7 +10875,7 @@ async function bulkUploadResumes(){
           try{
             const { data, error } = await supabaseClient.functions.invoke(functionName, { body: payload });
             if(error)throw error;
-            if(data && data.success === false)throw new Error(data.error || data.message || `${functionName} returned success=false`);
+            if(data && (data.success === false || data.ok === false))throw new Error(data.error || data.message || `${functionName} returned success=false`);
             sendResponse = data || null;
             sent = true;
             break;
