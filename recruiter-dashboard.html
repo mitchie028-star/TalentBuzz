@@ -3070,8 +3070,8 @@ opslead@company.com"></textarea></div>
             <p>Assign candidates in batches instead of assigning one by one from the candidate drawer.</p>
             <div class="team-admin-form two-col">
               <div class="field"><label for="bulkAssignmentScope">Scope</label><select id="bulkAssignmentScope"><option value="unassigned">Only unassigned candidates</option><option value="visible">Current visible queue</option><option value="all">All loaded candidates</option></select></div>
-              <div class="field"><label for="bulkAssignmentCriterion">Group candidates by</label><select id="bulkAssignmentCriterion"><option value="department">Department</option><option value="role">Role</option><option value="client">Client</option><option value="team_lead">Team Lead</option></select></div>
-              <div class="field"><label for="bulkAssignmentValue">Value</label><input id="bulkAssignmentValue" type="text" list="bulkAssignmentValueOptions" placeholder="Select or type value" /><datalist id="bulkAssignmentValueOptions"></datalist></div>
+              <div class="field"><label for="bulkAssignmentCriterion">Group candidates by</label><select id="bulkAssignmentCriterion"><option value="department">Department</option><option value="role">Open Role</option><option value="client">Client</option><option value="team_lead">Team Lead</option></select></div>
+              <div class="field"><label for="bulkAssignmentValue">Value</label><select id="bulkAssignmentValue"><option value="">Select a value</option></select><datalist id="bulkAssignmentValueOptions"></datalist></div>
               <div class="field"><label for="bulkAssignmentTeam">Assign to team</label><select id="bulkAssignmentTeam"><option value="">No team change</option></select></div>
               <div class="field"><label for="bulkAssignmentRecruiter">Assign to recruiter</label><select id="bulkAssignmentRecruiter"><option value="">No specific recruiter</option></select></div>
               <div class="field"><label for="bulkAssignmentNote">Assignment note</label><input id="bulkAssignmentNote" type="text" placeholder="Optional assignment reason" /></div>
@@ -5229,6 +5229,24 @@ function normalizeCommunicationTimelineMessages(messages){
       return 'recruiter';
     }
 
+    function isUuid(value){
+      return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(safeText(value));
+    }
+
+    function getRecruiterUserBySelector(value){
+      const raw = safeText(value);
+      if(!raw)return null;
+      return getRecruiterUserById(raw) || getRecruiterUserByEmail(raw) || null;
+    }
+
+    function getRecruiterAssignmentParts(value){
+      const raw = safeText(value);
+      const user = getRecruiterUserBySelector(raw);
+      const id = isUuid(raw) ? raw : (isUuid(user?.id) ? user.id : null);
+      const email = normalizeEmail(user?.email || (!isUuid(raw) ? raw : '')) || null;
+      return { id, email, user };
+    }
+
     function currentRecruiterId(){
       return safeText(state.currentRecruiterUser?.id || state.recruiterProfile?.id || '');
     }
@@ -5495,7 +5513,10 @@ function normalizeCommunicationTimelineMessages(messages){
           '<option value="">Unassigned</option>' +
           users
             .filter(user => safeText(user.id) || normalizeEmail(user.email))
-            .map(user => `<option value="${escapeHtml(safeText(user.id || user.email))}">${escapeHtml(user.full_name || user.email)}${user.email ? ` • ${escapeHtml(user.email)}` : ''}</option>`)
+            .map(user => {
+              const optionValue = isUuid(user.id) ? user.id : normalizeEmail(user.email || user.id);
+              return `<option value="${escapeHtml(optionValue)}">${escapeHtml(user.full_name || user.email)}${user.email ? ` • ${escapeHtml(user.email)}` : ''}</option>`;
+            })
             .join('');
         if(selected && [...els.assignedRecruiterSelect.options].some(o => o.value === selected)){
           els.assignedRecruiterSelect.value = selected;
@@ -5554,18 +5575,21 @@ function normalizeCommunicationTimelineMessages(messages){
       let newRecruiterId = assignToCurrentUser ? currentRecruiterId() : safeText(els.assignedRecruiterSelect?.value || '');
       let newTeamId = assignToCurrentUser ? (currentTeamId() || previousTeamId || '') : safeText(els.assignedTeamSelect?.value || '');
 
-      const recruiter = getRecruiterUserById(newRecruiterId);
+      const recruiterParts = getRecruiterAssignmentParts(newRecruiterId);
+      const recruiter = recruiterParts.user;
+      const newRecruiterUuid = recruiterParts.id;
+      const newRecruiterEmail = recruiterParts.email;
       if(recruiter?.team_id && !newTeamId)newTeamId = recruiter.team_id;
 
       const now = new Date().toISOString();
       const note = safeText(els.assignmentNote?.value || '');
 
       const payload = {
-        assigned_recruiter_id: newRecruiterId || null,
+        assigned_recruiter_id: newRecruiterUuid || null,
         assigned_team_id: newTeamId || null,
         assigned_at: now,
-        assigned_by: currentRecruiterId() || state.recruiterProfile?.id || null,
-        recruiter_email: recruiter?.email || row.app?.recruiter_email || null,
+        assigned_by: isUuid(currentRecruiterId()) ? currentRecruiterId() : null,
+        recruiter_email: newRecruiterEmail || recruiter?.email || row.app?.recruiter_email || null,
         updated_at: now
       };
 
@@ -5584,10 +5608,10 @@ function normalizeCommunicationTimelineMessages(messages){
           application_id: row.id,
           client_id: row.app?.client_id || row.app?.company_id || currentCompanyId() || null,
           previous_recruiter_id: previousRecruiterId,
-          new_recruiter_id: newRecruiterId || null,
+          new_recruiter_id: newRecruiterUuid || null,
           previous_team_id: previousTeamId,
           new_team_id: newTeamId || null,
-          assigned_by: currentRecruiterId() || state.recruiterProfile?.id || null,
+          assigned_by: isUuid(currentRecruiterId()) ? currentRecruiterId() : null,
           note: note || null
         };
 
@@ -5647,7 +5671,10 @@ function normalizeCommunicationTimelineMessages(messages){
       const teams = state.recruiterTeams || [];
       const users = state.recruiterUsers || [];
       const teamOptions = '<option value="">No team</option>' + teams.map(team => `<option value="${escapeHtml(team.id)}">${escapeHtml(team.name || 'Team')}</option>`).join('');
-      const recruiterOptions = '<option value="">No specific recruiter</option>' + users.map(user => `<option value="${escapeHtml(user.id)}">${escapeHtml(user.full_name || user.email)}${user.email ? ` • ${escapeHtml(user.email)}` : ''}</option>`).join('');
+      const recruiterOptions = '<option value="">No specific recruiter</option>' + users.map(user => {
+        const optionValue = isUuid(user.id) ? user.id : normalizeEmail(user.email || user.id);
+        return `<option value="${escapeHtml(optionValue)}">${escapeHtml(user.full_name || user.email)}${user.email ? ` • ${escapeHtml(user.email)}` : ''}</option>`;
+      }).join('');
       const leadOptions = '<option value="">No lead yet</option>' + users.map(user => `<option value="${escapeHtml(user.id)}">${escapeHtml(user.full_name || user.email)}</option>`).join('');
       if(els.newRecruiterTeam)els.newRecruiterTeam.innerHTML = teamOptions;
       if(els.bulkAssignmentTeam)els.bulkAssignmentTeam.innerHTML = '<option value="">No team change</option>' + teams.map(team => `<option value="${escapeHtml(team.id)}">${escapeHtml(team.name || 'Team')}</option>`).join('');
@@ -5806,20 +5833,24 @@ function normalizeCommunicationTimelineMessages(messages){
     }
 
     function populateBulkAssignmentValueOptions(){
-      if(!els.bulkAssignmentValueOptions || !els.bulkAssignmentValue)return;
+      if(!els.bulkAssignmentValue)return;
       const criterion = safeText(els.bulkAssignmentCriterion?.value || 'department');
+      const current = safeText(els.bulkAssignmentValue.value || '');
       const values = getBulkAssignmentOptionValues(criterion);
-      els.bulkAssignmentValueOptions.innerHTML = values
-        .slice(0, 250)
-        .map(value => `<option value="${escapeHtml(value)}"></option>`)
-        .join('');
       const labelMap = {
-        department: 'Select department or team keyword',
-        role: 'Select role title',
+        department: 'Select department',
+        role: 'Select open role',
         client: 'Select client',
-        team_lead: 'Select team lead or owner'
+        team_lead: 'Select team lead'
       };
-      els.bulkAssignmentValue.placeholder = labelMap[criterion] || 'Select or type value';
+      els.bulkAssignmentValue.innerHTML = `<option value="">${escapeHtml(labelMap[criterion] || 'Select value')}</option>` +
+        values.slice(0, 300).map(value => `<option value="${escapeHtml(value)}">${escapeHtml(value)}</option>`).join('');
+      if(current && [...els.bulkAssignmentValue.options].some(option => option.value === current)){
+        els.bulkAssignmentValue.value = current;
+      }
+      if(els.bulkAssignmentValueOptions){
+        els.bulkAssignmentValueOptions.innerHTML = values.slice(0, 300).map(value => `<option value="${escapeHtml(value)}"></option>`).join('');
+      }
     }
 
     function getBulkAssignmentMatches(){
@@ -5835,7 +5866,7 @@ function normalizeCommunicationTimelineMessages(messages){
     function updateBulkAssignmentPreview(showStatus=true){
       if(!els.bulkAssignmentPreview)return [];
       const rows = getBulkAssignmentMatches();
-      const recruiter = getRecruiterUserById(els.bulkAssignmentRecruiter?.value || '');
+      const recruiter = getRecruiterUserBySelector(els.bulkAssignmentRecruiter?.value || '');
       const team = getTeamById(els.bulkAssignmentTeam?.value || '');
       const sample = rows.slice(0, 6).map(row => `• ${safeText(row.displayName || 'Candidate')} — ${safeText(row.jobTitle || 'Role')} / ${safeText(row.clientName || 'Client')}`).join('\n');
       els.bulkAssignmentPreview.textContent = rows.length
@@ -5849,11 +5880,14 @@ function normalizeCommunicationTimelineMessages(messages){
       if(!roleCanManageAssignments())return showNotice('Only team leads and client admins can apply bulk assignments.', 'error');
       const rows = updateBulkAssignmentPreview(false);
       if(!rows.length)return setTeamAdminStatus('No matching candidates to assign.', 'error');
-      const recruiterId = safeText(els.bulkAssignmentRecruiter?.value || '');
+      const recruiterSelector = safeText(els.bulkAssignmentRecruiter?.value || '');
+      const recruiterParts = getRecruiterAssignmentParts(recruiterSelector);
+      const recruiterId = recruiterParts.id;
+      const recruiterEmail = recruiterParts.email;
       let teamId = safeText(els.bulkAssignmentTeam?.value || '');
-      const recruiter = getRecruiterUserById(recruiterId);
+      const recruiter = recruiterParts.user;
       if(recruiter?.team_id && !teamId)teamId = recruiter.team_id;
-      if(!recruiterId && !teamId)return setTeamAdminStatus('Choose a recruiter and/or team before applying.', 'error');
+      if(!recruiterSelector && !teamId)return setTeamAdminStatus('Choose a recruiter and/or team before applying.', 'error');
       const now = new Date().toISOString();
       const ids = rows.map(row => row.id).filter(Boolean);
       const note = safeText(els.bulkAssignmentNote?.value || '') || `Bulk assigned by ${safeText(els.bulkAssignmentCriterion?.value || 'rule')}`;
@@ -5862,7 +5896,7 @@ function normalizeCommunicationTimelineMessages(messages){
         assigned_by: currentRecruiterId() || state.recruiterProfile?.id || null,
         updated_at: now
       };
-      if(recruiterId){payload.assigned_recruiter_id = recruiterId; payload.recruiter_email = recruiter?.email || null;}
+      if(recruiterSelector){payload.assigned_recruiter_id = recruiterId || null; payload.recruiter_email = recruiterEmail || recruiter?.email || null;}
       if(teamId)payload.assigned_team_id = teamId;
       try{
         els.applyBulkAssignmentBtn.disabled = true;
@@ -5872,10 +5906,10 @@ function normalizeCommunicationTimelineMessages(messages){
           application_id: row.id,
           client_id: row.app?.client_id || row.app?.company_id || currentCompanyId() || null,
           previous_recruiter_id: safeText(row.app?.assigned_recruiter_id || '') || null,
-          new_recruiter_id: recruiterId || safeText(row.app?.assigned_recruiter_id || '') || null,
+          new_recruiter_id: recruiterId || null,
           previous_team_id: safeText(row.app?.assigned_team_id || '') || null,
           new_team_id: teamId || safeText(row.app?.assigned_team_id || '') || null,
-          assigned_by: currentRecruiterId() || state.recruiterProfile?.id || null,
+          assigned_by: isUuid(currentRecruiterId()) ? currentRecruiterId() : null,
           note
         }));
         const {error:historyError} = await supabaseClient.from('application_assignment_history').insert(historyRows);
@@ -6849,7 +6883,7 @@ function currentCompanyId(){
           const score=basicScore(profile,app,job);
           const activities = getActivitiesForApplicationRow(app, profile, activityLookup);
           const communications = getCommunicationsForApplicationRow(app, profile, communicationLookup);
-          const nextRecruiterAction = safeText(app.next_recruiter_action || deriveNextRecruiterAction(app, workflow));
+          const nextRecruiterAction = safeText(getStatusDrivenNextAction(app.status || app.client_feedback_status || workflow.legacy_status || '') || app.next_recruiter_action || deriveNextRecruiterAction(app, workflow));
           const priorityLevel = safeText(app.priority_level || derivePriorityLevel(app, workflow));
           const slaRisk = safeText(app.sla_risk || deriveSLARisk(app, workflow));
           const primaryCta = safeText(app.primary_cta || derivePrimaryCTA(app, workflow));
@@ -9825,8 +9859,10 @@ async function bulkUploadResumes(){
       const { selectedStatus, recruiterNotes, followUp } = getCurrentEditorValues();
       const now = new Date().toISOString();
 
+      const statusDrivenAction = getStatusDrivenNextAction(selectedStatus);
       const payload = {
         status: selectedStatus,
+        next_recruiter_action: statusDrivenAction || null,
         recruiter_notes: recruiterNotes || null,
         stage_note_label: recruiterNotes || null,
         last_status_change_at: now,
