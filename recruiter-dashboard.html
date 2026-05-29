@@ -4,6 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>BuzzHire | Recruiter Workspace</title>
+  <!-- Patched: recruiter access supports recruiter_users.company_id for client_admin/team multi-tenant workspace. -->
   <meta name="description" content="BuzzHire recruiter workspace" />
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -2651,6 +2652,7 @@ tr.row-assessment-progress:hover td{
       <nav class="nav-section" aria-label="Recruiting tools">
         <div class="nav-label">Tools</div>
         <a class="nav-item" href="recruiter-add-candidate.html"><span class="nav-icon">＋</span> Add Candidate</a>
+        <a class="nav-item" href="client-roles-input.html"><span class="nav-icon">▣</span> Add Role</a>
         <a class="nav-item" href="sourced-candidates.html"><span class="nav-icon">◇</span> Talent Pool</a>
         <button class="nav-item" id="sidebarBulkUploadBtn" type="button"><span class="nav-icon">⇪</span> Bulk Upload</button>
         <button class="nav-item" id="sidebarSourcingBtn" type="button"><span class="nav-icon">↗</span> Sourcing Link</button>
@@ -10647,17 +10649,11 @@ async function bulkUploadResumes(){
     }
 
     async function requireRecruiterAccess(){
-      setAuthMessage('Checking your BuzzHire session...');
+      setAuthMessage('Checking your BuzzHire session.');
+      const {data,error}=await supabaseClient.auth.getSession();
+      if(error)throw error;
 
-      const sessionResult = await withTimeout(
-        supabaseClient.auth.getSession(),
-        12000,
-        'BuzzHire login check'
-      );
-
-      if(sessionResult.error)throw sessionResult.error;
-
-      const session=sessionResult.data?.session||null;
+      const session=data?.session||null;
       if(!session?.user){
         window.location.replace('login.html');
         return false;
@@ -10665,111 +10661,127 @@ async function bulkUploadResumes(){
 
       state.currentUser=session.user;
       const email=normalizeEmail(session.user.email||'');
-
-      setAuthMessage('Verifying recruiter permissions...');
-
-      let recruiter = null;
-      let recruiterUser = null;
+      let recruiter=null;
+      let sourceTable='';
 
       try{
-        const recruiterUserResult = await withTimeout(
-          supabaseClient
-            .from('recruiter_users')
-            .select('id,auth_user_id,client_id,team_id,full_name,email,role,status')
-            .ilike('email', email)
-            .limit(1),
-          12000,
-          'Recruiter user permission check'
-        );
+        const {data:ruRows,error:ruError}=await supabaseClient
+          .from('recruiter_users')
+          .select('id,auth_user_id,email,full_name,role,status,client_id,team_id,company_id,can_view_all_candidates,can_bulk_assign,can_manage_team,can_reassign_candidates')
+          .eq('auth_user_id',session.user.id)
+          .eq('status','active')
+          .limit(1);
 
-        if(!recruiterUserResult.error){
-          recruiterUser = Array.isArray(recruiterUserResult.data) ? recruiterUserResult.data[0] : recruiterUserResult.data;
-        }else{
-          console.warn('recruiter_users lookup failed, falling back to recruiters:', recruiterUserResult.error?.message || recruiterUserResult.error);
+        if(ruError){
+          console.warn('recruiter_users access lookup failed:', ruError?.message || ruError);
+        }else if(Array.isArray(ruRows) && ruRows[0]){
+          recruiter={
+            ...ruRows[0],
+            active:ruRows[0].status === 'active',
+            source:'recruiter_users'
+          };
+          sourceTable='recruiter_users';
         }
-      }catch(recruiterUserLookupError){
-        console.warn('recruiter_users lookup exception, falling back to recruiters:', recruiterUserLookupError?.message || recruiterUserLookupError);
-      }
-
-      if(recruiterUser && (!recruiterUser.status || normalizeStatus(recruiterUser.status) === 'active')){
-        recruiter = {
-          id: recruiterUser.id,
-          email: recruiterUser.email,
-          full_name: recruiterUser.full_name,
-          active: true,
-          company_id: recruiterUser.client_id,
-          client_id: recruiterUser.client_id,
-          team_id: recruiterUser.team_id,
-          role: recruiterUser.role || 'recruiter'
-        };
-        state.currentRecruiterUser = recruiterUser;
+      }catch(ruLookupError){
+        console.warn('recruiter_users access lookup exception:', ruLookupError?.message || ruLookupError);
       }
 
       if(!recruiter){
-        const recruiterResult = await withTimeout(
-          supabaseClient
+        try{
+          const {data:rows,error:recError}=await supabaseClient
             .from('recruiters')
             .select('id,email,full_name,active,company_id,role')
-            .ilike('email', email)
+            .eq('email',email)
             .eq('active',true)
-            .limit(1),
-          12000,
-          'Recruiter permission check'
-        );
+            .limit(1);
 
-        if(recruiterResult.error)throw recruiterResult.error;
-        recruiter=Array.isArray(recruiterResult.data)?recruiterResult.data[0]:recruiterResult.data;
+          if(recError)throw recError;
+          const fallbackRecruiter=Array.isArray(rows)?rows[0]:rows;
+          if(fallbackRecruiter){
+            recruiter={
+              ...fallbackRecruiter,
+              source:'recruiters'
+            };
+            sourceTable='recruiters';
+          }
+        }catch(recLookupError){
+          console.warn('recruiters access lookup failed:', recLookupError?.message || recLookupError);
+        }
       }
+
+      if(!recruiter && email){
+        try{
+          const {data:emailRows,error:emailError}=await supabaseClient
+            .from('recruiter_users')
+            .select('id,auth_user_id,email,full_name,role,status,client_id,team_id,company_id,can_view_all_candidates,can_bulk_assign,can_manage_team,can_reassign_candidates')
+            .ilike('email',email)
+            .eq('status','active')
+            .limit(1);
+
+          if(emailError){
+            console.warn('recruiter_users email fallback failed:', emailError?.message || emailError);
+          }else if(Array.isArray(emailRows) && emailRows[0]){
+            recruiter={
+              ...emailRows[0],
+              active:emailRows[0].status === 'active',
+              source:'recruiter_users_email'
+            };
+            sourceTable='recruiter_users_email';
+          }
+        }catch(emailLookupError){
+          console.warn('recruiter_users email fallback exception:', emailLookupError?.message || emailLookupError);
+        }
+      }
+
+      console.log('Recruiter access lookup result:', {
+        email,
+        user_id: session.user.id,
+        source: sourceTable,
+        recruiter
+      });
 
       if(!recruiter){
-        setAuthMessage('Your login is valid, but this email is not listed as an active BuzzHire recruiter.');
-        return false;
-      }
-
-      if(!hasRecruiterWorkspaceAccess(recruiter)){
-        setAuthMessage('Your recruiter role is not allowed to access this workspace.');
+        await supabaseClient.auth.signOut();
+        window.location.replace('login.html');
         return false;
       }
 
       if(!recruiter.company_id){
-        setAuthMessage('Your recruiter account is not assigned to a company workspace.');
+        setAuthMessage('Your recruiter account is active, but no company workspace was found. Please contact an admin.');
+        console.warn('Recruiter missing company_id:', recruiter);
         return false;
       }
 
       state.recruiterProfile=recruiter;
+      state.recruiterUser=recruiter.source?.startsWith('recruiter_users') ? recruiter : (state.recruiterUser || null);
       state.companyId=recruiter.company_id;
 
       try{
-        const {data:companyRow,error:companyError}=await withTimeout(
-          supabaseClient
-            .from('companies')
-            .select('id,company_name,slug,logo_url,primary_color,secondary_color,white_label_enabled')
-            .eq('id',state.companyId)
-            .maybeSingle(),
-          8000,
-          'Company workspace lookup'
-        );
+        const {data:companyRow,error:companyError}=await supabaseClient
+          .from('companies')
+          .select('id,company_name,slug,logo_url,primary_color,secondary_color,white_label_enabled')
+          .eq('id',state.companyId)
+          .maybeSingle();
+
         if(companyError)console.warn('Company lookup failed:', companyError?.message || companyError);
         state.companyProfile=companyRow || null;
       }catch(companyLookupError){
         console.warn('Company lookup exception:', companyLookupError?.message || companyLookupError);
-        state.companyProfile=null;
       }
-
-      await loadRecruiterDirectory();
 
       console.log('BuzzHire workspace resolved:', {
         email,
-        role: currentRole(),
         company_id: state.companyId,
-        team_id: currentTeamId(),
-        company: state.companyProfile?.company_name || ''
+        company: state.companyProfile?.company_name || '',
+        recruiter_source: sourceTable,
+        role: recruiter.role || ''
       });
 
       renderHeaderIdentity();
       setProtectedUiState(true);
       return true;
     }
+
     function renderHeaderIdentity(){
       const email=safeText(state.currentUser?.email||'');
       const name=safeText(state.recruiterProfile?.full_name||state.currentUser?.user_metadata?.full_name||email.split('@')[0]||'Recruiter');
