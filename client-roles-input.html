@@ -660,58 +660,36 @@ async function loadTenantContext(){
   if(state.companyId) return state.companyId;
 
   const user=state.currentUser||await getCurrentUser();
-  if(!user?.id) return null;
-
-  try{
-    const {data,error}=await supabaseClient
-      .from('recruiter_users')
-      .select('id, auth_user_id, email, role, status, client_id, company_id')
-      .eq('auth_user_id', user.id)
-      .eq('status', 'active')
-      .limit(1)
-      .maybeSingle();
-
-    if(!error && data){
-      state.recruiterUser=data;
-
-      if(data.company_id){
-        state.companyId=data.company_id;
-        return state.companyId;
-      }
-
-      if(data.client_id){
-        state.companyId=data.client_id;
-        return state.companyId;
-      }
-    }
-  }catch(error){
-    console.warn('recruiter_users tenant lookup failed:', error);
+  if(!user?.id) {
+    console.warn('No authenticated user found for tenant context.');
+    return null;
   }
 
-  const attempts=[
-    ['recruiters','id','company_id'],
-    ['recruiters','auth_user_id','company_id'],
-    ['team_members','user_id','company_id'],
-    ['company_members','user_id','company_id'],
-    ['user_profiles','user_id','company_id']
-  ];
+  const {data,error}=await supabaseClient
+    .from('recruiter_users')
+    .select('id, auth_user_id, email, role, status, client_id, company_id')
+    .eq('auth_user_id', user.id)
+    .eq('status', 'active')
+    .maybeSingle();
 
-  for(const [table,userColumn,companyColumn] of attempts){
-    try{
-      const {data,error}=await supabaseClient
-        .from(table)
-        .select(companyColumn)
-        .eq(userColumn,user.id)
-        .limit(1)
-        .maybeSingle();
-
-      if(!error && data?.[companyColumn]){
-        state.companyId=data[companyColumn];
-        return state.companyId;
-      }
-    }catch(_){}
+  if(error){
+    console.warn('Unable to load recruiter user from recruiter_users:', error);
+    return null;
   }
 
+  if(!data){
+    console.warn('No active recruiter_users row found for auth user:', user.id);
+    return null;
+  }
+
+  state.recruiterUser=data;
+
+  if(data.company_id){
+    state.companyId=data.company_id;
+    return state.companyId;
+  }
+
+  console.warn('Recruiter user exists but company_id is missing:', data);
   return null;
 }
 
@@ -762,6 +740,11 @@ async function queryClients(companyId){
 async function loadClients(){
   try{
     const companyId=await loadTenantContext();
+    if(!companyId){
+      els.clientSelect.innerHTML='<option value="">Company access not detected — type client name below</option>';
+      console.warn('Client dropdown cannot load because companyId is missing.');
+      return;
+    }
     state.clients=await queryClients(companyId);
 
     if(!state.clients.length){
