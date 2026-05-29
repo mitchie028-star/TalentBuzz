@@ -85,13 +85,41 @@
     function statusOf(c){return normalize(c?.status||(c?.active===false?'inactive':'active'))||'active'}function clientPill(c){const s=statusOf(c);if(s==='active')return '<span class="pill good">Active</span>';if(s==='archived')return '<span class="pill bad">Archived</span>';return `<span class="pill missing">${esc(s)}</span>`}function reqPill(s){const v=normalize(s);if(['active','open'].includes(v))return '<span class="pill good">Active</span>';if(['on_hold','hold','paused'].includes(v))return '<span class="pill warn">On Hold</span>';if(['closed','filled','archived','cancelled'].includes(v))return '<span class="pill missing">Closed</span>';return `<span class="pill info">${esc(v||'Active')}</span>`}function clientReqs(id){return state.requisitions.filter(r=>String(r.client_id||'')===String(id||''))}function openReq(r){const s=normalize(r.requisition_status||r.status||r.state);return !['closed','filled','cancelled','archived','inactive'].includes(s)}function openCount(id){return clientReqs(id).filter(openReq).length}function candCount(id){return clientReqs(id).reduce((n,r)=>n+Number(r.candidate_count||0),0)}function unassignedCount(id){return clientReqs(id).filter(r=>!r.assigned_team_id&&!r.assigned_recruiter_user_id&&openReq(r)).length}
     async function loadIndustries(){const {data,error}=await supabaseClient.from('industry_options').select('name,sort_order,is_active').eq('company_id',state.companyId).eq('is_active',true).order('sort_order',{ascending:true});state.industries=error?['BPO','Healthcare','Technology','Retail','Manufacturing','Finance','Other']:(data||[]).map(r=>safeText(r.name)).filter(Boolean);const opts=state.industries.map(x=>`<option value="${esc(x)}">${esc(x)}</option>`).join('');els.industryFilter.innerHTML='<option value="">All industries</option>'+opts;els.clientIndustryInput.innerHTML='<option value="">Select industry</option>'+opts}
     async function loadRoleTypes(){const {data,error}=await supabaseClient.from('role_type_options').select('name,sort_order,is_active').eq('company_id',state.companyId).eq('is_active',true).order('sort_order',{ascending:true});state.roleTypes=error?['Customer Service','Technical Support','Sales','Healthcare Support','Web Development','Software Engineering','Operations','Other']:(data||[]).map(r=>safeText(r.name)).filter(Boolean);els.reqRoleTypeInput.innerHTML='<option value="">Select role type</option>'+state.roleTypes.map(x=>`<option value="${esc(x)}">${esc(x)}</option>`).join('')}
-    async function loadTeamsAndRecruiters(){state.teams=[];state.recruiters=[];try{const {data}=await supabaseClient.from('recruiter_teams').select('id,name,client_id,team_lead_user_id').order('name',{ascending:true});state.teams=data||[]}catch(e){console.warn('teams load failed',e)}
-      const byKey=new Map();
-      try{const {data}=await supabaseClient.from('recruiter_users').select('id,full_name,email,role,status,team_id,company_id').eq('company_id',state.companyId).eq('status','active').order('full_name',{ascending:true});(data||[]).forEach(r=>byKey.set(normalize(r.email||r.id),{...r,source:'recruiter_users'}))}catch(e){console.warn('recruiter_users load failed',e)}
-      try{const {data}=await supabaseClient.from('recruiters').select('id,full_name,email,role,active,company_id').eq('company_id',state.companyId).eq('active',true).order('full_name',{ascending:true});(data||[]).forEach(r=>{const k=normalize(r.email||r.id);if(!byKey.has(k))byKey.set(k,{...r,status:'active',source:'recruiters'})})}catch(e){console.warn('recruiters load failed',e)}
-      state.recruiters=[...byKey.values()].sort((a,b)=>safeText(a.full_name||a.email).localeCompare(safeText(b.full_name||b.email)));
-      renderAssignmentOptions();
-    }
+   async function loadTeamsAndRecruiters(){
+  state.teams = [];
+  state.recruiters = [];
+
+  try {
+    const { data: teams, error: teamsError } = await supabaseClient
+      .from('recruiter_teams')
+      .select('id,name,client_id,team_lead_user_id')
+      .order('name', { ascending: true });
+
+    if (teamsError) console.warn('recruiter_teams lookup warning:', teamsError.message || teamsError);
+    state.teams = teams || [];
+  } catch (error) {
+    console.warn('Unable to load recruiter_teams:', error.message || error);
+    state.teams = [];
+  }
+
+  try {
+    const { data: recruiters, error: recruiterError } = await supabaseClient
+      .from('recruiter_users')
+      .select('id,full_name,email,role,status,team_id,company_id')
+      .eq('company_id', state.companyId)
+      .eq('status', 'active')
+      .order('full_name', { ascending: true });
+
+    if (recruiterError) throw recruiterError;
+
+    state.recruiters = recruiters || [];
+  } catch (error) {
+    console.warn('Unable to load recruiter_users:', error.message || error);
+    state.recruiters = [];
+  }
+
+  renderAssignmentOptions();
+}
     function renderAssignmentOptions(){els.assignmentTeamInput.innerHTML='<option value="">No team</option>'+state.teams.map(t=>`<option value="${esc(t.id)}">${esc(t.name||'Unnamed team')}</option>`).join('');els.assignmentRecruiterInput.innerHTML='<option value="">No recruiter</option>'+state.recruiters.map(r=>`<option value="${esc(r.id)}">${esc(r.full_name||r.email||'Recruiter')} (${esc(r.role||'recruiter')})</option>`).join('');if(els.drawerRecruiterCount)els.drawerRecruiterCount.textContent=`${state.recruiters.length} loaded`}
     async function loadClients(){const {data,error}=await supabaseClient.from('clients').select('id,client_code,client_name,active,created_at,company_id,industry,status,primary_contact_name,primary_contact_email,notes,updated_at').eq('company_id',state.companyId).order('client_name',{ascending:true});if(error)throw error;state.clients=data||[]}async function loadRequisitions(){const {data,error}=await supabaseClient.from('requisition_management_view').select('*').eq('company_id',state.companyId).order('created_at',{ascending:false});state.requisitions=error?[]:(data||[]);if(error)console.warn(error)}async function loadAll(){await loadIndustries();await loadRoleTypes();await loadTeamsAndRecruiters();await loadClients();await loadRequisitions();renderAll()}
     function filteredClients(){const q=normalize(els.clientNameFilter.value||els.searchInput.value);const ind=safeText(els.industryFilter.value);const st=normalize(els.statusFilter.value);return state.clients.filter(c=>{const hay=[c.client_name,c.client_code,c.industry,c.status,c.primary_contact_name,c.primary_contact_email].map(normalize).join(' ');if(q&&!hay.includes(q))return false;if(ind&&safeText(c.industry)!==ind)return false;if(st&&statusOf(c)!==st)return false;if(state.activeFilter==='active'&&statusOf(c)!=='active')return false;if(state.activeFilter==='archived'&&statusOf(c)!=='archived')return false;if(state.activeFilter==='missing_industry'&&safeText(c.industry))return false;if(state.activeFilter==='with_open_reqs'&&openCount(c.id)<=0)return false;if(state.activeFilter==='unassigned_reqs'&&unassignedCount(c.id)<=0)return false;return true})}
