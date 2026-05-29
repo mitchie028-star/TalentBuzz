@@ -660,36 +660,61 @@ async function loadTenantContext(){
   if(state.companyId) return state.companyId;
 
   const user=state.currentUser||await getCurrentUser();
-  if(!user?.id) {
+  if(!user?.id && !user?.email){
     console.warn('No authenticated user found for tenant context.');
     return null;
   }
 
-  const {data,error}=await supabaseClient
-    .from('recruiter_users')
-    .select('id, auth_user_id, email, role, status, client_id, company_id')
-    .eq('auth_user_id', user.id)
-    .eq('status', 'active')
-    .maybeSingle();
+  const selectCols='id, auth_user_id, email, role, status, client_id, company_id';
 
-  if(error){
-    console.warn('Unable to load recruiter user from recruiter_users:', error);
+  let row=null;
+  let lastError=null;
+
+  if(user?.id){
+    const byAuth=await supabaseClient
+      .from('recruiter_users')
+      .select(selectCols)
+      .eq('auth_user_id', user.id)
+      .eq('status', 'active')
+      .maybeSingle();
+
+    if(byAuth.error){
+      lastError=byAuth.error;
+      console.warn('recruiter_users lookup by auth_user_id failed:', byAuth.error);
+    }else{
+      row=byAuth.data;
+    }
+  }
+
+  if(!row && user?.email){
+    const byEmail=await supabaseClient
+      .from('recruiter_users')
+      .select(selectCols)
+      .ilike('email', user.email)
+      .eq('status', 'active')
+      .maybeSingle();
+
+    if(byEmail.error){
+      lastError=byEmail.error;
+      console.warn('recruiter_users lookup by email failed:', byEmail.error);
+    }else{
+      row=byEmail.data;
+    }
+  }
+
+  if(!row){
+    console.warn('No active recruiter_users row found for current user.', {user,lastError});
     return null;
   }
 
-  if(!data){
-    console.warn('No active recruiter_users row found for auth user:', user.id);
-    return null;
-  }
+  state.recruiterUser=row;
 
-  state.recruiterUser=data;
-
-  if(data.company_id){
-    state.companyId=data.company_id;
+  if(row.company_id){
+    state.companyId=row.company_id;
     return state.companyId;
   }
 
-  console.warn('Recruiter user exists but company_id is missing:', data);
+  console.warn('Recruiter user exists but company_id is missing:', row);
   return null;
 }
 
@@ -767,9 +792,12 @@ function addSignal(type,name=''){state[type].push({name,weight:type==='dealBreak
 function fillFromIntelligence(x){state.intelligence=x;const f=x.job_fields||{},p=x.enhanced_job_post||{},ic=x.ideal_candidate_profile||{},n=x.recruiter_notes||{};els.jobTitle.value=f.job_title||p.title||'';els.campaignName.value=f.campaign_name||'';els.roleFamily.value=f.job_function||'';els.industry.value=f.industry||'';els.employmentType.value=f.employment_type||'';els.workSetup.value=f.work_setup||'';els.location.value=f.location||'';els.schedule.value=f.schedule||'';els.startDate.value=f.start_date||'';els.salaryNotes.value=f.salary_package||'';els.salaryMax.value=parseSalaryMax(f.salary_package);els.minExperience.value=parseExperience(f.required_experience);els.languageRequirement.value=f.channels?.includes('Voice (Inbound)')?'Strong English voice communication':'';els.voiceScreeningMode.value=inferVoice(f,ic);if(!safeText(els.clientName.value)&&f.client_name&&f.client_name!=='To be confirmed')els.clientName.value=f.client_name;els.jobSummary.value=p.summary||'';els.responsibilities.value=Array.isArray(p.responsibilities)?p.responsibilities.join('\n'):'';els.qualifications.value=Array.isArray(p.qualifications)?p.qualifications.join('\n'):'';els.benefits.value=Array.isArray(p.benefits)?p.benefits.join('\n'):'';els.idealProfile.value=ic.summary||'';els.proofToCollect.value=Array.isArray(ic.proof_to_collect)?ic.proof_to_collect.join('\n'):'';state.mustSignals=(ic.must_have_signals||[]).map(name=>({name,weight:'Critical',required:true}));state.niceSignals=(ic.nice_to_have_signals||[]).map(name=>({name,weight:'Medium',required:false}));state.dealBreakers=(ic.deal_breakers||[]).map(name=>({name,weight:'Critical',required:true}));state.questions=(x.screening_questions||[]).map(q=>({question:q.question||'',signal:q.signal||'',type:q.type||'validation',weight:q.type==='knockout'?'Critical':'High',why_it_matters:q.why_it_matters||'',skip_if_resume_contains:Array.isArray(q.skip_if_resume_contains)?q.skip_if_resume_contains:[]}));els.recruiterPriority.value=n.recommended_priority||'';els.risksToWatch.value=Array.isArray(n.risks_to_watch)?n.risks_to_watch.join('\n'):'';els.sellingPoints.value=Array.isArray(n.selling_points)?n.selling_points.join('\n'):'';els.missingClientInfo.value=Array.isArray(n.missing_information_to_confirm_with_client)?n.missing_information_to_confirm_with_client.join('\n'):'';renderSignals();renderQuestions();notice('Role intelligence generated. Review and edit before saving.','success')}
 async function generateIntelligence(){const raw=safeText(els.rawJd.value);if(!raw)return notice('Paste a raw client JD first.','warning');try{busy(els.generateBtn,true,'Generating Intelligence...');const s=await supabaseClient.auth.getSession();const token=s?.data?.session?.access_token;const r=await fetch(`${CONFIG.SUPABASE_URL}/functions/v1/${CONFIG.INTELLIGENCE_FUNCTION}`,{method:'POST',headers:{'Content-Type':'application/json','apikey':CONFIG.SUPABASE_ANON_KEY,'Authorization':`Bearer ${token||CONFIG.SUPABASE_ANON_KEY}`},body:JSON.stringify({raw_jd:raw})});const text=await r.text();let result;try{result=JSON.parse(text)}catch{result={ok:false,error:text}}if(!r.ok||!result?.ok)throw new Error(result?.error||`Function failed with status ${r.status}`);fillFromIntelligence(result.intelligence)}catch(e){console.error(e);notice(`Unable to generate role intelligence: ${e.message||e}`,'error')}finally{busy(els.generateBtn,false)}}
 function jobDescription(){const out=[];if(safeText(els.jobSummary.value))out.push(safeText(els.jobSummary.value));const resp=lines(els.responsibilities.value),qual=lines(els.qualifications.value),ben=lines(els.benefits.value);if(resp.length)out.push('Responsibilities:\n'+resp.map(x=>'- '+x).join('\n'));if(qual.length)out.push('Qualifications:\n'+qual.map(x=>'- '+x).join('\n'));if(ben.length)out.push('Benefits:\n'+ben.map(x=>'- '+x).join('\n'));return out.join('\n\n')}
+function resolvedCompanyId(){
+  return state.companyId || state.recruiterUser?.company_id || null;
+}
 function screeningConfig(){return state.questions.map((q,i)=>({id:q.id||`q_${i+1}`,order_index:i+1,question:safeText(q.question),focus_area:safeText(q.signal),signal:safeText(q.signal),question_type:safeText(q.type||'validation'),category:safeText(q.type||'validation'),response_type:q.type==='knockout'?'Yes/No':'Open Text',weight:safeText(q.weight||'High'),why_it_matters:safeText(q.why_it_matters),skip_if_resume_contains:Array.isArray(q.skip_if_resume_contains)?q.skip_if_resume_contains:[],was_ai_generated:true})).filter(q=>q.question)}
 function aiConfig(){return{generated_at:new Date().toISOString(),engine:'BuzzHire Role Intake Intelligence',raw_intelligence:state.intelligence,campaign_name:safeText(els.campaignName.value),schedule:safeText(els.schedule.value),start_date:safeText(els.startDate.value),ideal_candidate_profile:safeText(els.idealProfile.value),must_have_signals:state.mustSignals,nice_to_have_signals:state.niceSignals,deal_breakers:state.dealBreakers,proof_to_collect:lines(els.proofToCollect.value),recruiter_guidance:{priority:safeText(els.recruiterPriority.value),risks_to_watch:lines(els.risksToWatch.value),selling_points:lines(els.sellingPoints.value),missing_client_info:lines(els.missingClientInfo.value)},adaptive_screening:state.intelligence?.adaptive_screening_logic||{}}}
-function buildPayload(){const client=selectedClient();const title=safeText(els.jobTitle.value),clientName=safeText(els.clientName.value||getClientDisplayName(client)||'');const req=state.mustSignals.map(s=>s.name).filter(Boolean),nice=state.niceSignals.map(s=>s.name).filter(Boolean),deals=state.dealBreakers.map(s=>s.name).filter(Boolean);return{title,company_id:state.companyId||null,client_name:clientName||null,client_id:client?.id||null,client_uuid:client?.id||null,location:safeText(els.location.value)||null,industry:safeText(els.industry.value)||null,keywords:[...req,...nice,safeText(els.campaignName.value),safeText(els.roleFamily.value)].filter(Boolean).join(', '),employment_type:safeText(els.employmentType.value)||null,work_setup:safeText(els.workSetup.value)||null,job_description:jobDescription(),slug:slugify(`${clientName||'client'}-${title||'role'}`),screening_enabled:els.screeningEnabled.value==='true',screening_fail_action:null,status:safeText(els.jobStatus.value||'open'),state:safeText(els.jobStatus.value||'open'),salary_min:safeText(els.salaryMin.value)?Number(els.salaryMin.value):null,salary_max:safeText(els.salaryMax.value)?Number(els.salaryMax.value):null,salary_currency:safeText(els.salaryCurrency.value||'PHP'),salary_period:safeText(els.salaryPeriod.value||'Monthly'),salary_notes:safeText(els.salaryNotes.value)||null,role_family:safeText(els.roleFamily.value)||null,seniority_level:null,required_skills:req,nice_to_have_skills:nice,client_priorities:{campaign_name:safeText(els.campaignName.value),schedule:safeText(els.schedule.value),start_date:safeText(els.startDate.value),deal_breakers:deals,proof_to_collect:lines(els.proofToCollect.value),recruiter_priority:safeText(els.recruiterPriority.value)},ai_screening_config:aiConfig(),priority_skills:req.join('\n'),screening_summary:safeText(els.idealProfile.value)||null,screening_config:screeningConfig(),target_titles:[title,safeText(els.campaignName.value)].filter(Boolean),target_locations:[safeText(els.location.value)].filter(Boolean),min_experience_years:safeText(els.minExperience.value)?Number(els.minExperience.value):null,language_requirement:safeText(els.languageRequirement.value)||null,voice_screening_mode:safeText(els.voiceScreeningMode.value)||null,jd_raw_text:safeText(els.rawJd.value)||null,updated_at:new Date().toISOString()}}
+function buildPayload(){const client=selectedClient();const title=safeText(els.jobTitle.value),clientName=safeText(els.clientName.value||getClientDisplayName(client)||'');const req=state.mustSignals.map(s=>s.name).filter(Boolean),nice=state.niceSignals.map(s=>s.name).filter(Boolean),deals=state.dealBreakers.map(s=>s.name).filter(Boolean);return{title,company_id:resolvedCompanyId(),client_name:clientName||null,client_id:client?.id||null,client_uuid:client?.id||null,location:safeText(els.location.value)||null,industry:safeText(els.industry.value)||null,keywords:[...req,...nice,safeText(els.campaignName.value),safeText(els.roleFamily.value)].filter(Boolean).join(', '),employment_type:safeText(els.employmentType.value)||null,work_setup:safeText(els.workSetup.value)||null,job_description:jobDescription(),slug:slugify(`${clientName||'client'}-${title||'role'}`),screening_enabled:els.screeningEnabled.value==='true',screening_fail_action:null,status:safeText(els.jobStatus.value||'open'),state:safeText(els.jobStatus.value||'open'),salary_min:safeText(els.salaryMin.value)?Number(els.salaryMin.value):null,salary_max:safeText(els.salaryMax.value)?Number(els.salaryMax.value):null,salary_currency:safeText(els.salaryCurrency.value||'PHP'),salary_period:safeText(els.salaryPeriod.value||'Monthly'),salary_notes:safeText(els.salaryNotes.value)||null,role_family:safeText(els.roleFamily.value)||null,seniority_level:null,required_skills:req,nice_to_have_skills:nice,client_priorities:{campaign_name:safeText(els.campaignName.value),schedule:safeText(els.schedule.value),start_date:safeText(els.startDate.value),deal_breakers:deals,proof_to_collect:lines(els.proofToCollect.value),recruiter_priority:safeText(els.recruiterPriority.value)},ai_screening_config:aiConfig(),priority_skills:req.join('\n'),screening_summary:safeText(els.idealProfile.value)||null,screening_config:screeningConfig(),target_titles:[title,safeText(els.campaignName.value)].filter(Boolean),target_locations:[safeText(els.location.value)].filter(Boolean),min_experience_years:safeText(els.minExperience.value)?Number(els.minExperience.value):null,language_requirement:safeText(els.languageRequirement.value)||null,voice_screening_mode:safeText(els.voiceScreeningMode.value)||null,jd_raw_text:safeText(els.rawJd.value)||null,updated_at:new Date().toISOString()}}
 function removePayloadColumns(payload, columns){
   const copy={...payload};
   columns.forEach(column=>delete copy[column]);
@@ -829,7 +857,13 @@ async function saveJob(){
 
   if(!payload.title)return notice('Role title is required before saving.','warning');
   if(!payload.company_id){
-    console.warn('No company_id detected. Save will continue, but multi-tenant RLS may block it.');
+    console.error('Missing company_id in job payload.', {
+      companyId: state.companyId,
+      recruiterUser: state.recruiterUser,
+      currentUser: state.currentUser,
+      payload
+    });
+    return notice('Unable to save role: company access was not detected. Please refresh and sign in again.','error');
   }
 
   try{
@@ -841,7 +875,7 @@ async function saveJob(){
     setTimeout(()=>location.href='recruiter-dashboard.html',900)
   }catch(e){
     console.error(e);
-    notice(`Unable to save job: ${e.message||e}`,'error')
+    notice(`Unable to save role: ${e.message||e}`,'error')
   }finally{
     busy(els.saveJobBtn,false);
     busy(els.saveJobBtnTop,false)
@@ -851,7 +885,7 @@ function refreshSnapshot(){els.snapshotTitle.textContent=safeText(els.jobTitle.v
 function clearAll(){document.querySelectorAll('input, textarea').forEach(el=>el.value='');els.workSetup.value='';els.voiceScreeningMode.value='';els.jobStatus.value='open';els.screeningEnabled.value='true';state.intelligence=null;state.mustSignals=[];state.niceSignals=[];state.dealBreakers=[];state.questions=[];renderSignals();renderQuestions();refreshSnapshot();els.payloadPreview.classList.remove('show');els.payloadPreview.textContent=''}
 async function loadExistingJob(){if(!state.editId)return;try{const{data,error}=await supabaseClient.from('jobs').select('*').eq('id',state.editId).single();if(error)throw error;if(!data)return;els.jobTitle.value=data.title||'';els.clientName.value=data.client_name||'';els.location.value=data.location||'';els.industry.value=data.industry||'';els.employmentType.value=data.employment_type||'';els.workSetup.value=data.work_setup||'';els.jobSummary.value=data.job_description||'';els.salaryMin.value=data.salary_min??'';els.salaryMax.value=data.salary_max??'';els.salaryCurrency.value=data.salary_currency||'PHP';els.salaryPeriod.value=data.salary_period||'Monthly';els.salaryNotes.value=data.salary_notes||'';els.roleFamily.value=data.role_family||'';els.minExperience.value=data.min_experience_years??'';els.languageRequirement.value=data.language_requirement||'';els.voiceScreeningMode.value=data.voice_screening_mode||'';els.rawJd.value=data.jd_raw_text||'';els.jobStatus.value=data.status||'open';els.screeningEnabled.value=data.screening_enabled===false?'false':'true';const ai=typeof data.ai_screening_config==='string'?JSON.parse(data.ai_screening_config||'{}'):(data.ai_screening_config||{});state.intelligence=ai.raw_intelligence||null;els.campaignName.value=ai.campaign_name||'';els.schedule.value=ai.schedule||'';els.startDate.value=ai.start_date||'';els.idealProfile.value=ai.ideal_candidate_profile||data.screening_summary||'';els.proofToCollect.value=Array.isArray(ai.proof_to_collect)?ai.proof_to_collect.join('\n'):'';state.mustSignals=Array.isArray(ai.must_have_signals)?ai.must_have_signals:(data.required_skills||[]).map(name=>({name,weight:'Critical',required:true}));state.niceSignals=Array.isArray(ai.nice_to_have_signals)?ai.nice_to_have_signals:(data.nice_to_have_skills||[]).map(name=>({name,weight:'Medium',required:false}));state.dealBreakers=Array.isArray(ai.deal_breakers)?ai.deal_breakers:[];const g=ai.recruiter_guidance||{};els.recruiterPriority.value=g.priority||'';els.risksToWatch.value=Array.isArray(g.risks_to_watch)?g.risks_to_watch.join('\n'):'';els.sellingPoints.value=Array.isArray(g.selling_points)?g.selling_points.join('\n'):'';els.missingClientInfo.value=Array.isArray(g.missing_client_info)?g.missing_client_info.join('\n'):'';const sc=typeof data.screening_config==='string'?JSON.parse(data.screening_config||'[]'):(data.screening_config||[]);state.questions=Array.isArray(sc)?sc.map(q=>({question:q.question||'',signal:q.signal||q.focus_area||'',type:q.question_type||q.category||'validation',weight:q.weight||'High',why_it_matters:q.why_it_matters||'',skip_if_resume_contains:q.skip_if_resume_contains||[]})):[];renderSignals();renderQuestions();refreshSnapshot();notice('Editing existing job.','info')}catch(e){console.error(e);notice(`Unable to load existing job: ${e.message||e}`,'error')}}
 function bind(){els.generateBtn.dataset.label='Generate Role Intelligence';els.saveJobBtn.dataset.label='Save Role';els.saveJobBtnTop.dataset.label='Save Role';els.clientSelect.addEventListener('change',()=>{const c=selectedClient();if(c)els.clientName.value=getClientDisplayName(c)});els.generateBtn.addEventListener('click',generateIntelligence);els.clearBtn.addEventListener('click',clearAll);els.testFunctionBtn.addEventListener('click',()=>{els.rawJd.value=`Safety Device Campaign (Sales)\n\nSales Representative\nType: Voice (Inbound, may include chat/email)\nSchedule: Mondays to Fridays (Sat/Sun off)\nWork Setup: Onsite\nSalary Package: Upto ₱25k (based on BPO experience) + commission based incentives and bonuses !\nEmployment Type: Full Time - Permanent\nWork onsite at 7th Floor, Tower 1 - Clark City Front Mall, Angeles City\nStart Date : May 22, 2026\nQualifications:\nResiding in Angeles, Mabalacat, or nearby areas\nAt least 1 year Sales Experience in the BPO\nMust have experience in handling voice international account\nTyping speed of at least 35 WPM`;generateIntelligence()});els.saveJobBtn.addEventListener('click',saveJob);els.saveJobBtnTop.addEventListener('click',saveJob);els.previewPayloadBtn.addEventListener('click',()=>{els.payloadPreview.textContent=JSON.stringify(buildPayload(),null,2);els.payloadPreview.classList.toggle('show')});els.addMustSignalBtn.addEventListener('click',()=>addSignal('mustSignals'));els.addNiceSignalBtn.addEventListener('click',()=>addSignal('niceSignals'));els.addDealBreakerBtn.addEventListener('click',()=>addSignal('dealBreakers'));els.addQuestionBtn.addEventListener('click',()=>addQuestion());document.addEventListener('input',e=>{const s=e.target.closest('[data-signal-type]');if(s){const t=s.dataset.signalType,i=Number(s.dataset.i),f=s.dataset.field;if(state[t]?.[i])state[t][i][f]=f==='required'?s.value==='true':s.value}const q=e.target.closest('[data-q]');if(q){const i=Number(q.dataset.q),f=q.dataset.field;if(state.questions[i]){if(f==='skip_if_resume_contains_text')state.questions[i].skip_if_resume_contains=q.value.split(',').map(x=>x.trim()).filter(Boolean);else state.questions[i][f]=q.value}}if(['jobTitle','workSetup','salaryNotes','salaryMax'].includes(e.target.id))refreshSnapshot()});document.addEventListener('change',e=>{const s=e.target.closest('[data-signal-type]');if(s){const t=s.dataset.signalType,i=Number(s.dataset.i),f=s.dataset.field;if(state[t]?.[i])state[t][i][f]=f==='required'?s.value==='true':s.value}const q=e.target.closest('[data-q]');if(q){const i=Number(q.dataset.q),f=q.dataset.field;if(state.questions[i]){if(f==='skip_if_resume_contains_text')state.questions[i].skip_if_resume_contains=q.value.split(',').map(x=>x.trim()).filter(Boolean);else state.questions[i][f]=q.value}}});document.addEventListener('click',e=>{const rs=e.target.closest('[data-remove-signal]');if(rs){state[rs.dataset.removeSignal].splice(Number(rs.dataset.i),1);renderSignals()}const rq=e.target.closest('[data-remove-question]');if(rq){state.questions.splice(Number(rq.dataset.removeQuestion),1);renderQuestions()}})}
-async function start(){bind();renderSignals();renderQuestions();refreshSnapshot();await loadTenantContext();await loadClients();await loadExistingJob()}start();
+async function start(){bind();renderSignals();renderQuestions();refreshSnapshot();await loadTenantContext();console.log('Job Builder tenant debug',{companyId:state.companyId,recruiterUser:state.recruiterUser,currentUser:state.currentUser});await loadClients();await loadExistingJob()}start();
 </script>
 </body>
 </html>
