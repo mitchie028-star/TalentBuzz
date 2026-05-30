@@ -789,20 +789,8 @@ body.conversation-integrity-warning .integrity-pill{
       return deadline && deadline.getTime() <= Date.now();
     }
 
-    async function verifyConversationTokenOrAccess() {
+    function markConversationTokenVerified() {
       conversationIntegrityState.token_present = !!conversationToken;
-
-      if (!conversationToken && !conversation?.conversation_token && !conversation?.access_token) {
-        conversationIntegrityState.token_verified = true;
-        return true;
-      }
-
-      const expectedToken = String(conversation?.conversation_token || conversation?.access_token || conversation?.token || "").trim();
-
-      if (!conversationToken || !expectedToken || conversationToken !== expectedToken) {
-        throw new Error("This conversation link is invalid or the access token does not match.");
-      }
-
       conversationIntegrityState.token_verified = true;
       return true;
     }
@@ -1560,6 +1548,7 @@ body.conversation-integrity-warning .integrity-pill{
         Number(existingConversation.overall_score || finalizeData.overall_score || completionScore || 0);
 
       return {
+        company_id: conversation?.company_id || existingConversation.company_id || null,
         application_id: applicationId || existingConversation.application_id || null,
         candidate_email: getCandidateEmail() || existingConversation.candidate_email || null,
         email: getCandidateEmail() || existingConversation.email || null,
@@ -1624,6 +1613,7 @@ body.conversation-integrity-warning .integrity-pill{
       console.warn("Full conversation review update failed, retrying with compatibility payload:", result.error);
 
       const compatibilityPayload = {
+        company_id: fullPayload.company_id,
         application_id: fullPayload.application_id,
         candidate_email: fullPayload.candidate_email,
         candidate_name: fullPayload.candidate_name,
@@ -1652,6 +1642,7 @@ body.conversation-integrity-warning .integrity-pill{
       if (!conversation?.id) return;
 
       const payload = {
+        company_id: conversation.company_id || applicationContext?.app?.company_id || applicationContext?.profile?.company_id || null,
         application_id: applicationId || conversation.application_id || null,
         candidate_email: getCandidateEmail() || conversation.candidate_email || null,
         email: getCandidateEmail() || conversation.email || null,
@@ -1690,10 +1681,30 @@ body.conversation-integrity-warning .integrity-pill{
     }
 
     async function loadConversationById(id) {
-      const { data, error } = await supabaseClient.from("talent_conversations").select("*").eq("id", id).maybeSingle();
+      if (!conversationToken) {
+        throw new Error("This conversation link is missing an access token.");
+      }
+
+      const { data, error } = await supabaseClient.rpc(
+        "get_talent_conversation_by_token",
+        {
+          p_conversation_id: id,
+          p_token: conversationToken
+        }
+      );
+
       if (error) throw error;
-      if (!data) throw new Error("Conversation not found.");
-      return data;
+
+      const foundConversation = Array.isArray(data) ? data[0] : data;
+
+      if (!foundConversation) {
+        throw new Error("This conversation link is invalid or has expired.");
+      }
+
+      conversationIntegrityState.token_present = true;
+      conversationIntegrityState.token_verified = true;
+
+      return foundConversation;
     }
 
     async function loadLatestConversationForApplication(appId) {
@@ -1726,23 +1737,37 @@ body.conversation-integrity-warning .integrity-pill{
     }
 
     async function loadQuestions(conversationIdValue) {
-      const { data, error } = await supabaseClient
-        .from("talent_conversation_questions")
-        .select("*")
-        .eq("conversation_id", conversationIdValue)
-        .order("question_order", { ascending: true });
+      if (!conversationToken) {
+        throw new Error("This conversation link is missing an access token.");
+      }
+
+      const { data, error } = await supabaseClient.rpc(
+        "get_talent_conversation_questions_by_token",
+        {
+          p_conversation_id: conversationIdValue,
+          p_token: conversationToken
+        }
+      );
 
       if (error) throw error;
       return data || [];
     }
 
     async function loadExistingResponses(conversationIdValue) {
-      const { data, error } = await supabaseClient
-        .from("talent_conversation_responses")
-        .select("*")
-        .eq("conversation_id", conversationIdValue);
+      if (!conversationToken) {
+        throw new Error("This conversation link is missing an access token.");
+      }
+
+      const { data, error } = await supabaseClient.rpc(
+        "get_talent_conversation_responses_by_token",
+        {
+          p_conversation_id: conversationIdValue,
+          p_token: conversationToken
+        }
+      );
 
       if (error) throw error;
+
       responses = {};
       (data || []).forEach(row => {
         if (row.question_id) responses[row.question_id] = row;
@@ -1924,6 +1949,7 @@ body.conversation-integrity-warning .integrity-pill{
           .upsert(
             {
               conversation_id: conversation.id,
+              company_id: conversation.company_id,
               question_id: question.id,
               audio_url: audioUrl,
               response_duration_seconds: recordingSeconds || null,
@@ -1953,6 +1979,7 @@ body.conversation-integrity-warning .integrity-pill{
             .upsert(
               {
                 conversation_id: conversation.id,
+                company_id: conversation.company_id,
                 question_id: question.id,
                 audio_url: audioUrl,
                 response_duration_seconds: recordingSeconds || null
@@ -1985,6 +2012,7 @@ body.conversation-integrity-warning .integrity-pill{
             .from("talent_conversation_responses")
             .select("*")
             .eq("conversation_id", conversation.id)
+            .eq("company_id", conversation.company_id)
             .eq("question_id", question.id)
             .maybeSingle();
 
@@ -2253,7 +2281,19 @@ setTimeout(() => {
           throw new Error("Conversation could not be prepared.");
         }
 
-        await verifyConversationTokenOrAccess();
+        if (!conversation.company_id) {
+          throw new Error("Conversation is missing company ownership.");
+        }
+
+        if (
+          applicationContext?.app?.company_id &&
+          conversation.company_id &&
+          applicationContext.app.company_id !== conversation.company_id
+        ) {
+          throw new Error("This conversation link does not match the application workspace.");
+        }
+
+        markConversationTokenVerified();
 
         if (isConversationPastDeadline() && conversation.status !== "completed") {
           throw new Error("This conversation link has expired. Please contact your recruiter for a new access link.");
@@ -2280,6 +2320,7 @@ setTimeout(() => {
         }
 
         const startPayload = {
+          company_id: conversation.company_id || applicationContext?.app?.company_id || applicationContext?.profile?.company_id || null,
           application_id: applicationId || conversation.application_id || null,
           candidate_email: getCandidateEmail() || conversation.candidate_email || null,
           candidate_name: getCandidateName(),
@@ -2291,6 +2332,7 @@ setTimeout(() => {
         const startAttempts = [
           startPayload,
           {
+            company_id: startPayload.company_id,
             application_id: startPayload.application_id,
             candidate_email: startPayload.candidate_email,
             candidate_name: startPayload.candidate_name,
@@ -2300,6 +2342,7 @@ setTimeout(() => {
             conversation_integrity_signals: startPayload.conversation_integrity_signals
           },
           {
+            company_id: startPayload.company_id,
             application_id: startPayload.application_id,
             candidate_email: startPayload.candidate_email,
             candidate_name: startPayload.candidate_name,
