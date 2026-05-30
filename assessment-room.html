@@ -2280,22 +2280,37 @@ body.transitioning-question .summary{
     }
 
     async function loadQuestions(assessmentIdValue) {
-      const { data, error } = await supabaseClient
-        .from("role_assessment_questions")
-        .select("*")
-        .eq("assessment_id", assessmentIdValue)
-        .order("question_order", { ascending: true });
+      if (!assessmentToken) {
+        throw new Error("This assessment link is missing an access token.");
+      }
+
+      const { data, error } = await supabaseClient.rpc(
+        "get_role_assessment_questions_by_token",
+        {
+          p_assessment_id: assessmentIdValue,
+          p_token: assessmentToken
+        }
+      );
 
       if (error) throw error;
-      return data || [];
+
+      return (data || []).sort(
+        (a, b) => (a.question_order || 0) - (b.question_order || 0)
+      );
     }
 
     async function loadExistingResponses(assessmentIdValue) {
-      const { data, error } = await supabaseClient
-        .from("role_assessment_responses")
-        .select("*")
-        .eq("assessment_id", assessmentIdValue)
-        .eq("company_id", assessment.company_id);
+      if (!assessmentToken) {
+        throw new Error("This assessment link is missing an access token.");
+      }
+
+      const { data, error } = await supabaseClient.rpc(
+        "get_role_assessment_responses_by_token",
+        {
+          p_assessment_id: assessmentIdValue,
+          p_token: assessmentToken
+        }
+      );
 
       if (error) throw error;
 
