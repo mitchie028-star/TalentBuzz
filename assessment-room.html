@@ -1589,15 +1589,26 @@ body.transitioning-question .summary{
     async function verifyAssessmentTokenOrAccess() {
       integrityState.token_present = !!assessmentToken;
 
-      if (!assessmentToken && !assessment?.assessment_token && !assessment?.access_token) {
-        integrityState.token_verified = true;
-        return true;
+      if (!assessmentToken) {
+        throw new Error("This assessment link is missing an access token.");
       }
 
-      const expectedToken = String(assessment?.assessment_token || assessment?.access_token || assessment?.token || "").trim();
+      const expectedToken = String(
+        assessment?.assessment_token ||
+        assessment?.access_token ||
+        ""
+      ).trim();
 
-      if (!assessmentToken || !expectedToken || assessmentToken !== expectedToken) {
-        throw new Error("This assessment link is invalid or the access token does not match.");
+      if (!expectedToken) {
+        throw new Error("This assessment has not been configured for secure access.");
+      }
+
+      if (assessmentToken !== expectedToken) {
+        throw new Error("This assessment link is invalid.");
+      }
+
+      if (isAssessmentPastDeadline()) {
+        throw new Error("This assessment link has expired.");
       }
 
       integrityState.token_verified = true;
@@ -2133,6 +2144,7 @@ body.transitioning-question .summary{
             responses[question.id] = {
               ...(responses[question.id] || {}),
               assessment_id: assessment.id,
+              company_id: assessment.company_id,
               question_id: question.id,
               text_response: optionId,
               selected_option: optionId,
@@ -2218,14 +2230,25 @@ body.transitioning-question .summary{
     }
 
     async function loadAssessmentById(id) {
-      const { data: foundAssessment, error: assessmentError } = await supabaseClient
-        .from("role_assessments")
-        .select("*")
-        .eq("id", id)
-        .maybeSingle();
+      if (!assessmentToken) {
+        throw new Error("This assessment link is missing an access token.");
+      }
 
-      if (assessmentError) throw assessmentError;
-      if (!foundAssessment) throw new Error("Assessment not found.");
+      const { data, error } = await supabaseClient.rpc(
+        "get_role_assessment_by_token",
+        {
+          p_assessment_id: id,
+          p_token: assessmentToken
+        }
+      );
+
+      if (error) throw error;
+
+      const foundAssessment = Array.isArray(data) ? data[0] : data;
+
+      if (!foundAssessment) {
+        throw new Error("This assessment link is invalid or has expired.");
+      }
 
       return foundAssessment;
     }
@@ -2271,7 +2294,8 @@ body.transitioning-question .summary{
       const { data, error } = await supabaseClient
         .from("role_assessment_responses")
         .select("*")
-        .eq("assessment_id", assessmentIdValue);
+        .eq("assessment_id", assessmentIdValue)
+        .eq("company_id", assessment.company_id);
 
       if (error) throw error;
 
@@ -2298,6 +2322,7 @@ body.transitioning-question .summary{
       responses[question.id] = {
         ...(responses[question.id] || {}),
         assessment_id: assessment.id,
+        company_id: assessment.company_id,
         question_id: question.id,
         text_response: text
       };
@@ -2325,6 +2350,7 @@ body.transitioning-question .summary{
       try {
         const payload = {
           assessment_id: assessment.id,
+          company_id: assessment.company_id,
           question_id: question.id,
           text_response: text,
           integrity_session_id: integrityState.session_id,
@@ -2346,6 +2372,7 @@ body.transitioning-question .summary{
         if (existingResponse) {
           const updateAttempts = [
             {
+              company_id: assessment.company_id,
               text_response: text,
               integrity_session_id: integrityState.session_id,
               response_integrity_signals: payload.response_integrity_signals
@@ -2378,6 +2405,7 @@ body.transitioning-question .summary{
         } else {
           const basePayload = {
             assessment_id: assessment.id,
+            company_id: assessment.company_id,
             question_id: question.id,
             text_response: text
           };
@@ -2629,6 +2657,10 @@ body.transitioning-question .summary{
         }
 
         await loadCompanyBranding(assessment.company_id);
+
+        if (!assessment.company_id) {
+          throw new Error("Assessment is missing company ownership.");
+        }
 
         await verifyAssessmentTokenOrAccess();
 
