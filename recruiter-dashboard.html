@@ -4745,40 +4745,27 @@ function normalizeCommunicationTimelineMessages(messages){
     }
 
     function getCandidateWaitingState(app = {}, workflow = {}){
-      const values = [
-        app.awaiting_candidate === true ? 'awaiting candidate response' : '',
-        workflow.awaiting_candidate === true ? 'awaiting candidate response' : '',
-        app.client_feedback_status,
-        workflow.client_feedback_status,
-        app.endorsement_status,
-        workflow.endorsement_status,
-        app.review_workflow_status,
-        workflow.review_workflow_status,
-        app.review_status,
-        workflow.review_status,
-        app.client_state,
-        workflow.client_state,
-        app.assessment_state,
-        workflow.assessment_state,
-        app.status,
-        workflow.legacy_status
-      ].map(normalizeWorkflowWaitingValue).filter(Boolean);
+      const status = normalizeWorkflowWaitingValue(app.status || workflow.legacy_status || '');
+      const assessmentState = normalizeWorkflowWaitingValue(
+        app.assessment_state || workflow.assessment_state || app.assessment_status || workflow.assessment_status || ''
+      );
+      const candidateResponseState = normalizeWorkflowWaitingValue(
+        app.candidate_response_status || workflow.candidate_response_status ||
+        app.candidate_reply_status || workflow.candidate_reply_status ||
+        app.communication_status || workflow.communication_status ||
+        app.sms_status || workflow.sms_status ||
+        app.email_status || workflow.email_status || ''
+      );
+      const explicitWaiting = Boolean(app.awaiting_candidate === true || workflow.awaiting_candidate === true);
 
-      const waitingStatuses = new Set([
-        'sms sent',
-        'sent',
-        'submitted',
-        'waiting',
-        'pending',
-        'awaiting candidate',
-        'awaiting candidate response',
-        'waiting for candidate response',
-        'candidate pending',
-        'pending candidate',
-        'assessment sent',
-        'assessment in progress',
-        'in progress'
-      ]);
+      const finalValues = [
+        status,
+        normalizeWorkflowWaitingValue(app.client_feedback_status || workflow.client_feedback_status || ''),
+        normalizeWorkflowWaitingValue(app.endorsement_status || workflow.endorsement_status || ''),
+        normalizeWorkflowWaitingValue(app.review_workflow_status || workflow.review_workflow_status || ''),
+        normalizeWorkflowWaitingValue(app.review_status || workflow.review_status || ''),
+        normalizeWorkflowWaitingValue(app.client_state || workflow.client_state || '')
+      ].filter(Boolean);
 
       const closedOrFinal = new Set([
         'rejected',
@@ -4795,11 +4782,22 @@ function normalizeCommunicationTimelineMessages(messages){
         'shortlisted',
         'interview requested',
         'offer requested',
-        'offer extended'
+        'offer extended',
+        'viewed',
+        'interested',
+        'hold'
       ]);
 
-      if(values.some(value => closedOrFinal.has(value)))return false;
-      return values.some(value => waitingStatuses.has(value));
+      if(finalValues.some(value => closedOrFinal.has(value)))return false;
+
+      // Important: a plain application status of "Submitted" means the candidate/application
+      // exists in the hiring workflow. It does NOT mean we are waiting for the candidate.
+      // Only explicit candidate communication/assessment states should trigger this path.
+      if(explicitWaiting)return true;
+      if(status === 'sms sent')return true;
+      if(['sent','assessment sent','assessment in progress','in progress','waiting for candidate response','awaiting candidate response','candidate pending','pending candidate'].includes(assessmentState))return true;
+      if(['sent','waiting','pending','awaiting candidate','awaiting candidate response','waiting for candidate response','candidate pending','pending candidate'].includes(candidateResponseState))return true;
+      return false;
     }
 
     function isWaitingForCandidateWorkflow(row = {}){
