@@ -4208,7 +4208,7 @@ opslead@company.com"></textarea></div>
           const sender = safeText(message.sender_type).toLowerCase();
           const direction = safeText(message.direction).toLowerCase();
           const body = safeText(message.message || '');
-          return Boolean(body) && (sender === 'applicant' || sender === 'recruiter' || direction === 'inbound' || direction === 'outbound');
+          return Boolean(body) && (sender === 'applicant' || sender === 'candidate' || sender === 'recruiter' || direction === 'inbound' || direction === 'outbound');
         })
         .map(message => {
           const applicationId = safeText(message.application_id);
@@ -4216,7 +4216,7 @@ opslead@company.com"></textarea></div>
           const email = normalizeEmail(message.applicant_email || '');
           const sender = safeText(message.sender_type).toLowerCase();
           const direction = safeText(message.direction).toLowerCase();
-          const isInbound = sender === 'applicant' || direction === 'inbound' || message.unread_candidate_reply === true;
+          const isInbound = sender === 'applicant' || sender === 'candidate' || direction === 'inbound' || message.unread_candidate_reply === true;
           const isOutbound = sender === 'recruiter' || direction === 'outbound';
           const row = (rows || []).find(item => safeText(item?.app?.id || item?.id) === applicationId) ||
             (rows || []).find(item => safeText(item?.profile?.id || item?.app?.applicant_profile_id) === profileId) ||
@@ -4334,8 +4334,10 @@ opslead@company.com"></textarea></div>
     }
 
     async function queryCandidateInboxActivities(){
-      const scopedRows = (state.filteredRows && state.filteredRows.length) ? state.filteredRows : state.allRows;
-      return await fetchCandidateCommunications(scopedRows || [], {allowGlobal:true, limit:80, profileLimit:80});
+      // Inbox must show candidate replies even when the matching candidate is not in
+      // the current filtered/loaded queue. Query the latest communications globally,
+      // then match them back to loaded rows by profile/application/email.
+      return await fetchCandidateCommunications([], {allowGlobal:true, limit:150, profileLimit:0});
     }
 
     async function syncCandidateEmailInbox({silent=false} = {}){
@@ -4508,7 +4510,7 @@ opslead@company.com"></textarea></div>
       els.candidateCommunicationThread.innerHTML = messages.map(message => {
         const sender = safeText(message.sender_type).toLowerCase();
         const direction = safeText(message.direction).toLowerCase();
-        const inbound = sender === 'applicant' || direction === 'inbound';
+        const inbound = sender === 'applicant' || sender === 'candidate' || direction === 'inbound';
         const body = stripHtmlForTimeline(message.message || '');
         const preview = body.length > 900 ? `${body.slice(0, 900)}…` : body;
         const channel = safeText(message.channel || 'email').toLowerCase() || 'email';
@@ -4543,7 +4545,7 @@ function normalizeCommunicationTimelineMessages(messages){
           seen.add(key);
           const sender = safeText(message.sender_type).toLowerCase();
           const direction = safeText(message.direction).toLowerCase();
-          const inbound = sender === 'applicant' || direction === 'inbound';
+          const inbound = sender === 'applicant' || sender === 'candidate' || direction === 'inbound';
           const body = stripHtmlForTimeline(message.message || '');
           const preview = body.length > 500 ? `${body.slice(0, 500)}…` : body;
           return {
@@ -6769,15 +6771,57 @@ function currentCompanyId(){
       }
 
       let lastError = null;
+      const collected = [];
       for(const attempt of attempts){
         try{
           const {data, error} = await attempt();
           if(error)throw error;
-          return normalizeCommunicationRecords(normalizeRows(data || []));
+          const normalized = normalizeCommunicationRecords(normalizeRows(data || []));
+          if(normalized.length){
+            collected.push(...normalized);
+          }
+          // Do not return early on an empty scoped result. Some replies are stored by
+          // email/source only, so the inbox/global fallback must still run.
         }catch(error){
           lastError = error;
           console.warn('communication_messages query attempt failed:', error?.message || error);
           if(safeText(error?.message || error).toLowerCase().includes('timeout'))break;
+        }
+      }
+
+      if(collected.length){
+        return normalizeCommunicationRecords(collected).slice(0, limit);
+      }
+
+      // Fallback to legacy applicant_messages if communication_messages is empty.
+      // This keeps replies visible during/after migrations.
+      if(allowGlobal || profileIds.length){
+        const legacyAttempts = [];
+        if(profileIds.length){
+          legacyAttempts.push(() => supabaseClient
+            .from('applicant_messages')
+            .select('*')
+            .in('applicant_profile_id', profileIds)
+            .order('created_at', { ascending:false })
+            .limit(limit));
+        }
+        if(allowGlobal){
+          legacyAttempts.push(() => supabaseClient
+            .from('applicant_messages')
+            .select('*')
+            .order('created_at', { ascending:false })
+            .limit(Math.min(limit, 150)));
+        }
+        for(const attempt of legacyAttempts){
+          try{
+            const {data, error} = await attempt();
+            if(error)throw error;
+            const normalized = normalizeCommunicationRecords(normalizeRows(data || []));
+            if(normalized.length)return normalized.slice(0, limit);
+          }catch(error){
+            lastError = error;
+            console.warn('applicant_messages query attempt failed:', error?.message || error);
+          }
         }
       }
 
@@ -10322,6 +10366,21 @@ function mergeDuplicateCandidateRows(primary, duplicates){
         activities: mergedActivities
       });
       renderCandidateTimeline(row);
+      try{
+        const directCommunications = await fetchCandidateCommunications([row], {allowGlobal:true, limit:120, profileLimit:5});
+        const directLookup = buildCandidateCommunicationLookup(directCommunications || []);
+        const mergedCommunications = normalizeCommunicationRecords([
+          ...(row.communications || []),
+          ...getCommunicationsForApplicationRow(row.app, row.profile, directLookup)
+        ]);
+        row.communications = mergedCommunications;
+        const allRowForComms = state.allRows.find(item => item.id === row.id);
+        if(allRowForComms)allRowForComms.communications = mergedCommunications;
+        const filteredRowForComms = state.filteredRows.find(item => item.id === row.id);
+        if(filteredRowForComms)filteredRowForComms.communications = mergedCommunications;
+      }catch(communicationError){
+        console.warn('Unable to load candidate thread directly:', communicationError?.message || communicationError);
+      }
       renderCandidateCommunicationThread(row);
       renderClientResponseDrawer(row);
       fillSubmissionActionControls(row);
