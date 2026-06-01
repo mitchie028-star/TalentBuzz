@@ -7330,7 +7330,10 @@ function getCommunicationsForApplicationRow(app, profile, lookup){
         const profilesById=new Map(profiles.map(item=>[item.id,item]));
         const jobsById=new Map(jobs.map(item=>[item.id,item]));
         const dashboardWorkflowById = new Map((dashboardWorkflowRows || []).map(item => [safeText(item.id), item]));
-        const cleanDashboardIds = new Set((dashboardWorkflowRows || []).map(item => safeText(item.id)).filter(Boolean));
+        // Dashboard visibility fix:
+        // vw_dashboard_candidates_clean is an enrichment/workflow view, not the source of truth.
+        // Do not use its IDs as an allowlist, because any application missing from that view
+        // gets hidden from the recruiter dashboard even when it exists in applications / recruiter_dashboard_applications.
         const activeDashboardIds = new Set((dashboardActiveRows || []).map(item => safeText(item.id)).filter(Boolean));
         state.activeCandidateIds = activeDashboardIds;
         const activityLookup = buildCandidateActivityLookup(candidateActivities || []);
@@ -7349,9 +7352,9 @@ function getCommunicationsForApplicationRow(app, profile, lookup){
           return !appCompanyId && safeText(job?.company_id) === companyId;
         });
 
-        const dashboardSourceApplications = cleanDashboardIds.size
-          ? companyScopedApplications.filter(app => cleanDashboardIds.has(safeText(app.id)))
-          : companyScopedApplications;
+        // Always render from company-scoped applications. Use dashboardWorkflowById below only
+        // to enrich rows with workflow fields when available.
+        const dashboardSourceApplications = companyScopedApplications;
 
         const rawRows=dashboardSourceApplications.map(app=>{
           const profile=profilesById.get(app.applicant_profile_id)||profiles.find(p=>normalizeEmail(p.email)===normalizeEmail(app.email))||{};
