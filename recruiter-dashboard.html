@@ -6835,6 +6835,21 @@ function getCommunicationsForApplicationRow(app, profile, lookup){
         .sort((a,b)=>new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
     }
 
+
+    function normalizeCommunicationRecords(records){
+      const seen = new Set();
+      return (records || [])
+        .filter(Boolean)
+        .filter(message => {
+          const key = safeText(message.id) ||
+            `${safeText(message.message_id)}:${safeText(message.direction)}:${safeText(message.channel)}:${safeText(message.created_at || message.sent_at || message.received_at)}:${safeText(message.body || message.message_body || message.snippet).slice(0, 80)}`;
+          if(!key || seen.has(key))return false;
+          seen.add(key);
+          return true;
+        })
+        .sort((a,b)=>new Date(b.created_at || b.sent_at || b.received_at || 0).getTime() - new Date(a.created_at || a.sent_at || a.received_at || 0).getTime());
+    }
+
     function dedupeDashboardApplicationRows(rows){
       const mergedRows = mergeDashboardActivities(rows || []);
       const groups = new Map();
@@ -6921,6 +6936,8 @@ function getCommunicationsForApplicationRow(app, profile, lookup){
       return getDashboardIdentityKey(row) || safeText(row?.id || row?.app?.id || '');
     }
 
+    const CLOSED_STATUSES = new Set(['closed','filled','cancelled','canceled','rejected','archived','archived_duplicate_ingest','withdrawn','failed paper screening','onboarded']);
+
     function getDashboardRowDisplayRank(row){
       const status = normalizeStatus(row?.status || row?.app?.status || '');
       const hasRecruiter = !!safeText(row?.assignedRecruiterId || row?.app?.assigned_recruiter_id || row?.recruiter);
@@ -6939,7 +6956,6 @@ function getCommunicationsForApplicationRow(app, profile, lookup){
       return rank;
     }
 
-    const CLOSED_STATUSES = new Set(['closed','filled','cancelled','canceled','rejected','archived','archived_duplicate_ingest']);
 function mergeDuplicateCandidateRows(primary, duplicates){
       const all = [primary, ...(duplicates || [])].filter(Boolean);
       primary.duplicateApplications = all
