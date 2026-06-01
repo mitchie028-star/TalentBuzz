@@ -4758,13 +4758,19 @@ function normalizeCommunicationTimelineMessages(messages){
       );
       const explicitWaiting = Boolean(app.awaiting_candidate === true || workflow.awaiting_candidate === true);
 
-      const finalValues = [
-        status,
+      const reviewWorkflowValues = [
+        normalizeWorkflowWaitingValue(app.client_workflow_status || workflow.client_workflow_status || ''),
+        normalizeWorkflowWaitingValue(app.client_status || workflow.client_status || ''),
         normalizeWorkflowWaitingValue(app.client_feedback_status || workflow.client_feedback_status || ''),
-        normalizeWorkflowWaitingValue(app.endorsement_status || workflow.endorsement_status || ''),
         normalizeWorkflowWaitingValue(app.review_workflow_status || workflow.review_workflow_status || ''),
         normalizeWorkflowWaitingValue(app.review_status || workflow.review_status || ''),
         normalizeWorkflowWaitingValue(app.client_state || workflow.client_state || '')
+      ].filter(Boolean);
+
+      const finalValues = [
+        status,
+        normalizeWorkflowWaitingValue(app.endorsement_status || workflow.endorsement_status || ''),
+        ...reviewWorkflowValues
       ].filter(Boolean);
 
       const closedOrFinal = new Set([
@@ -4792,11 +4798,33 @@ function normalizeCommunicationTimelineMessages(messages){
 
       // Important: a plain application status of "Submitted" means the candidate/application
       // exists in the hiring workflow. It does NOT mean we are waiting for the candidate.
-      // Only explicit candidate communication/assessment states should trigger this path.
+      // However, Review Workflow = Submitted/Sent/Waiting on a non-endorsed candidate means
+      // an outbound candidate step was sent and the recruiter is waiting for the applicant.
       if(explicitWaiting)return true;
       if(status === 'sms sent')return true;
       if(['sent','assessment sent','assessment in progress','in progress','waiting for candidate response','awaiting candidate response','candidate pending','pending candidate'].includes(assessmentState))return true;
       if(['sent','waiting','pending','awaiting candidate','awaiting candidate response','waiting for candidate response','candidate pending','pending candidate'].includes(candidateResponseState))return true;
+
+      const statusBlocksCandidateWaiting = new Set([
+        'endorsed',
+        'for interview',
+        'shortlisted',
+        'interview requested',
+        'offer requested',
+        'offer extended',
+        'hired',
+        'onboarded',
+        'completed',
+        'rejected',
+        'withdrawn',
+        'failed paper screening',
+        'archived duplicate ingest'
+      ]);
+      const reviewMeansCandidateWaiting = reviewWorkflowValues.some(value =>
+        ['submitted','sent','waiting','pending','awaiting candidate','awaiting candidate response','waiting for candidate response'].includes(value)
+      );
+      if(reviewMeansCandidateWaiting && !statusBlocksCandidateWaiting.has(status))return true;
+
       return false;
     }
 
@@ -11778,6 +11806,60 @@ async function bulkUploadResumes(){
       }
     }
 
+
+    async function markCandidateAwaitingResponseSafe(row, subject = ''){
+      if(!row?.id || !supabaseClient)return;
+
+      const today = new Date();
+      const followUpDate = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1);
+      const followUpDateValue = followUpDate.toISOString().slice(0, 10);
+      const note = `Awaiting candidate response${subject ? ` after email: ${subject}` : ''}`;
+
+      const attempts = [
+        {
+          follow_up_required: true,
+          follow_up_status: 'needs_follow_up',
+          follow_up_note: note,
+          follow_up_date: followUpDateValue,
+          candidate_response_status: 'waiting for candidate response',
+          awaiting_candidate: true,
+          updated_at: new Date().toISOString()
+        },
+        {
+          follow_up_required: true,
+          follow_up_status: 'needs_follow_up',
+          follow_up_note: note,
+          follow_up_date: followUpDateValue,
+          updated_at: new Date().toISOString()
+        },
+        {
+          follow_up_status: 'needs_follow_up',
+          follow_up_note: note,
+          updated_at: new Date().toISOString()
+        }
+      ];
+
+      for(const patch of attempts){
+        try{
+          const { error } = await supabaseClient
+            .from('applications')
+            .update(patch)
+            .eq('id', row.id);
+          if(!error){
+            if(row.app){
+              Object.assign(row.app, patch);
+            }
+            row.followUp = getFollowUpInfo(row.app || row);
+            return true;
+          }
+        }catch(error){
+          console.warn('Awaiting-response patch failed:', error?.message || error);
+        }
+      }
+
+      return false;
+    }
+
     async function openCandidateEmailApp(){
       const draft = getCandidateEmailDraft();
       const row = getSelectedCandidateRow();
@@ -11862,7 +11944,13 @@ async function bulkUploadResumes(){
           source_message_id: safeText(sendResponse?.message_id || sendResponse?.id || sendResponse?.email_id || '')
         });
 
-        showCandidateEmailStatus(`Email sent to ${draft.to}. The send function logs it to the communication thread and activity timeline.`, 'success');
+        // Keep the dashboard state aligned immediately after sending an applicant email:
+        // next action should become "Awaiting Candidate Response", and the row should enter
+        // the follow-up queue. These updates are best-effort because older schemas may not
+        // have every column.
+        await markCandidateAwaitingResponseSafe(row, draft.subject);
+
+        showCandidateEmailStatus(`Email sent to ${draft.to}. Candidate is now marked as awaiting response and needs follow-up.`, 'success');
 
         try{
           await refreshMessageInbox({sync:false});
