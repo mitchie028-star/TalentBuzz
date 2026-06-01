@@ -11,7 +11,7 @@
   <script>
     window.TALENTBUZZ_SUPABASE_URL = "https://dilalntcxmvdcmwxjcct.supabase.co";
     window.TALENTBUZZ_SUPABASE_ANON_KEY = "sb_publishable_HrLVIUwnaRo54yijtrbWBQ_1aeb4ezs";
-  </script>
+  </script>     
 
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -6914,20 +6914,79 @@ function getCommunicationsForApplicationRow(app, profile, lookup){
       ).getTime() || 0;
     }
 
+    function getDashboardCandidateOnlyKey(row){
+      // Recruiter workspace is candidate-first, not application-first.
+      // A candidate can apply to several roles, but the main queue should only show one card/row.
+      // We still keep sibling applications on the selected row for drawer/activity context.
+      return getDashboardIdentityKey(row) || safeText(row?.id || row?.app?.id || '');
+    }
+
+    function getDashboardRowDisplayRank(row){
+      const status = normalizeStatus(row?.status || row?.app?.status || '');
+      const hasRecruiter = !!safeText(row?.assignedRecruiterId || row?.app?.assigned_recruiter_id || row?.recruiter);
+      const hasJob = !!safeText(row?.app?.job_id || row?.job?.id || row?.jobTitle);
+      const hasSpecificRole = !isGeneralApplicantPoolRow(row);
+      const isArchived = status === 'archived_duplicate_ingest';
+      const isClosed = CLOSED_STATUSES.has(status);
+      const freshness = getDashboardRowFreshness(row);
+
+      let rank = freshness;
+      if(hasSpecificRole)rank += 10_000_000_000_000;
+      if(hasJob)rank += 1_000_000_000_000;
+      if(hasRecruiter)rank += 100_000_000_000;
+      if(isClosed)rank -= 10_000_000_000;
+      if(isArchived)rank -= 100_000_000_000;
+      return rank;
+    }
+
+    function mergeDuplicateCandidateRows(primary, duplicates){
+      const all = [primary, ...(duplicates || [])].filter(Boolean);
+      primary.duplicateApplications = all
+        .filter(item => item.id !== primary.id)
+        .map(item => ({
+          id: item.id,
+          applicationId: item.app?.id || item.id,
+          jobTitle: item.jobTitle,
+          clientName: item.clientName,
+          status: item.status,
+          appliedAt: item.appliedAt
+        }));
+
+      primary.activities = normalizeActivityRecords(all.flatMap(item => item.activities || []));
+      primary.communications = normalizeCommunicationRecords(all.flatMap(item => item.communications || []));
+      return primary;
+    }
+
     function cleanDashboardRows(rows){
-      const byCandidateJob = new Map();
+      const byCandidate = new Map();
       (rows || [])
         .filter(row => !isDashboardNoiseRow(row))
         .forEach(row => {
-          const key = getDashboardCandidateJobKey(row);
-          const existing = byCandidateJob.get(key);
-          if(!existing || getDashboardRowFreshness(row) > getDashboardRowFreshness(existing)){
-            byCandidateJob.set(key, row);
-          }
+          const key = getDashboardCandidateOnlyKey(row);
+          if(!key)return;
+          if(!byCandidate.has(key))byCandidate.set(key, []);
+          byCandidate.get(key).push(row);
         });
 
-      return Array.from(byCandidateJob.values())
-        .sort((a,b)=>new Date(b.appliedAt || 0).getTime() - new Date(a.appliedAt || 0).getTime());
+      const output = [];
+      byCandidate.forEach(group => {
+        if(group.length <= 1){
+          output.push(group[0]);
+          return;
+        }
+
+        const sorted = [...group].sort((a,b)=>getDashboardRowDisplayRank(b)-getDashboardRowDisplayRank(a));
+        const primary = sorted[0];
+        mergeDuplicateCandidateRows(primary, sorted.slice(1));
+        console.info('Dashboard collapsed duplicate candidate applications:', {
+          candidate: primary.displayName,
+          primaryApplicationId: primary.id,
+          hiddenApplicationIds: sorted.slice(1).map(row => row.id)
+        });
+        output.push(primary);
+      });
+
+      return output.sort((a,b)=>new Date(b.appliedAt || 0).getTime() - new Date(a.appliedAt || 0).getTime());
     }
 
     async function fetchActivitiesForRowDirect(row){
