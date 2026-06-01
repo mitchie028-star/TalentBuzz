@@ -4702,6 +4702,7 @@ function normalizeCommunicationTimelineMessages(messages){
       const nextFollowUpAt = app.next_follow_up_at || app.follow_up_due_at || app.follow_up_date || null;
       const overdueFollowUp = !!nextFollowUpAt && new Date(nextFollowUpAt).getTime() < Date.now();
 
+      if(getCandidateWaitingState(app, workflow))return 'Awaiting Candidate Response';
       if(stage === 'review')return 'Review Assessment';
       if(stage === 'assessment' && overdueFollowUp)return 'Follow Up Candidate';
       if(stage === 'assessment')return 'Awaiting Candidate';
@@ -4739,10 +4740,82 @@ function normalizeCommunicationTimelineMessages(messages){
       return labels[value] || '';
     }
 
+    function normalizeWorkflowWaitingValue(value){
+      return safeText(value).toLowerCase().replace(/[\s_-]+/g, ' ').trim();
+    }
+
+    function getCandidateWaitingState(app = {}, workflow = {}){
+      const values = [
+        app.awaiting_candidate === true ? 'awaiting candidate response' : '',
+        workflow.awaiting_candidate === true ? 'awaiting candidate response' : '',
+        app.client_feedback_status,
+        workflow.client_feedback_status,
+        app.endorsement_status,
+        workflow.endorsement_status,
+        app.review_workflow_status,
+        workflow.review_workflow_status,
+        app.review_status,
+        workflow.review_status,
+        app.client_state,
+        workflow.client_state,
+        app.assessment_state,
+        workflow.assessment_state,
+        app.status,
+        workflow.legacy_status
+      ].map(normalizeWorkflowWaitingValue).filter(Boolean);
+
+      const waitingStatuses = new Set([
+        'sms sent',
+        'sent',
+        'submitted',
+        'waiting',
+        'pending',
+        'awaiting candidate',
+        'awaiting candidate response',
+        'waiting for candidate response',
+        'candidate pending',
+        'pending candidate',
+        'assessment sent',
+        'assessment in progress',
+        'in progress'
+      ]);
+
+      const closedOrFinal = new Set([
+        'rejected',
+        'failed paper screening',
+        'withdrawn',
+        'candidate withdrawn',
+        'not interested',
+        'no show onboarding',
+        'hired',
+        'onboarded',
+        'completed',
+        'endorsed',
+        'for interview',
+        'shortlisted',
+        'interview requested',
+        'offer requested',
+        'offer extended'
+      ]);
+
+      if(values.some(value => closedOrFinal.has(value)))return false;
+      return values.some(value => waitingStatuses.has(value));
+    }
+
+    function isWaitingForCandidateWorkflow(row = {}){
+      return getCandidateWaitingState(row.app || row, row.workflow || {});
+    }
+
     function getDisplayNextRecruiterAction(row = {}){
+      if(isWaitingForCandidateWorkflow(row))return 'Awaiting Candidate Response';
       const statusAction = getStatusDrivenNextAction(row.status || row.app?.status || '');
       if(statusAction)return statusAction;
       return safeText(row.nextRecruiterAction || row.app?.next_recruiter_action || row.workflow?.next_recruiter_action || deriveNextRecruiterAction(row.app || row, row.workflow || {})) || 'Review Candidate';
+    }
+
+    function getDisplayPrimaryCta(row = {}){
+      if(isWaitingForCandidateWorkflow(row))return 'Send Follow-up';
+      return safeText(row.primaryCta || row.primary_cta || row.app?.primary_cta || row.workflow?.primary_cta || derivePrimaryCTA(row.app || row, row.workflow || {})) || 'Open Candidate';
     }
 
     function derivePriorityLevel(app = {}, workflow = {}){
@@ -4781,6 +4854,7 @@ function normalizeCommunicationTimelineMessages(messages){
       const overdueFollowUp = !!nextFollowUpAt && new Date(nextFollowUpAt).getTime() < Date.now();
       const hasEndorsement = !!(workflow.client_decision || workflow.availability_status || app.client_decision || app.availability_status);
       const pendingClient = stage === 'endorsed' && hasEndorsement && safeText(workflow.client_decision || app.client_decision || 'pending').toLowerCase() === 'pending';
+      if(getCandidateWaitingState(app, workflow))return 'Send Follow-up';
       if(['new','screening'].includes(stage))return 'Review Candidate';
       if(stage === 'review')return 'Review Assessment';
       if(stage === 'assessment' && overdueFollowUp)return 'Send Follow-up';
@@ -5160,6 +5234,7 @@ function normalizeCommunicationTimelineMessages(messages){
       const dueDate = parseFollowUpDate(dueAt);
       const note = safeText(app?.follow_up_note || '');
       const noteFollowUp = noteSuggestsOpenFollowUp(app);
+      const awaitingCandidateResponse = getCandidateWaitingState(app, app);
 
       const now = new Date();
       const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -5167,8 +5242,12 @@ function normalizeCommunicationTimelineMessages(messages){
 
       let key = 'none';
 
-      // Preferred source: SQL operational layer. It already excludes closed/hired rows from open follow-up work.
-      if(openFromView === true){
+      // Awaiting candidate response is recruiter follow-up work, even when the SQL view
+      // has not explicitly set follow_up_open yet. This keeps the follow-up queue,
+      // KPI, row badge, and CTA aligned after emails/SMS/assessments are sent.
+      if(awaitingCandidateResponse){
+        key = ['overdue','due_today','upcoming','needs_follow_up'].includes(stateFromView) ? stateFromView : 'needs_follow_up';
+      }else if(openFromView === true){
         key = ['overdue','due_today','upcoming','needs_follow_up'].includes(stateFromView) ? stateFromView : 'needs_follow_up';
       }else if(openFromView === false){
         key = 'none';
@@ -5198,6 +5277,8 @@ function normalizeCommunicationTimelineMessages(messages){
 
     function hasOpenFollowUp(rowOrApp){
       const app = rowOrApp?.app || rowOrApp || {};
+      const workflow = rowOrApp?.workflow || app || {};
+      if(getCandidateWaitingState(app, workflow))return true;
       if(typeof app.follow_up_open === 'boolean')return app.follow_up_open;
 
       const info = rowOrApp?.followUp || getFollowUpInfo(app);
@@ -8914,7 +8995,7 @@ function mergeDuplicateCandidateRows(primary, duplicates){
         const nextAction = getDisplayNextRecruiterAction(row);
         const priorityLevel = safeText(row.priorityLevel || row.app?.priority_level || row.workflow?.priority_level || derivePriorityLevel(row.app, row.workflow)).toLowerCase();
         const slaRisk = safeText(row.slaRisk || row.app?.sla_risk || row.workflow?.sla_risk || deriveSLARisk(row.app, row.workflow)).toLowerCase();
-        const primaryCta = safeText(row.primaryCta || row.app?.primary_cta || row.workflow?.primary_cta || derivePrimaryCTA(row.app, row.workflow));
+        const primaryCta = getDisplayPrimaryCta(row);
         const primaryAction = getPrimaryCtaAction({...row, primaryCta});
         const rowClasses=[
           row.id===state.selectedId?'active':'',
