@@ -5234,6 +5234,7 @@ function normalizeCommunicationTimelineMessages(messages){
       const dueDate = parseFollowUpDate(dueAt);
       const note = safeText(app?.follow_up_note || '');
       const noteFollowUp = noteSuggestsOpenFollowUp(app);
+      const awaitingCandidateResponse = getCandidateWaitingState(app, app);
 
       const now = new Date();
       const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -5241,8 +5242,12 @@ function normalizeCommunicationTimelineMessages(messages){
 
       let key = 'none';
 
-      // Preferred source: SQL operational layer. It already excludes closed/hired rows from open follow-up work.
-      if(openFromView === true){
+      // Awaiting candidate response is recruiter follow-up work, even when the SQL view
+      // has not explicitly set follow_up_open yet. This keeps the follow-up queue,
+      // KPI, row badge, and CTA aligned after emails/SMS/assessments are sent.
+      if(awaitingCandidateResponse){
+        key = ['overdue','due_today','upcoming','needs_follow_up'].includes(stateFromView) ? stateFromView : 'needs_follow_up';
+      }else if(openFromView === true){
         key = ['overdue','due_today','upcoming','needs_follow_up'].includes(stateFromView) ? stateFromView : 'needs_follow_up';
       }else if(openFromView === false){
         key = 'none';
@@ -5272,6 +5277,8 @@ function normalizeCommunicationTimelineMessages(messages){
 
     function hasOpenFollowUp(rowOrApp){
       const app = rowOrApp?.app || rowOrApp || {};
+      const workflow = rowOrApp?.workflow || app || {};
+      if(getCandidateWaitingState(app, workflow))return true;
       if(typeof app.follow_up_open === 'boolean')return app.follow_up_open;
 
       const info = rowOrApp?.followUp || getFollowUpInfo(app);
