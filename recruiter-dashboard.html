@@ -3862,24 +3862,6 @@ opslead@company.com"></textarea></div>
     function hideNotice(){els.notice.className='notice';els.notice.textContent=''}
     function setAuthMessage(message){if(els.authMessage)els.authMessage.textContent=message}
     function setProtectedUiState(isReady){document.body.classList.toggle('auth-pending',!isReady)}
-    function showAuthRecovery(message){
-      setAuthMessage(message || 'Unable to verify recruiter access. Please refresh or sign in again.');
-      const authCard = document.querySelector('.auth-card');
-      if(!authCard || authCard.dataset.recoveryBound === '1')return;
-      authCard.dataset.recoveryBound = '1';
-      const actions = document.createElement('div');
-      actions.style.cssText = 'display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-top:18px;';
-      actions.innerHTML = `
-        <button class="btn btn-primary" type="button" id="authRetryBtn">Retry</button>
-        <button class="btn" type="button" id="authSignOutBtn">Sign in again</button>
-      `;
-      authCard.appendChild(actions);
-      document.getElementById('authRetryBtn')?.addEventListener('click', () => window.location.reload());
-      document.getElementById('authSignOutBtn')?.addEventListener('click', async () => {
-        try{ await supabaseClient?.auth?.signOut?.(); }catch(error){ console.warn('Sign-out recovery failed:', error); }
-        window.location.replace('login.html');
-      });
-    }
 
     function loadUiPreferences(){
       try{
@@ -11417,23 +11399,9 @@ async function bulkUploadResumes(){
     }
 
     async function requireRecruiterAccess(){
-      setProtectedUiState(false);
       setAuthMessage('Checking your BuzzHire session.');
-
-      let data;
-      try{
-        const sessionResult = await withTimeout(
-          supabaseClient.auth.getSession(),
-          12000,
-          'BuzzHire session check'
-        );
-        if(sessionResult?.error)throw sessionResult.error;
-        data = sessionResult?.data || {};
-      }catch(error){
-        console.error('Session lookup failed:', error);
-        showAuthRecovery(error?.message || 'BuzzHire could not verify your login session.');
-        return false;
-      }
+      const {data,error}=await supabaseClient.auth.getSession();
+      if(error)throw error;
 
       const session=data?.session||null;
       if(!session?.user){
@@ -11446,21 +11414,13 @@ async function bulkUploadResumes(){
       let recruiter=null;
       let sourceTable='';
 
-      setAuthMessage('Checking recruiter permissions.');
-
       try{
-        const result = await withTimeout(
-          supabaseClient
-            .from('recruiter_users')
-            .select('id,auth_user_id,email,full_name,role,status,client_id,team_id,company_id,can_view_all_candidates,can_bulk_assign,can_manage_team,can_reassign_candidates')
-            .eq('auth_user_id',session.user.id)
-            .eq('status','active')
-            .limit(1),
-          9000,
-          'Recruiter permission check'
-        );
-        const ruRows = result?.data;
-        const ruError = result?.error;
+        const {data:ruRows,error:ruError}=await supabaseClient
+          .from('recruiter_users')
+          .select('id,auth_user_id,email,full_name,role,status,client_id,team_id,company_id,can_view_all_candidates,can_bulk_assign,can_manage_team,can_reassign_candidates')
+          .eq('auth_user_id',session.user.id)
+          .eq('status','active')
+          .limit(1);
 
         if(ruError){
           console.warn('recruiter_users access lookup failed:', ruError?.message || ruError);
@@ -11476,20 +11436,37 @@ async function bulkUploadResumes(){
         console.warn('recruiter_users access lookup exception:', ruLookupError?.message || ruLookupError);
       }
 
+      if(!recruiter){
+        try{
+          const {data:rows,error:recError}=await supabaseClient
+            .from('recruiters')
+            .select('id,email,full_name,active,company_id,role')
+            .eq('email',email)
+            .eq('active',true)
+            .limit(1);
+
+          if(recError)throw recError;
+          const fallbackRecruiter=Array.isArray(rows)?rows[0]:rows;
+          if(fallbackRecruiter){
+            recruiter={
+              ...fallbackRecruiter,
+              source:'recruiters'
+            };
+            sourceTable='recruiters';
+          }
+        }catch(recLookupError){
+          console.warn('recruiters access lookup failed:', recLookupError?.message || recLookupError);
+        }
+      }
+
       if(!recruiter && email){
         try{
-          const result = await withTimeout(
-            supabaseClient
-              .from('recruiter_users')
-              .select('id,auth_user_id,email,full_name,role,status,client_id,team_id,company_id,can_view_all_candidates,can_bulk_assign,can_manage_team,can_reassign_candidates')
-              .ilike('email',email)
-              .eq('status','active')
-              .limit(1),
-            9000,
-            'Recruiter email permission check'
-          );
-          const emailRows = result?.data;
-          const emailError = result?.error;
+          const {data:emailRows,error:emailError}=await supabaseClient
+            .from('recruiter_users')
+            .select('id,auth_user_id,email,full_name,role,status,client_id,team_id,company_id,can_view_all_candidates,can_bulk_assign,can_manage_team,can_reassign_candidates')
+            .ilike('email',email)
+            .eq('status','active')
+            .limit(1);
 
           if(emailError){
             console.warn('recruiter_users email fallback failed:', emailError?.message || emailError);
@@ -11506,32 +11483,6 @@ async function bulkUploadResumes(){
         }
       }
 
-      if(!recruiter){
-        try{
-          const result = await withTimeout(
-            supabaseClient
-              .from('recruiters')
-              .select('id,email,full_name,active,company_id,role')
-              .ilike('email',email)
-              .eq('active',true)
-              .limit(1),
-            9000,
-            'Legacy recruiter permission check'
-          );
-          if(result?.error)throw result.error;
-          const fallbackRecruiter=Array.isArray(result?.data)?result.data[0]:result?.data;
-          if(fallbackRecruiter){
-            recruiter={
-              ...fallbackRecruiter,
-              source:'recruiters'
-            };
-            sourceTable='recruiters';
-          }
-        }catch(recLookupError){
-          console.warn('recruiters access lookup failed:', recLookupError?.message || recLookupError);
-        }
-      }
-
       console.log('Recruiter access lookup result:', {
         email,
         user_id: session.user.id,
@@ -11540,12 +11491,13 @@ async function bulkUploadResumes(){
       });
 
       if(!recruiter){
-        showAuthRecovery('No active recruiter profile was found for this login. Please ask an admin to check recruiter_users or sign in with a recruiter account.');
+        await supabaseClient.auth.signOut();
+        window.location.replace('login.html');
         return false;
       }
 
       if(!recruiter.company_id){
-        showAuthRecovery('Your recruiter account is active, but no company workspace was found. Please contact an admin.');
+        setAuthMessage('Your recruiter account is active, but no company workspace was found. Please contact an admin.');
         console.warn('Recruiter missing company_id:', recruiter);
         return false;
       }
@@ -11554,23 +11506,17 @@ async function bulkUploadResumes(){
       state.recruiterUser=recruiter.source?.startsWith('recruiter_users') ? recruiter : (state.recruiterUser || null);
       state.companyId=recruiter.company_id;
 
-      setAuthMessage('Opening your recruiter workspace.');
-
       try{
-        const result = await withTimeout(
-          supabaseClient
-            .from('companies')
-            .select('id,company_name,slug,logo_url,primary_color,secondary_color,white_label_enabled')
-            .eq('id',state.companyId)
-            .maybeSingle(),
-          8000,
-          'Company workspace lookup'
-        );
-        if(result?.error)console.warn('Company lookup failed:', result.error?.message || result.error);
-        state.companyProfile=result?.data || null;
+        const {data:companyRow,error:companyError}=await supabaseClient
+          .from('companies')
+          .select('id,company_name,slug,logo_url,primary_color,secondary_color,white_label_enabled')
+          .eq('id',state.companyId)
+          .maybeSingle();
+
+        if(companyError)console.warn('Company lookup failed:', companyError?.message || companyError);
+        state.companyProfile=companyRow || null;
       }catch(companyLookupError){
         console.warn('Company lookup exception:', companyLookupError?.message || companyLookupError);
-        state.companyProfile=null;
       }
 
       console.log('BuzzHire workspace resolved:', {
@@ -11583,6 +11529,916 @@ async function bulkUploadResumes(){
 
       renderHeaderIdentity();
       setProtectedUiState(true);
+      return true;
+    }
+
+    function renderHeaderIdentity(){
+      const email=safeText(state.currentUser?.email||'');
+      const name=safeText(state.recruiterProfile?.full_name||state.currentUser?.user_metadata?.full_name||email.split('@')[0]||'Recruiter');
+      const role = currentRole();
+      const roleLabel = role === 'client_admin' ? 'Client Admin' : role === 'team_lead' ? 'Team Lead' : 'Recruiter';
+      const companyName = safeText(state.companyProfile?.company_name || state.companyProfile?.name || 'TalentBuzz');
+      if(els.sidebarUserName)els.sidebarUserName.textContent=`Hi ${name.split(/\s+/)[0]||'there'}!`;
+      if(els.sidebarUserEmail)els.sidebarUserEmail.textContent=companyName ? `${roleLabel} • ${companyName}` : roleLabel;
+      renderRoleContext();
+    }
+    async function handleLogout(){try{await supabaseClient.auth.signOut();window.location.href='login.html'}catch(error){showNotice(`Logout failed: ${error.message||error}`,'error')}}
+    function updateLiveStatusLabel(overrideText){
+      if(!els.liveStatusText)return;
+      if(overrideText){
+        els.liveStatusText.textContent = overrideText;
+        return;
+      }
+      if(!dashboardLastSyncedAt){
+        els.liveStatusText.textContent='Live';
+        return;
+      }
+      const seconds=Math.max(0,Math.floor((Date.now()-dashboardLastSyncedAt.getTime())/1000));
+      if(seconds < 10){
+        els.liveStatusText.textContent='Live';
+      }else if(seconds < 60){
+        els.liveStatusText.textContent=`Synced ${seconds}s ago`;
+      }else{
+        const minutes=Math.floor(seconds/60);
+        els.liveStatusText.textContent=`Synced ${minutes}m ago`;
+      }
+    }
+    function markDashboardSynced(){dashboardLastSyncedAt=new Date();updateLiveStatusLabel()}
+
+    function isDashboardBusyForAutoRefresh(){
+      const active = document.activeElement;
+      const isEditing = active && ['INPUT','TEXTAREA','SELECT'].includes(active.tagName);
+      const modalOpen = !!document.querySelector('.modal.show');
+      const parserOpen = els.resumeParserModal?.classList.contains('show');
+      return !!(state.loading || state.autoRefreshInFlight || isEditing || modalOpen || parserOpen);
+    }
+
+    async function refreshDashboardSilently(force = false){
+      if(!supabaseClient)return;
+      const hiddenDelay = Number(CONFIG.DASHBOARD_AUTO_REFRESH_WHEN_HIDDEN_MS || 300000);
+      const lastAttemptAt = state.lastAutoRefreshAttemptAt ? state.lastAutoRefreshAttemptAt.getTime() : 0;
+
+      if(!force){
+        if(document.hidden && Date.now() - lastAttemptAt < hiddenDelay)return;
+        if(isDashboardBusyForAutoRefresh())return;
+      }
+
+      state.autoRefreshInFlight = true;
+      state.lastAutoRefreshAttemptAt = new Date();
+      try{
+        await loadDashboard({silent:true});
+      }finally{
+        state.autoRefreshInFlight = false;
+      }
+    }
+
+    function startDashboardAutoRefresh(){
+      if(state.autoRefreshTimer)window.clearInterval(state.autoRefreshTimer);
+      const interval = Math.max(60000, Number(CONFIG.DASHBOARD_AUTO_REFRESH_MS || 90000));
+      state.autoRefreshTimer = window.setInterval(()=>refreshDashboardSilently(false), interval);
+      document.addEventListener('visibilitychange',()=>{
+        if(!document.hidden)refreshDashboardSilently(true);
+      });
+      window.addEventListener('focus',()=>refreshDashboardSilently(true));
+    }
+
+    function openCandidateReviewByApplicationId(applicationId){
+      routeToCandidateReview(applicationId);
+    }
+
+    function openBulkUploadModal(){
+      if(!els.bulkUploadModal)return;
+      populateBulkRoleSelect();
+      els.bulkUploadModal.classList.add('show');
+    }
+
+    function closeBulkUploadModal(){
+      els.bulkUploadModal?.classList.remove('show');
+    }
+
+
+    function getAssessmentRow(rowId){
+      return state.allRows.find(item => item.id === rowId) ||
+        state.filteredRows.find(item => item.id === rowId) ||
+        state.allRows.find(item => item.id === state.selectedId);
+    }
+
+    function defaultAssessmentDueDate(){
+      const date = new Date();
+      date.setDate(date.getDate() + 3);
+      return `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`;
+    }
+
+    function buildAssessmentLink(row){
+      if(!row)return '';
+      const base = new URL('assessment-room.html', window.location.origin || window.location.href);
+      if(row.id)base.searchParams.set('application_id', row.id);
+      return base.toString();
+    }
+
+    function getAssessmentEmailSubject(row){
+      const role = safeText(row?.jobTitle || row?.app?.job_title || 'the role');
+      return `Complete your BuzzHire assessment for ${role}`;
+    }
+
+    function getAssessmentEmailBody(row){
+      const candidateName = safeText(els.assessmentCandidateName?.value || row?.displayName || 'there');
+      const roleName = safeText(els.assessmentRoleName?.value || row?.jobTitle || 'the role');
+      const companyName = safeText(els.assessmentCompanyName?.value || row?.clientName || 'the hiring team');
+      const dueDate = safeText(els.assessmentDueDate?.value || '');
+      const link = safeText(els.assessmentLink?.value || buildAssessmentLink(row));
+      const customMessage = safeText(els.assessmentCustomMessage?.value || '');
+
+      return [
+        `Hi ${candidateName},`,
+        '',
+        `Thank you for your interest in the ${roleName} position${companyName && companyName !== '—' ? ` with ${companyName}` : ''}.`,
+        '',
+        'As the next step in the hiring process, please complete your BuzzHire assessment using the link below:',
+        '',
+        link,
+        '',
+        dueDate ? `Please complete it by ${dueDate}.` : 'Please complete it as soon as you are available.',
+        customMessage ? `\n${customMessage}` : '',
+        '',
+        'If you have any questions or experience technical issues, you can reply to this email.',
+        '',
+        'Best regards,',
+        safeText(state.recruiterProfile?.full_name || state.currentUser?.email || 'BuzzHire Hiring Team')
+      ].filter(line => line !== null).join('\n');
+    }
+
+    function renderAssessmentEmailPreview(){
+      const row = getAssessmentRow(state.selectedAssessmentRowId);
+      if(!els.assessmentEmailPreview)return;
+      els.assessmentEmailPreview.textContent = `Subject: ${getAssessmentEmailSubject(row)}\n\n${getAssessmentEmailBody(row)}`;
+    }
+
+    function setAssessmentEmailStatus(message, type='info'){
+      if(!els.assessmentEmailStatus)return;
+      els.assessmentEmailStatus.classList.remove('hidden');
+      els.assessmentEmailStatus.textContent = message;
+      els.assessmentEmailStatus.style.borderColor = type === 'error' ? '#fecdca' : type === 'success' ? '#abefc6' : 'var(--line-strong)';
+      els.assessmentEmailStatus.style.color = type === 'error' ? 'var(--bad)' : type === 'success' ? 'var(--good)' : 'var(--muted)';
+    }
+
+    function openAssessmentEmailModal(rowId){
+      const row = getAssessmentRow(rowId);
+      if(!row)return showNotice('Open or select a candidate first.', 'error');
+
+      const candidateEmail = safeText(row.profile?.email || row.app?.email || '');
+      if(!candidateEmail)return showNotice('Candidate email is required before sending an assessment.', 'error');
+
+      state.selectedAssessmentRowId = row.id;
+      if(els.assessmentCandidateName)els.assessmentCandidateName.value = row.displayName || '';
+      if(els.assessmentCandidateEmail)els.assessmentCandidateEmail.value = candidateEmail;
+      if(els.assessmentRoleName)els.assessmentRoleName.value = row.jobTitle || '';
+      if(els.assessmentCompanyName)els.assessmentCompanyName.value = row.clientName && row.clientName !== '—' ? row.clientName : '';
+      if(els.assessmentDueDate && !els.assessmentDueDate.value)els.assessmentDueDate.value = defaultAssessmentDueDate();
+      if(els.assessmentLink)els.assessmentLink.value = buildAssessmentLink(row);
+      if(els.assessmentCustomMessage)els.assessmentCustomMessage.value = '';
+      if(els.assessmentEmailStatus)els.assessmentEmailStatus.classList.add('hidden');
+      if(els.assessmentModalSubtitle)els.assessmentModalSubtitle.textContent = `${row.displayName} • ${row.jobTitle} • ${row.clientName}`;
+
+      renderAssessmentEmailPreview();
+      els.assessmentEmailModal?.classList.add('show');
+    }
+
+    function closeAssessmentEmailModal(){
+      els.assessmentEmailModal?.classList.remove('show');
+    }
+
+    async function copyAssessmentEmail(){
+      const row = getAssessmentRow(state.selectedAssessmentRowId);
+      const text = `Subject: ${getAssessmentEmailSubject(row)}\n\n${getAssessmentEmailBody(row)}`;
+      try{
+        await navigator.clipboard.writeText(text);
+        setAssessmentEmailStatus('Assessment email copied.', 'success');
+      }catch(error){
+        console.warn('Clipboard copy failed:', error);
+        setAssessmentEmailStatus('Unable to copy automatically. You can manually select and copy the preview text.', 'error');
+      }
+    }
+
+    async function markAssessmentSent(row, payload){
+      const now = new Date().toISOString();
+      const updatePayload = {
+        status: 'assessment',
+        recruiter_notes: row.app?.recruiter_notes || null,
+        stage_note_label: row.app?.stage_note_label || row.app?.recruiter_notes || null,
+        updated_at: now,
+        last_status_change_at: now,
+        follow_up_required: true,
+        follow_up_status: 'needs_follow_up',
+        follow_up_date: payload.dueDate ? dateInputToIso(payload.dueDate) : null,
+        follow_up_due_at: payload.dueDate ? dateInputToIso(payload.dueDate) : null,
+        follow_up_note: `Assessment sent to ${payload.candidateEmail}${payload.dueDate ? `; due ${payload.dueDate}` : ''}.`
+      };
+
+      try{
+        await updateApplicationWithFallback(row.id, updatePayload);
+      }catch(error){
+        console.warn('Assessment email sent, but status update failed:', error);
+      }
+    }
+
+    function applyAssessmentQueuedLocally(row, payload){
+      if(!row)return;
+      const now = new Date().toISOString();
+      const dueAt = payload?.dueDate ? dateInputToIso(payload.dueDate) : null;
+      const candidateEmail = safeText(payload?.candidateEmail || row.profile?.email || row.app?.email || '');
+
+      const targets = [
+        row,
+        state.allRows.find(item => item.id === row.id),
+        state.filteredRows.find(item => item.id === row.id)
+      ].filter(Boolean);
+
+      [...new Set(targets)].forEach(target=>{
+        target.app = target.app || {};
+        target.app.status = 'assessment';
+        target.app.assessment_invite_status = 'sent';
+        target.app.assessment_invite_sent_at = target.app.assessment_invite_sent_at || now;
+        target.app.assessment_due_at = dueAt;
+        target.app.updated_at = now;
+        target.app.last_status_change_at = now;
+        target.app.follow_up_required = true;
+        target.app.follow_up_status = 'needs_follow_up';
+        target.app.follow_up_date = dueAt;
+        target.app.follow_up_due_at = dueAt;
+        target.app.follow_up_note = `Assessment queued for ${candidateEmail}${payload?.dueDate ? `; due ${payload.dueDate}` : ''}.`;
+        target.status = 'assessment';
+        target.followUp = getFollowUpInfo(target.app);
+        target.assessmentInfo = getAssessmentInfo(target);
+      });
+    }
+
+    function refreshAssessmentUiAfterQueue(row){
+      if(!row)return;
+      try{
+        applyFilters();
+        if(state.selectedId === row.id){
+          openDrawer(row.id).catch(error => console.warn('Unable to refresh drawer after assessment queue:', error));
+        }
+        if(isCandidateModalOpen()){
+          const refreshed = state.allRows.find(item => item.id === row.id) || row;
+          fillCandidateModal(refreshed);
+        }
+      }catch(error){
+        console.warn('Unable to refresh assessment UI:', error);
+      }
+    }
+
+    function finishAssessmentSendInBackground(row, payload){
+      Promise.resolve()
+        .then(async()=>{
+          const { data, error } = await supabaseClient.functions.invoke(CONFIG.ASSESSMENT_INVITE_FUNCTION, {
+            body: payload.backendPayload
+          });
+
+          if(error)throw error;
+          if(!data?.success)throw new Error(data?.error || 'Assessment invitation was not sent.');
+
+          if(els.assessmentLink && data.assessment_link){
+            els.assessmentLink.value = data.assessment_link;
+          }
+
+          await markAssessmentSent(row, {
+            candidateEmail: payload.candidateEmail,
+            dueDate: payload.dueDate
+          });
+
+          showNotice(`Assessment sent to ${payload.candidateEmail}.`, 'success');
+          await loadDashboard({silent:true});
+          if(state.selectedId === row.id){
+            await openDrawer(row.id);
+          }
+        })
+        .catch(error=>{
+          console.error('Unable to send assessment invitation in background:', error);
+          showNotice(`Assessment send failed for ${payload.candidateEmail}: ${getReadableError(error)}`, 'error');
+
+          const target = state.allRows.find(item => item.id === row.id) || row;
+          if(target?.app){
+            target.app.assessment_invite_status = 'not_sent';
+            target.app.assessment_invite_sent_at = null;
+            target.assessmentInfo = getAssessmentInfo(target);
+            target.followUp = getFollowUpInfo(target.app);
+          }
+          refreshAssessmentUiAfterQueue(target);
+        });
+    }
+
+    async function sendAssessmentEmail(){
+      const row = getAssessmentRow(state.selectedAssessmentRowId);
+      if(!row)return showNotice('Open or select a candidate first.', 'error');
+
+      const candidateEmail = safeText(els.assessmentCandidateEmail?.value || row.profile?.email || row.app?.email || '');
+      if(!candidateEmail)return showNotice('Candidate email is required.', 'error');
+
+      const dueDate = safeText(els.assessmentDueDate?.value || '');
+      const customMessage = safeText(els.assessmentCustomMessage?.value || '');
+
+      const backendPayload = {
+        application_id: row.id,
+        due_date: dueDate || null,
+        custom_message: customMessage || '',
+        force: true
+      };
+
+      if(els.sendAssessmentEmailBtn){
+        els.sendAssessmentEmailBtn.disabled = true;
+        els.sendAssessmentEmailBtn.textContent = 'Queued';
+      }
+
+      setAssessmentEmailStatus('Assessment queued. You can keep working while BuzzHire sends it in the background.', 'info');
+      showNotice('Assessment queued. You can keep working while it sends in the background.', 'info');
+
+      applyAssessmentQueuedLocally(row, {candidateEmail, dueDate});
+      closeAssessmentEmailModal();
+      refreshAssessmentUiAfterQueue(row);
+
+      window.setTimeout(()=>{
+        if(els.sendAssessmentEmailBtn){
+          els.sendAssessmentEmailBtn.disabled = false;
+          els.sendAssessmentEmailBtn.textContent = 'Send Assessment';
+        }
+      }, 250);
+
+      finishAssessmentSendInBackground(row, {
+        candidateEmail,
+        dueDate,
+        backendPayload
+      });
+    }
+
+
+    function getSelectedCandidateRow(){
+      return state.allRows.find(item => item.id === state.selectedId) ||
+        state.filteredRows.find(item => item.id === state.selectedId) || null;
+    }
+
+    function getCandidateFirstName(row){
+      const name = safeText(row?.displayName || row?.profile?.full_name || row?.app?.email || 'Candidate');
+      const first = name.split(/\s+/).filter(Boolean)[0];
+      return first || 'there';
+    }
+
+    function buildCandidateEmailTemplate(row, templateKey){
+      const firstName = getCandidateFirstName(row);
+      const role = safeText(row?.jobTitle || row?.app?.job_title || 'the role');
+      const company = safeText(row?.clientName || row?.job?.client_name || 'our client');
+      const recruiterName = safeText(state.recruiterProfile?.full_name || state.currentUser?.email || 'BuzzHire Team');
+
+      const templates = {
+        follow_up: {
+          subject: `Following up on your ${role} application`,
+          body: `Hi ${firstName},\n\nI hope you're doing well. I wanted to follow up on your application for the ${role} role.\n\nPlease let me know if you're still interested and available to continue with the next step.\n\nBest,\n${recruiterName}`
+        },
+        assessment_reminder: {
+          subject: `Reminder: ${role} assessment`,
+          body: `Hi ${firstName},\n\nJust a quick reminder to complete your assessment for the ${role} role when you have a chance.\n\nOnce completed, our recruiting team will review your responses and follow up with next steps.\n\nBest,\n${recruiterName}`
+        },
+        interview_confirmation: {
+          subject: `Interview confirmation for ${role}`, 
+          body: `Hi ${firstName},\n\nI'm confirming your interview for the ${role} role with ${company}.\n\nPlease reply to this email if you have any questions or need to update your availability.\n\nBest,\n${recruiterName}`
+        },
+        missing_resume: {
+          subject: `Resume needed for your ${role} application`,
+          body: `Hi ${firstName},\n\nThanks for your interest in the ${role} role. Could you please send over your latest resume so we can complete your candidate profile and continue the review?\n\nBest,\n${recruiterName}`
+        },
+        custom: {
+          subject: `Update regarding your ${role} application`,
+          body: `Hi ${firstName},\n\n\n\nBest,\n${recruiterName}`
+        }
+      };
+
+      return templates[templateKey] || templates.follow_up;
+    }
+
+    function populateCandidateEmailComposer(row, templateKey){
+      if(!row)return;
+      const email = safeText(row?.profile?.email || row?.app?.email || '');
+      const template = buildCandidateEmailTemplate(row, templateKey || els.candidateEmailTemplate?.value || 'follow_up');
+
+      if(els.candidateEmailTo) els.candidateEmailTo.value = email;
+      if(els.candidateEmailSubject) els.candidateEmailSubject.value = template.subject;
+      if(els.candidateEmailBody) els.candidateEmailBody.value = template.body;
+      if(els.candidateEmailModalSubtitle){
+        els.candidateEmailModalSubtitle.textContent = `${row.displayName || 'Candidate'}${row.jobTitle ? ` • ${row.jobTitle}` : ''}`;
+      }
+      if(els.candidateEmailStatus){
+        els.candidateEmailStatus.classList.add('hidden');
+        els.candidateEmailStatus.textContent = 'No email prepared yet.';
+      }
+    }
+
+    function openCandidateEmailModal(rowId){
+      const row = rowId
+        ? (state.allRows.find(item => item.id === rowId) || state.filteredRows.find(item => item.id === rowId))
+        : getSelectedCandidateRow();
+
+      if(!row){
+        showNotice('Open or select a candidate first.', 'error');
+        return;
+      }
+
+      state.selectedId = row.id;
+      populateCandidateEmailComposer(row, els.candidateEmailTemplate?.value || 'follow_up');
+      els.candidateEmailModal?.classList.add('show');
+    }
+
+    function closeCandidateEmailModal(){
+      els.candidateEmailModal?.classList.remove('show');
+    }
+
+    function getCandidateEmailDraft(){
+      return {
+        to: safeText(els.candidateEmailTo?.value || ''),
+        subject: safeText(els.candidateEmailSubject?.value || ''),
+        body: safeText(els.candidateEmailBody?.value || '')
+      };
+    }
+
+    function showCandidateEmailStatus(message, type='info'){
+      if(!els.candidateEmailStatus)return;
+      els.candidateEmailStatus.classList.remove('hidden');
+      els.candidateEmailStatus.textContent = message;
+      els.candidateEmailStatus.style.borderColor = type === 'error' ? '#fecdca' : type === 'success' ? '#abefc6' : 'var(--line-strong)';
+      els.candidateEmailStatus.style.color = type === 'error' ? 'var(--bad)' : type === 'success' ? 'var(--good)' : 'var(--muted)';
+      els.candidateEmailStatus.style.background = type === 'error' ? 'var(--bad-bg)' : type === 'success' ? 'var(--good-bg)' : 'var(--surface-soft)';
+    }
+
+    async function copyCandidateEmailDraft(){
+      const draft = getCandidateEmailDraft();
+      if(!draft.to || !draft.subject || !draft.body){
+        showCandidateEmailStatus('Please complete the recipient, subject, and message before copying.', 'error');
+        return;
+      }
+      const textToCopy = `To: ${draft.to}\nSubject: ${draft.subject}\n\n${draft.body}`;
+      try{
+        await navigator.clipboard.writeText(textToCopy);
+        showCandidateEmailStatus('Email copied. You can paste it into Gmail or your email client.', 'success');
+      }catch(error){
+        showCandidateEmailStatus('Copy failed. Please select and copy the message manually.', 'error');
+      }
+    }
+
+    function invokeEmailFunctionKeepAlive(functionName, payload){
+      const url = `${CONFIG.SUPABASE_URL.replace(/\/$/, '')}/functions/v1/${encodeURIComponent(functionName)}`;
+      const body = JSON.stringify(payload);
+      const headers = {
+        'Content-Type': 'application/json',
+        'apikey': CONFIG.SUPABASE_ANON_KEY,
+        'Authorization': `Bearer ${CONFIG.SUPABASE_ANON_KEY}`
+      };
+
+      try{
+        return fetch(url, {
+          method: 'POST',
+          headers,
+          body,
+          keepalive: body.length < 60000
+        });
+      }catch(error){
+        console.warn('keepalive email fetch failed, falling back to supabase.functions.invoke:', error?.message || error);
+        return supabaseClient.functions.invoke(functionName, {body: payload});
+      }
+    }
+
+    async function finishCandidateEmailSendInBackground(row, payload, functionNames){
+      let sent = false;
+      let sendResponse = null;
+      let lastError = null;
+
+      for(const functionName of functionNames){
+        try{
+          const response = await invokeEmailFunctionKeepAlive(functionName, payload);
+          if(response?.json){
+            const data = await response.json().catch(()=>null);
+            if(!response.ok)throw new Error(data?.error || data?.message || `HTTP ${response.status}`);
+            if(data && (data.success === false || data.ok === false))throw new Error(data.error || data.message || `${functionName} returned success=false`);
+            sendResponse = data || null;
+          }else if(response?.error){
+            throw response.error;
+          }else if(response?.data){
+            if(response.data.success === false || response.data.ok === false)throw new Error(response.data.error || response.data.message || `${functionName} returned success=false`);
+            sendResponse = response.data;
+          }
+          sent = true;
+          break;
+        }catch(error){
+          lastError = error;
+          console.warn(`${functionName} failed:`, error?.message || error);
+        }
+      }
+
+      if(!sent)throw lastError || new Error('No dashboard email function accepted the request.');
+      return sendResponse;
+    }
+
+    async function openCandidateEmailApp(){
+      const draft = getCandidateEmailDraft();
+      const row = getSelectedCandidateRow();
+
+      if(!draft.to || !draft.subject || !draft.body){
+        showCandidateEmailStatus('Please complete the recipient, subject, and message before sending.', 'error');
+        return;
+      }
+
+      if(!row?.id){
+        showCandidateEmailStatus('Please select a candidate before sending.', 'error');
+        return;
+      }
+
+      const button = els.openCandidateEmailAppBtn;
+      const originalText = button?.textContent || 'Send Email + Log';
+
+      const payload = {
+        application_id: row.id,
+        applicant_profile_id: row?.app?.applicant_profile_id || row?.profile?.id || null,
+        client_id: row?.app?.company_id || currentCompanyId() || null,
+        company_id: row?.app?.company_id || currentCompanyId() || null,
+        channel: 'email',
+        job_id: row?.app?.job_id || row?.job?.id || null,
+        to: draft.to,
+        subject: draft.subject,
+        body: draft.body,
+        message: draft.body,
+        message_body: draft.body,
+        template: safeText(els.candidateEmailTemplate?.value || 'custom'),
+        candidate_name: row?.displayName || row?.profile?.full_name || '',
+        candidate_email: draft.to,
+        role_title: row?.jobTitle || row?.app?.job_title || '',
+        recruiter_email: state.currentUser?.email || state.recruiterProfile?.email || '',
+        recruiter_name: state.recruiterProfile?.full_name || state.currentUser?.email || 'BuzzHire Team'
+      };
+
+      const functionNames = [
+        CONFIG.CANDIDATE_EMAIL_FUNCTION,
+        'send-candidate-email',
+        'send-candidate-message',
+        'send-email'
+      ].filter(Boolean);
+
+      try{
+        if(button){
+          button.disabled = true;
+          button.textContent = 'Queued';
+        }
+
+        showCandidateEmailStatus('Email queued. You can close this window while BuzzHire sends it.', 'success');
+        showNotice(`Email queued for ${draft.to}.`, 'success');
+
+        await insertCandidateActivitySafe({
+          application_id: row.id,
+          applicant_profile_id: row?.app?.applicant_profile_id || row?.profile?.id || null,
+          activity_type: 'email_queued',
+          title: `Email queued: ${draft.subject}`,
+          body: `To: ${draft.to}\nSubject: ${draft.subject}\n\n${draft.body}`,
+          source: 'recruiter_dashboard',
+          source_message_id: ''
+        });
+
+        await insertApplicantMessageSafe({
+          application_id: row.id,
+          applicant_profile_id: row?.app?.applicant_profile_id || row?.profile?.id || null,
+          applicant_email: draft.to,
+          sender_type: 'recruiter',
+          message: draft.body,
+          created_at: new Date().toISOString()
+        });
+
+        closeCandidateEmailModal();
+
+        // Fire and forget. keepalive lets the browser continue the request even if the modal/window closes.
+        finishCandidateEmailSendInBackground(row, payload, functionNames)
+          .then(async(sendResponse)=>{
+            await insertCandidateActivitySafe({
+              application_id: row.id,
+              applicant_profile_id: row?.app?.applicant_profile_id || row?.profile?.id || null,
+              activity_type: 'email_sent',
+              title: `Email sent: ${draft.subject}`,
+              body: `To: ${draft.to}\nSubject: ${draft.subject}\n\n${draft.body}`,
+              source: 'recruiter_dashboard',
+              source_message_id: safeText(sendResponse?.message_id || sendResponse?.id || sendResponse?.email_id || '')
+            });
+            showNotice(`Email sent to ${draft.to}.`, 'success');
+          })
+          .catch(async(error)=>{
+            console.error('Candidate email send failed after queue:', error);
+            await insertCandidateActivitySafe({
+              application_id: row.id,
+              applicant_profile_id: row?.app?.applicant_profile_id || row?.profile?.id || null,
+              activity_type: 'email_send_failed',
+              title: `Email failed: ${draft.subject}`,
+              body: `To: ${draft.to}\nError: ${getReadableError(error)}`,
+              source: 'recruiter_dashboard',
+              source_message_id: ''
+            });
+            showNotice(`Email send failed for ${draft.to}: ${getReadableError(error)}`, 'error');
+          });
+
+        try{
+          const updatePayload = {
+            last_contacted_at: new Date().toISOString(),
+            follow_up_status: 'needs_follow_up',
+            follow_up_open: true,
+            follow_up_state: 'needs_follow_up',
+            updated_at: new Date().toISOString()
+          };
+          await supabaseClient.from('applications').update(updatePayload).eq('id', row.id);
+          row.app = {...row.app, ...updatePayload};
+          row.followUp = getFollowUpInfo(row.app);
+          applyFilters();
+        }catch(updateError){
+          console.warn('Email queued but follow-up state update failed:', updateError?.message || updateError);
+        }
+      }catch(error){
+        console.error('Candidate email queue failed:', error);
+        showCandidateEmailStatus(`Email could not be queued: ${getReadableError(error)}`, 'error');
+      }finally{
+        if(button){
+          window.setTimeout(()=>{
+            button.disabled = false;
+            button.textContent = originalText;
+          }, 250);
+        }
+      }
+    }
+
+    function bindEvents(){
+      [els.searchInput,els.candidateNameFilter,els.statusFilter,els.recruiterFilter,els.followUpFilter,els.jobFilter,els.clientFilter,els.countryFilter,els.workSetupFilter,els.scoreFilter].forEach(el=>{el?.addEventListener('input',applyFilters);el?.addEventListener('change',applyFilters)});
+      document.querySelectorAll('[data-quick-filter]').forEach(btn=>btn.addEventListener('click',()=>{
+        clearFilters(false);
+        const f = btn.dataset.quickFilter;
+        const savedViewMap = {
+          needs_review: 'needs_review_queue',
+          follow_up: 'my_followups',
+          ready_for_review: 'ready_for_review',
+          awaiting_assessment: 'awaiting_assessment',
+          unassigned: 'unassigned'
+        };
+        const targetView = savedViewMap[f] || 'all';
+        setSavedView(targetView);
+        document.getElementById('pipeline')?.scrollIntoView({behavior:'smooth',block:'start'});
+      }));
+
+      document.querySelectorAll('[data-focus-filter]').forEach(btn=>btn.addEventListener('click',()=>{
+        clearFilters(false);
+        setSavedView(btn.dataset.focusFilter || 'all');
+        document.getElementById('pipeline')?.scrollIntoView({behavior:'smooth',block:'start'});
+      }));
+
+      document.querySelectorAll('[data-chip-filter]').forEach(chip=>chip.addEventListener('click',()=>{
+        applyQuickFilterChip(chip.dataset.chipFilter || 'all');
+      }));
+
+      document.querySelectorAll('[data-saved-view]').forEach(btn=>btn.addEventListener('click',()=>{
+        clearFilters(false);
+        setSavedView(btn.dataset.savedView || 'all');
+      }));
+
+      els.densityToggleBtn?.addEventListener('click',()=>{
+        state.compactRows = !state.compactRows;
+        saveUiPreference(PREF_KEYS.compactRows, state.compactRows);
+        renderTable();
+      });
+      document.getElementById('liveStatusPill')?.addEventListener('click',()=>refreshDashboardSilently(true));
+      els.headerInboxBtn?.addEventListener('click',openMessageInbox);
+      els.sidebarInboxBtn?.addEventListener('click',openMessageInbox);
+      els.messageInboxClose?.addEventListener('click',closeMessageInbox);
+      els.candidateReviewModalClose?.addEventListener('click', closeCandidateReviewModal);
+      els.candidateReviewModal?.addEventListener('click', event => { if(event.target === els.candidateReviewModal) closeCandidateReviewModal(); });
+      els.candidateReviewFrame?.addEventListener('load', () => { els.candidateReviewLoading?.classList.add('hidden'); });
+      els.candidateReviewOpenNewTabBtn?.addEventListener('click', () => {
+        const url = els.candidateReviewOpenNewTabBtn?.dataset?.reviewUrl || els.candidateReviewFrame?.src || '';
+        if(url) window.open(url, '_blank', 'noopener');
+      });
+      els.messageInboxRefreshBtn?.addEventListener('click',()=>refreshMessageInbox({sync:false}));
+      els.messageInboxSyncBtn?.addEventListener('click',()=>refreshMessageInbox({sync:true}));
+      els.messageInboxDirectionFilter?.addEventListener('change',()=>{state.messageInboxDirectionFilter = els.messageInboxDirectionFilter.value || 'all'; updateMessageInboxBadge(); renderMessageInboxList();});
+      els.messageInboxChannelFilter?.addEventListener('change',()=>{state.messageInboxChannelFilter = els.messageInboxChannelFilter.value || 'all'; updateMessageInboxBadge(); renderMessageInboxList();});
+      els.messageInboxModal?.addEventListener('click',event=>{if(event.target===els.messageInboxModal)closeMessageInbox();});
+      els.messageInboxList?.addEventListener('click',event=>{const item=event.target.closest('.message-inbox-item[data-message-id]'); if(item)openCandidateFromInboxMessage(item.dataset.messageId || '');});
+      els.clearFiltersBtn.addEventListener('click',clearFilters);els.quickClearFiltersBtn?.addEventListener('click',clearFilters);els.bulkUploadBtn?.addEventListener('click',bulkUploadResumes);els.sidebarBulkUploadBtn?.addEventListener('click',openBulkUploadModal);els.bulkUploadModalClose?.addEventListener('click',closeBulkUploadModal);
+      els.moreFiltersBtn?.addEventListener('click',()=>{
+        els.filtersPanel?.classList.toggle('show-advanced');
+        const isOpen=els.filtersPanel?.classList.contains('show-advanced');
+        els.moreFiltersBtn.textContent=isOpen?'Less filters':'More filters';
+        els.moreFiltersBtn.classList.toggle('active', !!isOpen);
+        saveUiPreference(PREF_KEYS.advancedFilters, !!isOpen);
+      });els.closeDrawerBtn.addEventListener('click',closeDrawer);els.prevBtn.addEventListener('click',()=>openSelectedOffset(-1));els.nextBtn.addEventListener('click',()=>openSelectedOffset(1));els.openCandidateWorkspaceBtn.addEventListener('click',openCandidateModal); els.openCandidateReviewBtn?.addEventListener('click', (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const row = state.allRows.find(item => item.id === state.selectedId) || state.filteredRows.find(item => item.id === state.selectedId);
+      routeToCandidateReview(row);
+    }); els.openCandidateEmailBtn?.addEventListener('click',()=>openCandidateEmailModal(state.selectedId)); els.openAssessmentEmailBtn?.addEventListener('click',()=>openAssessmentEmailModal(state.selectedId));
+      els.candidateEmailModalClose?.addEventListener('click', closeCandidateEmailModal);
+      els.candidateEmailModal?.addEventListener('click', event => { if(event.target === els.candidateEmailModal) closeCandidateEmailModal(); });
+      els.candidateEmailTemplate?.addEventListener('change', () => {
+        const row = getSelectedCandidateRow();
+        if(row) populateCandidateEmailComposer(row, els.candidateEmailTemplate.value || 'follow_up');
+      });
+      els.copyCandidateEmailBtn?.addEventListener('click', copyCandidateEmailDraft);
+      els.openCandidateEmailAppBtn?.addEventListener('click', openCandidateEmailApp);
+      els.drawerAssessmentActionBtn?.addEventListener('click', event => {
+        event.preventDefault();
+        event.stopPropagation();
+
+        const row = state.allRows.find(item => item.id === state.selectedId) ||
+          state.filteredRows.find(item => item.id === state.selectedId);
+
+        if(!row){
+          showNotice('Open or select a candidate first.', 'error');
+          return;
+        }
+
+        const assessmentInfo = getAssessmentInfo(row);
+        if(assessmentInfo?.key === 'completed'){
+          routeToCandidateReview(row);
+          return;
+        }
+
+        openAssessmentEmailModal(row.id);
+      });
+      els.headerLogoutBtn.addEventListener('click',handleLogout);els.sidebarSourcingBtn?.addEventListener('click',()=>showNotice('Sourcing link will be added after the base dashboard is stable.','info'));
+      els.applicationsTable.addEventListener('click',async event=>{
+        const button=event.target.closest('button[data-action]');
+        if(button?.getAttribute('data-action')==='clear-empty')return clearFilters();
+
+        const tr=event.target.closest('tr[data-id]');
+        if(!tr)return;
+        const id=tr.getAttribute('data-id');
+        if(!button)return openDrawer(id);
+        const action=button.getAttribute('data-action');
+        if(action==='clear-empty')return clearFilters();
+        if(action==='open')return openDrawer(id);
+        if(action==='review'){
+          event.preventDefault();
+          event.stopPropagation();
+          return routeToCandidateReview(id);
+        }
+        if(action==='endorse'){
+          event.preventDefault();
+          event.stopPropagation();
+          const endorsed = await endorseApplication(id);
+          if(endorsed){ await loadDashboard({silent:true}); }
+          return;
+        }
+        if(action==='schedule'){
+          event.preventDefault();
+          event.stopPropagation();
+          return openScheduleForRow(id);
+        }
+        if(action==='assessment'){ await openDrawer(id); return openAssessmentEmailModal(id); }
+      });
+      els.applicationsTable.addEventListener('change', event=>{
+        const checkbox = event.target.closest('input[data-bulk-select]');
+        if(!checkbox)return;
+        event.stopPropagation();
+        if(!state.bulkSelectedIds)state.bulkSelectedIds = new Set();
+        const id = checkbox.getAttribute('data-bulk-select');
+        if(checkbox.checked)state.bulkSelectedIds.add(id);
+        else state.bulkSelectedIds.delete(id);
+        updateBulkSelectionCount();
+      });
+      els.selectVisibleRowsBtn?.addEventListener('click', selectVisibleRows);
+      els.clearSelectedRowsBtn?.addEventListener('click', clearBulkSelection);
+      els.bulkEndorseSelectedBtn?.addEventListener('click', bulkEndorseSelected);
+      updateBulkSelectionCount();
+      els.viewResumeBtn?.addEventListener('click',()=>openResumeModal(state.selectedResumeUrl,state.selectedResumePath||'Resume Viewer')); els.importClipboardResumeBtn?.addEventListener('click',importResumeFromClipboard); els.markNeedsFollowUpBtn?.addEventListener('click',()=>setFollowUpQuick('needs_follow_up')); els.markFollowedUpBtn?.addEventListener('click',()=>setFollowUpQuick('contacted')); els.parseResumeBtn?.addEventListener('click',parseSelectedResume);
+      els.uploadResumeBtn?.addEventListener('click',()=>uploadResumeForSelected(false));
+      els.saveBtn?.addEventListener('click',saveSelectedRow);
+      els.saveAssignmentBtn?.addEventListener('click',()=>saveCandidateAssignment(false));
+      els.assignToMeBtn?.addEventListener('click',()=>saveCandidateAssignment(true));
+      els.saveClientWorkflowBtn?.addEventListener('click',()=>saveClientWorkflow());
+      els.submitForReviewBtn?.addEventListener('click',submitSelectedCandidateForReview);
+      els.saveSubmissionWorkflowBtn?.addEventListener('click',()=>saveSubmissionWorkflow());
+      els.requestSubmissionInterviewBtn?.addEventListener('click',requestSubmissionInterview);
+      els.requestSubmissionOfferBtn?.addEventListener('click',requestSubmissionOffer);
+      els.markSubmissionHiredBtn?.addEventListener('click',markSubmissionHired);
+      els.withdrawSubmissionBtn?.addEventListener('click',withdrawSelectedSubmission);
+      els.markClientViewedBtn?.addEventListener('click',()=>{ if(els.clientWorkflowStatusSelect)els.clientWorkflowStatusSelect.value='viewed'; saveClientWorkflow('viewed'); });
+      els.markClientFollowUpBtn?.addEventListener('click',()=>{ if(els.clientWorkflowStatusSelect)els.clientWorkflowStatusSelect.value='submitted'; if(els.clientWaitingSinceInput && !els.clientWaitingSinceInput.value)els.clientWaitingSinceInput.value=toDateInputValue(new Date().toISOString()); saveClientWorkflow('submitted'); });
+      [els.interviewDateTime, els.interviewType, els.interviewTimezone, els.interviewDurationMinutes, els.interviewInterviewer, els.interviewInterviewerEmails, els.interviewLocation, els.interviewNotes].forEach(el=>{el?.addEventListener('input',renderInterviewEmailPreview);el?.addEventListener('change',renderInterviewEmailPreview);});
+      document.getElementById('interviewerEmailChips')?.addEventListener('click',event=>{
+        const btn = event.target.closest('[data-remove-interviewer-email]');
+        if(!btn || !els.interviewInterviewerEmails)return;
+        const removeEmail = normalizeEmail(btn.dataset.removeInterviewerEmail || '');
+        const remaining = parseInterviewEmailTokens(els.interviewInterviewerEmails.value).filter(email => email !== removeEmail);
+        els.interviewInterviewerEmails.value = remaining.join(', ');
+        renderInterviewEmailPreview();
+      });
+      els.scheduleInterviewBtn?.addEventListener('click',scheduleInterviewForSelected);
+      els.clearInterviewFormBtn?.addEventListener('click',clearInterviewForm);
+      els.saveCandidateInfoBtn?.addEventListener('click',updateCandidateInfo);
+      els.modalSaveCandidateInfoBtn?.addEventListener('click',updateCandidateInfo);
+      els.assessmentEmailModalClose?.addEventListener('click',closeAssessmentEmailModal);
+      els.assessmentEmailModal?.addEventListener('click',event=>{if(event.target===els.assessmentEmailModal)closeAssessmentEmailModal();});
+      [els.assessmentType,els.assessmentDueDate,els.assessmentLink,els.assessmentCustomMessage].forEach(el=>{el?.addEventListener('input',renderAssessmentEmailPreview);el?.addEventListener('change',renderAssessmentEmailPreview);});
+      els.sendAssessmentEmailBtn?.addEventListener('click',sendAssessmentEmail);
+      els.copyAssessmentEmailBtn?.addEventListener('click',copyAssessmentEmail);
+      els.candidateModalClose?.addEventListener('click',closeCandidateModal);
+      els.modalSaveBtn?.addEventListener('click',saveSelectedRow);
+      els.modalViewResumeBtn?.addEventListener('click',()=>openResumeModal(state.selectedResumeUrl,state.selectedResumePath||'Resume Viewer')); els.modalImportClipboardResumeBtn?.addEventListener('click',importResumeFromClipboard); els.modalParseResumeBtn?.addEventListener('click',parseSelectedResume);
+      els.modalUploadResumeBtn?.addEventListener('click',()=>uploadResumeForSelected(true));
+      els.candidateModal?.addEventListener('click',event=>{if(event.target===els.candidateModal)closeCandidateModal();});
+      els.resumeModalClose.addEventListener('click',()=>{els.resumeModal.classList.remove('show');els.resumeFrame.src=''});
+      els.resumeModal.addEventListener('click',event=>{if(event.target===els.resumeModal){els.resumeModal.classList.remove('show');els.resumeFrame.src=''}});
+      els.resumeModalDownloadBtn?.addEventListener('click',()=>downloadResumeFile(state.currentResumeViewerUrl,state.currentResumeViewerPath,'resume'));
+      els.resumeParserClose?.addEventListener('click',closeResumeParserModal);
+      els.resumeParserCancelBtn?.addEventListener('click',closeResumeParserModal);
+      els.resumeParserModal?.addEventListener('click',event=>{if(event.target===els.resumeParserModal)closeResumeParserModal();});
+      els.resumeParserPasteBtn?.addEventListener('click',pasteIntoResumeParser);
+      els.resumeParserParseBtn?.addEventListener('click',parseResumeParserPreview);
+      els.resumeParserClearBtn?.addEventListener('click',()=>{ if(els.resumeParserRawText)els.resumeParserRawText.value=''; state.resumeParserParsed=null; fillResumeParserFields({}, state.allRows.find(item=>item.id===state.selectedId)); setResumeParserStatus('Paste text to begin.','info'); });
+      els.resumeParserSaveBtn?.addEventListener('click',saveResumeParserImport);
+      els.resumeParserRawText?.addEventListener('input',()=>{ state.resumeParserParsed=null; });
+      [els.resumeParserName,els.resumeParserEmail,els.resumeParserPhone,els.resumeParserLocation,els.resumeParserExperience,els.resumeParserEducation,els.resumeParserSkills,els.resumeParserSummary,els.resumeParserRole].forEach(el=>el?.addEventListener('input',()=>{ state.resumeParserParsed = state.resumeParserParsed || {}; }));
+      window.setInterval(updateLiveStatusLabel,5000);
+    }
+
+
+    function bindAssessmentDemoShortcuts(){
+      document.querySelectorAll('[data-quick-filter="ready_for_review"]').forEach(btn=>{
+        btn.addEventListener('click', event=>{
+          event.preventDefault();
+          clearFilters(false);
+          setSavedView('ready_for_review');
+        });
+      });
+
+      document.querySelectorAll('[data-quick-filter="awaiting_assessment"]').forEach(btn=>{
+        btn.addEventListener('click', event=>{
+          event.preventDefault();
+          clearFilters(false);
+          setSavedView('awaiting_assessment');
+        });
+      });
+
+      document.querySelectorAll('[data-chip-filter="ready_review"]').forEach(btn=>{
+        btn.addEventListener('click', event=>{
+          event.preventDefault();
+          clearFilters(false);
+          setSavedView('ready_for_review');
+        });
+      });
+
+      document.querySelectorAll('[data-chip-filter="awaiting_assessment"]').forEach(btn=>{
+        btn.addEventListener('click', event=>{
+          event.preventDefault();
+          clearFilters(false);
+          setSavedView('awaiting_assessment');
+        });
+      });
+
+      document.querySelectorAll('[data-chip-filter="assessment_in_progress"]').forEach(btn=>{
+        btn.addEventListener('click', event=>{
+          event.preventDefault();
+          clearFilters(false);
+          setSavedView('assessment_in_progress');
+        });
+      });
+    }
+
+    function initClient(){
+      if(!CONFIG.SUPABASE_URL||!CONFIG.SUPABASE_ANON_KEY){setAuthMessage('Missing Supabase configuration.');return false}
+      if(!window.supabase || !window.supabase.createClient){setAuthMessage('Supabase library failed to load. Please refresh.');return false}
+      supabaseClient=window.supabase.createClient(CONFIG.SUPABASE_URL,CONFIG.SUPABASE_ANON_KEY);
+      window.supabaseClient=supabaseClient;
+      supabaseClient.auth.onAuthStateChange(event=>{if(event==='SIGNED_OUT'){setProtectedUiState(false);window.location.replace('login.html')}});
+      return true;
+    }
+    window.initClient = initClient;
+
+    function installAssignmentAdminControlRepairs(){
+      const bindClick = (el, handler) => {
+        if(!el || el.dataset.assignmentRepairBound === '1')return;
+        el.dataset.assignmentRepairBound = '1';
+        el.addEventListener('click', event => {
+          event.preventDefault();
+          event.stopPropagation();
+          handler(event);
+        });
+      };
+
+      bindClick(els.headerTeamAdminBtn, () => openTeamAdminModal());
+      bindClick(els.sidebarTeamAdminBtn, () => openTeamAdminModal());
+      bindClick(els.teamAdminModalClose, () => closeTeamAdminModal());
+      bindClick(els.saveNewRecruiterBtn, () => saveNewRecruiter());
+      bindClick(els.saveNewTeamBtn, () => saveNewTeam());
+      bindClick(els.previewBulkAssignmentBtn, () => updateBulkAssignmentPreview(true));
+      bindClick(els.applyBulkAssignmentBtn, () => applyBulkAssignment());
+
+      [els.bulkAssignmentScope, els.bulkAssignmentCriterion].forEach(el => {
+        if(!el || el.dataset.assignmentRepairValueBound === '1')return;
+        el.dataset.assignmentRepairValueBound = '1';
+        el.addEventListener('change', () => {
+          populateBulkAssignmentValueOptions();
+          updateBulkAssignmentPreview(false);
+        });
+      });
 
       [els.bulkAssignmentValue, els.bulkAssignmentTeam, els.bulkAssignmentRecruiter].forEach(el => {
         if(!el || el.dataset.assignmentRepairInputBound === '1')return;
@@ -11594,8 +12450,6 @@ async function bulkUploadResumes(){
       els.teamAdminModal?.addEventListener('click', event => {
         if(event.target === els.teamAdminModal)closeTeamAdminModal();
       });
-
-      return true;
     }
 
     function installCandidateReviewHardRouteGuard(){
@@ -11623,25 +12477,50 @@ async function bulkUploadResumes(){
     }
 
 
+    function authTimeoutMessage(error){
+      const raw = String(error?.message || error || '');
+      if(raw.toLowerCase().includes('timeout') || raw.includes('504')){
+        return 'Recruiter access lookup timed out. Your session is okay, but Supabase is currently slow. Please refresh in a minute or add the recruiter_users indexes.';
+      }
+      return raw || 'Unable to verify recruiter access.';
+    }
+
+    function withTimeout(promise, ms, label){
+      let timer;
+      const timeout = new Promise((_, reject) => {
+        timer = window.setTimeout(() => reject(new Error(`${label || 'Request'} timed out after ${Math.round(ms/1000)} seconds`)), ms);
+      });
+      return Promise.race([promise, timeout]).finally(() => window.clearTimeout(timer));
+    }
+
     async function startDashboardApp(){
-      if(!initClient())return;
-      loadUiPreferences();
-      bindEvents();
-      installAssignmentAdminControlRepairs();
-      installCandidateReviewHardRouteGuard();
-      setProtectedUiState(false);
       try{
-        const allowed=await requireRecruiterAccess();
+        const bootInitClient = window.initClient || (typeof initClient === 'function' ? initClient : null);
+        if(!bootInitClient){
+          throw new Error('Dashboard boot failed: Supabase client initializer was not loaded.');
+        }
+        if(!bootInitClient())return;
+        loadUiPreferences();
+        bindEvents();
+        installAssignmentAdminControlRepairs();
+        installCandidateReviewHardRouteGuard();
+
+        const allowed = await withTimeout(requireRecruiterAccess(), 18000, 'Recruiter access lookup');
         if(!allowed)return;
+        setProtectedUiState(true);
+
         await withTimeout(loadDashboard(), 30000, 'Dashboard load');
         startDashboardAutoRefresh();
-      }
-      catch(error){
+      }catch(error){
         console.error(error);
-        setProtectedUiState(true);
-        showNotice(`Unable to load dashboard: ${error?.message||error}`,'error');
+        const message = authTimeoutMessage(error);
+        setProtectedUiState(false);
+        document.body.classList.add('auth-pending');
+        setAuthMessage(`${message} Refresh the page, or sign out and sign back in.`);
+        showNotice(`Unable to start dashboard: ${message}`,'error');
       }
     }
+    window.startDashboardApp = startDashboardApp;
     void startDashboardApp();
   </script>
 
