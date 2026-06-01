@@ -4332,7 +4332,7 @@ opslead@company.com"></textarea></div>
     }
 
     async function queryCandidateInboxActivities(){
-      return await fetchCandidateCommunications();
+      return await fetchCandidateCommunications(state.allRows || []);
     }
 
     async function syncCandidateEmailInbox({silent=false} = {}){
@@ -6701,37 +6701,106 @@ function currentCompanyId(){
     }
 
 
-   async function fetchCandidateCommunications(){
+   function getCandidateCommunicationProfileIds(rows=[], maxCount=150){
+  const ids = [];
+  const seen = new Set();
+  (rows || []).forEach(row => {
+    const id = safeText(row?.app?.applicant_profile_id || row?.applicant_profile_id || row?.profile?.id || row?.profile_id);
+    if(id && !seen.has(id) && ids.length < maxCount){
+      seen.add(id);
+      ids.push(id);
+    }
+  });
+  return ids;
+}
+
+   async function fetchCandidateCommunications(scopeRows=[]){
+  if(!supabaseClient)return [];
+
+  const profileIds = getCandidateCommunicationProfileIds(scopeRows, 150);
+
+  const normalizeRows = rows => (rows || []).map(message => ({
+    ...message,
+    message: message.message || message.message_body || message.body || message.content || '',
+    message_body: message.message_body || message.message || message.body || message.content || '',
+    applicant_profile_id: message.applicant_profile_id || message.profile_id || message.candidate_profile_id || null,
+    application_id: message.application_id || null,
+    applicant_email: message.applicant_email || message.candidate_email || message.to_email || message.from_email || '',
+    applicant_phone: message.applicant_phone || message.candidate_phone || message.to_phone || message.from_phone || '',
+    sender_type:
+      message.sender_type ||
+      (safeText(message.direction).toLowerCase() === 'inbound' ? 'candidate' : 'recruiter'),
+    direction: message.direction || (safeText(message.sender_type).toLowerCase() === 'candidate' ? 'inbound' : 'outbound'),
+    channel: message.channel || message.provider || 'email',
+    created_at: message.created_at || message.sent_at || message.received_at || message.updated_at,
+    sent_at: message.sent_at || message.created_at || message.received_at || message.updated_at
+  }));
+
+  const tableAttempts = [];
+
+  if(profileIds.length){
+    tableAttempts.push(async () => supabaseClient
+      .from('communication_messages')
+      .select('*')
+      .in('applicant_profile_id', profileIds)
+      .order('created_at',{ascending:false})
+      .limit(500));
+
+    tableAttempts.push(async () => supabaseClient
+      .from('communication_messages')
+      .select('*')
+      .in('applicant_profile_id', profileIds)
+      .order('sent_at',{ascending:false})
+      .limit(500));
+  }
+
+  tableAttempts.push(async () => supabaseClient
+    .from('communication_messages')
+    .select('*')
+    .order('created_at',{ascending:false})
+    .limit(100));
+
+  tableAttempts.push(async () => supabaseClient
+    .from('communication_messages')
+    .select('*')
+    .order('sent_at',{ascending:false})
+    .limit(100));
+
+  let lastError = null;
+
+  for(const attempt of tableAttempts){
+    try{
+      const {data,error} = await attempt();
+      if(error)throw error;
+      return normalizeRows(data || []);
+    }catch(error){
+      lastError = error;
+      console.warn('communication_messages query attempt failed:', error?.message || error);
+      const message = safeText(error?.message || error).toLowerCase();
+      if(message.includes('timeout'))break;
+    }
+  }
+
+  // Last-resort fallback: keep this very small because the unified view can be expensive.
   try{
     const {data,error}=await supabaseClient
       .from('vw_candidate_communications_unified')
       .select('*')
       .order('sent_at',{ascending:false})
-      .limit(200);
-
-    console.log('communications query result', { data, error });
+      .limit(50);
 
     if(error)throw error;
-
-    return (data || []).map(message => ({
-      ...message,
-      message: message.message || message.message_body || '',
-      applicant_email: message.applicant_email || message.candidate_email || '',
-      applicant_phone: message.applicant_phone || message.candidate_phone || '',
-      sender_type:
-        message.sender_type ||
-        (message.direction === 'inbound' ? 'candidate' : 'recruiter'),
-      created_at: message.created_at || message.sent_at,
-    }));
+    return normalizeRows(data || []);
   }catch(error){
-    console.warn('vw_candidate_communications_unified query failed:', error?.message || error);
-
-    if(safeText(error?.message).toLowerCase().includes('does not exist')){
-      showNotice('Candidate communication inbox view is missing. Create public.vw_candidate_communications_unified first.', 'error');
+    console.warn('candidate communication query failed:', error?.message || error);
+    const message = safeText(error?.message || lastError?.message || error || lastError);
+    if(message.toLowerCase().includes('does not exist')){
+      showNotice('Candidate communication table/view is missing. Create public.communication_messages or public.vw_candidate_communications_unified first.', 'error');
+    }else if(message.toLowerCase().includes('timeout')){
+      showNotice('Unable to load candidate communications quickly. Add index idx_communication_messages_applicant_created on communication_messages(applicant_profile_id, created_at desc).', 'error');
     }else{
-      showNotice(`Unable to load candidate communications: ${error?.message || error}`, 'error');
+      showNotice(`Unable to load candidate communications: ${message}`, 'error');
     }
-
     return [];
   }
 }
@@ -7468,14 +7537,13 @@ function mergeDuplicateCandidateRows(primary, duplicates){
       if(silent && els.liveStatusText)els.liveStatusText.textContent='Syncing…';
       try{
         await loadRecruiterDirectory();
-        const [applications,profiles,jobs,assessmentsByApplicationId,interviewsByApplicationId,candidateActivities,candidateCommunications,dashboardWorkflowRows,dashboardActiveRows,submissionRows]=await Promise.all([
+        const [applications,profiles,jobs,assessmentsByApplicationId,interviewsByApplicationId,candidateActivities,dashboardWorkflowRows,dashboardActiveRows,submissionRows]=await Promise.all([
           fetchApplicationsRows(),
           fetchAll('applicant_profiles','id,company_id,full_name,email,indeed_email,external_candidate_id,original_source_email,source_email,phone,location,country,timezone,work_authorization,preferred_work_setup,salary_currency,salary_expectation,available_working_hours,headline,current_title,resume_url,resume_path,resume_file_name,has_resume,raw_resume_text,raw_email_metadata,parsed_resume_json,years_of_experience,experience_years,years_experience,total_experience,experience,skills,updated_at'),
           fetchAll('jobs','id,title,client_id,client_name,requisition_code,role_type,priority,requisition_status,job_description,keywords,industry,screening_enabled,status,work_setup,location,slug,company_id'),
           fetchLatestRoleAssessments(),
           fetchLatestInterviewSessions(),
           fetchCandidateActivities(),
-          fetchCandidateCommunications(),
           fetchDashboardWorkflowRows(),
           fetchDashboardActiveRows(),
           fetchDashboardSubmissions()
@@ -7494,7 +7562,7 @@ function mergeDuplicateCandidateRows(primary, duplicates){
         const activeDashboardIds = new Set((dashboardActiveRows || []).map(item => safeText(item.id)).filter(Boolean));
         state.activeCandidateIds = activeDashboardIds;
         const activityLookup = buildCandidateActivityLookup(candidateActivities || []);
-        const communicationLookup = buildCandidateCommunicationLookup(candidateCommunications || []);
+        let communicationLookup = buildCandidateCommunicationLookup([]);
         state.communicationsByApplicationId = communicationLookup.byApplicationId || new Map();
         const companyId = currentCompanyId();
         const companyScopedApplications = uniqueById(applications || []).filter(app => {
@@ -7552,6 +7620,15 @@ function mergeDuplicateCandidateRows(primary, duplicates){
           return {id:app.id,app,workflow,profile,job,score,activities,communications,submission:state.submissionsByApplicationId.get(safeText(app.id))||null,assessment:state.assessmentsByApplicationId.get(safeText(app.id))||null,interview:state.interviewsByApplicationId.get(safeText(app.id))||null,assessmentInfo:null,displayName:getCandidateNameFromProfile(profile, app) || safeText(workflow.candidate_name),status:safeText(app.status||app.client_feedback_status||workflow.legacy_status||'submitted'),workflowStage:safeText(app.workflow_stage||workflow.workflow_stage||''),nextRecruiterAction,priorityLevel,slaRisk,primaryCta,assignedRecruiterId:safeText(app.assigned_recruiter_id),assignedTeamId:safeText(app.assigned_team_id),recruiter:getRecruiterDisplayName(app.assigned_recruiter_id, app.recruiter_email),team:getTeamDisplayName(app.assigned_team_id),source:safeText(app.application_source||workflow.application_source||'—'),appliedAt:app.created_at||workflow.created_at,clientName:safeText(job.client_name||'—'),jobTitle:safeText(job.title||app.job_title||workflow.job_title||'—'),followUp:getFollowUpInfo(app)};
         }).map(row => ({...row, assessmentInfo: getAssessmentInfo(row)}));
         state.allRows=cleanDashboardRows(dedupeDashboardApplicationRows(rawRows));
+
+        const candidateCommunications = await fetchCandidateCommunications(state.allRows);
+        communicationLookup = buildCandidateCommunicationLookup(candidateCommunications || []);
+        state.communicationsByApplicationId = communicationLookup.byApplicationId || new Map();
+        state.allRows = state.allRows.map(row => ({
+          ...row,
+          communications: getCommunicationsForApplicationRow(row.app, row.profile, communicationLookup)
+        }));
+
         augmentRecruiterDirectoryFromRows(state.allRows);
         state.activeRows = activeDashboardIds.size
           ? state.allRows.filter(row => activeDashboardIds.has(safeText(row.id)))
