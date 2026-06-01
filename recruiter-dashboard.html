@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>BuzzHire | Recruiter Workspace</title>
   <!-- Patched: recruiter access supports recruiter_users.company_id for client_admin/team multi-tenant workspace. -->
+  <!-- Patched 2026-06-01: email replies match Gmail display addresses like Name <email@domain.com>. -->
   <meta name="description" content="BuzzHire recruiter workspace" />
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -3829,7 +3830,16 @@ opslead@company.com"></textarea></div>
 
     function safeText(value){return value == null ? '' : String(value).trim()}
     function escapeHtml(value){return safeText(value).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;')}
-    function normalizeEmail(value){return safeText(value).toLowerCase()}
+    function normalizeEmail(value){
+      const raw = safeText(value).toLowerCase();
+      if(!raw)return '';
+      // Gmail/Indeed often store addresses as "Name <email@domain.com>".
+      // Extract the actual address so candidate replies match dashboard rows.
+      const angleMatch = raw.match(/<([^<>\s@]+@[^<>\s@]+\.[^<>\s@]+)>/);
+      if(angleMatch)return angleMatch[1].trim();
+      const emailMatch = raw.match(/[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/i);
+      return (emailMatch ? emailMatch[0] : raw).trim();
+    }
     function normalizePhone(value){
   return safeText(value).replace(/\D/g, '');
    }
@@ -6761,6 +6771,43 @@ function currentCompanyId(){
           .limit(limit));
       }
 
+      const candidateEmails = uniq((scopeRows || [])
+        .flatMap(row => [
+          row?.profile?.email,
+          row?.app?.email,
+          row?.profile?.indeed_email,
+          row?.profile?.source_email,
+          row?.profile?.original_source_email
+        ])
+        .map(normalizeEmail)
+        .filter(Boolean))
+        .slice(0, 8);
+
+      if(candidateEmails.length){
+        const emailOr = candidateEmails.flatMap(email => [
+          `applicant_email.eq.${email}`,
+          `candidate_email.eq.${email}`,
+          `from_email.eq.${email}`,
+          `to_email.eq.${email}`,
+          `from_address.ilike.%${email}%`,
+          `to_address.ilike.%${email}%`
+        ]).join(',');
+
+        attempts.push(() => supabaseClient
+          .from('communication_messages')
+          .select('*')
+          .or(emailOr)
+          .order('created_at', { ascending:false })
+          .limit(limit));
+
+        attempts.push(() => supabaseClient
+          .from('communication_messages')
+          .select('*')
+          .or(emailOr)
+          .order('sent_at', { ascending:false })
+          .limit(limit));
+      }
+
       if(allowGlobal){
         // Inbox fallback only. Keep this deliberately tiny; do not use it during loadDashboard.
         attempts.push(() => supabaseClient
@@ -6805,6 +6852,22 @@ function currentCompanyId(){
             .order('created_at', { ascending:false })
             .limit(limit));
         }
+        if(candidateEmails.length){
+          const legacyEmailOr = candidateEmails.flatMap(email => [
+            `applicant_email.eq.${email}`,
+            `candidate_email.eq.${email}`,
+            `from_email.eq.${email}`,
+            `to_email.eq.${email}`,
+            `from_address.ilike.%${email}%`,
+            `to_address.ilike.%${email}%`
+          ]).join(',');
+          legacyAttempts.push(() => supabaseClient
+            .from('applicant_messages')
+            .select('*')
+            .or(legacyEmailOr)
+            .order('created_at', { ascending:false })
+            .limit(limit));
+        }
         if(allowGlobal){
           legacyAttempts.push(() => supabaseClient
             .from('applicant_messages')
@@ -6844,6 +6907,8 @@ function buildCandidateCommunicationLookup(messages){
     const email = normalizeEmail(
       message.candidate_email ||
       message.applicant_email ||
+      message.from_email ||
+      message.to_email ||
       message.from_address ||
       message.to_address ||
       ''
@@ -6870,6 +6935,14 @@ function buildCandidateCommunicationLookup(messages){
       if(!byEmail.has(email))byEmail.set(email, []);
       byEmail.get(email).push(message);
     }
+
+    [message.from_email, message.to_email, message.from_address, message.to_address]
+      .map(normalizeEmail)
+      .filter(Boolean)
+      .forEach(address => {
+        if(!byEmail.has(address))byEmail.set(address, []);
+        byEmail.get(address).push(message);
+      });
 
     if(phone){
       if(!byPhone.has(phone))byPhone.set(phone, []);
