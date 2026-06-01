@@ -3675,7 +3675,9 @@ opslead@company.com"></textarea></div>
       SUPABASE_URL: window.TALENTBUZZ_SUPABASE_URL || localStorage.getItem('TALENTBUZZ_SUPABASE_URL') || '',
       SUPABASE_ANON_KEY: window.TALENTBUZZ_SUPABASE_ANON_KEY || localStorage.getItem('TALENTBUZZ_SUPABASE_ANON_KEY') || '',
       RESUME_BUCKET: 'resumes',
-      PAGE_SIZE: 1000,
+      PAGE_SIZE: 500,
+      COMMUNICATION_PROFILE_LIMIT: 100,
+      COMMUNICATION_VISIBLE_LIMIT: 150,
       ASSESSMENT_INVITE_FUNCTION: 'send-assessment-invite',
       INTERVIEW_INVITE_FUNCTION: 'send-interview-invite',
       ENDORSEMENT_INVITE_FUNCTION: 'send-client-endorsement',
@@ -4332,7 +4334,8 @@ opslead@company.com"></textarea></div>
     }
 
     async function queryCandidateInboxActivities(){
-      return await fetchCandidateCommunications();
+      const scopedRows = (state.filteredRows && state.filteredRows.length) ? state.filteredRows : state.allRows;
+      return await fetchCandidateCommunications(scopedRows || [], {allowGlobal:true, limit:80, profileLimit:80});
     }
 
     async function syncCandidateEmailInbox({silent=false} = {}){
@@ -6701,40 +6704,88 @@ function currentCompanyId(){
     }
 
 
-   async function fetchCandidateCommunications(){
-  try{
-    const {data,error}=await supabaseClient
-      .from('vw_candidate_communications_unified')
-      .select('*')
-      .order('sent_at',{ascending:false})
-      .limit(200);
+   async function fetchCandidateCommunications(scopeRows = [], options = {}){
+      if(!supabaseClient)return [];
 
-    console.log('communications query result', { data, error });
+      const allowGlobal = !!options.allowGlobal;
+      const limit = Number(options.limit || CONFIG.COMMUNICATION_VISIBLE_LIMIT || 150);
+      const profileLimit = Number(options.profileLimit || CONFIG.COMMUNICATION_PROFILE_LIMIT || 100);
 
-    if(error)throw error;
+      const normalizeRows = rows => (rows || []).map(message => ({
+        ...message,
+        message: message.message || message.message_body || message.body || message.content || '',
+        message_body: message.message_body || message.message || message.body || message.content || '',
+        applicant_profile_id: message.applicant_profile_id || message.profile_id || message.candidate_profile_id || null,
+        application_id: message.application_id || null,
+        applicant_email: message.applicant_email || message.candidate_email || message.to_email || message.from_email || message.from_address || message.to_address || '',
+        applicant_phone: message.applicant_phone || message.candidate_phone || message.to_phone || message.from_phone || '',
+        sender_type:
+          message.sender_type ||
+          (safeText(message.direction).toLowerCase() === 'inbound' ? 'candidate' : 'recruiter'),
+        direction: message.direction || (safeText(message.sender_type).toLowerCase() === 'candidate' ? 'inbound' : 'outbound'),
+        channel: message.channel || message.provider || 'email',
+        created_at: message.created_at || message.sent_at || message.received_at || message.updated_at,
+        sent_at: message.sent_at || message.created_at || message.received_at || message.updated_at
+      }));
 
-    return (data || []).map(message => ({
-      ...message,
-      message: message.message || message.message_body || '',
-      applicant_email: message.applicant_email || message.candidate_email || '',
-      applicant_phone: message.applicant_phone || message.candidate_phone || '',
-      sender_type:
-        message.sender_type ||
-        (message.direction === 'inbound' ? 'candidate' : 'recruiter'),
-      created_at: message.created_at || message.sent_at,
-    }));
-  }catch(error){
-    console.warn('vw_candidate_communications_unified query failed:', error?.message || error);
+      const profileIds = uniq((scopeRows || [])
+        .flatMap(row => [row?.profile?.id, row?.app?.applicant_profile_id, row?.applicant_profile_id])
+        .map(safeText)
+        .filter(Boolean))
+        .slice(0, profileLimit);
 
-    if(safeText(error?.message).toLowerCase().includes('does not exist')){
-      showNotice('Candidate communication inbox view is missing. Create public.vw_candidate_communications_unified first.', 'error');
-    }else{
-      showNotice(`Unable to load candidate communications: ${error?.message || error}`, 'error');
+      // Important performance guard: never scan the full communication view during dashboard boot.
+      // This was the source of Supabase statement timeouts. Dashboard boot passes no scope rows,
+      // so it should return immediately and load candidate communications on demand / inbox only.
+      if(!profileIds.length && !allowGlobal){
+        return [];
+      }
+
+      const attempts = [];
+
+      if(profileIds.length){
+        attempts.push(() => supabaseClient
+          .from('communication_messages')
+          .select('*')
+          .in('applicant_profile_id', profileIds)
+          .order('created_at', { ascending:false })
+          .limit(limit));
+
+        attempts.push(() => supabaseClient
+          .from('communication_messages')
+          .select('*')
+          .in('applicant_profile_id', profileIds)
+          .order('sent_at', { ascending:false })
+          .limit(limit));
+      }
+
+      if(allowGlobal){
+        // Inbox fallback only. Keep this deliberately tiny; do not use it during loadDashboard.
+        attempts.push(() => supabaseClient
+          .from('communication_messages')
+          .select('*')
+          .order('created_at', { ascending:false })
+          .limit(Math.min(limit, 50)));
+      }
+
+      let lastError = null;
+      for(const attempt of attempts){
+        try{
+          const {data, error} = await attempt();
+          if(error)throw error;
+          return normalizeCommunicationRecords(normalizeRows(data || []));
+        }catch(error){
+          lastError = error;
+          console.warn('communication_messages query attempt failed:', error?.message || error);
+          if(safeText(error?.message || error).toLowerCase().includes('timeout'))break;
+        }
+      }
+
+      if(allowGlobal){
+        console.warn('Candidate communication inbox could not load quickly:', lastError?.message || lastError);
+      }
+      return [];
     }
-
-    return [];
-  }
-}
 
 function buildCandidateCommunicationLookup(messages){
   const byApplicationId = new Map();
@@ -7475,7 +7526,7 @@ function mergeDuplicateCandidateRows(primary, duplicates){
           fetchLatestRoleAssessments(),
           fetchLatestInterviewSessions(),
           fetchCandidateActivities(),
-          fetchCandidateCommunications(),
+          Promise.resolve([]),
           fetchDashboardWorkflowRows(),
           fetchDashboardActiveRows(),
           fetchDashboardSubmissions()
@@ -10478,18 +10529,39 @@ async function uploadResumeForSelected(useModal=false){
       throw new Error(getReadableError(uploadError));
     }
 
-    const { error: updateError } = await supabaseClient
+    let { error: updateError } = await supabaseClient
       .from('applicant_profiles')
       .update({
         resume_path: uploadPath,
         resume_file_name: file.name,
+        resume_mime_type: file.type || null,
+        resume_size_bytes: file.size || null,
+        has_resume: true,
+        resume_uploaded_at: new Date().toISOString(),
         updated_at: new Date().toISOString()
       })
       .eq('id', row.profile.id);
 
     if(updateError){
+      console.warn('Expanded resume profile update failed, retrying minimal update:', updateError?.message || updateError);
+      const minimalUpdate = await supabaseClient
+        .from('applicant_profiles')
+        .update({
+          resume_path: uploadPath,
+          resume_file_name: file.name,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', row.profile.id);
+      updateError = minimalUpdate.error;
+    }
+
+    if(updateError){
       throw new Error(getReadableError(updateError));
     }
+
+    row.profile.resume_path = uploadPath;
+    row.profile.resume_file_name = file.name;
+    row.profile.has_resume = true;
 
     state.selectedResumePath = uploadPath;
 
@@ -11780,6 +11852,59 @@ async function bulkUploadResumes(){
       }
     }
 
+    function invokeEmailFunctionKeepAlive(functionName, payload){
+      const url = `${CONFIG.SUPABASE_URL.replace(/\/$/, '')}/functions/v1/${encodeURIComponent(functionName)}`;
+      const body = JSON.stringify(payload);
+      const headers = {
+        'Content-Type': 'application/json',
+        'apikey': CONFIG.SUPABASE_ANON_KEY,
+        'Authorization': `Bearer ${CONFIG.SUPABASE_ANON_KEY}`
+      };
+
+      try{
+        return fetch(url, {
+          method: 'POST',
+          headers,
+          body,
+          keepalive: body.length < 60000
+        });
+      }catch(error){
+        console.warn('keepalive email fetch failed, falling back to supabase.functions.invoke:', error?.message || error);
+        return supabaseClient.functions.invoke(functionName, {body: payload});
+      }
+    }
+
+    async function finishCandidateEmailSendInBackground(row, payload, functionNames){
+      let sent = false;
+      let sendResponse = null;
+      let lastError = null;
+
+      for(const functionName of functionNames){
+        try{
+          const response = await invokeEmailFunctionKeepAlive(functionName, payload);
+          if(response?.json){
+            const data = await response.json().catch(()=>null);
+            if(!response.ok)throw new Error(data?.error || data?.message || `HTTP ${response.status}`);
+            if(data && (data.success === false || data.ok === false))throw new Error(data.error || data.message || `${functionName} returned success=false`);
+            sendResponse = data || null;
+          }else if(response?.error){
+            throw response.error;
+          }else if(response?.data){
+            if(response.data.success === false || response.data.ok === false)throw new Error(response.data.error || response.data.message || `${functionName} returned success=false`);
+            sendResponse = response.data;
+          }
+          sent = true;
+          break;
+        }catch(error){
+          lastError = error;
+          console.warn(`${functionName} failed:`, error?.message || error);
+        }
+      }
+
+      if(!sent)throw lastError || new Error('No dashboard email function accepted the request.');
+      return sendResponse;
+    }
+
     async function openCandidateEmailApp(){
       const draft = getCandidateEmailDraft();
       const row = getSelectedCandidateRow();
@@ -11795,98 +11920,117 @@ async function bulkUploadResumes(){
       }
 
       const button = els.openCandidateEmailAppBtn;
-      const originalText = button?.textContent || 'Send Email';
+      const originalText = button?.textContent || 'Send Email + Log';
+
+      const payload = {
+        application_id: row.id,
+        applicant_profile_id: row?.app?.applicant_profile_id || row?.profile?.id || null,
+        client_id: row?.app?.company_id || currentCompanyId() || null,
+        company_id: row?.app?.company_id || currentCompanyId() || null,
+        channel: 'email',
+        job_id: row?.app?.job_id || row?.job?.id || null,
+        to: draft.to,
+        subject: draft.subject,
+        body: draft.body,
+        message: draft.body,
+        message_body: draft.body,
+        template: safeText(els.candidateEmailTemplate?.value || 'custom'),
+        candidate_name: row?.displayName || row?.profile?.full_name || '',
+        candidate_email: draft.to,
+        role_title: row?.jobTitle || row?.app?.job_title || '',
+        recruiter_email: state.currentUser?.email || state.recruiterProfile?.email || '',
+        recruiter_name: state.recruiterProfile?.full_name || state.currentUser?.email || 'BuzzHire Team'
+      };
+
+      const functionNames = [
+        CONFIG.CANDIDATE_EMAIL_FUNCTION,
+        'send-candidate-email',
+        'send-candidate-message',
+        'send-email'
+      ].filter(Boolean);
 
       try{
         if(button){
           button.disabled = true;
-          button.textContent = 'Sending...';
+          button.textContent = 'Queued';
         }
 
-        showCandidateEmailStatus('Sending email from dashboard and logging activity...', 'info');
-
-        const payload = {
-          application_id: row.id,
-          applicant_profile_id: row?.app?.applicant_profile_id || row?.profile?.id || null,
-          client_id: row?.app?.company_id || currentCompanyId() || null,
-          company_id: row?.app?.company_id || currentCompanyId() || null,
-          channel: 'email',
-          job_id: row?.app?.job_id || row?.job?.id || null,
-          to: draft.to,
-          subject: draft.subject,
-          body: draft.body,
-          message: draft.body,
-          message_body: draft.body,
-          template: safeText(els.candidateEmailTemplate?.value || 'custom'),
-          candidate_name: row?.displayName || row?.profile?.full_name || '',
-          candidate_email: draft.to,
-          role_title: row?.jobTitle || row?.app?.job_title || '',
-          recruiter_email: state.currentUser?.email || state.recruiterProfile?.email || '',
-          recruiter_name: state.recruiterProfile?.full_name || state.currentUser?.email || 'BuzzHire Team'
-        };
-
-        const functionNames = [
-          CONFIG.CANDIDATE_EMAIL_FUNCTION,
-          'send-candidate-email',
-          'send-candidate-message',
-          'send-email'
-        ].filter(Boolean);
-
-        let sent = false;
-        let sendResponse = null;
-        let lastError = null;
-
-        for(const functionName of functionNames){
-          try{
-            const { data, error } = await supabaseClient.functions.invoke(functionName, { body: payload });
-            if(error)throw error;
-            if(data && (data.success === false || data.ok === false))throw new Error(data.error || data.message || `${functionName} returned success=false`);
-            sendResponse = data || null;
-            sent = true;
-            break;
-          }catch(error){
-            lastError = error;
-            console.warn(`${functionName} failed:`, error?.message || error);
-          }
-        }
-
-        if(!sent){
-          throw lastError || new Error('No dashboard email function accepted the request.');
-        }
+        showCandidateEmailStatus('Email queued. You can close this window while BuzzHire sends it.', 'success');
+        showNotice(`Email queued for ${draft.to}.`, 'success');
 
         await insertCandidateActivitySafe({
           application_id: row.id,
           applicant_profile_id: row?.app?.applicant_profile_id || row?.profile?.id || null,
-          activity_type: 'email_sent',
-          title: `Email sent: ${draft.subject}`,
+          activity_type: 'email_queued',
+          title: `Email queued: ${draft.subject}`,
           body: `To: ${draft.to}\nSubject: ${draft.subject}\n\n${draft.body}`,
           source: 'recruiter_dashboard',
-          source_message_id: safeText(sendResponse?.message_id || sendResponse?.id || sendResponse?.email_id || '')
+          source_message_id: ''
         });
 
-        showCandidateEmailStatus(`Email sent to ${draft.to}. The send function logs it to the communication thread and activity timeline.`, 'success');
+        await insertApplicantMessageSafe({
+          application_id: row.id,
+          applicant_profile_id: row?.app?.applicant_profile_id || row?.profile?.id || null,
+          applicant_email: draft.to,
+          sender_type: 'recruiter',
+          message: draft.body,
+          created_at: new Date().toISOString()
+        });
+
+        closeCandidateEmailModal();
+
+        // Fire and forget. keepalive lets the browser continue the request even if the modal/window closes.
+        finishCandidateEmailSendInBackground(row, payload, functionNames)
+          .then(async(sendResponse)=>{
+            await insertCandidateActivitySafe({
+              application_id: row.id,
+              applicant_profile_id: row?.app?.applicant_profile_id || row?.profile?.id || null,
+              activity_type: 'email_sent',
+              title: `Email sent: ${draft.subject}`,
+              body: `To: ${draft.to}\nSubject: ${draft.subject}\n\n${draft.body}`,
+              source: 'recruiter_dashboard',
+              source_message_id: safeText(sendResponse?.message_id || sendResponse?.id || sendResponse?.email_id || '')
+            });
+            showNotice(`Email sent to ${draft.to}.`, 'success');
+          })
+          .catch(async(error)=>{
+            console.error('Candidate email send failed after queue:', error);
+            await insertCandidateActivitySafe({
+              application_id: row.id,
+              applicant_profile_id: row?.app?.applicant_profile_id || row?.profile?.id || null,
+              activity_type: 'email_send_failed',
+              title: `Email failed: ${draft.subject}`,
+              body: `To: ${draft.to}\nError: ${getReadableError(error)}`,
+              source: 'recruiter_dashboard',
+              source_message_id: ''
+            });
+            showNotice(`Email send failed for ${draft.to}: ${getReadableError(error)}`, 'error');
+          });
 
         try{
-          await refreshMessageInbox({sync:false});
-        }catch(inboxRefreshError){
-          console.warn('Email sent but inbox refresh failed:', inboxRefreshError);
-        }
-
-        try{
-          await loadDashboard({silent:true});
-          if(state.selectedId === row.id){
-            await openDrawer(row.id);
-          }
-        }catch(refreshError){
-          console.warn('Email sent but dashboard refresh failed:', refreshError);
+          const updatePayload = {
+            last_contacted_at: new Date().toISOString(),
+            follow_up_status: 'needs_follow_up',
+            follow_up_open: true,
+            follow_up_state: 'needs_follow_up',
+            updated_at: new Date().toISOString()
+          };
+          await supabaseClient.from('applications').update(updatePayload).eq('id', row.id);
+          row.app = {...row.app, ...updatePayload};
+          row.followUp = getFollowUpInfo(row.app);
+          applyFilters();
+        }catch(updateError){
+          console.warn('Email queued but follow-up state update failed:', updateError?.message || updateError);
         }
       }catch(error){
-        console.error('Candidate email send failed:', error);
-        showCandidateEmailStatus(`Email was not sent: ${getReadableError ? getReadableError(error) : (error?.message || error)}. If this is the first time using direct send, deploy the Supabase Edge Function named send-candidate-email.`, 'error');
+        console.error('Candidate email queue failed:', error);
+        showCandidateEmailStatus(`Email could not be queued: ${getReadableError(error)}`, 'error');
       }finally{
         if(button){
-          button.disabled = false;
-          button.textContent = originalText === 'Open Email App' ? 'Send Email + Log' : originalText;
+          window.setTimeout(()=>{
+            button.disabled = false;
+            button.textContent = originalText;
+          }, 250);
         }
       }
     }
