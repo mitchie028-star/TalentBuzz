@@ -3675,7 +3675,10 @@ opslead@company.com"></textarea></div>
       SUPABASE_URL: window.TALENTBUZZ_SUPABASE_URL || localStorage.getItem('TALENTBUZZ_SUPABASE_URL') || '',
       SUPABASE_ANON_KEY: window.TALENTBUZZ_SUPABASE_ANON_KEY || localStorage.getItem('TALENTBUZZ_SUPABASE_ANON_KEY') || '',
       RESUME_BUCKET: 'resumes',
-      PAGE_SIZE: 1000,
+      PAGE_SIZE: 500,
+      COMMUNICATION_PROFILE_LIMIT: 100,
+      COMMUNICATION_VISIBLE_LIMIT: 250,
+      INBOX_MESSAGE_LIMIT: 75,
       ASSESSMENT_INVITE_FUNCTION: 'send-assessment-invite',
       INTERVIEW_INVITE_FUNCTION: 'send-interview-invite',
       ENDORSEMENT_INVITE_FUNCTION: 'send-client-endorsement',
@@ -5760,7 +5763,7 @@ function normalizeCommunicationTimelineMessages(messages){
         let scopedTeamQuery = supabaseClient
           .from('recruiter_teams')
           .select('id,client_id,name,team_lead_user_id,status')
-          .order('name', {ascending:true});
+          .order('name', {ascending:true}).limit(500);
         if(companyId)scopedTeamQuery = scopedTeamQuery.or(`client_id.eq.${companyId},client_id.is.null`);
         const {data,error} = await scopedTeamQuery;
         if(error)throw error;
@@ -5771,7 +5774,7 @@ function normalizeCommunicationTimelineMessages(messages){
           const {data:allTeams,error:allTeamError} = await supabaseClient
             .from('recruiter_teams')
             .select('id,client_id,name,team_lead_user_id,status')
-            .order('name', {ascending:true});
+            .order('name', {ascending:true}).limit(500);
           if(!allTeamError)teams = allTeams || [];
         }
       }catch(error){
@@ -5785,7 +5788,7 @@ function normalizeCommunicationTimelineMessages(messages){
         let scopedUserQuery = supabaseClient
           .from('recruiter_users')
           .select('id,auth_user_id,client_id,team_id,full_name,email,role,status')
-          .order('full_name', {ascending:true});
+          .order('full_name', {ascending:true}).limit(500);
         if(companyId)scopedUserQuery = scopedUserQuery.or(`client_id.eq.${companyId},client_id.is.null`);
         const {data,error} = await scopedUserQuery;
         if(error)throw error;
@@ -5796,7 +5799,7 @@ function normalizeCommunicationTimelineMessages(messages){
           const {data:allUsers,error:allUserError} = await supabaseClient
             .from('recruiter_users')
             .select('id,auth_user_id,client_id,team_id,full_name,email,role,status')
-            .order('full_name', {ascending:true});
+            .order('full_name', {ascending:true}).limit(500);
           if(!allUserError)recruiterUsers = allUsers || [];
         }
       }catch(error){
@@ -5810,7 +5813,7 @@ function normalizeCommunicationTimelineMessages(messages){
         let legacyQuery = supabaseClient
           .from('recruiters')
           .select('id,email,full_name,name,role,status,company_id,client_id,team_id')
-          .order('email', {ascending:true});
+          .order('email', {ascending:true}).limit(500);
         if(companyId)legacyQuery = legacyQuery.or(`company_id.eq.${companyId},client_id.eq.${companyId},company_id.is.null,client_id.is.null`);
         const {data,error} = await legacyQuery;
         if(!error)legacyRecruiters = data || [];
@@ -6448,7 +6451,9 @@ function currentCompanyId(){
     async function fetchAll(table,select,orderColumn='created_at'){
       let query = supabaseClient.from(table).select(select);
       query = applyCompanyScope(query, table);
-      const {data,error}=await query.order(orderColumn,{ascending:false}).limit(CONFIG.PAGE_SIZE);
+      const {data,error}=await query
+        .order(orderColumn,{ascending:false})
+        .range(0, Math.max(0, Number(CONFIG.PAGE_SIZE || 500) - 1));
       if(error)throw error;
       return data||[];
     }
@@ -6536,7 +6541,7 @@ function currentCompanyId(){
           .from('interview_sessions')
           .select('*')
           .order('created_at',{ascending:false})
-          .limit(CONFIG.PAGE_SIZE);
+          .range(0, Math.max(0, Number(CONFIG.PAGE_SIZE || 500) - 1));
 
         if(error)throw error;
 
@@ -6642,7 +6647,7 @@ function currentCompanyId(){
         query = applyCompanyScope(query, 'role_assessments');
         const {data,error}=await query
           .order('created_at',{ascending:false})
-          .limit(CONFIG.PAGE_SIZE);
+          .range(0, Math.max(0, Number(CONFIG.PAGE_SIZE || 500) - 1));
 
         if(error)throw error;
 
@@ -6687,7 +6692,7 @@ function currentCompanyId(){
           .from('candidate_activities')
           .select('id,applicant_profile_id,application_id,activity_type,title,body,source,source_message_id,created_at')
           .order('created_at',{ascending:false})
-          .limit(CONFIG.PAGE_SIZE);
+          .range(0, Math.max(0, Number(CONFIG.PAGE_SIZE || 500) - 1));
 
         if(error)throw error;
         return data || [];
@@ -6717,7 +6722,7 @@ function currentCompanyId(){
    async function fetchCandidateCommunications(scopeRows=[]){
   if(!supabaseClient)return [];
 
-  const profileIds = getCandidateCommunicationProfileIds(scopeRows, 150);
+  const profileIds = getCandidateCommunicationProfileIds(scopeRows, Number(CONFIG.COMMUNICATION_PROFILE_LIMIT || 100));
 
   const normalizeRows = rows => (rows || []).map(message => ({
     ...message,
@@ -6738,33 +6743,29 @@ function currentCompanyId(){
 
   const tableAttempts = [];
 
+  if(!profileIds.length){
+    return [];
+  }
+
   if(profileIds.length){
     tableAttempts.push(async () => supabaseClient
       .from('communication_messages')
       .select('*')
       .in('applicant_profile_id', profileIds)
       .order('created_at',{ascending:false})
-      .limit(500));
+      .limit(Number(CONFIG.COMMUNICATION_VISIBLE_LIMIT || 250)));
 
     tableAttempts.push(async () => supabaseClient
       .from('communication_messages')
       .select('*')
       .in('applicant_profile_id', profileIds)
       .order('sent_at',{ascending:false})
-      .limit(500));
+      .limit(Number(CONFIG.COMMUNICATION_VISIBLE_LIMIT || 250)));
   }
 
-  tableAttempts.push(async () => supabaseClient
-    .from('communication_messages')
-    .select('*')
-    .order('created_at',{ascending:false})
-    .limit(100));
-
-  tableAttempts.push(async () => supabaseClient
-    .from('communication_messages')
-    .select('*')
-    .order('sent_at',{ascending:false})
-    .limit(100));
+  // Do not scan the full communication_messages table during dashboard load.
+  // Full-table communication reads can timeout on Supabase when the table grows.
+  // The dashboard only needs messages for candidates currently visible/loaded.
 
   let lastError = null;
 
@@ -6787,7 +6788,7 @@ function currentCompanyId(){
       .from('vw_candidate_communications_unified')
       .select('*')
       .order('sent_at',{ascending:false})
-      .limit(50);
+      .limit(25);
 
     if(error)throw error;
     return normalizeRows(data || []);
@@ -7388,7 +7389,7 @@ function mergeDuplicateCandidateRows(primary, duplicates){
         .from('vw_dashboard_candidates_clean')
         .select('*')
         .order('created_at', { ascending:false })
-        .limit(CONFIG.PAGE_SIZE);
+        .range(0, Math.max(0, Number(CONFIG.PAGE_SIZE || 500) - 1));
 
       if(companyId){
         query = query.eq('company_id', companyId);
@@ -7409,7 +7410,7 @@ function mergeDuplicateCandidateRows(primary, duplicates){
         .from('vw_dashboard_active_candidates')
         .select('id,company_id')
         .order('created_at', { ascending:false })
-        .limit(CONFIG.PAGE_SIZE);
+        .range(0, Math.max(0, Number(CONFIG.PAGE_SIZE || 500) - 1));
 
       if(companyId){
         query = query.eq('company_id', companyId);
@@ -7429,7 +7430,7 @@ function mergeDuplicateCandidateRows(primary, duplicates){
         .from('applications')
         .select(select)
         .order('created_at', { ascending:false })
-        .limit(CONFIG.PAGE_SIZE);
+        .range(0, Math.max(0, Number(CONFIG.PAGE_SIZE || 500) - 1));
 
       // Normal workspace isolation: show this company's applications.
       // Safety fallback: also include company_id IS NULL rows so newly ingested
@@ -7503,7 +7504,8 @@ function mergeDuplicateCandidateRows(primary, duplicates){
           .from('submission_management_view')
           .select('*')
           .eq('company_id', companyId)
-          .order('submitted_at', { ascending:false, nullsFirst:false });
+          .order('submitted_at', { ascending:false, nullsFirst:false })
+          .range(0, Math.max(0, Number(CONFIG.PAGE_SIZE || 500) - 1));
         if(error)throw error;
         return data || [];
       }catch(error){
@@ -7537,16 +7539,35 @@ function mergeDuplicateCandidateRows(primary, duplicates){
       if(silent && els.liveStatusText)els.liveStatusText.textContent='Syncing…';
       try{
         await loadRecruiterDirectory();
-        const [applications,profiles,jobs,assessmentsByApplicationId,interviewsByApplicationId,candidateActivities,dashboardWorkflowRows,dashboardActiveRows,submissionRows]=await Promise.all([
-          fetchApplicationsRows(),
-          fetchAll('applicant_profiles','id,company_id,full_name,email,indeed_email,external_candidate_id,original_source_email,source_email,phone,location,country,timezone,work_authorization,preferred_work_setup,salary_currency,salary_expectation,available_working_hours,headline,current_title,resume_url,resume_path,resume_file_name,has_resume,raw_resume_text,raw_email_metadata,parsed_resume_json,years_of_experience,experience_years,years_experience,total_experience,experience,skills,updated_at'),
-          fetchAll('jobs','id,title,client_id,client_name,requisition_code,role_type,priority,requisition_status,job_description,keywords,industry,screening_enabled,status,work_setup,location,slug,company_id'),
-          fetchLatestRoleAssessments(),
-          fetchLatestInterviewSessions(),
-          fetchCandidateActivities(),
-          fetchDashboardWorkflowRows(),
-          fetchDashboardActiveRows(),
-          fetchDashboardSubmissions()
+        const applications = await fetchApplicationsRows();
+
+        const safeAux = async (label, loader, fallback) => {
+          try{
+            return await loader();
+          }catch(error){
+            console.warn(`${label} query skipped so dashboard can still load:`, error?.message || error);
+            return fallback;
+          }
+        };
+
+        const [
+          profiles,
+          jobs,
+          assessmentsByApplicationId,
+          interviewsByApplicationId,
+          candidateActivities,
+          dashboardWorkflowRows,
+          dashboardActiveRows,
+          submissionRows
+        ] = await Promise.all([
+          safeAux('applicant_profiles', () => fetchAll('applicant_profiles','id,company_id,full_name,email,indeed_email,external_candidate_id,original_source_email,source_email,phone,location,country,timezone,work_authorization,preferred_work_setup,salary_currency,salary_expectation,available_working_hours,headline,current_title,resume_url,resume_path,resume_file_name,has_resume,raw_resume_text,raw_email_metadata,parsed_resume_json,years_of_experience,experience_years,years_experience,total_experience,experience,skills,updated_at'), []),
+          safeAux('jobs', () => fetchAll('jobs','id,title,client_id,client_name,requisition_code,role_type,priority,requisition_status,job_description,keywords,industry,screening_enabled,status,work_setup,location,slug,company_id'), []),
+          safeAux('role_assessments', fetchLatestRoleAssessments, new Map()),
+          safeAux('interview_sessions', fetchLatestInterviewSessions, new Map()),
+          safeAux('candidate_activities', fetchCandidateActivities, []),
+          safeAux('vw_dashboard_candidates_clean', fetchDashboardWorkflowRows, []),
+          safeAux('vw_dashboard_active_candidates', fetchDashboardActiveRows, []),
+          safeAux('submission_management_view', fetchDashboardSubmissions, [])
         ]);
         state.assessmentsByApplicationId = assessmentsByApplicationId || new Map();
         state.interviewsByApplicationId = interviewsByApplicationId || new Map();
@@ -8198,7 +8219,8 @@ function mergeDuplicateCandidateRows(primary, duplicates){
           .select('*')
           .in('application_id', applicationIds)
           .is('share_revoked_at', null)
-          .order('created_at', { ascending:false });
+          .order('created_at', { ascending:false })
+          .limit(500);
 
         if(error){
           console.warn('Unable to load application endorsements:', error);
